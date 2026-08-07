@@ -1,0 +1,14 @@
+services:
+  db:
+    image: timescale/timescaledb-ha:pg16
+    environment:
+      POSTGRES_PASSWORD: airbg
+      POSTGRES_USER: airbg
+      POSTGRES_DB: airbg
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airbg"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
