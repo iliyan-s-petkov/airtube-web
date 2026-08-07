@@ -1,0 +1,7 @@
+-- +goose Up
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+-- +goose Down
+DROP EXTENSION IF EXISTS timescaledb;
+DROP EXTENSION IF EXISTS postgis;
