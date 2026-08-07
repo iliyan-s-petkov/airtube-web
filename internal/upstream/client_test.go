@@ -2,6 +2,8 @@ package upstream
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -126,6 +128,34 @@ func TestFetchNon200(t *testing.T) {
 	if !strings.Contains(err.Error(), "500") {
 		t.Errorf("error = %q, want it to mention status 500", err.Error())
 	}
+}
+
+func TestFetchTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Block until either the client gives up (request context cancelled)
+		// or a generous safety ceiling elapses, whichever comes first — never
+		// sleep unconditionally, so this handler cannot outlive the test.
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, 20*time.Millisecond)
+	_, err := c.Fetch(context.Background())
+	if err == nil {
+		t.Fatal("expected error on client timeout, got nil")
+	}
+
+	var netErr net.Error
+	if errors.Is(err, context.DeadlineExceeded) {
+		return
+	}
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return
+	}
+	t.Errorf("error = %q, want context.DeadlineExceeded or a net.Error with Timeout() true", err.Error())
 }
 
 func TestFetchMalformedBody(t *testing.T) {
