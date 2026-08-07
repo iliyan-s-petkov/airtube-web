@@ -54,7 +54,7 @@ Single container: distroless base, non-root user, read-only root filesystem, no 
 
 | Unit | Responsibility | Depends on |
 |---|---|---|
-| `ingest` | Poll sensor.community every 5 minutes, normalise to canonical readings, write raw rows | upstream API, Postgres |
+| `ingest` | Poll `data.sensor.community/airrohr/v1/filter/country=BG` every 5 minutes, normalise to canonical readings, write raw rows | upstream API, Postgres |
 | `quality` | Score each reading (range, stuck, spatial outlier); write a flag, never delete | Postgres |
 | `snapshot` | After each cycle, build the tiered current-state payloads, hold in memory, pre-gzip | `quality` output |
 | `api` | HTTP handlers and middleware | `snapshot`, Postgres |
