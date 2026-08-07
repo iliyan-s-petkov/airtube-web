@@ -14,7 +14,7 @@ This plan covers §4.1 (`ingest`, `quality`), §5 (data model), §6 (quality sco
 
 ## Global Constraints
 
-- Go module path: `github.com/dojobits/airbg`. Go 1.26 toolchain, declared in `go.mod`.
+- Go module path: `airbg.org`. Go 1.26 toolchain, declared in `go.mod`.
 - **Coordinates are stored as `geography(Point, 4326)` — (longitude, latitude).** This is the inverse of the legacy `[lat, long]`. Task 3 contains a mandatory regression test.
 - All SQL is parameterised via `pgx`. String-concatenated SQL is forbidden anywhere in this plan.
 - No secrets in the repository. Configuration comes from environment variables only.
@@ -75,7 +75,7 @@ Quality is split across four files rather than one because each check has genuin
 - [ ] **Step 1: Initialise the module**
 
 ```bash
-go mod init github.com/dojobits/airbg
+go mod init airbg.org
 go mod edit -go=1.26
 ```
 
@@ -351,8 +351,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dojobits/airbg/internal/db"
-	"github.com/dojobits/airbg/internal/testsupport"
+	"airbg.org/internal/db"
+	"airbg.org/internal/testsupport"
 )
 
 func TestMigrateIsIdempotent(t *testing.T) {
@@ -399,7 +399,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/dojobits/airbg/internal/db/migrations"
+	"airbg.org/internal/db/migrations"
 )
 
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
@@ -476,8 +476,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dojobits/airbg/internal/db"
-	"github.com/dojobits/airbg/internal/testsupport"
+	"airbg.org/internal/db"
+	"airbg.org/internal/testsupport"
 )
 
 // Sofia's Alexander Nevsky Cathedral. Longitude first — PostGIS geography is
@@ -1763,7 +1763,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dojobits/airbg/internal/upstream"
+	"airbg.org/internal/upstream"
 )
 
 // Sofia, and points roughly 1 km apart from it.
@@ -1916,7 +1916,7 @@ package quality
 import (
 	"math"
 
-	"github.com/dojobits/airbg/internal/upstream"
+	"airbg.org/internal/upstream"
 )
 
 // NeighbourRadiusMetres is the search radius for the spatial check (spec §6.3).
@@ -2091,11 +2091,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dojobits/airbg/internal/db"
-	"github.com/dojobits/airbg/internal/quality"
-	"github.com/dojobits/airbg/internal/store"
-	"github.com/dojobits/airbg/internal/testsupport"
-	"github.com/dojobits/airbg/internal/upstream"
+	"airbg.org/internal/db"
+	"airbg.org/internal/quality"
+	"airbg.org/internal/store"
+	"airbg.org/internal/testsupport"
+	"airbg.org/internal/upstream"
 )
 
 func newStore(t *testing.T) (context.Context, *pgxpool.Pool, *store.Store) {
@@ -2240,7 +2240,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dojobits/airbg/internal/quality"
+	"airbg.org/internal/quality"
 )
 
 type Store struct {
@@ -2322,8 +2322,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dojobits/airbg/internal/quality"
-	"github.com/dojobits/airbg/internal/store"
+	"airbg.org/internal/quality"
+	"airbg.org/internal/store"
 )
 
 func TestRollupHourExcludesFlaggedReadings(t *testing.T) {
@@ -2520,12 +2520,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dojobits/airbg/internal/db"
-	"github.com/dojobits/airbg/internal/ingest"
-	"github.com/dojobits/airbg/internal/quality"
-	"github.com/dojobits/airbg/internal/store"
-	"github.com/dojobits/airbg/internal/testsupport"
-	"github.com/dojobits/airbg/internal/upstream"
+	"airbg.org/internal/db"
+	"airbg.org/internal/ingest"
+	"airbg.org/internal/quality"
+	"airbg.org/internal/store"
+	"airbg.org/internal/testsupport"
+	"airbg.org/internal/upstream"
 )
 
 type stubFetcher struct {
@@ -2660,9 +2660,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/dojobits/airbg/internal/quality"
-	"github.com/dojobits/airbg/internal/store"
-	"github.com/dojobits/airbg/internal/upstream"
+	"airbg.org/internal/quality"
+	"airbg.org/internal/store"
+	"airbg.org/internal/upstream"
 )
 
 type Fetcher interface {
@@ -2772,12 +2772,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dojobits/airbg/internal/config"
-	"github.com/dojobits/airbg/internal/db"
-	"github.com/dojobits/airbg/internal/ingest"
-	"github.com/dojobits/airbg/internal/quality"
-	"github.com/dojobits/airbg/internal/store"
-	"github.com/dojobits/airbg/internal/upstream"
+	"airbg.org/internal/config"
+	"airbg.org/internal/db"
+	"airbg.org/internal/ingest"
+	"airbg.org/internal/quality"
+	"airbg.org/internal/store"
+	"airbg.org/internal/upstream"
 )
 
 func main() {
@@ -2933,9 +2933,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dojobits/airbg/internal/area"
-	"github.com/dojobits/airbg/internal/db"
-	"github.com/dojobits/airbg/internal/testsupport"
+	"airbg.org/internal/area"
+	"airbg.org/internal/db"
+	"airbg.org/internal/testsupport"
 )
 
 func migrated(t *testing.T) (context.Context, *pgxpool.Pool) {
@@ -3216,11 +3216,11 @@ Add to the `switch` in `cmd/airbg/main.go`, before `default`:
 		slog.Info("areas imported", "areas", n, "assignments", assigned)
 ```
 
-Add `"github.com/dojobits/airbg/internal/area"` to the imports.
+Add `"airbg.org/internal/area"` to the imports.
 
 - [ ] **Step 9: Assign sensors after each ingest cycle**
 
-New sensors appear continuously and must be placed. In `internal/ingest/ingest.go`, add the import `"github.com/dojobits/airbg/internal/area"` and insert this immediately after the `RollupHour` call in `RunOnce`:
+New sensors appear continuously and must be placed. In `internal/ingest/ingest.go`, add the import `"airbg.org/internal/area"` and insert this immediately after the `RollupHour` call in `RunOnce`:
 
 ```go
 	if _, err := area.AssignSensors(ctx, i.store.Pool()); err != nil {
@@ -3281,9 +3281,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dojobits/airbg/internal/backfill"
-	"github.com/dojobits/airbg/internal/db"
-	"github.com/dojobits/airbg/internal/testsupport"
+	"airbg.org/internal/backfill"
+	"airbg.org/internal/db"
+	"airbg.org/internal/testsupport"
 )
 
 func TestParseCSVGroupsIntoHourlyBuckets(t *testing.T) {
@@ -3403,7 +3403,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/dojobits/airbg/internal/upstream"
+	"airbg.org/internal/upstream"
 )
 
 const archiveTimeLayout = "2006-01-02T15:04:05"
@@ -3588,12 +3588,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dojobits/airbg/internal/db"
-	"github.com/dojobits/airbg/internal/ingest"
-	"github.com/dojobits/airbg/internal/quality"
-	"github.com/dojobits/airbg/internal/store"
-	"github.com/dojobits/airbg/internal/testsupport"
-	"github.com/dojobits/airbg/internal/upstream"
+	"airbg.org/internal/db"
+	"airbg.org/internal/ingest"
+	"airbg.org/internal/quality"
+	"airbg.org/internal/store"
+	"airbg.org/internal/testsupport"
+	"airbg.org/internal/upstream"
 )
 
 // TestEndToEndFromRecordedPayload runs the whole pipeline against the recorded
