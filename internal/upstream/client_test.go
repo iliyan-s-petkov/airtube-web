@@ -1,7 +1,11 @@
 package upstream
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,5 +78,66 @@ func TestNormaliseParsesTimestamp(t *testing.T) {
 func TestNormaliseRejectsGarbage(t *testing.T) {
 	if _, _, err := Normalise([]byte("not json")); err == nil {
 		t.Fatal("expected error on invalid JSON, got nil")
+	}
+}
+
+func TestFetchHappyPath(t *testing.T) {
+	payload, err := os.ReadFile("testdata/bg_sample.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(payload)
+	}))
+	defer srv.Close()
+
+	want, _, err := Normalise(payload)
+	if err != nil {
+		t.Fatalf("Normalise: %v", err)
+	}
+
+	c := New(srv.URL, 5*time.Second)
+	got, err := c.Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("len(got) = %d, want %d", len(got), len(want))
+	}
+	if got[0] != want[0] {
+		t.Errorf("got[0] = %+v, want %+v", got[0], want[0])
+	}
+}
+
+func TestFetchNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, 5*time.Second)
+	_, err := c.Fetch(context.Background())
+	if err == nil {
+		t.Fatal("expected error on non-200 status, got nil")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("error = %q, want it to mention status 500", err.Error())
+	}
+}
+
+func TestFetchMalformedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, 5*time.Second)
+	_, err := c.Fetch(context.Background())
+	if err == nil {
+		t.Fatal("expected error on malformed body, got nil")
 	}
 }
