@@ -171,3 +171,29 @@ func TestFetchMalformedBody(t *testing.T) {
 		t.Fatal("expected error on malformed body, got nil")
 	}
 }
+
+func TestNormaliseConvertsPressureToHectopascals(t *testing.T) {
+	payload, err := os.ReadFile("testdata/bg_sample.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	readings, _, err := Normalise(payload)
+	if err != nil {
+		t.Fatalf("Normalise: %v", err)
+	}
+
+	var found bool
+	for _, r := range readings {
+		if r.Metric != "pressure" {
+			continue
+		}
+		found = true
+		if r.Value < 800 || r.Value > 1100 {
+			t.Errorf("pressure = %v hPa, outside plausible range — unit not converted", r.Value)
+		}
+	}
+	if !found {
+		t.Fatal("no pressure reading in fixture output")
+	}
+}

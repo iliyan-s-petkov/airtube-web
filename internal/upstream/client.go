@@ -69,6 +69,10 @@ func Normalise(payload []byte) ([]Reading, int, error) {
 				// e.g. signal's "-78 dBm". Drop the value, keep the entry.
 				continue
 			}
+			// Upstream reports pressure in Pascals; canonical storage is hPa.
+			if v.ValueType == "pressure" {
+				value /= 100
+			}
 			readings = append(readings, Reading{
 				SensorID:   e.Sensor.ID,
 				SensorType: e.Sensor.SensorType.Name,
