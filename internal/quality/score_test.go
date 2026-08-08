@@ -1,6 +1,7 @@
 package quality
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -155,6 +156,79 @@ func TestPropertyReadingEqualToNeighbourMedianIsNeverFlagged(t *testing.T) {
 				t.Fatalf("base=%v n=%d: flag = %v, want %v", base, n, got, FlagOK)
 			}
 		}
+	}
+}
+
+func TestScoreExcludesSelfFromNeighbours(t *testing.T) {
+	// Only two other sensors report this metric — below minNeighbours(3), so the
+	// correct verdict is FlagNoNeighbours regardless of sensor 1's own value.
+	// If the self-exclusion guard were removed, sensor 1 would see itself as a
+	// third "neighbour" (distance 0 from itself), the check would run, and its
+	// own extreme value would flip the verdict to FlagSpatialOutlier instead.
+	readings := []upstream.Reading{
+		at(1, "temperature", 22, 0),
+		at(2, "temperature", -10, 0.01),
+		at(3, "temperature", -10.5, 0.02),
+	}
+	scored := Score(readings, NewHistory(12))
+	if got := flagOf(t, scored, 1); got != FlagNoNeighbours {
+		t.Errorf("flag = %v, want %v — sensor 1 appears to be counting itself as a neighbour", got, FlagNoNeighbours)
+	}
+}
+
+func TestCoLocatedSensorsAreDistinctNeighbours(t *testing.T) {
+	// Sensors 1 and 2 share exact coordinates but have distinct IDs. Each has
+	// exactly 3 candidate neighbours (the other co-located sensor plus two
+	// more), which only clears minNeighbours(3) if the co-located peer counts.
+	// If self-exclusion were keyed on coordinates rather than SensorID, each
+	// sensor would wrongly treat its co-located peer as "itself" and drop it,
+	// leaving only 2 neighbours and producing FlagNoNeighbours instead of the
+	// correct FlagOK.
+	readings := []upstream.Reading{
+		at(1, "temperature", -10, 0),
+		at(2, "temperature", -10, 0), // same lon/lat as sensor 1, different ID
+		at(3, "temperature", -10.5, 0.01),
+		at(4, "temperature", -9.5, 0.02),
+	}
+	scored := Score(readings, NewHistory(12))
+	if got := flagOf(t, scored, 1); got != FlagOK {
+		t.Errorf("sensor 1 flag = %v, want %v — co-located sensor 2 must still count as a neighbour", got, FlagOK)
+	}
+	if got := flagOf(t, scored, 2); got != FlagOK {
+		t.Errorf("sensor 2 flag = %v, want %v — co-located sensor 1 must still count as a neighbour", got, FlagOK)
+	}
+}
+
+func TestHaversineDistanceMatchesIndependentFormula(t *testing.T) {
+	// Two corners of Bulgaria's bounding box (spec: lon 22-29, lat 41-45):
+	// far apart, and with lon-spread (7°) and lat-spread (4°) different enough
+	// that swapping the argument order changes the answer substantially.
+	const lon1, lat1 = 22.0, 41.0
+	const lon2, lat2 = 29.0, 45.0
+
+	got := haversineMetres(lon1, lat1, lon2, lat2)
+
+	// Independent reference: the spherical law of cosines, hand-derived and
+	// computed here directly rather than reusing the haversine formula under
+	// test, so a mistake in haversineMetres isn't self-confirming.
+	toRad := func(d float64) float64 { return d * math.Pi / 180 }
+	want := earthRadiusMetres * math.Acos(
+		math.Sin(toRad(lat1))*math.Sin(toRad(lat2))+
+			math.Cos(toRad(lat1))*math.Cos(toRad(lat2))*math.Cos(toRad(lon2-lon1)),
+	)
+
+	const tolerance = 100.0 // metres; loose relative to a ~690km distance, tight enough to catch real bugs
+	if diff := math.Abs(got - want); diff > tolerance {
+		t.Errorf("haversineMetres(%v,%v,%v,%v) = %v, want %v (±%v)", lon1, lat1, lon2, lat2, got, want, tolerance)
+	}
+
+	// Swapping lon/lat order at these coordinates changes the answer by a
+	// large margin, confirming the function's result is sensitive to argument
+	// order rather than accidentally symmetric.
+	swapped := haversineMetres(lat1, lon1, lat2, lon2)
+	const minSwapDifference = 50000.0 // metres
+	if diff := math.Abs(got - swapped); diff < minSwapDifference {
+		t.Errorf("swapped coordinates gave a suspiciously similar distance: got=%v swapped=%v, want difference > %v", got, swapped, minSwapDifference)
 	}
 }
 
