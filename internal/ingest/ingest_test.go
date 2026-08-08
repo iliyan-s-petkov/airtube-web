@@ -3,6 +3,7 @@ package ingest_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,5 +114,157 @@ func TestRunOnceUpdatesRollup(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("sample_count = %d, want 1", count)
+	}
+}
+
+// countingFetcher records how many times Fetch was called (guarded by an
+// atomic counter so -race is happy about the concurrent Loop goroutine
+// reading it) and optionally signals on notify after each call, letting a
+// test synchronise on "a cycle has started" instead of sleeping and hoping.
+type countingFetcher struct {
+	calls    *atomic.Int64
+	readings []upstream.Reading
+	err      error
+	notify   chan struct{}
+}
+
+func (f countingFetcher) Fetch(context.Context) ([]upstream.Reading, error) {
+	f.calls.Add(1)
+	if f.notify != nil {
+		select {
+		case f.notify <- struct{}{}:
+		default:
+		}
+	}
+	return f.readings, f.err
+}
+
+// pollUntil polls cond every step until it reports true or timeout elapses,
+// at which point it fails the test. It observes real state rather than
+// guessing at timing, so it stays deterministic regardless of how fast or
+// slow the ticker actually fires.
+func pollUntil(t *testing.T, timeout, step time.Duration, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if cond() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("condition not met within %s", timeout)
+		}
+		time.Sleep(step)
+	}
+}
+
+// TestLoopSurvivesFetchErrors proves that a fetch failure logs and falls
+// through rather than ending the loop: the fetcher errors on every call, and
+// the loop must still call it again on the next tick.
+func TestLoopSurvivesFetchErrors(t *testing.T) {
+	var calls atomic.Int64
+	f := countingFetcher{calls: &calls, err: errors.New("upstream down")}
+	ing := ingest.New(f, nil, quality.NewHistory(12))
+
+	loopCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		ing.Loop(loopCtx, 5*time.Millisecond)
+		close(done)
+	}()
+
+	// Let several ticks elapse — proves one failure did not end the loop.
+	pollUntil(t, 2*time.Second, 5*time.Millisecond, func() bool {
+		return calls.Load() >= 3
+	})
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("Loop did not return after context cancellation")
+	}
+
+	if got := calls.Load(); got < 2 {
+		t.Errorf("fetch calls = %d, want > 1 (loop must survive a failed cycle)", got)
+	}
+}
+
+// TestLoopReusesHistoryAcrossCycles proves the same *quality.History instance
+// persists across ticks. If Loop recreated History per cycle, the stuck run
+// counter would reset every tick and this would never flip, so this test
+// fails under exactly the regression the review flagged.
+func TestLoopReusesHistoryAcrossCycles(t *testing.T) {
+	const depth = 3
+	ts := time.Date(2026, 1, 15, 8, 3, 0, 0, time.UTC)
+	same := reading(1, "temperature", 22, 0, ts)
+
+	ctx := context.Background()
+	pool := testsupport.NewPostgres(t)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	st := store.New(pool)
+	hist := quality.NewHistory(depth)
+
+	var calls atomic.Int64
+	f := countingFetcher{calls: &calls, readings: []upstream.Reading{same}}
+	ing := ingest.New(f, st, hist)
+
+	loopCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		ing.Loop(loopCtx, 5*time.Millisecond)
+		close(done)
+	}()
+
+	pollUntil(t, 10*time.Second, 10*time.Millisecond, func() bool {
+		return hist.IsStuck(same.SensorID, same.Metric)
+	})
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("Loop did not return after context cancellation")
+	}
+
+	if !hist.IsStuck(same.SensorID, same.Metric) {
+		t.Fatal("history should still report the sensor stuck after the loop stopped")
+	}
+	if calls.Load() < int64(depth) {
+		t.Fatalf("fetch calls = %d, want >= %d cycles to cross the stuck threshold", calls.Load(), depth)
+	}
+}
+
+// TestLoopStopsOnContextCancel proves cancellation is observed immediately
+// rather than only after the next tick. The poll interval is set far longer
+// than the test's own timeout, so a regression that waits on the ticker
+// before checking ctx.Done would hang this test until it fails.
+func TestLoopStopsOnContextCancel(t *testing.T) {
+	var calls atomic.Int64
+	notify := make(chan struct{}, 1)
+	f := countingFetcher{calls: &calls, notify: notify}
+	ing := ingest.New(f, nil, quality.NewHistory(12))
+
+	loopCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		ing.Loop(loopCtx, time.Hour)
+		close(done)
+	}()
+
+	// Wait for the first cycle to actually run before cancelling, so we know
+	// Loop has reached its select and is waiting on the (long) ticker.
+	select {
+	case <-notify:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Loop never ran its first cycle")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Loop did not return promptly after context cancellation; it appears to be waiting on the ticker instead of ctx.Done")
 	}
 }
