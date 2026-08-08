@@ -12,3 +12,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  collector:
+    build: .
+    command: ["collect"]
+    environment:
+      AIRBG_DATABASE_URL: postgres://airbg:airbg@db:5432/airbg?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
