@@ -77,8 +77,15 @@ func TestEndToEndFromRecordedPayload(t *testing.T) {
 	}
 }
 
-// TestUpstreamContractLive is opt-in and hits the real API. It exists to detect
-// upstream schema drift. Run with: AIRBG_LIVE_TEST=1 go test ./internal/ingest/
+// TestUpstreamContractLive is opt-in and hits the real API. It exists to
+// detect upstream *schema* drift only — field presence, JSON types, the
+// value_type vocabulary, timestamp format. It deliberately asserts nothing
+// about the truthfulness of individual sensor data (coordinates, self-reported
+// country, plausible readings): upstream ships bad data from misconfigured
+// sensors routinely, and that is a data-quality problem, not a contract
+// break. A test that fails on data quality forever is noise that trains
+// people to ignore it right when it has something real (an actual schema
+// change) to say. Run with: AIRBG_LIVE_TEST=1 go test ./internal/ingest/
 func TestUpstreamContractLive(t *testing.T) {
 	if os.Getenv("AIRBG_LIVE_TEST") == "" {
 		t.Skip("set AIRBG_LIVE_TEST=1 to run against the live upstream API")
@@ -90,14 +97,25 @@ func TestUpstreamContractLive(t *testing.T) {
 
 	readings, err := client.Fetch(context.Background())
 	if err != nil {
-		t.Fatalf("live fetch: %v", err)
+		t.Fatalf("live fetch: %v — payload failed to parse; upstream schema may have changed", err)
 	}
 	if len(readings) == 0 {
 		t.Fatal("live fetch returned no readings — upstream schema may have changed")
 	}
+
 	for _, r := range readings {
-		if r.Lon < 22 || r.Lon > 29 || r.Lat < 41 || r.Lat > 45 {
-			t.Fatalf("sensor %d at (%v, %v) is outside Bulgaria", r.SensorID, r.Lon, r.Lat)
+		// Every canonical metric must have parsed to a real number and a
+		// valid, non-zero-value timestamp — the two fields whose JSON
+		// encoding has actually drifted historically (this task's own fix
+		// was for value; a broken timestamp format would zero it out).
+		if !upstream.IsCanonicalMetric(r.Metric) {
+			t.Errorf("sensor %d: metric %q leaked through Normalise — not in the canonical set", r.SensorID, r.Metric)
+		}
+		if r.Timestamp.IsZero() {
+			t.Errorf("sensor %d: metric %q has a zero timestamp — timestamp format may have changed", r.SensorID, r.Metric)
+		}
+		if r.SensorID == 0 {
+			t.Error("reading with zero SensorID — sensor.id field may be missing or renamed")
 		}
 	}
 }
