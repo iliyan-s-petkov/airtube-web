@@ -72,3 +72,7 @@ func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int
 func TruncateHour(t time.Time) time.Time {
 	return t.UTC().Truncate(time.Hour)
 }
+
+// Pool exposes the underlying connection pool for callers that need ad-hoc
+// reads, such as tests and the API's chart queries.
+func (s *Store) Pool() *pgxpool.Pool { return s.pool }
