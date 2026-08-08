@@ -2,6 +2,7 @@ package ingest_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"testing"
@@ -17,17 +18,22 @@ import (
 // bucket from the watermark forward, not just the bucket the latest fetch
 // landed in. It seeds raw readings across several past hours directly (as if
 // a previous outage left them unaggregated), leaves the watermark behind
-// them, then runs one ingest cycle for a *new* reading several hours later
-// and asserts every intervening hour — not only the newest one — now has a
-// correct hourly aggregate.
+// them, then runs one ingest cycle for a *new* reading in the real current
+// hour and asserts every intervening hour — not only the newest one — now
+// has a correct hourly aggregate.
 //
 // Against the pre-watermark behaviour (RunOnce only ever rolling up
 // store.TruncateHour(scored[0].Reading.Timestamp)) this test fails: only the
 // bucket containing the new reading would be aggregated, and the earlier
 // backlog buckets would come back with sample_count = 0 / "no rows".
+//
+// The rollup anchor is wall-clock time (task-16 review finding 2), so this
+// test seeds its backlog relative to time.Now() rather than a fixed date.
 func TestRunOnceDrainsRollupBacklog(t *testing.T) {
 	ctx, st, _ := newIngester(t, nil)
-	base := time.Date(2026, 1, 1, 6, 0, 0, 0, time.UTC)
+
+	current := store.TruncateHour(time.Now())
+	base := current.Add(-6 * time.Hour)
 	backlogHours := []time.Time{base, base.Add(time.Hour), base.Add(2 * time.Hour)}
 
 	// Seed backlog: raw readings in three past hours, written directly (as
@@ -53,9 +59,8 @@ func TestRunOnceDrainsRollupBacklog(t *testing.T) {
 		t.Fatalf("seed watermark: %v", err)
 	}
 
-	// A new cycle's data lands three hours after the backlog started.
-	current := base.Add(3 * time.Hour)
-	f := stubFetcher{readings: []upstream.Reading{reading(2, "P1", 99, 0.05, current.Add(time.Minute))}}
+	// A new cycle's data lands in the real current hour.
+	f := stubFetcher{readings: []upstream.Reading{reading(2, "P1", 99, 0.05, time.Now())}}
 	ing := ingest.New(f, st, quality.NewHistory(12))
 
 	if _, err := ing.RunOnce(ctx); err != nil {
@@ -78,12 +83,70 @@ func TestRunOnceDrainsRollupBacklog(t *testing.T) {
 	var currentCount int
 	err := st.Pool().QueryRow(ctx,
 		`SELECT sample_count FROM reading_hourly WHERE sensor_id = 2 AND metric = 'P1' AND bucket = $1`,
-		store.TruncateHour(current)).Scan(&currentCount)
+		current).Scan(&currentCount)
 	if err != nil {
 		t.Fatalf("current bucket not rolled up: %v", err)
 	}
 	if currentCount != 1 {
 		t.Errorf("current bucket sample_count = %d, want 1", currentCount)
+	}
+}
+
+// TestRunOnceDrainsBacklogEvenWhenFetchFails is task-16 review finding 1's
+// regression test: the alert and the drain exist specifically to catch a
+// sustained upstream outage, so they must not be gated behind a successful
+// fetch. It seeds a stale watermark, then runs a cycle whose fetch fails on
+// every call, and asserts the backlog was drained (watermark advanced) and
+// the alert still fired — proving the step ran despite the fetch error.
+//
+// Against a version where the rollup/alert step sits below the fetch-error
+// return in RunOnce, this fails: the watermark never advances and no ERROR
+// is logged, because RunOnce returns before ever reaching that code.
+func TestRunOnceDrainsBacklogEvenWhenFetchFails(t *testing.T) {
+	ctx, st, _ := newIngester(t, nil)
+
+	now := time.Now()
+	current := store.TruncateHour(now)
+	staleWatermark := now.Add(-200 * time.Hour)
+	if _, _, err := st.RollupBacklog(ctx, staleWatermark, 24); err != nil {
+		t.Fatalf("seed stale watermark: %v", err)
+	}
+	beforeBucket, _, found, err := st.Watermark(ctx)
+	if err != nil || !found {
+		t.Fatalf("seed watermark not found: found=%v err=%v", found, err)
+	}
+
+	handler := &recordingHandler{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(prev)
+
+	wantErr := errors.New("upstream down")
+	f := stubFetcher{err: wantErr}
+	ing := ingest.New(f, st, quality.NewHistory(12))
+
+	if _, err := ing.RunOnce(ctx); !errors.Is(err, wantErr) {
+		t.Fatalf("RunOnce err = %v, want %v (fetch error must still surface)", err, wantErr)
+	}
+
+	afterBucket, _, found, err := st.Watermark(ctx)
+	if err != nil {
+		t.Fatalf("Watermark after RunOnce: %v", err)
+	}
+	if !found {
+		t.Fatal("watermark missing after RunOnce")
+	}
+	if !afterBucket.After(beforeBucket) {
+		t.Errorf("watermark did not advance during a fetch failure: before=%v after=%v — the drain must run unconditionally", beforeBucket, afterBucket)
+	}
+
+	wantGap := ingest.BacklogHours(afterBucket, current)
+	if wantGap < 168 {
+		t.Fatalf("test setup invalid: gap %d fell under threshold — cap drained further than expected", wantGap)
+	}
+	attrs := handler.findByMessage(slog.LevelError, backlogAlertMsg)
+	if attrs == nil {
+		t.Fatal("expected ERROR backlog alert during a fetch failure, none found — the alert must not be silenced by a fetch error")
 	}
 }
 
@@ -135,11 +198,12 @@ const backlogAlertMsg = "rollup backlog approaching raw retention boundary"
 func TestBacklogAlertFiresWhenGapCrossesThreshold(t *testing.T) {
 	ctx, st, _ := newIngester(t, nil)
 
+	now := time.Now()
+	current := store.TruncateHour(now)
 	// 200 hours is comfortably past the 168h threshold and comfortably
 	// larger than the per-tick cap (24 buckets), so one RunOnce cannot
 	// fully catch up and the alert must fire.
-	current := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
-	staleWatermark := current.Add(-200 * time.Hour)
+	staleWatermark := now.Add(-200 * time.Hour)
 	if _, _, err := st.RollupBacklog(ctx, staleWatermark, 24); err != nil {
 		t.Fatalf("seed stale watermark: %v", err)
 	}
@@ -149,7 +213,7 @@ func TestBacklogAlertFiresWhenGapCrossesThreshold(t *testing.T) {
 	slog.SetDefault(slog.New(handler))
 	defer slog.SetDefault(prev)
 
-	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, current.Add(time.Minute))}}
+	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, now)}}
 	ing := ingest.New(f, st, quality.NewHistory(12))
 	if _, err := ing.RunOnce(ctx); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -162,7 +226,7 @@ func TestBacklogAlertFiresWhenGapCrossesThreshold(t *testing.T) {
 	if !found {
 		t.Fatal("watermark not set after RunOnce")
 	}
-	wantGap := ingest.BacklogHours(gotBucket, store.TruncateHour(current))
+	wantGap := ingest.BacklogHours(gotBucket, current)
 	if wantGap < 168 {
 		t.Fatalf("test setup invalid: gap %d is not above the threshold — cap drained further than expected", wantGap)
 	}
@@ -195,10 +259,11 @@ func TestBacklogAlertFiresWhenGapCrossesThreshold(t *testing.T) {
 func TestBacklogAlertDoesNotFireBelowThreshold(t *testing.T) {
 	ctx, st, _ := newIngester(t, nil)
 
-	current := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Now()
+	current := store.TruncateHour(now)
 	// 5 hours behind is comfortably inside the 24-bucket per-tick cap, so
 	// RunOnce fully catches up to the current hour in a single cycle.
-	nearWatermark := current.Add(-5 * time.Hour)
+	nearWatermark := now.Add(-5 * time.Hour)
 	if _, _, err := st.RollupBacklog(ctx, nearWatermark, 24); err != nil {
 		t.Fatalf("seed near watermark: %v", err)
 	}
@@ -208,7 +273,7 @@ func TestBacklogAlertDoesNotFireBelowThreshold(t *testing.T) {
 	slog.SetDefault(slog.New(handler))
 	defer slog.SetDefault(prev)
 
-	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, current.Add(time.Minute))}}
+	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, now)}}
 	ing := ingest.New(f, st, quality.NewHistory(12))
 	if _, err := ing.RunOnce(ctx); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -221,8 +286,8 @@ func TestBacklogAlertDoesNotFireBelowThreshold(t *testing.T) {
 	if !found {
 		t.Fatal("watermark not set after RunOnce")
 	}
-	if !gotBucket.Equal(store.TruncateHour(current)) {
-		t.Fatalf("test setup invalid: watermark = %v, want fully caught up to %v", gotBucket, store.TruncateHour(current))
+	if !gotBucket.Equal(current) {
+		t.Fatalf("test setup invalid: watermark = %v, want fully caught up to %v", gotBucket, current)
 	}
 
 	if attrs := handler.findByMessage(slog.LevelError, backlogAlertMsg); attrs != nil {

@@ -93,8 +93,38 @@ func TestRunOnceHandlesEmptyBatch(t *testing.T) {
 	}
 }
 
+// TestRawRetentionHoursMatchesLivePolicy guards task-16 review finding 4:
+// ingest.RawRetentionHours mirrors the retention policy that migration 00003
+// installs on the `reading` hypertable (drop_after => 30 days), purely as a
+// documentation constant with no structural link to the migration. If a
+// future edit to that migration's drop_after forgot to update the constant,
+// the alert's "margin_hours" would silently misreport how much runway is
+// actually left before raw data starts getting dropped. This test reads the
+// live policy back out of timescaledb_information.jobs and fails loudly on
+// drift instead.
+func TestRawRetentionHoursMatchesLivePolicy(t *testing.T) {
+	ctx, st, _ := newIngester(t, nil)
+
+	var gotHours float64
+	err := st.Pool().QueryRow(ctx, `
+		SELECT EXTRACT(EPOCH FROM (config->>'drop_after')::interval) / 3600
+		FROM timescaledb_information.jobs
+		WHERE proc_name = 'policy_retention' AND hypertable_name = 'reading'`).
+		Scan(&gotHours)
+	if err != nil {
+		t.Fatalf("query live retention policy: %v", err)
+	}
+
+	if int(gotHours) != ingest.RawRetentionHours {
+		t.Errorf("live retention policy on reading = %v hours, ingest.RawRetentionHours = %d — the constant has drifted from migration 00003's drop_after", gotHours, ingest.RawRetentionHours)
+	}
+}
+
 func TestRunOnceUpdatesRollup(t *testing.T) {
-	ts := time.Date(2026, 1, 15, 8, 3, 0, 0, time.UTC)
+	// The rollup step is anchored to wall-clock time (task-16 review finding
+	// 2), not to this reading's own timestamp, so the reading must actually
+	// land in the real current hour for the rollup to pick it up.
+	ts := time.Now().UTC()
 	f := stubFetcher{readings: []upstream.Reading{
 		reading(1, "P1", 20, 0, ts),
 	}}
@@ -160,10 +190,16 @@ func pollUntil(t *testing.T, timeout, step time.Duration, cond func() bool) {
 // TestLoopSurvivesFetchErrors proves that a fetch failure logs and falls
 // through rather than ending the loop: the fetcher errors on every call, and
 // the loop must still call it again on the next tick.
+//
+// A real store is required (not nil): since task-16, RunOnce always runs the
+// rollup backlog step even when the fetch fails (finding 1), so a nil store
+// would panic instead of exercising the intended "survives fetch errors"
+// behaviour.
 func TestLoopSurvivesFetchErrors(t *testing.T) {
 	var calls atomic.Int64
 	f := countingFetcher{calls: &calls, err: errors.New("upstream down")}
-	ing := ingest.New(f, nil, quality.NewHistory(12))
+	_, st, _ := newIngester(t, f)
+	ing := ingest.New(f, st, quality.NewHistory(12))
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -244,7 +280,10 @@ func TestLoopStopsOnContextCancel(t *testing.T) {
 	var calls atomic.Int64
 	notify := make(chan struct{}, 1)
 	f := countingFetcher{calls: &calls, notify: notify}
-	ing := ingest.New(f, nil, quality.NewHistory(12))
+	// A real store is required: RunOnce always runs the rollup backlog step
+	// now, even for an empty fetch result, so a nil store would panic.
+	_, st, _ := newIngester(t, f)
+	ing := ingest.New(f, st, quality.NewHistory(12))
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

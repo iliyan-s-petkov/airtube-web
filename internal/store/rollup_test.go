@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -411,6 +412,89 @@ func TestRollupBacklogIsIdempotentOverAlreadyRolledUpRange(t *testing.T) {
 	}
 	if totalRows != 3 {
 		t.Errorf("reading_hourly rows = %d, want 3 (one per bucket, no duplicates)", totalRows)
+	}
+}
+
+// TestRollupBacklogStopsExactlyWhereADrainFails is task-16 review finding
+// 6's regression test: it proves the watermark reflects exactly the buckets
+// whose aggregates actually committed when a multi-bucket drain fails
+// partway through — no gap (some completed bucket left unrecorded) and no
+// overshoot (the watermark claiming a bucket that never committed).
+//
+// It uses SetRollupBacklogHookForTesting to deterministically cancel the
+// context after the 3rd of 8 outstanding buckets, forcing the 4th bucket's
+// transaction to fail. Before task-16 review finding 3's fix (tracking the
+// watermark locally through the loop instead of re-reading it from the
+// database), a local accumulator would still report the bucket the loop was
+// working on when the failure happened, overstating progress — a difference
+// this test would have caught, since it queries the database directly for
+// ground truth rather than trusting the local return value's bookkeeping.
+func TestRollupBacklogStopsExactlyWhereADrainFails(t *testing.T) {
+	ctx, _, s := newStore(t)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// Seed a watermark at base-1h so the 8 hours below (base .. base+7h) are
+	// a genuine outstanding backlog, not fresh-database bootstrap.
+	if _, _, err := s.RollupBacklog(ctx, base.Add(-time.Hour), 24); err != nil {
+		t.Fatalf("seed watermark: %v", err)
+	}
+
+	var scored []quality.Scored
+	for i := 0; i < 8; i++ {
+		scored = append(scored, sample(1, "P1", float64(i), quality.FlagOK, base.Add(time.Duration(i)*time.Hour+time.Minute)))
+	}
+	if err := s.UpsertSensors(ctx, scored); err != nil {
+		t.Fatalf("UpsertSensors: %v", err)
+	}
+	if _, err := s.WriteReadings(ctx, scored); err != nil {
+		t.Fatalf("WriteReadings: %v", err)
+	}
+
+	const failAfter = 3
+	drainCtx, cancel := context.WithCancel(ctx)
+	restore := store.SetRollupBacklogHookForTesting(func(processed int, bucket time.Time) {
+		if processed == failAfter {
+			cancel()
+		}
+	})
+	defer restore()
+
+	current := base.Add(7 * time.Hour) // 8 buckets outstanding: base .. base+7h
+	processed, watermark, err := s.RollupBacklog(drainCtx, current, 24)
+	if err == nil {
+		t.Fatalf("RollupBacklog: want error from the cancelled context after bucket %d, got nil (processed=%d, watermark=%v)", failAfter, processed, watermark)
+	}
+	if processed != failAfter {
+		t.Fatalf("processed = %d, want %d — the drain must stop reporting progress at the last bucket that actually committed", processed, failAfter)
+	}
+
+	// Read the ground truth back with a fresh, uncancelled context: the
+	// watermark must reflect exactly the failAfter buckets that committed —
+	// no gap, no overshoot.
+	wantWatermark := base.Add(time.Duration(failAfter-1) * time.Hour)
+	gotBucket, _, found, werr := s.Watermark(ctx)
+	if werr != nil {
+		t.Fatalf("Watermark: %v", werr)
+	}
+	if !found {
+		t.Fatal("watermark missing after partial drain")
+	}
+	if !gotBucket.Equal(wantWatermark) {
+		t.Fatalf("stored watermark = %v, want %v (exactly the buckets that committed)", gotBucket, wantWatermark)
+	}
+
+	// The bucket the failed iteration was working on (and everything after
+	// it) must not have been aggregated.
+	failedBucket := base.Add(time.Duration(failAfter) * time.Hour)
+	var count int
+	err = s.Pool().QueryRow(ctx,
+		`SELECT count(*) FROM reading_hourly WHERE sensor_id = 1 AND metric = 'P1' AND bucket = $1`,
+		failedBucket).Scan(&count)
+	if err != nil {
+		t.Fatalf("query failed bucket: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("bucket %v has %d aggregate rows, want 0 — it must not have committed once the context was cancelled", failedBucket, count)
 	}
 }
 

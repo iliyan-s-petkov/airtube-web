@@ -1,6 +1,7 @@
 package ingest_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,19 @@ func TestEndToEndFromRecordedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
+
+	// The fixture's readings all carry the fixed timestamp below. The rollup
+	// step is anchored to wall-clock time, not to any reading's own
+	// timestamp (task-16 review finding 2), so a fixed historical timestamp
+	// would never land in the bucket RunOnce actually rolls up. Rewriting it
+	// to "now" at serve time keeps the fixture's other fields (values,
+	// coordinates, IDs) byte-identical while letting the rollup assertions
+	// below work for however long this test file lives.
+	now := time.Now().UTC()
+	wantBucket := store.TruncateHour(now)
+	payload = bytes.ReplaceAll(payload,
+		[]byte("2026-08-07 12:00:00"),
+		[]byte(now.Format("2006-01-02 15:04:05")))
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -81,14 +95,11 @@ func TestEndToEndFromRecordedPayload(t *testing.T) {
 		t.Errorf("%d sensors stored outside Bulgaria — coordinates swapped", outside)
 	}
 
-	// The rollup must land in the exact bucket the fixture readings fall
-	// into (2026-08-07 12:00:00 UTC, since every entry shares that
-	// timestamp and TruncateHour is a no-op on it already), and must carry
-	// the aggregate values the fixture readings actually produce — not just
-	// "some row exists somewhere". A rollup that wrote one garbage row in
-	// the wrong bucket would pass a bare count(*) > 0 check.
-	wantBucket := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-
+	// The rollup must land in the exact bucket the (now rewritten) fixture
+	// readings fall into, and must carry the aggregate values the fixture
+	// readings actually produce — not just "some row exists somewhere". A
+	// rollup that wrote one garbage row in the wrong bucket would pass a
+	// bare count(*) > 0 check.
 	var hourly int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM reading_hourly WHERE bucket = $1`, wantBucket).Scan(&hourly); err != nil {
 		t.Fatalf("count rollup: %v", err)

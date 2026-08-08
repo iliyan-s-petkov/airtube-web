@@ -26,11 +26,20 @@ const (
 
 	// backlogAlertThreshold is the gap, in hours, between the rollup
 	// watermark and the current hour that triggers an ERROR log. Raw
-	// readings are retained for 30 days (720 hours) before TimescaleDB
-	// deletes them; alerting at 168 hours (7 days) leaves roughly 23 days of
-	// margin, so an operator gets days of warning to notice and fix a
-	// stalled rollup, not hours.
+	// readings are retained for RawRetentionHours before TimescaleDB deletes
+	// them; alerting at 168 hours (7 days) leaves roughly 23 days of margin,
+	// so an operator gets days of warning to notice and fix a stalled
+	// rollup, not hours.
 	backlogAlertThreshold = 168
+
+	// RawRetentionHours mirrors the `reading` hypertable's retention policy
+	// (internal/db/migrations/00003_rollup_retention.sql: drop_after => 30
+	// days). It is exported so a test can assert it still matches the live
+	// policy in timescaledb_information.jobs — an edit to that migration's
+	// drop_after that forgets this constant would otherwise silently widen
+	// (or shrink) the alert's actual margin without anyone noticing
+	// (task-16 review finding 4).
+	RawRetentionHours = 30 * 24
 )
 
 type Fetcher interface {
@@ -55,47 +64,57 @@ func New(f Fetcher, s *store.Store, hist *quality.History) *Ingester {
 
 // RunOnce performs a single cycle: fetch, score, persist, roll up.
 //
-// An error from the fetch aborts the cycle, leaving previously stored data
-// untouched — the caller keeps serving the last good snapshot (spec §10).
+// An error from the fetch aborts the data pipeline for this cycle, leaving
+// previously stored data untouched — the caller keeps serving the last good
+// snapshot (spec §10). The rollup backlog drain and its alert check
+// (rollupBacklog), however, run unconditionally on every call regardless of
+// fetch or write outcome (task-16 review finding 1): a sustained upstream
+// outage — the single most likely real-world cause of a large backlog — must
+// not silence the alert that exists specifically to catch it. Gating that
+// step behind fetch success left it dead through exactly the failure mode it
+// was built for.
 func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
-	readings, err := i.fetcher.Fetch(ctx)
-	if err != nil {
-		return Stats{}, fmt.Errorf("ingest: fetch: %w", err)
+	readings, fetchErr := i.fetcher.Fetch(ctx)
+
+	stats := Stats{Flagged: make(map[quality.Flag]int)}
+	var scored []quality.Scored
+	var pipelineErr error
+
+	if fetchErr == nil {
+		scored = quality.Score(readings, i.history)
+		stats.Fetched = len(readings)
+		for _, s := range scored {
+			stats.Flagged[s.Flag]++
+		}
+
+		if len(scored) > 0 {
+			if err := i.store.UpsertSensors(ctx, scored); err != nil {
+				pipelineErr = fmt.Errorf("ingest: upsert sensors: %w", err)
+			} else if written, err := i.store.WriteReadings(ctx, scored); err != nil {
+				pipelineErr = fmt.Errorf("ingest: write readings: %w", err)
+			} else {
+				stats.Written = int(written)
+			}
+		}
 	}
 
-	scored := quality.Score(readings, i.history)
+	// Anchored to wall-clock time, not any single reading's timestamp: this
+	// step must run even when there is no batch at all this cycle (fetch
+	// failed, or returned nothing), so it cannot depend on batch data being
+	// present (task-16 review finding 2).
+	rollupErr := i.rollupBacklog(ctx, time.Now())
 
-	stats := Stats{Fetched: len(readings), Flagged: make(map[quality.Flag]int)}
-	for _, s := range scored {
-		stats.Flagged[s.Flag]++
+	switch {
+	case fetchErr != nil:
+		return Stats{}, fmt.Errorf("ingest: fetch: %w", fetchErr)
+	case pipelineErr != nil:
+		return stats, pipelineErr
+	case rollupErr != nil:
+		return stats, fmt.Errorf("ingest: rollup: %w", rollupErr)
 	}
 
 	if len(scored) == 0 {
 		return stats, nil
-	}
-
-	if err := i.store.UpsertSensors(ctx, scored); err != nil {
-		return stats, fmt.Errorf("ingest: upsert sensors: %w", err)
-	}
-	written, err := i.store.WriteReadings(ctx, scored)
-	if err != nil {
-		return stats, fmt.Errorf("ingest: write readings: %w", err)
-	}
-	stats.Written = int(written)
-
-	// Drain the rollup backlog from the watermark forward through the
-	// current hour, not just the bucket this batch landed in — otherwise a
-	// stalled rollup (crash loop, outage, a swallowed error) would leave
-	// older hours never aggregated, and the 30-day raw retention policy
-	// would delete them before RunOnce ever got back around to them.
-	//
-	// "Current hour" is anchored to the batch's own timestamp rather than
-	// wall-clock time: against live upstream data the two are the same
-	// thing (the batch is fresh), but pinning to the data lets tests (and
-	// the archive backfill's use of historical data) reason about "current"
-	// deterministically instead of racing the real clock.
-	if err := i.rollupBacklog(ctx, scored[0].Reading.Timestamp); err != nil {
-		return stats, fmt.Errorf("ingest: rollup: %w", err)
 	}
 
 	if _, err := area.AssignSensors(ctx, i.store.Pool()); err != nil {
@@ -111,12 +130,6 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 	)
 	return stats, nil
 }
-
-// rawRetention mirrors the `reading` hypertable's retention policy
-// (internal/db/migrations/00003_rollup_retention.sql: drop_after => 30 days).
-// It is used only to compute the remaining margin reported in the backlog
-// alert, so an operator does not have to go look the retention window up.
-const rawRetentionHours = 30 * 24
 
 // rollupBacklog drains the rollup backlog (capped at maxBucketsPerTick) and,
 // if the gap between the watermark and the current hour has crossed
@@ -134,7 +147,7 @@ func (i *Ingester) rollupBacklog(ctx context.Context, now time.Time) error {
 			"watermark_bucket", watermark,
 			"current_bucket", current,
 			"gap_hours", gap,
-			"margin_hours", rawRetentionHours-gap,
+			"margin_hours", RawRetentionHours-gap,
 		)
 	}
 	return nil
