@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"airbg.org/internal/area"
 	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/ingest"
@@ -51,6 +52,23 @@ func main() {
 		client := upstream.New(cfg.UpstreamURL, 30*time.Second)
 		ing := ingest.New(client, store.New(pool), quality.NewHistory(12))
 		ing.Loop(ctx, cfg.PollInterval)
+
+	case "import-areas":
+		if len(os.Args) < 4 {
+			fmt.Fprintln(os.Stderr, "usage: airbg import-areas <path.geojson> <city|oblast|neighbourhood>")
+			os.Exit(2)
+		}
+		n, err := area.Import(ctx, pool, os.Args[2], os.Args[3])
+		if err != nil {
+			slog.Error("import areas", "error", err)
+			os.Exit(1)
+		}
+		assigned, err := area.AssignSensors(ctx, pool)
+		if err != nil {
+			slog.Error("assign sensors", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("areas imported", "areas", n, "assignments", assigned)
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand %q\n", os.Args[1])

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"airbg.org/internal/area"
 	"airbg.org/internal/quality"
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
@@ -67,6 +68,10 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 	bucket := store.TruncateHour(scored[0].Reading.Timestamp)
 	if _, err := i.store.RollupHour(ctx, bucket); err != nil {
 		return stats, fmt.Errorf("ingest: rollup: %w", err)
+	}
+
+	if _, err := area.AssignSensors(ctx, i.store.Pool()); err != nil {
+		return stats, fmt.Errorf("ingest: assign sensors: %w", err)
 	}
 
 	slog.Info("ingest cycle complete",

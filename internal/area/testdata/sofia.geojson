@@ -1,0 +1,21 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"slug": "sofia", "name_bg": "София", "name_en": "Sofia"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[23.2, 42.6], [23.5, 42.6], [23.5, 42.8], [23.2, 42.8], [23.2, 42.6]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"slug": "plovdiv", "name_bg": "Пловдив", "name_en": "Plovdiv"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[24.6, 42.0], [24.9, 42.0], [24.9, 42.2], [24.6, 42.2], [24.6, 42.0]]]
+      }
+    }
+  ]
+}
