@@ -32,9 +32,29 @@ type apiEntry struct {
 		} `json:"sensor_type"`
 	} `json:"sensor"`
 	Values []struct {
-		ValueType string `json:"value_type"`
-		Value     string `json:"value"`
+		ValueType string          `json:"value_type"`
+		Value     json.RawMessage `json:"value"`
 	} `json:"sensordatavalues"`
+}
+
+// parseValue accepts upstream's two observed encodings of a sensor value: a
+// quoted numeric string (the historical shape, e.g. "23.50") and a bare JSON
+// number (seen on some fields, e.g. pressure_at_sealevel: 84409.38). Anything
+// else (an object, array, non-numeric string, null, …) is reported as an
+// error so the caller can drop just that value — never the whole entry or
+// the whole payload. This is the same tolerance the legacy string-only
+// parser had for junk like signal's "-78 dBm", extended to cover a value
+// that also changes JSON type across entries.
+func parseValue(raw json.RawMessage) (float64, error) {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strconv.ParseFloat(s, 64)
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return f, nil
+	}
+	return 0, fmt.Errorf("value %q is neither a numeric string nor a number", string(raw))
 }
 
 // Normalise converts an upstream payload into canonical readings. It returns the
@@ -64,9 +84,10 @@ func Normalise(payload []byte) ([]Reading, int, error) {
 			if !canonicalMetrics[v.ValueType] {
 				continue
 			}
-			value, err := strconv.ParseFloat(v.Value, 64)
+			value, err := parseValue(v.Value)
 			if err != nil {
-				// e.g. signal's "-78 dBm". Drop the value, keep the entry.
+				// e.g. signal's "-78 dBm", or a value that arrived as an
+				// unparseable type. Drop the value, keep the entry.
 				continue
 			}
 			// Upstream reports pressure in Pascals; canonical storage is hPa.

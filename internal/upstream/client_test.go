@@ -197,3 +197,122 @@ func TestNormaliseConvertsPressureToHectopascals(t *testing.T) {
 		t.Fatal("no pressure reading in fixture output")
 	}
 }
+
+// TestNormaliseAcceptsBothValueEncodings covers the live schema drift where
+// upstream started sending some sensordatavalues.value fields as a bare JSON
+// number instead of the historical quoted string. Sensor 30001 sends P1 as
+// "24.30" (string); sensor 30002 sends the same value 24.30 as a number.
+// Both must normalise to the identical float64.
+func TestNormaliseAcceptsBothValueEncodings(t *testing.T) {
+	payload, err := os.ReadFile("testdata/bg_sample_value_types.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	readings, _, err := Normalise(payload)
+	if err != nil {
+		t.Fatalf("Normalise: %v", err)
+	}
+
+	var quoted, unquoted *float64
+	for i := range readings {
+		r := &readings[i]
+		if r.Metric != "P1" {
+			continue
+		}
+		switch r.SensorID {
+		case 30001:
+			quoted = &r.Value
+		case 30002:
+			unquoted = &r.Value
+		}
+	}
+	if quoted == nil || unquoted == nil {
+		t.Fatalf("expected P1 readings from both sensor 30001 (quoted) and 30002 (unquoted), got readings=%+v", readings)
+	}
+	if *quoted != *unquoted {
+		t.Errorf("quoted-string P1 = %v, unquoted-number P1 = %v, want equal", *quoted, *unquoted)
+	}
+	if *quoted != 24.30 {
+		t.Errorf("P1 = %v, want 24.30", *quoted)
+	}
+}
+
+// TestNormaliseSkipsSingleBadValueOnly asserts the per-entry tolerance holds
+// even when the payload-level unmarshal would previously have failed
+// outright: sensor 30005 sends a P2 value that is a JSON object, which is
+// neither a numeric string nor a number. That entry alone must be skipped;
+// every other entry in the same payload must still come through.
+//
+// Against the pre-fix code (value typed as a plain Go string) this test
+// fails at the Normalise call itself: json.Unmarshal errors out on the
+// object-typed value field, so err != nil and the whole payload is rejected
+// — not just the one bad entry.
+func TestNormaliseSkipsSingleBadValueOnly(t *testing.T) {
+	payload, err := os.ReadFile("testdata/bg_sample_value_types.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	readings, skipped, err := Normalise(payload)
+	if err != nil {
+		t.Fatalf("Normalise: %v, want the object-valued entry to be skipped, not fail the batch", err)
+	}
+
+	// 30001 (P1), 30002 (P1), 30003 (pressure), 30004 (temperature only —
+	// pressure_at_sealevel is non-canonical and dropped). 30005 contributes
+	// nothing: its only value is object-typed and unparseable.
+	if len(readings) != 4 {
+		t.Errorf("len(readings) = %d, want 4", len(readings))
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1 (sensor 30005, object-typed value)", skipped)
+	}
+	for _, r := range readings {
+		if r.SensorID == 30005 {
+			t.Errorf("sensor 30005 should have been skipped entirely, got reading %+v", r)
+		}
+	}
+}
+
+// TestNormaliseIgnoresPressureAtSealevel asserts pressure_at_sealevel is
+// dropped as non-canonical (it is not in the seven-metric canonical set) and
+// is never confused with "pressure": no reading carries either metric name
+// for sensor 30004, and the genuine "pressure" reading from sensor 30003 is
+// still converted Pascals -> hPa while pressure_at_sealevel is not converted
+// at all (it is simply absent).
+func TestNormaliseIgnoresPressureAtSealevel(t *testing.T) {
+	payload, err := os.ReadFile("testdata/bg_sample_value_types.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	readings, _, err := Normalise(payload)
+	if err != nil {
+		t.Fatalf("Normalise: %v", err)
+	}
+
+	for _, r := range readings {
+		if r.Metric == "pressure_at_sealevel" {
+			t.Fatalf("pressure_at_sealevel must be dropped as non-canonical, got reading %+v", r)
+		}
+		if r.SensorID == 30004 && r.Metric != "temperature" {
+			t.Errorf("sensor 30004 should only yield its canonical temperature reading, got metric %q", r.Metric)
+		}
+	}
+
+	var gotPressure bool
+	for _, r := range readings {
+		if r.SensorID != 30003 || r.Metric != "pressure" {
+			continue
+		}
+		gotPressure = true
+		// 94210.00 Pa -> 942.10 hPa.
+		if r.Value != 942.1 {
+			t.Errorf("pressure = %v hPa, want 942.1 (94210 Pa / 100)", r.Value)
+		}
+	}
+	if !gotPressure {
+		t.Fatal("expected a converted pressure reading from sensor 30003")
+	}
+}

@@ -1,0 +1,48 @@
+[
+  {
+    "id": 200001,
+    "timestamp": "2026-08-08 08:00:00",
+    "location": {"id": 600, "latitude": "42.6957", "longitude": "23.3327", "country": "BG"},
+    "sensor": {"id": 30001, "sensor_type": {"name": "SDS011"}},
+    "sensordatavalues": [
+      {"value_type": "P1", "value": "24.30"}
+    ]
+  },
+  {
+    "id": 200002,
+    "timestamp": "2026-08-08 08:00:00",
+    "location": {"id": 601, "latitude": "42.1354", "longitude": "24.7453", "country": "BG"},
+    "sensor": {"id": 30002, "sensor_type": {"name": "SDS011"}},
+    "sensordatavalues": [
+      {"value_type": "P1", "value": 24.30}
+    ]
+  },
+  {
+    "id": 200003,
+    "timestamp": "2026-08-08 08:00:00",
+    "location": {"id": 602, "latitude": "42.4500", "longitude": "23.9000", "country": "BG"},
+    "sensor": {"id": 30003, "sensor_type": {"name": "BME280"}},
+    "sensordatavalues": [
+      {"value_type": "pressure", "value": 94210.00}
+    ]
+  },
+  {
+    "id": 200004,
+    "timestamp": "2026-08-08 08:00:00",
+    "location": {"id": 603, "latitude": "43.2000", "longitude": "27.9000", "country": "BG"},
+    "sensor": {"id": 30004, "sensor_type": {"name": "BME280"}},
+    "sensordatavalues": [
+      {"value_type": "pressure_at_sealevel", "value": 84409.38},
+      {"value_type": "temperature", "value": "21.50"}
+    ]
+  },
+  {
+    "id": 200005,
+    "timestamp": "2026-08-08 08:00:00",
+    "location": {"id": 604, "latitude": "41.9500", "longitude": "25.5600", "country": "BG"},
+    "sensor": {"id": 30005, "sensor_type": {"name": "SDS011"}},
+    "sensordatavalues": [
+      {"value_type": "P2", "value": {"nested": "object"}}
+    ]
+  }
+]
