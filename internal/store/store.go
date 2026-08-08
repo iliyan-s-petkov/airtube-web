@@ -46,8 +46,8 @@ func (s *Store) UpsertSensors(ctx context.Context, scored []quality.Scored) erro
 }
 
 // WriteReadings persists every scored reading, including flagged ones. Duplicate
-// samples are ignored rather than erroring, so a re-run of the same cycle is
-// safe. Returns the number of statements sent.
+// samples are upserted (value and quality overwritten) rather than erroring,
+// so a re-run of the same cycle is safe. Returns the number of statements sent.
 func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int64, error) {
 	batch := &pgx.Batch{}
 	for _, sc := range scored {
