@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
@@ -186,7 +187,7 @@ func TestUpstreamContractLive(t *testing.T) {
 	}
 
 	metricsSeen := map[string]bool{}
-	var pressureSeen bool
+	var pressures []float64
 	for _, r := range readings {
 		// Every canonical metric must have parsed to a real number and a
 		// valid, non-zero-value timestamp — the two fields whose JSON
@@ -204,13 +205,7 @@ func TestUpstreamContractLive(t *testing.T) {
 		metricsSeen[r.Metric] = true
 
 		if r.Metric == "pressure" {
-			pressureSeen = true
-			// Catches the Pascals -> hPa conversion silently disappearing
-			// (or being applied twice): plausible sea-level-adjusted
-			// pressure the world over sits in this band.
-			if r.Value < 800 || r.Value > 1100 {
-				t.Errorf("sensor %d: pressure = %v hPa, want within 800-1100 — Pa->hPa conversion may be broken", r.SensorID, r.Value)
-			}
+			pressures = append(pressures, r.Value)
 		}
 	}
 
@@ -223,7 +218,28 @@ func TestUpstreamContractLive(t *testing.T) {
 			t.Errorf("no %q readings in live fetch — value_type vocabulary may have changed", want)
 		}
 	}
-	if !pressureSeen {
+
+	if len(pressures) == 0 {
 		t.Log("no pressure readings in this live fetch — cannot verify the Pa->hPa conversion this run")
+	} else {
+		// Individual station-pressure readings are altitude-dependent (a
+		// Musala-altitude sensor at ~2925 m legitimately reads ~710 hPa) and
+		// crowd-sourced hardware contributes outright garbage, so asserting
+		// a band on every reading is a data-quality check wearing a
+		// contract check's clothes — it doesn't belong here. The median is
+		// robust to both: a minority of faulty or high-altitude sensors
+		// cannot move it far, but losing the Pa->hPa /100 conversion moves
+		// it by two orders of magnitude, to roughly 95,000 — nowhere near
+		// any plausible hPa band. The band is deliberately wide (700-1100)
+		// so normal altitude spread across Bulgaria's terrain cannot trip
+		// it; its only job is telling hPa from Pa, a factor-of-100 gap.
+		sort.Float64s(pressures)
+		median := pressures[len(pressures)/2]
+		if len(pressures)%2 == 0 {
+			median = (pressures[len(pressures)/2-1] + pressures[len(pressures)/2]) / 2
+		}
+		if median < 700 || median > 1100 {
+			t.Errorf("median pressure = %v hPa (n=%d), want within 700-1100 — Pa->hPa conversion may be broken", median, len(pressures))
+		}
 	}
 }
