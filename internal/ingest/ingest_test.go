@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/area"
 	"airbg.org/internal/db"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
@@ -36,12 +37,21 @@ func reading(id int64, metric string, value float64, lonOffset float64, ts time.
 	}
 }
 
+// newIngester sets up a migrated database with the national boundary
+// (task 17) already imported, so tests using realistic Bulgarian
+// coordinates (the reading() helper below) are not rejected by the
+// fail-closed absent-boundary path. Tests that specifically need the
+// boundary to be absent (see internal/ingest/boundary_test.go) build their
+// own pool + store instead of using this helper.
 func newIngester(t *testing.T, f ingest.Fetcher) (context.Context, *store.Store, *ingest.Ingester) {
 	t.Helper()
 	ctx := context.Background()
 	pool := testsupport.NewPostgres(t)
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatalf("Migrate: %v", err)
+	}
+	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
+		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
 	st := store.New(pool)
 	return ctx, st, ingest.New(f, st, quality.NewHistory(12))
@@ -243,6 +253,9 @@ func TestLoopReusesHistoryAcrossCycles(t *testing.T) {
 	pool := testsupport.NewPostgres(t)
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatalf("Migrate: %v", err)
+	}
+	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
+		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
 	st := store.New(pool)
 	hist := quality.NewHistory(depth)

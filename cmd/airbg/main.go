@@ -85,7 +85,7 @@ func main() {
 
 	case "import-areas":
 		if len(os.Args) < 4 {
-			fmt.Fprintln(os.Stderr, "usage: airbg import-areas <path.geojson> <city|oblast|neighbourhood>")
+			fmt.Fprintln(os.Stderr, "usage: airbg import-areas <path.geojson> <city|oblast|neighbourhood|country>")
 			os.Exit(2)
 		}
 		n, err := area.Import(ctx, pool, os.Args[2], os.Args[3])

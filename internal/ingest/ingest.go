@@ -50,6 +50,11 @@ type Stats struct {
 	Fetched int
 	Written int
 	Flagged map[quality.Flag]int
+	// RejectedOutsideBoundary counts distinct sensors this cycle whose
+	// coordinates fell outside the national boundary (task 17) and were
+	// therefore dropped before scoring or storage. It stays 0 whenever the
+	// boundary itself was absent — see the fail-closed handling in RunOnce.
+	RejectedOutsideBoundary int
 }
 
 type Ingester struct {
@@ -95,19 +100,57 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 	var pipelineErr error
 
 	if fetchErr == nil {
-		scored = quality.Score(readings, i.history)
 		stats.Fetched = len(readings)
-		for _, s := range scored {
-			stats.Flagged[s.Flag]++
-		}
 
-		if len(scored) > 0 {
-			if err := i.store.UpsertSensors(ctx, scored); err != nil {
-				pipelineErr = fmt.Errorf("ingest: upsert sensors: %w", err)
-			} else if written, err := i.store.WriteReadings(ctx, scored); err != nil {
-				pipelineErr = fmt.Errorf("ingest: write readings: %w", err)
-			} else {
-				stats.Written = int(written)
+		// Geographic filter (task 17): upstream's self-reported country is
+		// not trusted — sensor 48524 reports "BG" from London — so
+		// membership is decided by ST_Covers against the national boundary
+		// instead, before anything reaches quality.Score. Placement matters:
+		// the spatial outlier check derives its median/MAD from geographic
+		// neighbours, and a foreign sensor thousands of kilometres away
+		// would already have distorted that neighbourhood by the time the
+		// scorer saw it. Filtering here means it never does.
+		accepted, rejected, boundaryPresent, filterErr := area.FilterByBoundary(ctx, i.store.Pool(), readings)
+		switch {
+		case filterErr != nil:
+			pipelineErr = fmt.Errorf("ingest: boundary filter: %w", filterErr)
+
+		case !boundaryPresent:
+			// Fail closed: the national boundary (area.kind = "country") has
+			// never been imported, so there is nothing to test membership
+			// against. Ingesting everything unfiltered here would silently
+			// reopen exactly the hole this task closes — a foreign sensor
+			// corrupting the spatial quality check with no visible symptom
+			// until someone notices bad data downstream. Instead this cycle
+			// stores nothing and says so at ERROR level: loud, immediately
+			// visible in logs and (via stats.Written staying 0) in metrics,
+			// and trivially recoverable with one already-existing command
+			// (`airbg import-areas <geojson> country`) rather than requiring
+			// anyone to hunt down and repair corrupted statistics after the
+			// fact.
+			slog.Error("national boundary not imported — rejecting entire batch this cycle (fail closed)",
+				"fetched", stats.Fetched)
+
+		default:
+			stats.RejectedOutsideBoundary = rejected
+			if rejected > 0 {
+				slog.Warn("rejected sensors outside national boundary",
+					"sensors", rejected)
+			}
+
+			scored = quality.Score(accepted, i.history)
+			for _, s := range scored {
+				stats.Flagged[s.Flag]++
+			}
+
+			if len(scored) > 0 {
+				if err := i.store.UpsertSensors(ctx, scored); err != nil {
+					pipelineErr = fmt.Errorf("ingest: upsert sensors: %w", err)
+				} else if written, err := i.store.WriteReadings(ctx, scored); err != nil {
+					pipelineErr = fmt.Errorf("ingest: write readings: %w", err)
+				} else {
+					stats.Written = int(written)
+				}
 			}
 		}
 	}

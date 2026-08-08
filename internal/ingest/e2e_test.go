@@ -62,6 +62,13 @@ func TestEndToEndFromRecordedPayload(t *testing.T) {
 	if _, err := area.Import(ctx, pool, "../area/testdata/sofia.geojson", "city"); err != nil {
 		t.Fatalf("area.Import: %v", err)
 	}
+	// The national boundary (task 17) must exist too, or RunOnce's
+	// geographic filter fails closed and rejects every sensor before
+	// scoring ever runs — this test would then see stats.Written == 0
+	// instead of exercising the pipeline it's meant to verify end-to-end.
+	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
+		t.Fatalf("area.Import(bulgaria): %v", err)
+	}
 
 	client := upstream.New(srv.URL, 10*time.Second)
 	ing := ingest.New(client, store.New(pool), quality.NewHistory(12))
