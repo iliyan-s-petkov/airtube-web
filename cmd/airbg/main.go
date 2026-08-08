@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"airbg.org/internal/area"
+	"airbg.org/internal/backfill"
 	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/ingest"
@@ -52,6 +54,34 @@ func main() {
 		client := upstream.New(cfg.UpstreamURL, 30*time.Second)
 		ing := ingest.New(client, store.New(pool), quality.NewHistory(12))
 		ing.Loop(ctx, cfg.PollInterval)
+
+	case "backfill":
+		if len(os.Args) < 4 {
+			fmt.Fprintln(os.Stderr, "usage: airbg backfill <sensor_id> <archive-csv-path>")
+			os.Exit(2)
+		}
+		sensorID, err := strconv.ParseInt(os.Args[2], 10, 64)
+		if err != nil {
+			slog.Error("backfill", "error", err)
+			os.Exit(1)
+		}
+		f, err := os.Open(os.Args[3])
+		if err != nil {
+			slog.Error("backfill", "error", err)
+			os.Exit(1)
+		}
+		buckets, err := backfill.ParseCSV(f, sensorID)
+		f.Close()
+		if err != nil {
+			slog.Error("backfill", "error", err)
+			os.Exit(1)
+		}
+		n, err := backfill.WriteBuckets(ctx, pool, buckets)
+		if err != nil {
+			slog.Error("backfill", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("backfill complete", "sensor_id", sensorID, "buckets", n)
 
 	case "import-areas":
 		if len(os.Args) < 4 {
