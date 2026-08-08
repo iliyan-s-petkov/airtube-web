@@ -56,10 +56,24 @@ type Ingester struct {
 	fetcher Fetcher
 	store   *store.Store
 	history *quality.History
+	now     func() time.Time
 }
 
 func New(f Fetcher, s *store.Store, hist *quality.History) *Ingester {
-	return &Ingester{fetcher: f, store: s, history: hist}
+	return &Ingester{fetcher: f, store: s, history: hist, now: time.Now}
+}
+
+// SetClockForTesting overrides RunOnce's notion of "now" and returns a
+// function that restores the previous clock. Without this, a test wanting
+// to assert on the exact bucket RunOnce rolls up would have to compute
+// store.TruncateHour(time.Now()) itself and hope no hour boundary falls
+// between that call and RunOnce's own internal time.Now() call — a real,
+// if rare, source of flaky failures. Pinning both to the same value removes
+// it (task-16 review round 2, flaky-test finding).
+func (i *Ingester) SetClockForTesting(clock func() time.Time) (restore func()) {
+	prev := i.now
+	i.now = clock
+	return func() { i.now = prev }
 }
 
 // RunOnce performs a single cycle: fetch, score, persist, roll up.
@@ -102,7 +116,7 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 	// step must run even when there is no batch at all this cycle (fetch
 	// failed, or returned nothing), so it cannot depend on batch data being
 	// present (task-16 review finding 2).
-	rollupErr := i.rollupBacklog(ctx, time.Now())
+	rollupErr := i.rollupBacklog(ctx, i.now())
 
 	switch {
 	case fetchErr != nil:
@@ -134,23 +148,34 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 // rollupBacklog drains the rollup backlog (capped at maxBucketsPerTick) and,
 // if the gap between the watermark and the current hour has crossed
 // backlogAlertThreshold, logs at ERROR with enough detail to act on.
+//
+// The gap is evaluated whenever RollupBacklog returned a usable watermark,
+// independent of whether it also returned an error (task-16 review round 2,
+// finding 1 residual). A database problem severe enough to stall the
+// rollup — a single bucket's transaction failing, or the end-of-call
+// previous-hour reconcile failing — is exactly the scenario in which the
+// backlog grows toward the retention boundary; it must not be the same
+// condition that silences the alert meant to catch it. RollupBacklog
+// itself makes a best-effort attempt to return whatever watermark is
+// actually on record even when it errors, so watermark.IsZero() is the
+// right "nothing usable at all" signal here, not err != nil.
 func (i *Ingester) rollupBacklog(ctx context.Context, now time.Time) error {
-	_, watermark, err := i.store.RollupBacklog(ctx, now, maxBucketsPerTick)
-	if err != nil {
-		return err
+	_, watermark, rollupErr := i.store.RollupBacklog(ctx, now, maxBucketsPerTick)
+
+	if !watermark.IsZero() {
+		current := store.TruncateHour(now)
+		gap := BacklogHours(watermark, current)
+		if gap >= backlogAlertThreshold {
+			slog.Error("rollup backlog approaching raw retention boundary",
+				"watermark_bucket", watermark,
+				"current_bucket", current,
+				"gap_hours", gap,
+				"margin_hours", RawRetentionHours-gap,
+			)
+		}
 	}
 
-	current := store.TruncateHour(now)
-	gap := BacklogHours(watermark, current)
-	if gap >= backlogAlertThreshold {
-		slog.Error("rollup backlog approaching raw retention boundary",
-			"watermark_bucket", watermark,
-			"current_bucket", current,
-			"gap_hours", gap,
-			"margin_hours", RawRetentionHours-gap,
-		)
-	}
-	return nil
+	return rollupErr
 }
 
 // BacklogHours returns the whole number of hours between the watermark

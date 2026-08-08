@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -423,12 +424,12 @@ func TestRollupBacklogIsIdempotentOverAlreadyRolledUpRange(t *testing.T) {
 //
 // It uses SetRollupBacklogHookForTesting to deterministically cancel the
 // context after the 3rd of 8 outstanding buckets, forcing the 4th bucket's
-// transaction to fail. Before task-16 review finding 3's fix (tracking the
-// watermark locally through the loop instead of re-reading it from the
-// database), a local accumulator would still report the bucket the loop was
-// working on when the failure happened, overstating progress — a difference
-// this test would have caught, since it queries the database directly for
-// ground truth rather than trusting the local return value's bookkeeping.
+// transaction to fail. Note this test only reads database ground truth via
+// a fresh s.Watermark(ctx) call — it never inspects RollupBacklog's own
+// returned watermark — so it does not exercise finding 3 (whether the
+// *returned* value can diverge from the database). Finding 3 is pinned
+// separately, indirectly, by the alert tests in internal/ingest comparing
+// the logged gap_hours against a fresh database read.
 func TestRollupBacklogStopsExactlyWhereADrainFails(t *testing.T) {
 	ctx, _, s := newStore(t)
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -495,6 +496,128 @@ func TestRollupBacklogStopsExactlyWhereADrainFails(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("bucket %v has %d aggregate rows, want 0 — it must not have committed once the context was cancelled", failedBucket, count)
+	}
+}
+
+// TestRollupBacklogReAggregatesPreviousHourAfterLateArrival is task-16
+// review round 2's regression test for finding 5: it pins the actual
+// data-loss scenario the previous-hour reconcile exists to prevent, not
+// just that the reconcile code runs. A reading lands in hour H *after* a
+// tick has already rolled H up and advanced the watermark past it (clock
+// skew, delivery lag); a later tick must still pick it up. Before the
+// reconcile existed, deleting that block left every other test passing —
+// this is the test that would have caught its absence.
+func TestRollupBacklogReAggregatesPreviousHourAfterLateArrival(t *testing.T) {
+	ctx, pool, s := newStore(t)
+	h := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+
+	early := []quality.Scored{sample(1, "P1", 10, quality.FlagOK, h.Add(time.Minute))}
+	if err := s.UpsertSensors(ctx, early); err != nil {
+		t.Fatalf("UpsertSensors (early): %v", err)
+	}
+	if _, err := s.WriteReadings(ctx, early); err != nil {
+		t.Fatalf("WriteReadings (early): %v", err)
+	}
+
+	// Tick 1: current = H. Rolls up H and advances the watermark to H.
+	if _, watermark, err := s.RollupBacklog(ctx, h, 24); err != nil {
+		t.Fatalf("RollupBacklog (tick 1): %v", err)
+	} else if !watermark.Equal(h) {
+		t.Fatalf("watermark after tick 1 = %v, want %v", watermark, h)
+	}
+
+	var countBefore int
+	if err := pool.QueryRow(ctx,
+		`SELECT sample_count FROM reading_hourly WHERE sensor_id = 1 AND metric = 'P1' AND bucket = $1`,
+		h).Scan(&countBefore); err != nil {
+		t.Fatalf("read rollup after tick 1: %v", err)
+	}
+	if countBefore != 1 {
+		t.Fatalf("sample_count after tick 1 = %d, want 1", countBefore)
+	}
+
+	// A reading lands in H after the tick that already rolled H up and moved
+	// the watermark past it.
+	late := []quality.Scored{sample(1, "P1", 999, quality.FlagOK, h.Add(45*time.Minute))}
+	if err := s.UpsertSensors(ctx, late); err != nil {
+		t.Fatalf("UpsertSensors (late): %v", err)
+	}
+	if _, err := s.WriteReadings(ctx, late); err != nil {
+		t.Fatalf("WriteReadings (late): %v", err)
+	}
+
+	// Tick 2: current advances to H+1h. The main loop only touches H+1h;
+	// only the previous-hour reconcile re-rolls H.
+	if _, watermark, err := s.RollupBacklog(ctx, h.Add(time.Hour), 24); err != nil {
+		t.Fatalf("RollupBacklog (tick 2): %v", err)
+	} else if !watermark.Equal(h.Add(time.Hour)) {
+		t.Fatalf("watermark after tick 2 = %v, want %v", watermark, h.Add(time.Hour))
+	}
+
+	var countAfter int
+	if err := pool.QueryRow(ctx,
+		`SELECT sample_count FROM reading_hourly WHERE sensor_id = 1 AND metric = 'P1' AND bucket = $1`,
+		h).Scan(&countAfter); err != nil {
+		t.Fatalf("read rollup after tick 2: %v", err)
+	}
+	if countAfter != 2 {
+		t.Errorf("sample_count for bucket H after the late arrival + reconcile = %d, want 2 — the late reading was not picked up", countAfter)
+	}
+}
+
+// TestRollupBacklogReturnsCommittedWatermarkOnMidDrainFailure is task-16
+// review round 2's regression test for finding 1's residual: when a
+// bucket's own transaction fails partway through the drain (pool
+// exhaustion, a transient DB error — simulated here via
+// SetRollupBacklogFailureForTesting so the context itself stays healthy),
+// RollupBacklog must still return whatever watermark actually committed
+// before the failure, not the zero time. The caller (internal/ingest)
+// depends on this to keep alerting on a genuine backlog even when the drain
+// call itself errors.
+func TestRollupBacklogReturnsCommittedWatermarkOnMidDrainFailure(t *testing.T) {
+	ctx, _, s := newStore(t)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	if _, _, err := s.RollupBacklog(ctx, base.Add(-time.Hour), 24); err != nil {
+		t.Fatalf("seed watermark: %v", err)
+	}
+
+	var scored []quality.Scored
+	for i := 0; i < 8; i++ {
+		scored = append(scored, sample(1, "P1", float64(i), quality.FlagOK, base.Add(time.Duration(i)*time.Hour+time.Minute)))
+	}
+	if err := s.UpsertSensors(ctx, scored); err != nil {
+		t.Fatalf("UpsertSensors: %v", err)
+	}
+	if _, err := s.WriteReadings(ctx, scored); err != nil {
+		t.Fatalf("WriteReadings: %v", err)
+	}
+
+	wantErr := errors.New("simulated transient DB error")
+	const failAfter = 3
+	restore := store.SetRollupBacklogFailureForTesting(func(processed int) error {
+		if processed == failAfter {
+			return wantErr
+		}
+		return nil
+	})
+	defer restore()
+
+	current := base.Add(7 * time.Hour) // 8 buckets outstanding: base .. base+7h
+	processed, watermark, err := s.RollupBacklog(ctx, current, 24)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("RollupBacklog err = %v, want %v", err, wantErr)
+	}
+	if processed != failAfter {
+		t.Fatalf("processed = %d, want %d", processed, failAfter)
+	}
+
+	wantWatermark := base.Add(time.Duration(failAfter-1) * time.Hour)
+	if watermark.IsZero() {
+		t.Fatal("RollupBacklog returned the zero time alongside the error — the committed watermark was discarded instead of read back")
+	}
+	if !watermark.Equal(wantWatermark) {
+		t.Fatalf("returned watermark = %v, want %v (exactly what committed before the injected failure)", watermark, wantWatermark)
 	}
 }
 

@@ -32,7 +32,13 @@ import (
 func TestRunOnceDrainsRollupBacklog(t *testing.T) {
 	ctx, st, _ := newIngester(t, nil)
 
-	current := store.TruncateHour(time.Now())
+	// Pinned once and reused everywhere "now" matters, including inside
+	// RunOnce via SetClockForTesting below — avoids computing
+	// TruncateHour(time.Now()) independently in the test and inside RunOnce,
+	// which could disagree if an hour boundary fell between the two calls
+	// (task-16 review round 2, flaky-test finding).
+	now := time.Now()
+	current := store.TruncateHour(now)
 	base := current.Add(-6 * time.Hour)
 	backlogHours := []time.Time{base, base.Add(time.Hour), base.Add(2 * time.Hour)}
 
@@ -59,9 +65,11 @@ func TestRunOnceDrainsRollupBacklog(t *testing.T) {
 		t.Fatalf("seed watermark: %v", err)
 	}
 
-	// A new cycle's data lands in the real current hour.
-	f := stubFetcher{readings: []upstream.Reading{reading(2, "P1", 99, 0.05, time.Now())}}
+	// A new cycle's data lands in the pinned current hour.
+	f := stubFetcher{readings: []upstream.Reading{reading(2, "P1", 99, 0.05, now)}}
 	ing := ingest.New(f, st, quality.NewHistory(12))
+	restore := ing.SetClockForTesting(func() time.Time { return now })
+	defer restore()
 
 	if _, err := ing.RunOnce(ctx); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -147,6 +155,83 @@ func TestRunOnceDrainsBacklogEvenWhenFetchFails(t *testing.T) {
 	attrs := handler.findByMessage(slog.LevelError, backlogAlertMsg)
 	if attrs == nil {
 		t.Fatal("expected ERROR backlog alert during a fetch failure, none found — the alert must not be silenced by a fetch error")
+	}
+}
+
+// TestBacklogAlertFiresDespiteRollupError is task-16 review round 2's
+// regression test for finding 1's residual: rollupBacklog returned early on
+// err != nil *before* evaluating the gap, so a failure inside
+// store.RollupBacklog itself (not just a failed fetch) silenced the alert
+// too — the same bug one layer deeper. It seeds a large backlog, then uses
+// store.SetRollupBacklogFailureForTesting to make one bucket's transaction
+// fail partway through the drain (simulating pool exhaustion or a transient
+// DB error, without breaking the context itself), and asserts the alert
+// still fires using the watermark RollupBacklog managed to commit before
+// the failure.
+//
+// Against a version where rollupBacklog returns immediately on err != nil
+// without evaluating the gap, this fails: no ERROR is logged even though a
+// large, genuine backlog remains and a usable watermark was available.
+func TestBacklogAlertFiresDespiteRollupError(t *testing.T) {
+	ctx, st, _ := newIngester(t, nil)
+
+	now := time.Now()
+	current := store.TruncateHour(now)
+	// Comfortably larger than maxBucketsPerTick (24) and the alert
+	// threshold (168h), so stopping the drain a few buckets in still
+	// leaves a large, genuine outstanding gap.
+	staleWatermark := now.Add(-300 * time.Hour)
+	if _, _, err := st.RollupBacklog(ctx, staleWatermark, 24); err != nil {
+		t.Fatalf("seed stale watermark: %v", err)
+	}
+
+	wantErr := errors.New("simulated transient DB error")
+	const failAfter = 3
+	restoreFailure := store.SetRollupBacklogFailureForTesting(func(processed int) error {
+		if processed == failAfter {
+			return wantErr
+		}
+		return nil
+	})
+	defer restoreFailure()
+
+	handler := &recordingHandler{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(prev)
+
+	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, now)}}
+	ing := ingest.New(f, st, quality.NewHistory(12))
+	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
+	defer restoreClock()
+
+	if _, err := ing.RunOnce(ctx); !errors.Is(err, wantErr) {
+		t.Fatalf("RunOnce err = %v, want it to wrap %v (the rollup error must still surface)", err, wantErr)
+	}
+
+	gotBucket, _, found, err := st.Watermark(ctx)
+	if err != nil {
+		t.Fatalf("Watermark: %v", err)
+	}
+	if !found {
+		t.Fatal("watermark missing after RunOnce")
+	}
+
+	wantGap := ingest.BacklogHours(gotBucket, current)
+	if wantGap < 168 {
+		t.Fatalf("test setup invalid: gap %d fell under threshold after the partial drain", wantGap)
+	}
+
+	attrs := handler.findByMessage(slog.LevelError, backlogAlertMsg)
+	if attrs == nil {
+		t.Fatal("expected ERROR backlog alert despite RollupBacklog erroring, none found — a valid watermark was available and must not be discarded alongside the error")
+	}
+	gotGap, ok := attrs["gap_hours"].(int64)
+	if !ok {
+		t.Fatalf("gap_hours attribute missing or wrong type: %#v", attrs["gap_hours"])
+	}
+	if gotGap != int64(wantGap) {
+		t.Errorf("logged gap_hours = %d, want %d", gotGap, wantGap)
 	}
 }
 

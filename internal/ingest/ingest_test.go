@@ -123,12 +123,17 @@ func TestRawRetentionHoursMatchesLivePolicy(t *testing.T) {
 func TestRunOnceUpdatesRollup(t *testing.T) {
 	// The rollup step is anchored to wall-clock time (task-16 review finding
 	// 2), not to this reading's own timestamp, so the reading must actually
-	// land in the real current hour for the rollup to pick it up.
+	// land in the hour RunOnce rolls up. Pinning RunOnce's clock to the same
+	// ts used for the reading (task-16 review round 2, flaky-test finding)
+	// avoids relying on time.Now() called separately in the test and inside
+	// RunOnce landing in the same hour.
 	ts := time.Now().UTC()
 	f := stubFetcher{readings: []upstream.Reading{
 		reading(1, "P1", 20, 0, ts),
 	}}
 	ctx, st, ing := newIngester(t, f)
+	restore := ing.SetClockForTesting(func() time.Time { return ts })
+	defer restore()
 
 	if _, err := ing.RunOnce(ctx); err != nil {
 		t.Fatalf("RunOnce: %v", err)

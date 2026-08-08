@@ -103,6 +103,10 @@ func (s *Store) rollupAndAdvance(ctx context.Context, bucket time.Time) (int64, 
 // overshoot — even when a later bucket in the same call fails (task-16
 // review finding 6). Production code never sets it; see
 // SetRollupBacklogHookForTesting.
+//
+// Package-level and unsynchronised: acceptable because store tests that use
+// it run non-parallel (no t.Parallel() in this package), so there is never
+// more than one test installing or consulting it at a time.
 var rollupBacklogHook func(processed int, bucket time.Time)
 
 // SetRollupBacklogHookForTesting installs h as RollupBacklog's per-bucket
@@ -113,6 +117,28 @@ func SetRollupBacklogHookForTesting(h func(processed int, bucket time.Time)) (re
 	prev := rollupBacklogHook
 	rollupBacklogHook = h
 	return func() { rollupBacklogHook = prev }
+}
+
+// rollupBacklogFailure, when non-nil, is consulted after each bucket in
+// RollupBacklog's main drain loop commits successfully; if it returns a
+// non-nil error for the given processed count, the loop stops as though
+// that bucket's own transaction had failed. It exists so a test can
+// deterministically simulate a single bucket's transaction failing (pool
+// exhaustion, a transient DB error) while leaving the context otherwise
+// healthy — unlike cancelling the context (rollupBacklogHook's usual use),
+// which would also break the best-effort watermark read-back this failure
+// path performs, making it impossible to prove that read-back actually
+// recovers a valid watermark (task-16 review round 2, finding 1 residual).
+// Production code never sets it; see SetRollupBacklogFailureForTesting.
+var rollupBacklogFailure func(processed int) error
+
+// SetRollupBacklogFailureForTesting installs f as RollupBacklog's per-bucket
+// failure injector and returns a function that restores the previous one.
+// Production code must never call it.
+func SetRollupBacklogFailureForTesting(f func(processed int) error) (restore func()) {
+	prev := rollupBacklogFailure
+	rollupBacklogFailure = f
+	return func() { rollupBacklogFailure = prev }
 }
 
 // RollupBacklog rolls up every bucket from just after the watermark through
@@ -170,11 +196,16 @@ func (s *Store) RollupBacklog(ctx context.Context, now time.Time, maxBuckets int
 
 	for bucket := start; processed < maxBuckets && !bucket.After(current); bucket = bucket.Add(time.Hour) {
 		if _, err := s.rollupAndAdvance(ctx, bucket); err != nil {
-			return processed, time.Time{}, err
+			return s.watermarkOrZero(ctx, processed, err)
 		}
 		processed++
 		if rollupBacklogHook != nil {
 			rollupBacklogHook(processed, bucket)
+		}
+		if rollupBacklogFailure != nil {
+			if err := rollupBacklogFailure(processed); err != nil {
+				return s.watermarkOrZero(ctx, processed, err)
+			}
 		}
 	}
 
@@ -193,9 +224,29 @@ func (s *Store) RollupBacklog(ctx context.Context, now time.Time, maxBuckets int
 	previousHour := current.Add(-time.Hour)
 	if !watermark.Before(previousHour) {
 		if _, err := s.rollupAndAdvance(ctx, previousHour); err != nil {
+			// watermark here is already the value freshly read above, not
+			// discarded on this error — the caller's backlog alert needs
+			// it just as much as on a mid-loop failure (task-16 review
+			// round 2, finding 1 residual).
 			return processed, watermark, err
 		}
 	}
 
 	return processed, watermark, nil
+}
+
+// watermarkOrZero performs a best-effort read of the current watermark for
+// use alongside a drain failure. A bucket's transaction failing partway
+// through the loop must not also throw away whatever earlier buckets in the
+// same call already committed: the caller's backlog alert depends on
+// knowing the real, currently-outstanding gap precisely when something is
+// going wrong, not only on a clean run (task-16 review round 2, finding 1
+// residual). If even this read fails — the context itself is unusable, not
+// just the one transaction — there is nothing left to report, so the zero
+// time is returned as "no usable watermark".
+func (s *Store) watermarkOrZero(ctx context.Context, processed int, err error) (int, time.Time, error) {
+	if wm, _, found, wmErr := s.Watermark(ctx); wmErr == nil && found {
+		return processed, wm, err
+	}
+	return processed, time.Time{}, err
 }
