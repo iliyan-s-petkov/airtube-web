@@ -21,9 +21,9 @@ const maxPayloadBytes = 64 << 20
 type apiEntry struct {
 	Timestamp string `json:"timestamp"`
 	Location  struct {
-		Latitude  string `json:"latitude"`
-		Longitude string `json:"longitude"`
-		Country   string `json:"country"`
+		Latitude  json.RawMessage `json:"latitude"`
+		Longitude json.RawMessage `json:"longitude"`
+		Country   string          `json:"country"`
 	} `json:"location"`
 	Sensor struct {
 		ID         int64 `json:"id"`
@@ -37,14 +37,17 @@ type apiEntry struct {
 	} `json:"sensordatavalues"`
 }
 
-// parseValue accepts upstream's two observed encodings of a sensor value: a
+// parseValue accepts upstream's two observed encodings of a numeric field: a
 // quoted numeric string (the historical shape, e.g. "23.50") and a bare JSON
-// number (seen on some fields, e.g. pressure_at_sealevel: 84409.38). Anything
-// else (an object, array, non-numeric string, null, …) is reported as an
-// error so the caller can drop just that value — never the whole entry or
-// the whole payload. This is the same tolerance the legacy string-only
-// parser had for junk like signal's "-78 dBm", extended to cover a value
-// that also changes JSON type across entries.
+// number (seen on some fields, e.g. pressure_at_sealevel: 84409.38, and on
+// latitude/longitude for at least one entry in the wild). Anything else (an
+// object, array, non-numeric string, null, …) is reported as an error so the
+// caller can drop just that value — never the whole entry or the whole
+// payload. This is the same tolerance the legacy string-only parser had for
+// junk like signal's "-78 dBm", extended to cover any field that changes
+// JSON type across entries. Used for sensordatavalues.value as well as
+// location.latitude/longitude — the two other fields most likely to drift
+// the same way, for the same reason.
 func parseValue(raw json.RawMessage) (float64, error) {
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
@@ -59,20 +62,33 @@ func parseValue(raw json.RawMessage) (float64, error) {
 
 // Normalise converts an upstream payload into canonical readings. It returns the
 // readings, the number of entries skipped as unusable, and an error only when
-// the payload as a whole cannot be parsed. A single malformed entry never fails
-// the batch (spec §10).
+// the payload as a whole cannot be parsed (i.e. it is not even a JSON array).
+// A single malformed entry never fails the batch (spec §10): decoding happens
+// per element, so a structural drift in one entry — a field renamed, retyped
+// (e.g. sensor.id sent as a string, latitude sent as an unquoted number), or
+// sensordatavalues sent as an object instead of an array — only drops that
+// entry, never the rest of the payload.
 func Normalise(payload []byte) ([]Reading, int, error) {
-	var entries []apiEntry
-	if err := json.Unmarshal(payload, &entries); err != nil {
+	var rawEntries []json.RawMessage
+	if err := json.Unmarshal(payload, &rawEntries); err != nil {
 		return nil, 0, fmt.Errorf("upstream: parse payload: %w", err)
 	}
 
-	readings := make([]Reading, 0, len(entries)*2)
+	readings := make([]Reading, 0, len(rawEntries)*2)
 	skipped := 0
 
-	for _, e := range entries {
-		lat, errLat := strconv.ParseFloat(e.Location.Latitude, 64)
-		lon, errLon := strconv.ParseFloat(e.Location.Longitude, 64)
+	for _, raw := range rawEntries {
+		var e apiEntry
+		if err := json.Unmarshal(raw, &e); err != nil {
+			// Structural drift confined to this one entry (wrong type for a
+			// field, sensordatavalues not an array, …). Drop the entry, keep
+			// the batch.
+			skipped++
+			continue
+		}
+
+		lat, errLat := parseValue(e.Location.Latitude)
+		lon, errLon := parseValue(e.Location.Longitude)
 		ts, errTS := time.Parse(upstreamTimeLayout, e.Timestamp)
 		if errLat != nil || errLon != nil || errTS != nil || e.Sensor.ID == 0 {
 			skipped++

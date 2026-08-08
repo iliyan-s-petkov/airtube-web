@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -314,5 +315,76 @@ func TestNormaliseIgnoresPressureAtSealevel(t *testing.T) {
 	}
 	if !gotPressure {
 		t.Fatal("expected a converted pressure reading from sensor 30003")
+	}
+}
+
+// TestNormaliseSkipsStructurallyBrokenEntriesOnly is Finding 1 from the
+// task-14 review: the "one bad entry never fails the batch" guarantee has to
+// hold at the level of the whole entry, not just the value field. This
+// payload mixes three good entries with two structurally different ones:
+// sensor 40003 sends sensor.id as a quoted string instead of a number, and
+// sensor 40004 sends sensordatavalues as a JSON object instead of an array.
+// Sensor 40002 also exercises latitude/longitude sent as bare JSON numbers
+// (rather than the historical quoted string) to prove that tolerance too.
+//
+// Against the pre-fix code (single json.Unmarshal(payload, &[]apiEntry))
+// this fails at the Normalise call itself: any one of the two structural
+// mismatches aborts decoding of the entire array, so err != nil and every
+// good entry is lost along with the bad ones.
+func TestNormaliseSkipsStructurallyBrokenEntriesOnly(t *testing.T) {
+	payload, err := os.ReadFile("testdata/bg_sample_entry_drift.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	readings, skipped, err := Normalise(payload)
+	if err != nil {
+		t.Fatalf("Normalise: %v, want structurally broken entries to be skipped, not fail the batch", err)
+	}
+
+	if len(readings) != 3 {
+		t.Errorf("len(readings) = %d, want 3 (sensors 40001, 40002, 40005)", len(readings))
+	}
+	if skipped != 2 {
+		t.Errorf("skipped = %d, want 2 (sensor 40003: id as string; sensor 40004: sensordatavalues as object)", skipped)
+	}
+
+	want := map[int64]bool{40001: true, 40002: true, 40005: true}
+	for _, r := range readings {
+		if !want[r.SensorID] {
+			t.Errorf("unexpected sensor %d in output; expected only %v", r.SensorID, want)
+		}
+		delete(want, r.SensorID)
+	}
+	if len(want) != 0 {
+		t.Errorf("missing readings for sensors %v", want)
+	}
+
+	// Sensor 40002 sent latitude/longitude as bare numbers; confirm they
+	// parsed to the expected coordinates, not zero or an error swallowed
+	// silently.
+	for _, r := range readings {
+		if r.SensorID != 40002 {
+			continue
+		}
+		if r.Lat != 42.1354 || r.Lon != 24.7453 {
+			t.Errorf("sensor 40002 coords = (%v, %v), want (24.7453, 42.1354)", r.Lon, r.Lat)
+		}
+	}
+}
+
+// TestParseValueRejectsNull pins Minor 4 from the task-14 review: JSON null
+// must be rejected as an unparseable value, not silently normalised to 0.0.
+// json.Unmarshal([]byte("null"), &s) is a documented no-op that leaves s
+// untouched (empty string) and returns a nil error, so today this falls
+// through to strconv.ParseFloat("") and correctly errors — but only because
+// of the specific branch order in parseValue. A reordering (e.g. trying the
+// float64 branch first) would make json.Unmarshal([]byte("null"), &f) a
+// no-op returning nil error too, silently yielding 0.0. This test exists so
+// that regression is caught explicitly rather than by accident.
+func TestParseValueRejectsNull(t *testing.T) {
+	_, err := parseValue(json.RawMessage("null"))
+	if err == nil {
+		t.Fatal("parseValue(null) = nil error, want an error — null is not a valid reading")
 	}
 }

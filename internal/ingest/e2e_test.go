@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/area"
 	"airbg.org/internal/db"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
@@ -34,6 +35,17 @@ func TestEndToEndFromRecordedPayload(t *testing.T) {
 	pool := testsupport.NewPostgres(t)
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatalf("Migrate: %v", err)
+	}
+
+	// Sofia (23.2-23.5, 42.6-42.8) and Plovdiv (24.6-24.9, 42.0-42.2) cover
+	// exactly the two sensors in bg_sample.json: sensor 12345 at
+	// (23.3327, 42.6957) falls inside Sofia, sensor 12346 at
+	// (24.7453, 42.1354) falls inside Plovdiv. Imported before RunOnce so
+	// AssignSensors (called at the end of RunOnce) has a boundary to match
+	// against — otherwise it necessarily assigns zero sensors and the call
+	// only proves "did not error", not that assignment works.
+	if _, err := area.Import(ctx, pool, "../area/testdata/sofia.geojson", "city"); err != nil {
+		t.Fatalf("area.Import: %v", err)
 	}
 
 	client := upstream.New(srv.URL, 10*time.Second)
@@ -68,12 +80,72 @@ func TestEndToEndFromRecordedPayload(t *testing.T) {
 		t.Errorf("%d sensors stored outside Bulgaria — coordinates swapped", outside)
 	}
 
+	// The rollup must land in the exact bucket the fixture readings fall
+	// into (2026-08-07 12:00:00 UTC, since every entry shares that
+	// timestamp and TruncateHour is a no-op on it already), and must carry
+	// the aggregate values the fixture readings actually produce — not just
+	// "some row exists somewhere". A rollup that wrote one garbage row in
+	// the wrong bucket would pass a bare count(*) > 0 check.
+	wantBucket := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+
 	var hourly int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM reading_hourly`).Scan(&hourly); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM reading_hourly WHERE bucket = $1`, wantBucket).Scan(&hourly); err != nil {
 		t.Fatalf("count rollup: %v", err)
 	}
-	if hourly == 0 {
-		t.Error("no hourly rollup rows after a cycle")
+	// 12345/P1, 12345/P2, 12346/temperature, 12346/humidity, 12346/pressure.
+	if hourly != 5 {
+		t.Errorf("hourly rollup rows in bucket %v = %d, want 5", wantBucket, hourly)
+	}
+
+	var p1Avg float64
+	var p1Samples int
+	err = pool.QueryRow(ctx,
+		`SELECT avg_value, sample_count FROM reading_hourly
+		 WHERE sensor_id = 12345 AND metric = 'P1' AND bucket = $1`, wantBucket).
+		Scan(&p1Avg, &p1Samples)
+	if err != nil {
+		t.Fatalf("read P1 rollup: %v", err)
+	}
+	if p1Avg != 24.30 {
+		t.Errorf("sensor 12345 P1 avg_value = %v, want 24.30", p1Avg)
+	}
+	if p1Samples != 1 {
+		t.Errorf("sensor 12345 P1 sample_count = %d, want 1", p1Samples)
+	}
+
+	var pressureAvg float64
+	err = pool.QueryRow(ctx,
+		`SELECT avg_value FROM reading_hourly
+		 WHERE sensor_id = 12346 AND metric = 'pressure' AND bucket = $1`, wantBucket).
+		Scan(&pressureAvg)
+	if err != nil {
+		t.Fatalf("read pressure rollup: %v", err)
+	}
+	// 94210.00 Pa / 100 = 942.10 hPa.
+	if pressureAvg != 942.1 {
+		t.Errorf("sensor 12346 pressure avg_value = %v hPa, want 942.1 — Pa->hPa conversion may not have survived the rollup", pressureAvg)
+	}
+
+	// Area assignment: RunOnce calls area.AssignSensors as its last step.
+	// Confirm both fixture sensors actually landed in the boundary imported
+	// above, in the correct city each — not just that AssignSensors ran
+	// without error against an empty area table.
+	var sofiaSlug string
+	err = pool.QueryRow(ctx, `SELECT area_slug FROM area_sensor WHERE sensor_id = 12345`).Scan(&sofiaSlug)
+	if err != nil {
+		t.Fatalf("read area assignment for sensor 12345: %v — sensor was not assigned to any area", err)
+	}
+	if sofiaSlug != "sofia" {
+		t.Errorf("sensor 12345 area_slug = %q, want %q", sofiaSlug, "sofia")
+	}
+
+	var plovdivSlug string
+	err = pool.QueryRow(ctx, `SELECT area_slug FROM area_sensor WHERE sensor_id = 12346`).Scan(&plovdivSlug)
+	if err != nil {
+		t.Fatalf("read area assignment for sensor 12346: %v — sensor was not assigned to any area", err)
+	}
+	if plovdivSlug != "plovdiv" {
+		t.Errorf("sensor 12346 area_slug = %q, want %q", plovdivSlug, "plovdiv")
 	}
 }
 
@@ -102,7 +174,19 @@ func TestUpstreamContractLive(t *testing.T) {
 	if len(readings) == 0 {
 		t.Fatal("live fetch returned no readings — upstream schema may have changed")
 	}
+	// A plausible-sized country-wide fetch. If the value_type vocabulary or
+	// the array-vs-object shape of sensordatavalues drifted in a way that
+	// makes most/all entries fail to normalise, len(readings) collapses
+	// towards 0 without necessarily hitting it exactly, and the check above
+	// alone would miss that. Bulgaria has run several hundred active sensors
+	// for years; 100 is comfortably below normal and comfortably above "the
+	// vocabulary broke and almost everything got dropped".
+	if len(readings) < 100 {
+		t.Errorf("live fetch returned only %d readings, want > 100 — a schema or vocabulary drift may be silently dropping most entries", len(readings))
+	}
 
+	metricsSeen := map[string]bool{}
+	var pressureSeen bool
 	for _, r := range readings {
 		// Every canonical metric must have parsed to a real number and a
 		// valid, non-zero-value timestamp — the two fields whose JSON
@@ -117,5 +201,29 @@ func TestUpstreamContractLive(t *testing.T) {
 		if r.SensorID == 0 {
 			t.Error("reading with zero SensorID — sensor.id field may be missing or renamed")
 		}
+		metricsSeen[r.Metric] = true
+
+		if r.Metric == "pressure" {
+			pressureSeen = true
+			// Catches the Pascals -> hPa conversion silently disappearing
+			// (or being applied twice): plausible sea-level-adjusted
+			// pressure the world over sits in this band.
+			if r.Value < 800 || r.Value > 1100 {
+				t.Errorf("sensor %d: pressure = %v hPa, want within 800-1100 — Pa->hPa conversion may be broken", r.SensorID, r.Value)
+			}
+		}
+	}
+
+	// P1 (PM10) and P2 (PM2.5) are what sensor.community's dominant sensor
+	// type (SDS011) reports on every cycle; their absence from a
+	// several-hundred-reading fetch means the value_type vocabulary itself
+	// has drifted, not that a specific rare sensor type went quiet.
+	for _, want := range []string{"P1", "P2"} {
+		if !metricsSeen[want] {
+			t.Errorf("no %q readings in live fetch — value_type vocabulary may have changed", want)
+		}
+	}
+	if !pressureSeen {
+		t.Log("no pressure readings in this live fetch — cannot verify the Pa->hPa conversion this run")
 	}
 }
