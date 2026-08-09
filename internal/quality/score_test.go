@@ -65,18 +65,99 @@ func TestScoreFlagsTheSpecExample(t *testing.T) {
 	}
 }
 
+// TestScoreExcludesOutOfRangeNeighboursFromTheReference pins score.go's
+// reference pre-filter (the `if InRange(...)` loop that builds `reference`).
+//
+// The population is deliberately *majority dead*: four sensors at −999 against
+// three healthy ones. That ratio matters, and an earlier version of this test
+// did not have it. With a single −999 neighbour, MAD's own robustness absorbs
+// the contamination — the contaminated median moves to −10.35 and the limit
+// widens with it, so the subject stays FlagOK and the test passed with the
+// pre-filter deleted. It pinned nothing.
+//
+// With four dead neighbours out of seven the arithmetic inverts:
+//
+//	filtered   neighbours [−10.2 −10.5 −9.5]  median −10.2  MAD 0.3  limit 1.557
+//	             subject deviation 0.2  -> FlagOK
+//	unfiltered neighbours [… ×4 −999 …]       median −999   MAD 0    limit 1.5 (floor)
+//	             subject deviation 989  -> FlagSpatialOutlier
+//
+// The dead majority pulls the median all the way to −999 *and* collapses MAD to
+// zero, so the limit falls back to the smooth-field floor and the healthy sensor
+// is condemned as the outlier. Deleting score.go's pre-filter now fails this
+// test, which is the whole point: that pre-filter is also what keeps NaN out of
+// every neighbour population (a NaN median would silently disable the check for
+// the entire neighbourhood), so it is the single guarantee the branch's NaN
+// analysis rests on.
 func TestScoreExcludesOutOfRangeNeighboursFromTheReference(t *testing.T) {
-	// A dead sensor reporting −999 must not drag the neighbourhood median.
 	readings := []upstream.Reading{
 		at(1, "temperature", -10, 0),
-		at(2, "temperature", -999, 0.01),
+		at(2, "temperature", -10.2, 0.01),
 		at(3, "temperature", -10.5, 0.02),
 		at(4, "temperature", -9.5, 0.03),
-		at(5, "temperature", -10.2, 0.04),
+		at(5, "temperature", -999, 0.04),
+		at(6, "temperature", -999, 0.05),
+		at(7, "temperature", -999, 0.06),
+		at(8, "temperature", -999, 0.07),
 	}
 	scored := Score(readings, NewHistory(12))
+
 	if got := flagOf(t, scored, 1); got != FlagOK {
-		t.Errorf("healthy sensor flag = %v, want %v — dead neighbour polluted the reference", got, FlagOK)
+		t.Errorf("healthy sensor flag = %v, want %v — the dead −999 majority polluted the reference population", got, FlagOK)
+	}
+	// The healthy neighbours must survive too: if the pre-filter were removed,
+	// every one of them is equally far from the −999 median.
+	for _, id := range []int64{2, 3, 4} {
+		if got := flagOf(t, scored, id); got != FlagOK {
+			t.Errorf("healthy sensor %d flag = %v, want %v", id, got, FlagOK)
+		}
+	}
+	// And the dead sensors are still flagged — excluding them from the
+	// reference must not also excuse them.
+	for _, id := range []int64{5, 6, 7, 8} {
+		if got := flagOf(t, scored, id); got != FlagOutOfRange {
+			t.Errorf("dead sensor %d flag = %v, want %v", id, got, FlagOutOfRange)
+		}
+	}
+}
+
+// TestScoreFlagsNonFiniteValuesOutOfRange pins that a NaN or ±Inf value
+// arriving from upstream (strconv.ParseFloat accepts "nan", "inf", "Infinity",
+// so this is reachable from upstream text, not merely theoretical) is flagged
+// out_of_range rather than sailing through. InRange fails closed on NaN only
+// because every comparison against NaN is false — an incidental property of
+// the expression, not something the code states. Pin it here so a refactor to
+// `!(value < min || value > max)`, which reads identically and inverts the NaN
+// answer, cannot pass.
+func TestScoreFlagsNonFiniteValuesOutOfRange(t *testing.T) {
+	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		readings := []upstream.Reading{
+			at(1, "temperature", v, 0),
+			at(2, "temperature", -10, 0.01),
+			at(3, "temperature", -10.5, 0.02),
+			at(4, "temperature", -9.5, 0.03),
+		}
+		scored := Score(readings, NewHistory(12))
+		if got := flagOf(t, scored, 1); got != FlagOutOfRange {
+			t.Errorf("value %v: flag = %v, want %v", v, got, FlagOutOfRange)
+		}
+	}
+}
+
+// TestOutOfRangeReadingNeverEntersHistory pins the *ordering* inside scoreOne:
+// the InRange check returns before hist.Observe is reached. That ordering is
+// why a NaN-frozen sensor can never poison the stuck-detection state, and why
+// the NaN cluster is harmless in the live path. Moving Observe above the range
+// check — a plausible "observe everything, judge later" refactor — leaves every
+// other test in this file green, so assert on the History state directly.
+func TestOutOfRangeReadingNeverEntersHistory(t *testing.T) {
+	for _, v := range []float64{-999, math.NaN(), math.Inf(1)} {
+		hist := NewHistory(12)
+		Score([]upstream.Reading{at(1, "temperature", v, 0)}, hist)
+
+		if _, ok := hist.state[1]["temperature"]; ok {
+			t.Errorf("value %v: an out-of-range reading was recorded in History — scoreOne must return before Observe", v)
+		}
 	}
 }
 

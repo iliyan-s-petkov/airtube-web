@@ -1,6 +1,9 @@
 package quality
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestInRange(t *testing.T) {
 	cases := []struct {
@@ -28,9 +31,43 @@ func TestInRange(t *testing.T) {
 		{"unknown_metric", 5, false},
 	}
 
+
 	for _, c := range cases {
 		if got := InRange(c.metric, c.value); got != c.want {
 			t.Errorf("InRange(%q, %v) = %v, want %v", c.metric, c.value, got, c.want)
+		}
+	}
+}
+
+// TestInRangeRejectsNonFiniteValues pins InRange's fail-closed behaviour on
+// NaN and ±Inf for every canonical metric.
+//
+// This is reachable from upstream text, not a theoretical concern:
+// strconv.ParseFloat — which both internal/upstream and internal/backfill use
+// on raw upstream/archive fields — accepts "nan", "NaN", "inf", "+Inf" and
+// "Infinity" and returns the corresponding non-finite float without error.
+//
+// The behaviour is currently correct only by accident of expression shape:
+// `value >= r.min && value <= r.max` is false for NaN because *every*
+// comparison against NaN is false. Nothing in ranges.go says so, and the
+// equivalent-looking rewrite `!(value < r.min || value > r.max)` returns TRUE
+// for NaN — silently admitting NaN into stored readings, into neighbour
+// medians, and (via a NaN avg_value that json.Marshal refuses to encode) into
+// a Phase 2 API response that would then fail in its entirety. This assertion
+// is what makes that rewrite fail instead of pass.
+func TestInRangeRejectsNonFiniteValues(t *testing.T) {
+	metrics := []string{"P1", "P2", "temperature", "humidity", "pressure", "noise_LAeq", "noise_LA_max"}
+	nonFinite := map[string]float64{
+		"NaN":  math.NaN(),
+		"+Inf": math.Inf(1),
+		"-Inf": math.Inf(-1),
+	}
+
+	for _, metric := range metrics {
+		for name, value := range nonFinite {
+			if InRange(metric, value) {
+				t.Errorf("InRange(%q, %s) = true, want false — non-finite values must always fail closed", metric, name)
+			}
 		}
 	}
 }
