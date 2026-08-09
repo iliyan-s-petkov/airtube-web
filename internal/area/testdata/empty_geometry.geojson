@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"slug": "nowhere", "name_bg": "Никъде", "name_en": "Nowhere"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": []
+      }
+    }
+  ]
+}

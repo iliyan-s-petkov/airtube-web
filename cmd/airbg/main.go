@@ -65,6 +65,13 @@ func main() {
 			slog.Error("backfill", "error", err)
 			os.Exit(1)
 		}
+		// Refuse before reading the file: a backfill for an unknown or
+		// out-of-boundary sensor_id creates reading_hourly rows that the
+		// documented cleanup command cannot reach by sensor.
+		if err := backfill.CheckSensorInBoundary(ctx, pool, sensorID); err != nil {
+			slog.Error("backfill", "error", err)
+			os.Exit(1)
+		}
 		f, err := os.Open(os.Args[3])
 		if err != nil {
 			slog.Error("backfill", "error", err)
@@ -102,24 +109,36 @@ func main() {
 			slog.Error("import areas", "error", err)
 			os.Exit(1)
 		}
-		assigned, err := area.AssignSensors(ctx, pool)
+		assigned, revoked, err := area.AssignSensors(ctx, pool)
 		if err != nil {
 			slog.Error("assign sensors", "error", err)
 			os.Exit(1)
 		}
-		slog.Info("areas imported", "areas", n, "assignments", assigned)
+		// revoked is reported because re-importing a *smaller* boundary
+		// legitimately withdraws memberships, and an operator who did not
+		// intend to shrink anything should see a non-zero count here rather
+		// than discover it from a Phase 2 map with sensors missing.
+		slog.Info("areas imported", "areas", n, "assignments", assigned, "revoked", revoked)
 
 	case "purge-outside-boundary":
 		// Deliberately a separate, operator-invoked step (task-17 review
 		// finding 4) — never run automatically from import-areas or collect.
 		// Deleting stored sensors must always be a decision a human makes on
 		// purpose.
-		removed, err := area.PurgeOutsideBoundary(ctx, pool)
+		result, err := area.PurgeOutsideBoundary(ctx, pool)
 		if err != nil {
 			slog.Error("purge outside boundary", "error", err)
 			os.Exit(1)
 		}
-		slog.Info("purge outside boundary complete", "sensors_removed", removed)
+		slog.Info("purge outside boundary complete",
+			"sensors_removed", result.SensorsRemoved,
+			"readings_removed", result.ReadingsRemoved,
+			"hourly_rows_removed", result.HourlyRowsRemoved,
+			// Orphans have a different cause from foreign sensors — readings
+			// written for a sensor_id that has no sensor row — so they are
+			// reported separately rather than folded into the totals above.
+			"orphan_readings_removed", result.OrphanRawRows,
+			"orphan_hourly_rows_removed", result.OrphanHourlyRows)
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand %q\n", os.Args[1])

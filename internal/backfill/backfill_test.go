@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"airbg.org/internal/area"
 	"airbg.org/internal/backfill"
 	"airbg.org/internal/db"
 	"airbg.org/internal/quality"
@@ -427,12 +430,105 @@ func TestParseReportFractionOfEmptyFileIsNotNaN(t *testing.T) {
 	}
 }
 
-func TestWriteBucketsIsIdempotent(t *testing.T) {
+func migrated(t *testing.T) (context.Context, *pgxpool.Pool) {
+	t.Helper()
 	ctx := context.Background()
 	pool := testsupport.NewPostgres(t)
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
+	return ctx, pool
+}
+
+// insertBoundary stores a rectangle around Bulgaria as the national boundary.
+// The geometry is built in-database from bind parameters rather than read from a
+// GeoJSON fixture, because Import is not what these tests are about — and the
+// argument order is (xmin, ymin, xmax, ymax), i.e. longitude first, matching the
+// (lon, lat) convention used everywhere else.
+func insertBoundary(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO area (slug, kind, name_bg, name_en, geom)
+		 VALUES ('bulgaria', $1, 'България', 'Bulgaria',
+		         ST_Multi(ST_SetSRID(ST_MakeEnvelope($2, $3, $4, $5), 4326))::geography)`,
+		area.NationalBoundaryKind, 22.3, 41.2, 28.6, 44.2); err != nil {
+		t.Fatalf("insert boundary: %v", err)
+	}
+}
+
+func insertSensor(ctx context.Context, t *testing.T, pool *pgxpool.Pool, id int64, lon, lat float64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO sensor (sensor_id, sensor_type, location)
+		 VALUES ($1, 'SDS011', ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography)`,
+		id, lon, lat); err != nil {
+		t.Fatalf("insert sensor %d: %v", id, err)
+	}
+}
+
+// TestCheckSensorInBoundaryAcceptsKnownBulgarianSensor is the positive control
+// for the three rejection tests below: the guard must not make legitimate
+// backfill impossible.
+func TestCheckSensorInBoundaryAcceptsKnownBulgarianSensor(t *testing.T) {
+	ctx, pool := migrated(t)
+	insertBoundary(ctx, t, pool)
+	insertSensor(ctx, t, pool, 1, 23.3327, 42.6957) // Sofia
+
+	if err := backfill.CheckSensorInBoundary(ctx, pool, 1); err != nil {
+		t.Errorf("CheckSensorInBoundary rejected a known Bulgarian sensor: %v", err)
+	}
+}
+
+// TestCheckSensorInBoundaryRejectsUnknownSensor covers the orphan-creating case.
+// `airbg backfill <sensor_id> <csv>` takes the sensor_id from the command line
+// and writes straight to reading_hourly; reading_hourly has no foreign key to
+// sensor, so a typo'd or foreign id produced rows that no sensor-driven cleanup
+// could ever find.
+func TestCheckSensorInBoundaryRejectsUnknownSensor(t *testing.T) {
+	ctx, pool := migrated(t)
+	insertBoundary(ctx, t, pool)
+
+	err := backfill.CheckSensorInBoundary(ctx, pool, 999)
+	if err == nil {
+		t.Fatal("CheckSensorInBoundary accepted a sensor_id with no sensor row")
+	}
+	if !strings.Contains(err.Error(), "999") {
+		t.Errorf("error %q does not name the sensor", err)
+	}
+}
+
+// TestCheckSensorInBoundaryRejectsForeignSensor is the backfill half of the
+// boundary filter. Live ingest applies ST_Covers; backfill did not, so archive
+// history for a foreign sensor could be imported through the side door that the
+// task-17 filter was built to close.
+func TestCheckSensorInBoundaryRejectsForeignSensor(t *testing.T) {
+	ctx, pool := migrated(t)
+	insertBoundary(ctx, t, pool)
+	insertSensor(ctx, t, pool, 48524, -0.1276, 51.5074) // London
+
+	if err := backfill.CheckSensorInBoundary(ctx, pool, 48524); err == nil {
+		t.Fatal("CheckSensorInBoundary accepted a sensor outside the national boundary")
+	}
+}
+
+// TestCheckSensorInBoundaryFailsClosedWithoutBoundary matches the fail-closed
+// policy of FilterByBoundary and PurgeOutsideBoundary. With no boundary to test
+// against, allowing the write would silently reopen the hole.
+func TestCheckSensorInBoundaryFailsClosedWithoutBoundary(t *testing.T) {
+	ctx, pool := migrated(t)
+	insertSensor(ctx, t, pool, 1, 23.3327, 42.6957)
+
+	err := backfill.CheckSensorInBoundary(ctx, pool, 1)
+	if err == nil {
+		t.Fatal("CheckSensorInBoundary allowed a backfill with no national boundary imported")
+	}
+	if !strings.Contains(err.Error(), "import-areas") {
+		t.Errorf("error %q does not name the remedy command", err)
+	}
+}
+
+func TestWriteBucketsIsIdempotent(t *testing.T) {
+	ctx, pool := migrated(t)
 
 	buckets := []backfill.HourlyBucket{{
 		SensorID: 12345,

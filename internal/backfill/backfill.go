@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"airbg.org/internal/area"
 	"airbg.org/internal/quality"
 	"airbg.org/internal/upstream"
 )
@@ -264,6 +265,66 @@ func ParseCSV(r io.Reader, sensorID int64) ([]HourlyBucket, ParseReport, error) 
 		})
 	}
 	return buckets, report, nil
+}
+
+// CheckSensorInBoundary refuses a backfill for any sensor_id that is not
+// already a known sensor inside the national boundary.
+//
+// Live ingest filters every reading through area.FilterByBoundary before it can
+// reach storage; backfill wrote straight to reading_hourly with whatever
+// sensor_id the operator typed, applying no such filter. That was not merely an
+// inconsistency, it was unrecoverable: reading.sensor_id has no foreign key to
+// sensor(sensor_id) (reading is a hypertable), so a backfill under a sensor_id
+// that was never ingested left rows that PurgeOutsideBoundary — which discovers
+// its work by selecting from `sensor` — could not see. The single command
+// documented as the cleanup for foreign data could not clean it.
+//
+// Checking here, at the entry point, is the cheap half of the fix: it costs one
+// query on an operator-invoked command and prevents the orphan existing at all.
+// PurgeOutsideBoundary closes the other half by reaching orphans already
+// stored. Between them, no row in reading or reading_hourly is beyond the
+// cleanup's reach.
+//
+// It fails closed on a missing boundary for the same reason ingest and purge do:
+// with nothing to test membership against, "allow it" would silently reopen the
+// hole, and the remedy is one already-documented command.
+func CheckSensorInBoundary(ctx context.Context, pool *pgxpool.Pool, sensorID int64) error {
+	var boundaryPresent bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM area WHERE kind = $1)`, area.NationalBoundaryKind).
+		Scan(&boundaryPresent); err != nil {
+		return fmt.Errorf("backfill: check boundary: %w", err)
+	}
+	if !boundaryPresent {
+		return fmt.Errorf(
+			"backfill: no boundary of kind %q imported — refusing to write readings that could not later be purged (run: airbg import-areas <path.geojson> %s)",
+			area.NationalBoundaryKind, area.NationalBoundaryKind)
+	}
+
+	var known, inside bool
+	err := pool.QueryRow(ctx, `
+		SELECT
+			EXISTS (SELECT 1 FROM sensor WHERE sensor_id = $1),
+			EXISTS (
+				SELECT 1 FROM sensor s
+				JOIN area a ON a.kind = $2 AND ST_Covers(a.geom, s.location)
+				WHERE s.sensor_id = $1
+			)`, sensorID, area.NationalBoundaryKind).Scan(&known, &inside)
+	if err != nil {
+		return fmt.Errorf("backfill: check sensor %d: %w", sensorID, err)
+	}
+
+	switch {
+	case !known:
+		return fmt.Errorf(
+			"backfill: sensor %d is not a known sensor — backfilling it would create reading_hourly rows with no sensor row, which purge-outside-boundary reaches only as orphans; ingest the sensor first",
+			sensorID)
+	case !inside:
+		return fmt.Errorf(
+			"backfill: sensor %d is outside the national boundary — archive history for a foreign sensor must not be imported",
+			sensorID)
+	}
+	return nil
 }
 
 // WriteBuckets upserts hourly buckets. Re-importing the same day is safe.

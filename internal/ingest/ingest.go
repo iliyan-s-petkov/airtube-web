@@ -176,7 +176,7 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 		return stats, nil
 	}
 
-	if _, err := area.AssignSensors(ctx, i.store.Pool()); err != nil {
+	if _, _, err := area.AssignSensors(ctx, i.store.Pool()); err != nil {
 		return stats, fmt.Errorf("ingest: assign sensors: %w", err)
 	}
 

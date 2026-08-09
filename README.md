@@ -27,8 +27,8 @@ go run ./cmd/airbg collect
 | `migrate` | Apply schema migrations |
 | `collect` | Poll sensor.community on a loop, score, and store |
 | `import-areas <file.geojson> <city\|oblast\|neighbourhood\|country>` | Load boundaries and assign sensors |
-| `backfill <sensor_id> <archive-csv-path>` | Load a sensor.community archive CSV into `reading_hourly` |
-| `purge-outside-boundary` | Delete sensors (and their stored readings) outside the `country` boundary; refuses to run if no `country` boundary is imported |
+| `backfill <sensor_id> <archive-csv-path>` | Load a sensor.community archive CSV into `reading_hourly`; refuses unless the sensor is known and inside the `country` boundary |
+| `purge-outside-boundary` | Delete sensors (and their stored readings) outside the `country` boundary, plus readings orphaned from any sensor row; refuses to run if no `country` boundary is imported |
 
 **Importing a `country`-kind boundary is a hard prerequisite for ingesting anything.**
 `collect` filters every incoming sensor against the `area.kind = 'country'`
@@ -39,6 +39,27 @@ it polls upstream successfully but stores zero rows, every cycle, logging an
 ERROR that names the exact remedy command. Nothing else in the system's
 normal signals (the rollup backlog stays at 0, there are no other errors)
 will look unusual, so this is easy to miss if the import step is skipped.
+
+`import-areas` rejects a file outright — importing nothing at all — if any
+feature's geometry fails `ST_IsValid` or is empty. `"coordinates": []` is the
+case worth knowing about: it produces `MULTIPOLYGON EMPTY`, which is not NULL,
+so it would insert happily and then match no point on earth. As a `country`
+boundary that means `collect` reports the boundary present and still stores
+nothing, cycle after cycle. Invalid geometry is not repaired with
+`ST_MakeValid`, because a silently repaired national outline is a polygon you
+never supplied and cannot inspect; fix the source file instead.
+
+`backfill` applies the same value ranges as live ingest and drops non-finite
+values (`nan`, `inf`) and out-of-range sentinels such as `-999` before
+bucketing, logging a count of what it dropped at WARN — or ERROR if half or
+more of the file was rejected. Nothing ever rewrites a historical bucket and
+`reading_hourly` is retained for two years, so a single poisoned cell would
+otherwise be permanent.
+
+`purge-outside-boundary` also deletes readings whose `sensor_id` has no `sensor`
+row. `reading` is a hypertable with no foreign key to `sensor`, so such rows are
+possible; they are reported separately from foreign sensors, because they mean
+something different (readings written for a sensor that was never ingested).
 
 ## Configuration
 

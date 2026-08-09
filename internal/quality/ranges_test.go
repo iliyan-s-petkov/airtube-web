@@ -31,7 +31,6 @@ func TestInRange(t *testing.T) {
 		{"unknown_metric", 5, false},
 	}
 
-
 	for _, c := range cases {
 		if got := InRange(c.metric, c.value); got != c.want {
 			t.Errorf("InRange(%q, %v) = %v, want %v", c.metric, c.value, got, c.want)

@@ -13,9 +13,31 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"airbg.org/internal/db"
 )
 
+// NewPostgres returns a pool opened exactly the way production opens one —
+// through db.Open, so the pool-wide statement_timeout is in force. It used to
+// call pgxpool.New directly, which meant no container test ever exercised the
+// timeout the collector actually runs under; a query that would abort in
+// production passed happily in tests.
+//
+// (No import cycle: every test in internal/db is in external package db_test.)
 func NewPostgres(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	ctx := context.Background()
+	pool, err := db.Open(ctx, NewPostgresURL(t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// NewPostgresURL starts a throwaway instance and returns its connection string,
+// for tests that need to control pool configuration themselves.
+func NewPostgresURL(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 
@@ -39,10 +61,5 @@ func NewPostgres(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("connection string: %v", err)
 	}
-	pool, err := pgxpool.New(ctx, url)
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
+	return url
 }
