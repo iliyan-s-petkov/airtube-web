@@ -32,7 +32,7 @@ go run ./cmd/airbg collect
 
 **Importing a `country`-kind boundary is a hard prerequisite for ingesting anything.**
 `collect` filters every incoming sensor against the `area.kind = 'country'`
-boundary (task 17) instead of trusting upstream's self-reported `country`
+boundary instead of trusting upstream's self-reported `country`
 field, which is unreliable (see Known limitations). Until `import-areas
 <file.geojson> country` has been run at least once, `collect` fails closed:
 it polls upstream successfully but stores zero rows, every cycle, logging an
@@ -95,22 +95,33 @@ entrypoint (default command `collect`). No shell, no package manager.
 
 ## Known limitations
 
-These are known, deliberately unfixed issues carried forward for a project
-owner decision. They are not blockers for Phase 1, but an operator should be
-aware of them.
+The three limitations previously listed here — no rollup watermark, untrusted
+upstream `country`, and an 800 hPa pressure floor — have all been fixed. The
+rollup now advances a transactional watermark and drains its backlog, alerting
+at ERROR long before the 30-day raw retention could delete unaggregated rows;
+sensors are filtered by `ST_Covers` against an imported national boundary
+rather than by the self-declared `country` field; and the pressure floor is
+650 hPa (~3600 m), above any Bulgarian sensor site.
 
-- **No rollup watermark.** Raw `reading` rows are dropped by the 30-day
-  retention policy, while `reading_hourly` is built from them by a stateless
-  per-bucket rollup. If the rollup falls behind (outage, crash loop), raw
-  rows can be deleted before they are ever aggregated — silently, with no
-  error surfaced.
-- **Upstream `country` is not a trustworthy geographic filter.** At least one
-  observed sensor (48524) reports `country: "BG"` while its coordinates place
-  it in London.
-- **Pressure range floor.** `internal/quality/ranges.go` flags station
-  pressure below 800 hPa as `out_of_range`, but Bulgaria's altitude range
-  produces legitimate lower readings — 7.7% of live readings were observed
-  below the floor. Those readings are excluded from the rollup.
+What remains, that an operator should be aware of:
+
+- **You must supply your own national boundary.** No production-grade
+  Bulgaria outline ships with this repo. The polygon under
+  `internal/area/testdata/` is a hand-authored test fixture, materially wrong
+  along the eastern border, and is used only by tests — it is never loaded at
+  runtime. Import an authoritative outline (Natural Earth or equivalent)
+  before running `collect`; until you do, the collector fails closed and
+  stores nothing.
+- **Sensors ingested before the boundary filter existed are not removed
+  automatically.** Rows stored while upstream `country` was still trusted
+  persist, including foreign sensors. Run `purge-outside-boundary` once after
+  importing the national boundary to delete them. It is deliberately never
+  automatic — it deletes stored data, so it is an explicit operator action,
+  and it refuses to run when no national boundary is present.
+- **The container test suite can flake under load.** A single transient
+  failure in `internal/store` has been observed during a full `-race` run,
+  self-resolving on rerun. Suspected testcontainers resource contention
+  rather than a code defect; worth watching if it recurs in CI.
 
 ## Data and attribution
 
