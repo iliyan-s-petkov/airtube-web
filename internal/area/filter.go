@@ -96,15 +96,21 @@ func FilterByBoundary(ctx context.Context, pool *pgxpool.Pool, readings []upstre
 
 	// A boundary row of the right kind may simply not exist. EXISTS above
 	// would then be false for every candidate, indistinguishable from "every
-	// sensor is genuinely outside the boundary" unless checked separately.
-	var present bool
-	if err := pool.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM area WHERE kind = $1)`, NationalBoundaryKind).
-		Scan(&present); err != nil {
-		return nil, 0, false, err
-	}
+	// sensor is genuinely outside the boundary" unless checked separately —
+	// unless at least one candidate already matched, which is only possible
+	// if a boundary row existed to match against. That lets the common case
+	// (boundary present, at least one sensor inside it) skip this second
+	// round trip entirely.
+	present := len(inside) > 0
 	if !present {
-		return nil, 0, false, nil
+		if err := pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM area WHERE kind = $1)`, NationalBoundaryKind).
+			Scan(&present); err != nil {
+			return nil, 0, false, err
+		}
+		if !present {
+			return nil, 0, false, nil
+		}
 	}
 
 	accepted = make([]upstream.Reading, 0, len(readings))

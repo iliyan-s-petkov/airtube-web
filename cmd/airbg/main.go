@@ -22,7 +22,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|backfill|import-areas>")
+		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|backfill|import-areas|purge-outside-boundary>")
 		os.Exit(2)
 	}
 
@@ -99,6 +99,18 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("areas imported", "areas", n, "assignments", assigned)
+
+	case "purge-outside-boundary":
+		// Deliberately a separate, operator-invoked step (task-17 review
+		// finding 4) — never run automatically from import-areas or collect.
+		// Deleting stored sensors must always be a decision a human makes on
+		// purpose.
+		removed, err := area.PurgeOutsideBoundary(ctx, pool)
+		if err != nil {
+			slog.Error("purge outside boundary", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("purge outside boundary complete", "sensors_removed", removed)
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand %q\n", os.Args[1])

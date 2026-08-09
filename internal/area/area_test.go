@@ -118,6 +118,57 @@ func TestAssignSensorsSkipsSensorsOutsideEveryArea(t *testing.T) {
 	}
 }
 
+// TestAssignSensorsExcludesCountryBoundary is task-17 review finding 2's
+// regression test. Importing the national boundary alongside city
+// boundaries must not create an area_sensor row linking every sensor to the
+// whole-country pseudo-area — a sensor genuinely inside both the country
+// boundary and one city polygon must land in exactly one area_sensor row,
+// the city's.
+func TestAssignSensorsExcludesCountryBoundary(t *testing.T) {
+	ctx, pool := migrated(t)
+
+	if _, err := area.Import(ctx, pool, "testdata/sofia.geojson", "city"); err != nil {
+		t.Fatalf("Import(sofia): %v", err)
+	}
+	if _, err := area.Import(ctx, pool, "testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
+		t.Fatalf("Import(bulgaria): %v", err)
+	}
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sensor (sensor_id, sensor_type, location)
+		 VALUES (1, 'SDS011', ST_SetSRID(ST_MakePoint(23.3327, 42.6957), 4326)::geography)`)
+	if err != nil {
+		t.Fatalf("insert sensor: %v", err)
+	}
+
+	if _, err := area.AssignSensors(ctx, pool); err != nil {
+		t.Fatalf("AssignSensors: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, `SELECT area_slug FROM area_sensor WHERE sensor_id = 1`)
+	if err != nil {
+		t.Fatalf("query assignments: %v", err)
+	}
+	defer rows.Close()
+	var slugs []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		slugs = append(slugs, slug)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+
+	if len(slugs) != 1 {
+		t.Fatalf("area_sensor rows for sensor 1 = %v (%d), want exactly 1", slugs, len(slugs))
+	}
+	if slugs[0] != "sofia" {
+		t.Errorf("area_slug = %q, want %q — the country boundary must never be assigned as an area", slugs[0], "sofia")
+	}
+}
+
 func TestAssignSensorsIsIdempotent(t *testing.T) {
 	ctx, pool := migrated(t)
 

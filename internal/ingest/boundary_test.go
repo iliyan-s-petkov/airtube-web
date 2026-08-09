@@ -3,6 +3,7 @@ package ingest_test
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,9 +148,17 @@ func TestRunOnceFailsClosedWhenBoundaryAbsent(t *testing.T) {
 
 	found := false
 	for _, rec := range handler.records {
-		if rec.Level == slog.LevelError {
-			found = true
+		if rec.Level != slog.LevelError {
+			continue
 		}
+		// The message itself must name the remedy — an operator seeing only
+		// this ERROR line (everything else, including the backlog alert,
+		// looks like a healthy idle system) must be able to act on it
+		// without reading source code or a comment to find the fix command.
+		if !strings.Contains(rec.Message, "airbg import-areas") || !strings.Contains(rec.Message, "country") {
+			t.Errorf("ERROR message = %q, want it to name the remedy command (airbg import-areas <path.geojson> country)", rec.Message)
+		}
+		found = true
 	}
 	if !found {
 		t.Error("no ERROR-level log record emitted for the absent-boundary fail-closed condition — this must be loudly visible, not a silent no-op")

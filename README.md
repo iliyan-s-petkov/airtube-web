@@ -22,8 +22,19 @@ go run ./cmd/airbg collect
 |---|---|
 | `migrate` | Apply schema migrations |
 | `collect` | Poll sensor.community on a loop, score, and store |
-| `import-areas <file.geojson> <city\|oblast\|neighbourhood>` | Load boundaries and assign sensors |
+| `import-areas <file.geojson> <city\|oblast\|neighbourhood\|country>` | Load boundaries and assign sensors |
 | `backfill <sensor_id> <archive-csv-path>` | Load a sensor.community archive CSV into `reading_hourly` |
+| `purge-outside-boundary` | Delete sensors (and their stored readings) outside the `country` boundary; refuses to run if no `country` boundary is imported |
+
+**Importing a `country`-kind boundary is a hard prerequisite for ingesting anything.**
+`collect` filters every incoming sensor against the `area.kind = 'country'`
+boundary (task 17) instead of trusting upstream's self-reported `country`
+field, which is unreliable (see Known limitations). Until `import-areas
+<file.geojson> country` has been run at least once, `collect` fails closed:
+it polls upstream successfully but stores zero rows, every cycle, logging an
+ERROR that names the exact remedy command. Nothing else in the system's
+normal signals (the rollup backlog stays at 0, there are no other errors)
+will look unusual, so this is easy to miss if the import step is skipped.
 
 ## Configuration
 

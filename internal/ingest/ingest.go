@@ -128,8 +128,10 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 			// (`airbg import-areas <geojson> country`) rather than requiring
 			// anyone to hunt down and repair corrupted statistics after the
 			// fact.
-			slog.Error("national boundary not imported — rejecting entire batch this cycle (fail closed)",
-				"fetched", stats.Fetched)
+			slog.Error("national boundary not imported — rejecting entire batch this cycle (fail closed); run: airbg import-areas <path.geojson> country",
+				"fetched", stats.Fetched,
+				"required_kind", area.NationalBoundaryKind,
+				"remedy", "airbg import-areas <path.geojson> country")
 
 		default:
 			stats.RejectedOutsideBoundary = rejected
