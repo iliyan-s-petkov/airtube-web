@@ -51,6 +51,12 @@ There are no config files and no secrets in the repo.
 | `AIRBG_UPSTREAM_URL` | no | `https://data.sensor.community/airrohr/v1/filter/country=BG` |
 | `AIRBG_POLL_INTERVAL` | no | `5m` |
 
+`AIRBG_POLL_INTERVAL` must be at least **30s**. Anything smaller is rejected at
+startup: `0s` and negative values would panic `time.NewTicker`, and a
+sub-minimum positive value silently polls the public, volunteer-run
+data.sensor.community API hundreds of times more often than intended — a good
+way to get the collector's IP banned.
+
 No secret is ever committed. Configuration is environment-only.
 
 ## Database
