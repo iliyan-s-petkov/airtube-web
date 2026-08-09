@@ -18,11 +18,15 @@ import (
 
 type stubFetcher struct {
 	readings []upstream.Reading
-	err      error
+	// skipped mirrors upstream.Batch.Skipped, so a test can reproduce the
+	// "upstream answered but nothing normalised" condition without standing up
+	// a broken HTTP payload.
+	skipped int
+	err     error
 }
 
-func (s stubFetcher) Fetch(context.Context) ([]upstream.Reading, error) {
-	return s.readings, s.err
+func (s stubFetcher) Fetch(context.Context) (upstream.Batch, error) {
+	return upstream.Batch{Readings: s.readings, Skipped: s.skipped}, s.err
 }
 
 func reading(id int64, metric string, value float64, lonOffset float64, ts time.Time) upstream.Reading {
@@ -173,7 +177,7 @@ type countingFetcher struct {
 	notify   chan struct{}
 }
 
-func (f countingFetcher) Fetch(context.Context) ([]upstream.Reading, error) {
+func (f countingFetcher) Fetch(context.Context) (upstream.Batch, error) {
 	f.calls.Add(1)
 	if f.notify != nil {
 		select {
@@ -181,7 +185,7 @@ func (f countingFetcher) Fetch(context.Context) ([]upstream.Reading, error) {
 		default:
 		}
 	}
-	return f.readings, f.err
+	return upstream.Batch{Readings: f.readings}, f.err
 }
 
 // pollUntil polls cond every step until it reports true or timeout elapses,

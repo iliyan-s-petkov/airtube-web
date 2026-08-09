@@ -43,11 +43,17 @@ const (
 )
 
 type Fetcher interface {
-	Fetch(ctx context.Context) ([]upstream.Reading, error)
+	Fetch(ctx context.Context) (upstream.Batch, error)
 }
 
 type Stats struct {
 	Fetched int
+	// Skipped is how many upstream entries Normalise could not use. It is
+	// carried here, and logged on every cycle, because a schema break that
+	// affects every entry is otherwise silent: Fetch returns no error, so the
+	// only signal is Fetched dropping to 0, which is indistinguishable from a
+	// quiet upstream.
+	Skipped int
 	Written int
 	Flagged map[quality.Flag]int
 	// RejectedOutsideBoundary counts distinct sensors this cycle whose
@@ -93,7 +99,8 @@ func (i *Ingester) SetClockForTesting(clock func() time.Time) (restore func()) {
 // step behind fetch success left it dead through exactly the failure mode it
 // was built for.
 func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
-	readings, fetchErr := i.fetcher.Fetch(ctx)
+	batch, fetchErr := i.fetcher.Fetch(ctx)
+	readings := batch.Readings
 
 	stats := Stats{Flagged: make(map[quality.Flag]int)}
 	var scored []quality.Scored
@@ -101,6 +108,31 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 
 	if fetchErr == nil {
 		stats.Fetched = len(readings)
+		stats.Skipped = batch.Skipped
+
+		// Surface unusable entries here, before anything downstream can turn
+		// "we could not read it" into "there was nothing to read". Normalise
+		// only errors when the payload is not a JSON array, so per-entry drift
+		// — the exact failure class task 14 hardened the parser against —
+		// arrives as a nil error and a smaller slice.
+		//
+		// Total drift is escalated to ERROR deliberately: a fetch that
+		// succeeded at the HTTP level and salvaged nothing from a non-empty
+		// payload is an upstream contract break, not a quiet day. It needs to
+		// page someone, and it is categorically different from upstream simply
+		// returning an empty array (batch.Total() == 0), which is normal and
+		// stays quiet.
+		switch {
+		case batch.Skipped > 0 && len(readings) == 0:
+			slog.Error("every upstream entry was unusable — upstream schema may have changed; storing nothing this cycle",
+				"skipped", batch.Skipped,
+				"fetched", 0)
+		case batch.Skipped > 0:
+			slog.Warn("some upstream entries were unusable",
+				"skipped", batch.Skipped,
+				"fetched", len(readings),
+				"total", batch.Total())
+		}
 
 		// Geographic filter (task 17): upstream's self-reported country is
 		// not trusted — sensor 48524 reports "BG" from London — so
@@ -135,7 +167,34 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 
 		default:
 			stats.RejectedOutsideBoundary = rejected
-			if rejected > 0 {
+			switch {
+			case rejected > 0 && len(accepted) == 0:
+				// Every sensor rejected while a boundary *does* exist. The
+				// operational outcome is identical to the absent-boundary case
+				// above — this cycle stores nothing — so the severity must be
+				// too. Previously this was a WARN, which made the
+				// better-diagnosed case (absent boundary: ERROR naming the
+				// remedy command) the *less* severe one, and left the more
+				// likely failure quieter than it.
+				//
+				// It is more likely because operators must source their own
+				// national outline (README §Areas). A degenerate outline — an
+				// empty geometry, which inserts happily as MULTIPOLYGON EMPTY
+				// since EMPTY is not NULL — matches nothing, so ST_Covers
+				// rejects every sensor while the presence check still finds the
+				// row and reports the boundary present. Import now rejects
+				// invalid and empty geometry outright, but a boundary that is
+				// merely *wrong* (right shape, wrong place) cannot be caught at
+				// import, and this is the only place it becomes visible.
+				//
+				// The message names both plausible causes, because from here
+				// they are genuinely indistinguishable and the operator can
+				// check the cheap one first.
+				slog.Error("every sensor was rejected by the national boundary — storing nothing this cycle; the boundary geometry is probably wrong or in the wrong place, or upstream sent only foreign sensors; verify with: airbg import-areas <path.geojson> country",
+					"fetched", stats.Fetched,
+					"rejected_sensors", rejected,
+					"required_kind", area.NationalBoundaryKind)
+			case rejected > 0:
 				slog.Warn("rejected sensors outside national boundary",
 					"sensors", rejected)
 			}
@@ -172,17 +231,30 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 		return stats, fmt.Errorf("ingest: rollup: %w", rollupErr)
 	}
 
-	if len(scored) == 0 {
-		return stats, nil
+	var assigned, revoked int64
+	if len(scored) > 0 {
+		var err error
+		assigned, revoked, err = area.AssignSensors(ctx, i.store.Pool())
+		if err != nil {
+			return stats, fmt.Errorf("ingest: assign sensors: %w", err)
+		}
 	}
 
-	if _, _, err := area.AssignSensors(ctx, i.store.Pool()); err != nil {
-		return stats, fmt.Errorf("ingest: assign sensors: %w", err)
-	}
-
+	// Emitted unconditionally, including for a cycle that scored nothing.
+	// Previously RunOnce returned before this line whenever len(scored) == 0,
+	// so a collector that fetched successfully and stored nothing — the exact
+	// outcome of a total upstream schema break, or of a boundary that matches
+	// nothing — logged *nothing at all*. The only signal distinguishing it from
+	// a healthy system was the absence of a log line, which no alerting rule
+	// short of a deliberate dead-man's-switch will notice. "0 fetched, 0
+	// written" must be a visible event, not silence.
 	slog.Info("ingest cycle complete",
 		"fetched", stats.Fetched,
+		"skipped", stats.Skipped,
 		"written", stats.Written,
+		"rejected_outside_boundary", stats.RejectedOutsideBoundary,
+		"areas_assigned", assigned,
+		"areas_revoked", revoked,
 		"out_of_range", stats.Flagged[quality.FlagOutOfRange],
 		"stuck", stats.Flagged[quality.FlagStuck],
 		"spatial_outlier", stats.Flagged[quality.FlagSpatialOutlier],

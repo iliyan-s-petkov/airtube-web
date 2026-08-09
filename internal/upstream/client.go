@@ -128,6 +128,32 @@ func Normalise(payload []byte) ([]Reading, int, error) {
 	return readings, skipped, nil
 }
 
+// Batch is one fetch's outcome: the readings that normalised, and how many
+// upstream entries were unusable.
+//
+// Skipped is part of the return value rather than a detail Normalise keeps to
+// itself, because discarding it made a total upstream schema break completely
+// invisible. Normalise returns an error only when the payload is not even a
+// JSON array; per-entry structural drift — a renamed field, a retyped
+// sensor.id, sensordatavalues sent as an object — increments Skipped and drops
+// the entry. So if upstream broke *every* entry, Fetch returned an empty slice
+// and a nil error, indistinguishable from "no sensors reported anything".
+// Downstream that produced Fetched=0, an empty score, and (because RunOnce
+// returned before its cycle-complete log) no log line at all: a collector
+// running forever, exiting non-zero never, and storing nothing, whose only
+// distinguishing signal from a healthy system was the absence of a log line.
+// Task 14 hardened the parser against exactly this failure class and then the
+// caller threw away the number that reports it.
+type Batch struct {
+	Readings []Reading
+	Skipped  int
+}
+
+// Total is the number of upstream entries accounted for — usable plus
+// discarded. Zero means upstream genuinely sent nothing, which is a different
+// condition from "upstream sent data we could not read".
+func (b Batch) Total() int { return len(b.Readings) + b.Skipped }
+
 type Client struct {
 	baseURL string
 	http    *http.Client
@@ -140,28 +166,31 @@ func New(baseURL string, timeout time.Duration) *Client {
 	}
 }
 
-func (c *Client) Fetch(ctx context.Context) ([]Reading, error) {
+func (c *Client) Fetch(ctx context.Context) (Batch, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL, nil)
 	if err != nil {
-		return nil, err
+		return Batch{}, err
 	}
 	req.Header.Set("User-Agent", "airbg.org collector (+https://airbg.org)")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("upstream: fetch: %w", err)
+		return Batch{}, fmt.Errorf("upstream: fetch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream: status %d", resp.StatusCode)
+		return Batch{}, fmt.Errorf("upstream: status %d", resp.StatusCode)
 	}
 
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, maxPayloadBytes))
 	if err != nil {
-		return nil, fmt.Errorf("upstream: read body: %w", err)
+		return Batch{}, fmt.Errorf("upstream: read body: %w", err)
 	}
 
-	readings, _, err := Normalise(payload)
-	return readings, err
+	readings, skipped, err := Normalise(payload)
+	if err != nil {
+		return Batch{}, err
+	}
+	return Batch{Readings: readings, Skipped: skipped}, nil
 }

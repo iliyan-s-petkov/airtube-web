@@ -102,11 +102,15 @@ func TestFetchHappyPath(t *testing.T) {
 	}
 
 	c := New(srv.URL, 5*time.Second)
-	got, err := c.Fetch(context.Background())
+	batch, err := c.Fetch(context.Background())
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
+	got := batch.Readings
 
+	if len(got) == 0 {
+		t.Fatal("Fetch returned no readings from the recorded fixture")
+	}
 	if len(got) != len(want) {
 		t.Fatalf("len(got) = %d, want %d", len(got), len(want))
 	}

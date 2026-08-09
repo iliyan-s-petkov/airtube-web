@@ -186,9 +186,21 @@ func TestUpstreamContractLive(t *testing.T) {
 		"https://data.sensor.community/airrohr/v1/filter/country=BG",
 		30*time.Second)
 
-	readings, err := client.Fetch(context.Background())
+	batch, err := client.Fetch(context.Background())
 	if err != nil {
 		t.Fatalf("live fetch: %v — payload failed to parse; upstream schema may have changed", err)
+	}
+	readings := batch.Readings
+
+	// Skipped is now reported rather than discarded, so the live contract check
+	// can assert on it directly: a large skip count is drift that has already
+	// started, even while enough entries still parse to keep the count above
+	// the threshold below. 10% is loose enough for the handful of genuinely
+	// broken sensors upstream always carries.
+	if batch.Total() > 0 {
+		if fraction := float64(batch.Skipped) / float64(batch.Total()); fraction > 0.10 {
+			t.Errorf("live fetch skipped %d of %d entries (%.1f%%) — upstream entry shape may be drifting", batch.Skipped, batch.Total(), fraction*100)
+		}
 	}
 	if len(readings) == 0 {
 		t.Fatal("live fetch returned no readings — upstream schema may have changed")
