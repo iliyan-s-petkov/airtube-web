@@ -8,23 +8,33 @@ deployable Phase 1, plus the decisions Phase 2 depends on.
 
 ---
 
-## A. Close out Phase 1
+## A. Close out Phase 1 — one item left
 
-1. **Fix wave** (in flight) — 1 Critical, 7 Important, 5 ledger items from the final
-   whole-branch review. Report will land at `final-fix-report.md`.
-2. **Scoped re-review** of the fix diff only, BASE `d98a9bc`. Verifies each finding is
-   genuinely addressed and the fix introduced nothing new. One round — this is the last
-   gate, not a new loop.
-3. **Adjudicate residuals.** Anything the re-review leaves open gets a ruling recorded
-   in the ledger. A load-bearing residual stops the merge and goes to the owner.
-4. ~~**Ship the authoritative Bulgaria boundary**~~ — done, commit `8042c98`. See section B.
-5. **Apply the queued tag and version bumps** (section F). Blocked on the fix wave only
-   because it holds the same files and is running the test suite.
-6. **Decide `.claude/`** — commit or gitignore. Currently untracked.
-6. **Delete the SDD workspace** `.superpowers/sdd/2026-08-07-airbg-phase1-data-foundation/`.
-   Git-ignored scratch; its value is spent once the branch merges.
-7. **Merge** via `superpowers:finishing-a-development-branch` — PR or direct merge of
-   `feat/phase1-data-foundation` into `master`, owner's choice.
+1. ~~**Fix wave**~~ — done. 1 Critical + 7 Important + 5 ledger minors closed.
+2. ~~**Scoped re-review**~~ — done, BASE `d98a9bc`. Verdict CHANGES REQUESTED: 13/13
+   scoped findings addressed, 7 new findings raised.
+3. ~~**Adjudicate residuals**~~ — done. All 7 new findings closed in `0b3ea0d`,
+   `ca2eb2e`, `df39d74`, `75ababe`; rulings in the ledger. The three the fix wave
+   itself raised: no FK (deviation stands, reachability confirmed closed at both
+   ends), `internal/db/timeout.go` (warranted), purge's check ordering (moved inside
+   the transaction).
+
+   The Critical was mine: the boundary shipped in `8042c98` was a bare GeoJSON
+   `Feature`, so `Import` stored nothing and returned no error — the documented
+   mandatory bootstrap step was a silent no-op. Fixed in `0b3ea0d`, along with the
+   reason it shipped: no test had ever imported the committed file.
+4. ~~**Ship the authoritative Bulgaria boundary**~~ — `8042c98`, corrected by `0b3ea0d`.
+5. ~~**Apply the queued tag and version bumps**~~ — `7d143e7`. pg18, actions v7,
+   distroless debian13. Both `@v7` tags verified against the GitHub API.
+6. ~~**Decide `.claude/`**~~ — gitignored. It held `settings.local.json` only.
+7. **Merge** — the one remaining item. Via `superpowers:finishing-a-development-branch`:
+   PR or direct merge of `feat/phase1-data-foundation` into `master`, owner's choice.
+   The SDD workspace is deliberately still on disk until then; it is the recovery map
+   and the provenance for every commit on the branch. Delete it after the merge.
+
+**State at the point of handoff:** `go build`, `go vet`, `go test ./... -race` green on
+all 8 packages against pg18. `docker build` clean; the image runs and fails closed with
+`config: AIRBG_DATABASE_URL is required`; `nonroot`, 4.6 MB. Working tree clean.
 
 ## B. Authoritative Bulgaria boundary
 
@@ -50,10 +60,11 @@ Decided 2026-08-09: **accept and contain.** `www-root/` is excluded from the Doc
 build context, the Go binary never reads it, and nothing in the rewrite depends on
 Google Geocoding. The key ships nowhere. Do not raise this again.
 
-## F. Queued tag and version bumps
+## F. Tag and version bumps — all applied, commit `7d143e7` (base image in `7b2e24f`)
 
-All four are decided and verified; none is applied yet. They are held only because the
-final-review fix wave holds the same files and is running the container suite.
+Kept for the verification record. `checkout@v7` and `setup-go@v7` were the one item
+left unverified at the time of writing; both tags exist and are each repository's
+latest release (`v7.0.1` and `v7.0.0` respectively), checked against the GitHub API.
 
 **1. Distroless base — `static-debian12` → `static-debian13`.** Edited, not committed.
 debian13 (trixie) is current stable; debian12 is oldstable. The binary is statically
