@@ -425,8 +425,41 @@ func TestParseReportFractionOfEmptyFileIsNotNaN(t *testing.T) {
 	if math.IsNaN(report.RejectedFraction()) {
 		t.Error("RejectedFraction() on an empty file = NaN, want 0")
 	}
-	if report.Level() != slog.LevelInfo {
-		t.Errorf("Level() = %v, want INFO for an empty file — nothing was dropped", report.Level())
+	// A header-only file used to report INFO, on the reasoning that nothing was
+	// dropped. Nothing was stored either, and that is the fact an operator needs:
+	// "nothing was rejected" is vacuously true of a file nothing was read from.
+	// Level() is ERROR whenever Accepted == 0, however the zero arose.
+	if got := report.Level(); got != slog.LevelError {
+		t.Errorf("Level() = %v, want ERROR for a file that stored nothing", got)
+	}
+}
+
+// TestParseCSVRejectsHeaderWithNoMetricColumns pins the header-rename blind
+// spot. The rejection counters can only count cells the parser recognised, so
+// they are structurally blind to a column it never looked at: rename P1 to pm10
+// upstream and every row parses, no cell is counted, Values is 0, nothing reads
+// as rejected. Before this check the import exited 0 having stored nothing.
+//
+// The timestamp column is present and valid here — that is the point. Only the
+// metric columns are unrecognised, so nothing else in the file looks wrong.
+func TestParseCSVRejectsHeaderWithNoMetricColumns(t *testing.T) {
+	const renamed = "sensor_id;sensor_type;location;lat;lon;timestamp;pm10;pm25\n" +
+		"12345;SDS011;5678;42.6977;23.3219;2026-08-01T00:00:00;42.0;21.0\n" +
+		"12345;SDS011;5678;42.6977;23.3219;2026-08-01T00:10:00;44.0;22.0\n"
+
+	buckets, _, err := backfill.ParseCSV(strings.NewReader(renamed), 12345)
+	if err == nil {
+		t.Fatal("ParseCSV accepted a header with no recognised metric column; it must refuse rather than parse every row into nothing")
+	}
+	if len(buckets) != 0 {
+		t.Errorf("ParseCSV returned %d buckets alongside an error, want 0", len(buckets))
+	}
+	// The message has to be actionable: an operator seeing it needs to know
+	// which names were expected, not only that theirs were wrong.
+	for _, want := range []string{"pm10", "P1"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
 	}
 }
 

@@ -1,7 +1,10 @@
 // Package upstream fetches and normalises readings from sensor.community.
 package upstream
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // Reading is one metric from one sensor at one instant, already normalised.
 type Reading struct {
@@ -27,3 +30,16 @@ var canonicalMetrics = map[string]bool{
 }
 
 func IsCanonicalMetric(m string) bool { return canonicalMetrics[m] }
+
+// CanonicalMetrics returns the set as a sorted slice, so an error message can
+// tell an operator what was expected instead of only what was wrong. Sorted
+// because map iteration order would make the same error read differently on
+// each run.
+func CanonicalMetrics() []string {
+	names := make([]string, 0, len(canonicalMetrics))
+	for m := range canonicalMetrics {
+		names = append(names, m)
+	}
+	sort.Strings(names)
+	return names
+}

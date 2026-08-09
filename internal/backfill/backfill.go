@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -99,14 +100,22 @@ const HighRejectionFraction = 0.5
 // severity rule lives next to the counters it reads and can be asserted
 // directly rather than re-derived at each call site.
 //
-// Total rejection is deliberately ERROR even when the file parsed cleanly: an
+// Accepting nothing is deliberately ERROR even when the file parsed cleanly: an
 // archive file from which nothing at all survived filtering stored nothing, and
 // "stored nothing" must never be reported at the same level as a successful
 // import. That is the same fail-loud rule ingest.RunOnce applies to a cycle
 // that fetched successfully and salvaged nothing.
+//
+// The condition is Accepted == 0, not Values > 0 && Accepted == 0. Requiring
+// Values > 0 made the level conditional on the parser having recognised
+// something, which excluded the very case where it recognised nothing —
+// a header-only file, or a header whose metric columns were all unrecognised,
+// reported zero of everything and so fell through to INFO. A report that says
+// "nothing was rejected" because nothing was ever examined is not a clean
+// import.
 func (r ParseReport) Level() slog.Level {
 	switch {
-	case r.Values > 0 && r.Accepted == 0:
+	case r.Accepted == 0:
 		return slog.LevelError
 	case r.RejectedFraction() >= HighRejectionFraction:
 		return slog.LevelError
@@ -187,6 +196,22 @@ func ParseCSV(r io.Reader, sensorID int64) ([]HourlyBucket, ParseReport, error) 
 	}
 	if tsCol == -1 {
 		return nil, report, fmt.Errorf("backfill: no timestamp column")
+	}
+	// A header carrying a timestamp but no recognised metric column can only
+	// produce zero buckets, however many million rows follow. Without this
+	// check, an upstream header rename (P1 → pm10, say) parses every row,
+	// counts no cells at all, and so reports Values = 0 — which is not
+	// "rejected", so nothing in the report looks wrong and the import exits 0
+	// having stored nothing.
+	//
+	// This is the same failure the counters exist to prevent, one level up: the
+	// rejection counters can only describe cells the parser recognised, so they
+	// are structurally blind to a column it never looked at. The header is the
+	// only place that blindness is visible, so the check belongs here.
+	if len(metricCols) == 0 {
+		return nil, report, fmt.Errorf(
+			"backfill: header has no recognised metric column (got %q) — expected at least one of %v; an unrecognised header parses every row and stores nothing",
+			strings.Join(header, ";"), upstream.CanonicalMetrics())
 	}
 
 	acc := map[key]*accumulator{}
