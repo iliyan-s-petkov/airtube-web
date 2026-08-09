@@ -1,3 +1,8 @@
+# Local development only. Do NOT use this compose file in production: it
+# publishes Postgres on the host (port 5432), ships a plaintext password in
+# plain environment variables, and carries none of the operational hardening
+# (secrets management, backups, network isolation, resource limits) a
+# production deployment needs.
 services:
   db:
     image: timescale/timescaledb-ha:pg16

@@ -9,6 +9,10 @@ This repository is a rewrite of the legacy PHP application. See
 
 ## Running locally
 
+`docker-compose.yml` is for local development only — it publishes Postgres
+on the host with a plaintext password and none of the hardening a production
+deployment needs. Do not use it in production.
+
 ```bash
 docker compose up -d db
 export AIRBG_DATABASE_URL='postgres://airbg:airbg@localhost:5432/airbg?sslmode=disable'
