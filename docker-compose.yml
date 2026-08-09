@@ -1,19 +1,22 @@
 # Local development only. Do NOT use this compose file in production: it
-# publishes Postgres on the host (port 5432), ships a plaintext password in
-# plain environment variables, and carries none of the operational hardening
+# publishes Postgres on the host and carries none of the operational hardening
 # (secrets management, backups, network isolation, resource limits) a
 # production deployment needs.
+#
+# No credential is hardcoded here. Every value comes from the environment, with
+# a development-only fallback after ":-" so `docker compose up` works without
+# setup. Copy .env.example to .env to override any of them.
 services:
   db:
     image: timescale/timescaledb-ha:pg16
     environment:
-      POSTGRES_PASSWORD: airbg
-      POSTGRES_USER: airbg
-      POSTGRES_DB: airbg
+      POSTGRES_USER: ${POSTGRES_USER:-airbg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airbg}
+      POSTGRES_DB: ${POSTGRES_DB:-airbg}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airbg"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airbg}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,7 +25,9 @@ services:
     build: .
     command: ["collect"]
     environment:
-      AIRBG_DATABASE_URL: postgres://airbg:airbg@db:5432/airbg?sslmode=disable
+      # sslmode=disable is acceptable only because this connection never leaves
+      # the compose network. Require TLS in production.
+      AIRBG_DATABASE_URL: ${AIRBG_DATABASE_URL:-postgres://${POSTGRES_USER:-airbg}:${POSTGRES_PASSWORD:-airbg}@db:5432/${POSTGRES_DB:-airbg}?sslmode=disable}
     depends_on:
       db:
         condition: service_healthy
