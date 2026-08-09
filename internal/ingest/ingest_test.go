@@ -227,7 +227,12 @@ func TestLoopSurvivesFetchErrors(t *testing.T) {
 		close(done)
 	}()
 
-	// Let several ticks elapse — proves one failure did not end the loop.
+	// Reaching a third fetch after the first one failed is the assertion: this
+	// pollUntil fatals if it does not, so it carries the whole claim. A trailing
+	// `if calls.Load() < 2` check used to follow the cancel below, which could
+	// never fire — pollUntil has already established calls >= 3 by then. Dead
+	// assertions read as coverage they do not provide, so it is gone rather than
+	// restated.
 	pollUntil(t, 2*time.Second, 5*time.Millisecond, func() bool {
 		return calls.Load() >= 3
 	})
@@ -237,10 +242,6 @@ func TestLoopSurvivesFetchErrors(t *testing.T) {
 	case <-done:
 	case <-time.After(1 * time.Second):
 		t.Fatal("Loop did not return after context cancellation")
-	}
-
-	if got := calls.Load(); got < 2 {
-		t.Errorf("fetch calls = %d, want > 1 (loop must survive a failed cycle)", got)
 	}
 }
 

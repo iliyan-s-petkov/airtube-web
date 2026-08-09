@@ -72,8 +72,23 @@ type PurgeResult struct {
 func PurgeOutsideBoundary(ctx context.Context, pool *pgxpool.Pool) (PurgeResult, error) {
 	var result PurgeResult
 
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after a successful Commit
+
+	// The fail-closed check reads inside the transaction that performs the
+	// deletes, not before it. Nothing in the codebase deletes from `area` today,
+	// so an outright TOCTOU is not currently reachable — but the check and the
+	// ST_Covers join below must agree about which boundary exists, and only a
+	// shared snapshot guarantees that. Read outside the transaction, the failure
+	// tail is the worst one available: the check sees a boundary, the boundary
+	// disappears, and the join then matches no area, so every sensor qualifies as
+	// outside and the purge wipes the entire fleet. Reading it here costs one
+	// query on an operator-invoked command and removes that tail entirely.
 	var present bool
-	if err := pool.QueryRow(ctx,
+	if err := tx.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM area WHERE kind = $1)`, NationalBoundaryKind).
 		Scan(&present); err != nil {
 		return result, err
@@ -83,12 +98,6 @@ func PurgeOutsideBoundary(ctx context.Context, pool *pgxpool.Pool) (PurgeResult,
 			"area: no boundary of kind %q imported — refusing to purge (run: airbg import-areas <path.geojson> %s)",
 			NationalBoundaryKind, NationalBoundaryKind)
 	}
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return result, err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // no-op after a successful Commit
 
 	// The deletes below are bulk deletes over a hypertable spanning 30 daily
 	// chunks; at production volume (~900 sensors x 7 metrics x 30 days of

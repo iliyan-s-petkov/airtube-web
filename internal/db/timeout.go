@@ -21,14 +21,22 @@ const (
 	// successive cycles.
 	AssignStatementTimeout = "60s"
 
-	// OperatorStatementTimeout bounds one-shot, operator-invoked CLI commands: the bulk
-	// deletes in PurgeOutsideBoundary and a backfill import's batch. At
-	// production volume (~900 sensors x 7 metrics x 30 days of 5-minute
-	// samples, spread over 30 daily chunks) a bulk delete plausibly exceeds
-	// 15s; because it runs inside a transaction, a timeout aborts the whole
-	// purge, so the documented cleanup could never complete. An operator
-	// watching a command they typed is the one caller for whom a long wait is
-	// preferable to a failure.
+	// OperatorStatementTimeout bounds the bulk deletes in
+	// PurgeOutsideBoundary, and nothing else. At production volume (~900
+	// sensors x 7 metrics x 30 days of 5-minute samples, spread over 30 daily
+	// chunks) a bulk delete plausibly exceeds 15s; because it runs inside a
+	// transaction, a timeout aborts the whole purge, so the documented cleanup
+	// could never complete. An operator watching a command they typed is the
+	// one caller for whom a long wait is preferable to a failure.
+	//
+	// It deliberately does not cover backfill's write. An earlier version of
+	// this comment claimed it did, which was never true — backfill.WriteBuckets
+	// batches on the pool rather than in a transaction, so it never reaches
+	// SetLocalStatementTimeout. Nor does it need to: one archive day is at most
+	// 24 buckets x 7 metrics of single-row upserts, and statement_timeout bounds
+	// each statement individually, so the pool default is ample. Extending the
+	// exception there would mean opening a transaction solely to relax a limit
+	// nothing was hitting.
 	OperatorStatementTimeout = "10min"
 )
 

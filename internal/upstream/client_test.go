@@ -51,6 +51,14 @@ func TestNormaliseCoordinateOrder(t *testing.T) {
 		t.Fatalf("Normalise: %v", err)
 	}
 
+	// Every assertion below is inside the loop, so zero readings would pass the
+	// one test whose whole purpose is catching a lat/lon swap on the upstream
+	// parser. A fixture edit or a parser regression is exactly when that guard
+	// needs to hold.
+	if len(readings) == 0 {
+		t.Fatal("Normalise returned no readings, so the coordinate-order assertions below never ran")
+	}
+
 	for _, r := range readings {
 		if r.Lon < 22 || r.Lon > 29 {
 			t.Errorf("sensor %d Lon = %v, outside Bulgaria — lat/lon swapped", r.SensorID, r.Lon)
