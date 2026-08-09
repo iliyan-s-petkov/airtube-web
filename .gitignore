@@ -1,0 +1,9 @@
+CLAUDE.md
+
+/airbg
+*.pmtiles
+.env
+.superpowers/
+
+# Local Claude Code settings — personal, not team configuration.
+.claude/

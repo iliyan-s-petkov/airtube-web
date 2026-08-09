@@ -1,0 +1,45 @@
+[
+  {
+    "id": 300001,
+    "timestamp": "2026-08-08 09:00:00",
+    "location": {"id": 700, "latitude": "42.6957", "longitude": "23.3327", "country": "BG"},
+    "sensor": {"id": 40001, "sensor_type": {"name": "SDS011"}},
+    "sensordatavalues": [
+      {"value_type": "P1", "value": "24.30"}
+    ]
+  },
+  {
+    "id": 300002,
+    "timestamp": "2026-08-08 09:00:00",
+    "location": {"id": 701, "latitude": 42.1354, "longitude": 24.7453, "country": "BG"},
+    "sensor": {"id": 40002, "sensor_type": {"name": "SDS011"}},
+    "sensordatavalues": [
+      {"value_type": "P1", "value": "18.10"}
+    ]
+  },
+  {
+    "id": 300003,
+    "timestamp": "2026-08-08 09:00:00",
+    "location": {"id": 702, "latitude": "42.4500", "longitude": "23.9000", "country": "BG"},
+    "sensor": {"id": "40003", "sensor_type": {"name": "SDS011"}},
+    "sensordatavalues": [
+      {"value_type": "P1", "value": "12.00"}
+    ]
+  },
+  {
+    "id": 300004,
+    "timestamp": "2026-08-08 09:00:00",
+    "location": {"id": 703, "latitude": "43.2000", "longitude": "27.9000", "country": "BG"},
+    "sensor": {"id": 40004, "sensor_type": {"name": "SDS011"}},
+    "sensordatavalues": {"value_type": "P1", "value": "9.00"}
+  },
+  {
+    "id": 300005,
+    "timestamp": "2026-08-08 09:00:00",
+    "location": {"id": 704, "latitude": "41.9500", "longitude": "25.5600", "country": "BG"},
+    "sensor": {"id": 40005, "sensor_type": {"name": "SDS011"}},
+    "sensordatavalues": [
+      {"value_type": "P1", "value": "30.00"}
+    ]
+  }
+]

@@ -1,0 +1,39 @@
+# TestUpstreamContractLive is the only check that can detect sensor.community
+# changing its response shape, and it caught a Critical during Phase 1. It was
+# gated behind AIRBG_LIVE_TEST and nothing ever set it, so in practice it never
+# ran anywhere except on a developer's machine, on purpose, which is the same as
+# not having it.
+#
+# It runs on a schedule rather than on push for two reasons: it hits a
+# third-party, volunteer-funded API (running it per push would be both rude and
+# rate-limit bait), and its result depends on upstream, not on the commit — so a
+# failure must never block a merge. Hence a separate workflow with
+# continue-on-error, not a job in ci.yml.
+name: upstream-contract
+on:
+  schedule:
+    # 04:17 UTC daily. Off the hour to avoid the cron stampede that makes
+    # scheduled GitHub Actions runs queue.
+    - cron: '17 4 * * *'
+  # Manual trigger, so the contract can be checked on demand after an upstream
+  # incident without waiting for the next scheduled run.
+  workflow_dispatch:
+
+jobs:
+  live-contract:
+    runs-on: ubuntu-latest
+    # Upstream being down, slow, or rate-limiting is not a defect in this
+    # repository. The run is a signal to read, not a gate.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+      - name: live upstream contract check
+        env:
+          AIRBG_LIVE_TEST: '1'
+        # -count=1 defeats the test cache: a cached pass from a previous day
+        # would make this workflow report success without contacting upstream at
+        # all, which is precisely the failure mode being fixed.
+        run: go test ./internal/ingest/ -run TestUpstreamContractLive -count=1 -v
