@@ -3,8 +3,11 @@
 -- A plain hypertable rather than a continuous aggregate: the one-year archive
 -- backfill writes hourly buckets directly, and continuous aggregates are not
 -- insertable. The rollup job in internal/store/rollup.go maintains it from raw
--- readings, filtering on quality = 'ok' so flagged data can never contaminate a
--- published average (spec §5.3).
+-- readings, filtering on quality IN ('ok', 'no_neighbours') so flagged data can
+-- never contaminate a published average (spec §5.3). 'no_neighbours' is included
+-- because it records that the spatial-outlier check could not run — there was
+-- nothing to compare against — not that the reading failed it; excluding it
+-- would silently drop every rural sensor that has no neighbour within range.
 CREATE TABLE reading_hourly (
     bucket    timestamptz NOT NULL,
     sensor_id bigint NOT NULL,
