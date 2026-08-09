@@ -1,0 +1,18 @@
+# Build context should be exactly what the Dockerfile's `COPY . .` needs to
+# compile ./cmd/airbg: go.mod, go.sum, cmd/, internal/ (including the
+# go:embed'd migrations under internal/db/migrations). Everything below is
+# plainly not a build input and would otherwise be shipped to the daemon on
+# every build.
+
+.git
+.github
+.superpowers
+.claude
+
+# Legacy PHP app — the Go image has no use for it.
+www-root
+
+# Docs, planning artifacts, and local-only files.
+*.md
+docker-compose.yml
+.gitignore
