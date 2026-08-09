@@ -70,12 +70,21 @@ func main() {
 			slog.Error("backfill", "error", err)
 			os.Exit(1)
 		}
-		buckets, err := backfill.ParseCSV(f, sensorID)
+		buckets, report, err := backfill.ParseCSV(f, sensorID)
 		f.Close()
 		if err != nil {
 			slog.Error("backfill", "error", err)
 			os.Exit(1)
 		}
+
+		// Report what filtering dropped before anything is written. An archive
+		// file that is mostly rejected must be visible at the moment of
+		// import — once the surviving buckets are in reading_hourly there is
+		// no column recording how much of the day they were derived from, and
+		// nothing ever rewrites a historical bucket.
+		slog.Log(ctx, report.Level(), "backfill parsed archive file",
+			append([]any{"sensor_id", sensorID, "path", os.Args[3]}, report.LogAttrs()...)...)
+
 		n, err := backfill.WriteBuckets(ctx, pool, buckets)
 		if err != nil {
 			slog.Error("backfill", "error", err)
