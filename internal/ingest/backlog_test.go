@@ -132,6 +132,8 @@ func TestRunOnceDrainsBacklogEvenWhenFetchFails(t *testing.T) {
 	wantErr := errors.New("upstream down")
 	f := stubFetcher{err: wantErr}
 	ing := ingest.New(f, st, quality.NewHistory(12))
+	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
+	defer restoreClock()
 
 	if _, err := ing.RunOnce(ctx); !errors.Is(err, wantErr) {
 		t.Fatalf("RunOnce err = %v, want %v (fetch error must still surface)", err, wantErr)
@@ -300,6 +302,8 @@ func TestBacklogAlertFiresWhenGapCrossesThreshold(t *testing.T) {
 
 	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, now)}}
 	ing := ingest.New(f, st, quality.NewHistory(12))
+	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
+	defer restoreClock()
 	if _, err := ing.RunOnce(ctx); err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
@@ -360,6 +364,8 @@ func TestBacklogAlertDoesNotFireBelowThreshold(t *testing.T) {
 
 	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, now)}}
 	ing := ingest.New(f, st, quality.NewHistory(12))
+	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
+	defer restoreClock()
 	if _, err := ing.RunOnce(ctx); err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
