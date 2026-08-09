@@ -9,16 +9,23 @@ This repository is a rewrite of the legacy PHP application. See
 
 ## Running locally
 
-`docker-compose.yml` is for local development only — it publishes Postgres
-on the host with a plaintext password and none of the hardening a production
-deployment needs. Do not use it in production.
+`docker-compose.yml` is for local development only — it publishes Postgres on
+the host and carries none of the hardening a production deployment needs. Do
+not use it in production.
+
+No credential is hardcoded in it: every value comes from the environment with a
+development-only fallback, so `docker compose up` works with no setup. Copy
+`.env.example` to `.env` to override any of them. `.env` is gitignored.
 
 ```bash
 docker compose up -d db
 export AIRBG_DATABASE_URL='postgres://airbg:airbg@localhost:5432/airbg?sslmode=disable'
 go run ./cmd/airbg migrate
+go run ./cmd/airbg import-areas data/boundaries/bulgaria.geojson country
 go run ./cmd/airbg collect
 ```
+
+The `import-areas` step is not optional — see the prerequisite note below.
 
 ## Subcommands
 
@@ -82,8 +89,8 @@ No secret is ever committed. Configuration is environment-only.
 
 ## Database
 
-PostgreSQL 16 with **both PostGIS and TimescaleDB** is required. Use the
-`timescale/timescaledb-ha:pg16` image, as in `docker-compose.yml` — the plain
+PostgreSQL 18 with **both PostGIS and TimescaleDB** is required. Use the
+`timescale/timescaledb-ha:pg18` image, as in `docker-compose.yml` — the plain
 `timescaledb` image does not include PostGIS, and the app will fail to start
 against it (area boundary storage and sensor assignment depend on PostGIS
 geometry types).
@@ -100,7 +107,7 @@ go test ./... -race
 ```
 
 Integration tests start real PostgreSQL containers via testcontainers, so Docker
-must be running. The first run pulls `timescale/timescaledb-ha:pg16`.
+must be running. The first run pulls `timescale/timescaledb-ha:pg18`.
 
 To check the live upstream contract:
 
@@ -132,13 +139,13 @@ rather than by the self-declared `country` field; and the pressure floor is
 
 What remains, that an operator should be aware of:
 
-- **You must supply your own national boundary.** No production-grade
-  Bulgaria outline ships with this repo. The polygon under
-  `internal/area/testdata/` is a hand-authored test fixture, materially wrong
-  along the eastern border, and is used only by tests — it is never loaded at
-  runtime. Import an authoritative outline (Natural Earth or equivalent)
-  before running `collect`; until you do, the collector fails closed and
-  stores nothing.
+- **The national boundary must be imported before the first `collect`.** An
+  authoritative outline now ships at `data/boundaries/bulgaria.geojson`
+  (Natural Earth 1:10m, public domain), so this is one command rather than a
+  sourcing exercise — but it is still a manual step, and skipping it means the
+  collector stores nothing while otherwise looking healthy. Do not substitute
+  the fixture under `internal/area/testdata/`: it is a crude hand-authored
+  polygon, wrong along the eastern border, and exists only for tests.
 - **Sensors ingested before the boundary filter existed are not removed
   automatically.** Rows stored while upstream `country` was still trusted
   persist, including foreign sensors. Run `purge-outside-boundary` once after

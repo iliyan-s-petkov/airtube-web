@@ -42,7 +42,7 @@ func NewPostgresURL(t *testing.T) string {
 	ctx := context.Background()
 
 	container, err := tcpostgres.Run(ctx,
-		"timescale/timescaledb-ha:pg16",
+		"timescale/timescaledb-ha:pg18",
 		tcpostgres.WithDatabase("airbg"),
 		tcpostgres.WithUsername("airbg"),
 		tcpostgres.WithPassword("airbg"),

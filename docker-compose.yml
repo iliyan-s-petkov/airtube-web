@@ -8,7 +8,7 @@
 # setup. Copy .env.example to .env to override any of them.
 services:
   db:
-    image: timescale/timescaledb-ha:pg16
+    image: timescale/timescaledb-ha:pg18
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-airbg}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airbg}

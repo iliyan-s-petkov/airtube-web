@@ -30,7 +30,7 @@ Phase 1 includes a layer registry and a per-reading quality flag specifically be
 | Frontend | Svelte 5 islands on Go-rendered HTML |
 | Map library | MapLibre GL JS (vector tiles) |
 | Charts | uPlot |
-| Datastore | PostgreSQL 16 + PostGIS + TimescaleDB |
+| Datastore | PostgreSQL 16 + PostGIS + TimescaleDB — **superseded: now PostgreSQL 18**, owner decision 2026-08-09, for the longer support runway. Verified on `timescale/timescaledb-ha:pg18` (PG 18.4, PostGIS 3.6.4, TimescaleDB 2.29.1) with the full suite green. |
 | Basemap | Self-hosted Protomaps PMTiles, Bulgaria extract |
 | Hosting | Self-hosted Docker (Komodo / Compose), SigNoz observability |
 | Edge | Cloudflare free tier, treated as removable |
