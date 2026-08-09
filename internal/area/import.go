@@ -12,6 +12,7 @@ import (
 )
 
 type featureCollection struct {
+	Type     string `json:"type"`
 	Features []struct {
 		Properties struct {
 			Slug   string `json:"slug"`
@@ -66,6 +67,29 @@ func Import(ctx context.Context, pool *pgxpool.Pool, path, kind string) (int, er
 		return 0, fmt.Errorf("area: parse %s: %w", path, err)
 	}
 
+	// A file that is not a FeatureCollection unmarshals without error into a
+	// featureCollection with no features, because encoding/json tolerates the
+	// absent "features" key. The loop below then does not run, and with it none
+	// of the per-feature validation runs either — so a bare Feature (the shape
+	// most GeoJSON exports of a single country produce) used to import "0
+	// features, no error". As a national boundary that is the worst outcome
+	// available: import reports success, the boundary-presence check finds no
+	// row, and every collect cycle stores nothing.
+	//
+	// Both of these checks therefore live *before* the loop. Validation placed
+	// inside the loop cannot fire on a file with zero features, which is exactly
+	// the case that needs catching.
+	if fc.Type != "FeatureCollection" {
+		return 0, fmt.Errorf(
+			"area: %s has GeoJSON type %q, want \"FeatureCollection\" — wrap the feature in {\"type\":\"FeatureCollection\",\"features\":[...]}; only a FeatureCollection's features are read, so any other type imports nothing",
+			path, fc.Type)
+	}
+	if len(fc.Features) == 0 {
+		return 0, fmt.Errorf(
+			"area: %s contains no features — importing nothing is never the intent, and as a %q boundary it leaves the collector storing nothing every cycle",
+			path, NationalBoundaryKind)
+	}
+
 	batch := &pgx.Batch{}
 	for _, f := range fc.Features {
 		if f.Properties.Slug == "" {
@@ -85,9 +109,6 @@ func Import(ctx context.Context, pool *pgxpool.Pool, path, kind string) (int, er
 			       geom = EXCLUDED.geom`,
 			f.Properties.Slug, kind, f.Properties.NameBG, f.Properties.NameEN,
 			string(f.Geometry))
-	}
-	if batch.Len() == 0 {
-		return 0, nil
 	}
 	if err := pool.SendBatch(ctx, batch).Close(); err != nil {
 		return 0, fmt.Errorf("area: import %s: %w", path, err)

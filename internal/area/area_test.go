@@ -339,6 +339,101 @@ func TestImportRejectsEmptyGeometry(t *testing.T) {
 	assertAreaCount(ctx, t, pool, 0)
 }
 
+// TestImportRejectsBareFeature pins the case that shipped a broken boundary: a
+// top-level `{"type": "Feature", ...}` — what most single-country GeoJSON
+// exports produce — has no "features" key, so encoding/json leaves Features nil
+// and every per-feature check is skipped. Import used to return (0, nil): the
+// documented bootstrap command printed success, stored nothing, and left collect
+// failing closed forever.
+//
+// Deleting the type check in Import must break this test. If it still passes,
+// the check has moved back inside the per-feature loop, where it cannot fire.
+func TestImportRejectsBareFeature(t *testing.T) {
+	ctx, pool := migrated(t)
+
+	n, err := area.Import(ctx, pool, "testdata/bare_feature.geojson", area.NationalBoundaryKind)
+	if err == nil {
+		t.Fatal("Import accepted a bare Feature; it must reject anything but a FeatureCollection")
+	}
+	if n != 0 {
+		t.Errorf("Import reported %d features imported alongside an error, want 0", n)
+	}
+	if !strings.Contains(err.Error(), "FeatureCollection") {
+		t.Errorf("error %q does not say what the file should have been", err)
+	}
+	assertAreaCount(ctx, t, pool, 0)
+}
+
+// TestImportRejectsEmptyFeatureCollection covers the other zero-feature route:
+// a well-formed FeatureCollection with an empty features array. Same outcome as
+// a bare Feature, same reason it must be an error rather than a silent 0.
+func TestImportRejectsEmptyFeatureCollection(t *testing.T) {
+	ctx, pool := migrated(t)
+
+	if _, err := area.Import(ctx, pool, "testdata/no_features.geojson", area.NationalBoundaryKind); err == nil {
+		t.Fatal("Import accepted a FeatureCollection with no features")
+	}
+	assertAreaCount(ctx, t, pool, 0)
+}
+
+// TestImportCommittedBulgariaBoundary imports the file the README tells every
+// operator to import, through the exact command path they run. Nothing else in
+// the suite touched it — the boundary tests all use the crude testdata fixture —
+// which is how a bare-Feature file shipped as the mandatory bootstrap input.
+//
+// The containment assertions are deliberately against real cities rather than
+// the polygon's own bounding box: Bulgaria's bbox overlaps five neighbours, so
+// Bucharest and Thessaloniki falling outside is what distinguishes a real
+// ST_Covers test from a box test. They also pin coordinate order — geography is
+// (longitude, latitude), and Sofia at (23.32, 42.70) swapped becomes a point in
+// the Indian Ocean.
+func TestImportCommittedBulgariaBoundary(t *testing.T) {
+	ctx, pool := migrated(t)
+
+	n, err := area.Import(ctx, pool, "../../data/boundaries/bulgaria.geojson", area.NationalBoundaryKind)
+	if err != nil {
+		t.Fatalf("Import of the committed national boundary failed: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("imported %d features, want 1", n)
+	}
+
+	var kind string
+	if err := pool.QueryRow(ctx,
+		`SELECT kind FROM area WHERE slug = 'bulgaria'`).Scan(&kind); err != nil {
+		t.Fatalf("the import stored no area with slug 'bulgaria': %v", err)
+	}
+	if kind != area.NationalBoundaryKind {
+		t.Errorf("kind = %q, want %q", kind, area.NationalBoundaryKind)
+	}
+
+	for _, c := range []struct {
+		name     string
+		lon, lat float64
+		inside   bool
+	}{
+		{"Sofia", 23.3219, 42.6977, true},
+		{"Varna", 27.9147, 43.2141, true},
+		{"Musala", 23.5853, 42.1794, true},
+		{"Shabla", 28.5361, 43.5375, true}, // the far east, cut off by the test fixture
+		{"Bucharest", 26.1025, 44.4268, false},
+		{"Thessaloniki", 22.9444, 40.6401, false},
+		{"Skopje", 21.4254, 41.9981, false},
+	} {
+		var covered bool
+		err := pool.QueryRow(ctx, `
+			SELECT ST_Covers(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)
+			FROM area WHERE slug = 'bulgaria'`, c.lon, c.lat).Scan(&covered)
+		if err != nil {
+			t.Fatalf("ST_Covers for %s: %v", c.name, err)
+		}
+		if covered != c.inside {
+			t.Errorf("%s (lon %.4f, lat %.4f): covered = %v, want %v",
+				c.name, c.lon, c.lat, covered, c.inside)
+		}
+	}
+}
+
 func memberships(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sensorID int64) []string {
 	t.Helper()
 	rows, err := pool.Query(ctx,
