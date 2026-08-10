@@ -33,6 +33,7 @@ The `import-areas` step is not optional — see the prerequisite note below.
 |---|---|
 | `migrate` | Apply schema migrations |
 | `collect` | Poll sensor.community on a loop, score, and store |
+| `serve` | Run the poller and the HTTP server in one process (see Serving below) |
 | `import-areas <file.geojson> <city\|oblast\|neighbourhood\|country>` | Load boundaries and assign sensors |
 | `backfill <sensor_id> <archive-csv-path>` | Load a sensor.community archive CSV into `reading_hourly`; refuses unless the sensor is known and inside the `country` boundary |
 | `purge-outside-boundary` | Delete sensors (and their stored readings) outside the `country` boundary, plus readings orphaned from any sensor row; refuses to run if no `country` boundary is imported |
@@ -78,6 +79,10 @@ There are no config files and no secrets in the repo.
 | `AIRBG_DATABASE_URL` | yes | — |
 | `AIRBG_UPSTREAM_URL` | no | `https://data.sensor.community/airrohr/v1/filter/country=BG` |
 | `AIRBG_POLL_INTERVAL` | no | `5m` |
+| `AIRBG_LISTEN_ADDR` | no | `127.0.0.1:8080` |
+| `AIRBG_METRICS_ADDR` | no | `127.0.0.1:9090` |
+| `AIRBG_TRUSTED_PROXY_CIDRS` | no | *(empty)* |
+| `AIRBG_BASE_URL` | no | `http://localhost:8080` |
 
 `AIRBG_POLL_INTERVAL` must be at least **30s**. Anything smaller is rejected at
 startup: `0s` and negative values would panic `time.NewTicker`, and a
@@ -86,6 +91,72 @@ data.sensor.community API hundreds of times more often than intended — a good
 way to get the collector's IP banned.
 
 No secret is ever committed. Configuration is environment-only.
+
+## Serving
+
+`airbg serve` runs the poller and the HTTP server **in one process**, not two.
+The published snapshot (`internal/snapshot`) lives in that process's memory —
+every API and page response is served from it directly, with no per-request
+database query — so the poller that rebuilds the snapshot and the server that
+answers requests from it have to share an address space. Splitting them into
+separate processes would mean shipping the snapshot over the network on every
+rebuild for no benefit.
+
+`serve` opens **two listeners**, not one:
+
+- The **public listener** (`AIRBG_LISTEN_ADDR`) carries the middleware chain —
+  rate limiting, the enumeration-breadth check, security headers — and the
+  actual pages and JSON API.
+- The **private listener** (`AIRBG_METRICS_ADDR`) carries only `/metrics` and
+  `/healthz`.
+
+They are separate listeners rather than a path prefix on one mux, because a
+prefix is one routing mistake away from exposing the counters that tell a
+scraper whether it is being throttled. `/metrics` reports request volumes,
+enumeration trips, and internal error rates — exactly the reconnaissance the
+anti-extraction design exists to deny — so it must never be reachable from the
+public listener.
+
+Four environment variables configure serving:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `AIRBG_LISTEN_ADDR` | `127.0.0.1:8080` | Public HTTP listener. Keep this on loopback and reach it through a Cloudflare tunnel — binding `0.0.0.0` exposes the origin directly, and a client that reaches the origin directly is covered by no Cloudflare protection, only by the in-process token buckets. |
+| `AIRBG_METRICS_ADDR` | `127.0.0.1:9090` | Private listener for `/metrics` and `/healthz`. Never route this publicly. |
+| `AIRBG_TRUSTED_PROXY_CIDRS` | *(empty)* | Peer ranges whose `CF-Connecting-IP` header is believed. **Empty means trust nobody** — the correct value for local development and for any origin not behind Cloudflare. Setting this while the origin is also directly reachable lets anyone who can reach it spoof their client IP and bypass every rate limit; restrict the origin first, then set this. |
+| `AIRBG_BASE_URL` | `http://localhost:8080` | Public origin, used for canonical and hreflang links. Must be absolute. |
+
+Endpoints:
+
+| Method | Path | Listener |
+|---|---|---|
+| GET | `/`, `/en/`, `/areas`, `/en/areas` | public |
+| GET | `/area/{slug}`, `/en/area/{slug}` | public |
+| GET | `/api/v1/overview` | public |
+| GET | `/api/v1/areas` | public |
+| GET | `/api/v1/meta` | public |
+| GET | `/api/v1/scales` | public |
+| GET | `/api/v1/area/{slug}/sensors` | public |
+| GET | `/api/v1/area/{slug}/series` | public |
+| GET | `/api/v1/sensor/{id}/series` | public |
+| GET | `/api/v1/locate` | public |
+| GET | `/metrics` | private only |
+| GET | `/healthz` | private only |
+
+### Why there is no bounding-box endpoint
+
+No endpoint accepts a bounding box or a coordinate window. The API is tiered
+instead: a country-level overview, a city-level overview, and per-area detail
+that must be requested one named area at a time. This is the anti-extraction
+design — a bbox parameter would let one request return the whole country at
+full resolution, and no rate limit can distinguish that request from a
+legitimate one. Bulk extraction therefore requires enumerating areas, which is
+what the breadth counters detect: they count *distinct* areas and sensors per
+client, not request volume, so a reader refreshing one city forever is never
+throttled while a crawler walking every area trips within a dozen requests.
+
+If a future change adds a bbox parameter, this entire defence is gone. The test
+`TestOverviewTakesNoBoundingBox` exists to make that change fail loudly.
 
 ## Database
 
@@ -156,6 +227,13 @@ What remains, that an operator should be aware of:
   failure in `internal/store` has been observed during a full `-race` run,
   self-resolving on rerun. Suspected testcontainers resource contention
   rather than a code defect; worth watching if it recurs in CI.
+- The origin must be unreachable except through Cloudflare. `AIRBG_TRUSTED_PROXY_CIDRS`
+  makes the origin believe `CF-Connecting-IP` from those ranges; it cannot stop a
+  client that reaches the origin some other way from being rate-limited as itself.
+  A directly reachable origin with no network restriction means one attacker with
+  many source addresses bypasses the per-client limits entirely. Restrict at the
+  network layer (tunnel, firewall, or origin-pull authentication) — the header
+  trust setting is not a substitute.
 
 ## Data and attribution
 
