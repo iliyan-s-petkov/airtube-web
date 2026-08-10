@@ -16,6 +16,10 @@ func clearEnv(t *testing.T) {
 	t.Setenv("AIRBG_DATABASE_URL", "")
 	t.Setenv("AIRBG_UPSTREAM_URL", "")
 	t.Setenv("AIRBG_POLL_INTERVAL", "")
+	t.Setenv("AIRBG_LISTEN_ADDR", "")
+	t.Setenv("AIRBG_METRICS_ADDR", "")
+	t.Setenv("AIRBG_TRUSTED_PROXY_CIDRS", "")
+	t.Setenv("AIRBG_BASE_URL", "")
 }
 
 func TestLoadRequiresDatabaseURL(t *testing.T) {
@@ -125,5 +129,77 @@ func TestLoadAcceptsExactlyTheMinimum(t *testing.T) {
 	}
 	if cfg.PollInterval != MinPollInterval {
 		t.Errorf("PollInterval = %v, want %v", cfg.PollInterval, MinPollInterval)
+	}
+}
+
+func TestServeDefaults(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.ListenAddr != "127.0.0.1:8080" {
+		t.Errorf("ListenAddr = %q, want the loopback default", cfg.ListenAddr)
+	}
+	if cfg.MetricsAddr != "127.0.0.1:9090" {
+		t.Errorf("MetricsAddr = %q, want the loopback default", cfg.MetricsAddr)
+	}
+	// Defaulting the trusted-proxy list to Cloudflare's ranges would mean a
+	// developer running locally trusts CF-Connecting-IP from anyone on their
+	// machine. Empty by default: trust nothing until an operator says so.
+	if len(cfg.TrustedProxyCIDRs) != 0 {
+		t.Errorf("TrustedProxyCIDRs = %v, want empty by default", cfg.TrustedProxyCIDRs)
+	}
+	if cfg.BaseURL != "http://localhost:8080" {
+		t.Errorf("BaseURL = %q", cfg.BaseURL)
+	}
+}
+
+func TestTrustedProxyCIDRsSplitsAndTrims(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	t.Setenv("AIRBG_TRUSTED_PROXY_CIDRS", " 173.245.48.0/20 , 2400:cb00::/32 ,")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := []string{"173.245.48.0/20", "2400:cb00::/32"}
+	if len(cfg.TrustedProxyCIDRs) != len(want) {
+		t.Fatalf("TrustedProxyCIDRs = %v, want %v", cfg.TrustedProxyCIDRs, want)
+	}
+	for i := range want {
+		if cfg.TrustedProxyCIDRs[i] != want[i] {
+			t.Errorf("TrustedProxyCIDRs[%d] = %q, want %q", i, cfg.TrustedProxyCIDRs[i], want[i])
+		}
+	}
+}
+
+// TestMalformedTrustedProxyCIDRIsAStartupError. This list decides whose
+// CF-Connecting-IP header is believed. A typo that is silently dropped shrinks
+// the trusted set without telling anyone; a typo that is silently kept as a
+// string is never matched. Either way the operator thinks the edge is trusted
+// and it is not. Fail at boot.
+func TestMalformedTrustedProxyCIDRIsAStartupError(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	t.Setenv("AIRBG_TRUSTED_PROXY_CIDRS", "173.245.48.0/20,not-a-cidr")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted a malformed CIDR")
+	}
+}
+
+func TestBaseURLMustBeAbsolute(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	t.Setenv("AIRBG_BASE_URL", "/airbg")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted a relative AIRBG_BASE_URL; canonical and hreflang links would be broken")
 	}
 }

@@ -61,6 +61,17 @@ func newIngester(t *testing.T, f ingest.Fetcher) (context.Context, *store.Store,
 	return ctx, st, ingest.New(f, st, quality.NewHistory(12))
 }
 
+// newTestIngester builds an Ingester on a migrated database with an empty,
+// error-free fetch — the harness the snapshot-publisher tests need for a
+// successful RunOnce, without caring about what was fetched. Extracted so
+// there is exactly one way to stand up an Ingester for these tests, rather
+// than a second harness drifting from newIngester above.
+func newTestIngester(t *testing.T) (*ingest.Ingester, func()) {
+	t.Helper()
+	_, _, ing := newIngester(t, stubFetcher{})
+	return ing, func() {}
+}
+
 func TestRunOnceStoresScoredReadings(t *testing.T) {
 	ts := time.Date(2026, 1, 15, 8, 3, 0, 0, time.UTC)
 	f := stubFetcher{readings: []upstream.Reading{
@@ -292,6 +303,67 @@ func TestLoopReusesHistoryAcrossCycles(t *testing.T) {
 	}
 	if calls.Load() < int64(depth) {
 		t.Fatalf("fetch calls = %d, want >= %d cycles to cross the stuck threshold", calls.Load(), depth)
+	}
+}
+
+type recordingPublisher struct {
+	calls int
+	err   error
+	when  time.Time
+}
+
+func (p *recordingPublisher) Publish(_ context.Context, now time.Time) error {
+	p.calls++
+	p.when = now
+	return p.err
+}
+
+// TestRunOncePublishesASnapshot: the snapshot is built at the END of a cycle.
+// Built on a timer instead, it could read the reading table mid-write and
+// publish an area average over a partially inserted cycle.
+func TestRunOncePublishesASnapshot(t *testing.T) {
+	// Reuse this package's existing harness for a successful RunOnce. Follow
+	// whatever the neighbouring success-path test does to build the Ingester.
+	ing, cleanup := newTestIngester(t)
+	defer cleanup()
+
+	pub := &recordingPublisher{}
+	ing.SetSnapshotPublisher(pub)
+
+	if _, err := ing.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if pub.calls != 1 {
+		t.Errorf("Publish called %d times, want 1", pub.calls)
+	}
+	if pub.when.IsZero() {
+		t.Error("Publish was handed a zero time")
+	}
+}
+
+// TestSnapshotFailureDoesNotFailTheCycle. Serving data one cycle stale is a
+// degraded page; returning an error from RunOnce is a collector that a
+// supervisor may restart-loop, and the readings for that cycle are then lost
+// for good. The safety property runs the other way round from the usual one.
+func TestSnapshotFailureDoesNotFailTheCycle(t *testing.T) {
+	ing, cleanup := newTestIngester(t)
+	defer cleanup()
+
+	ing.SetSnapshotPublisher(&recordingPublisher{err: errors.New("boom")})
+
+	if _, err := ing.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce = %v, want nil — a snapshot failure must not fail ingest", err)
+	}
+}
+
+// TestNoPublisherIsFine — `airbg ingest` run as a bare cron job has no server
+// attached and must not nil-panic.
+func TestNoPublisherIsFine(t *testing.T) {
+	ing, cleanup := newTestIngester(t)
+	defer cleanup()
+
+	if _, err := ing.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce with no publisher: %v", err)
 	}
 }
 

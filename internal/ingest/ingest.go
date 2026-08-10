@@ -63,11 +63,19 @@ type Stats struct {
 	RejectedOutsideBoundary int
 }
 
+// SnapshotPublisher rebuilds the served snapshot. Declared here as an
+// interface rather than importing internal/snapshot, so ingest keeps no
+// dependency on the serving side and the test needs no database.
+type SnapshotPublisher interface {
+	Publish(ctx context.Context, now time.Time) error
+}
+
 type Ingester struct {
-	fetcher Fetcher
-	store   *store.Store
-	history *quality.History
-	now     func() time.Time
+	fetcher   Fetcher
+	store     *store.Store
+	history   *quality.History
+	now       func() time.Time
+	publisher SnapshotPublisher
 }
 
 func New(f Fetcher, s *store.Store, hist *quality.History) *Ingester {
@@ -86,6 +94,11 @@ func (i *Ingester) SetClockForTesting(clock func() time.Time) (restore func()) {
 	i.now = clock
 	return func() { i.now = prev }
 }
+
+// SetSnapshotPublisher attaches the publisher RunOnce calls at the end of
+// every successful cycle. Left unset, `airbg ingest` run as a bare cron job
+// with no server attached is fine — publishSnapshot no-ops.
+func (i *Ingester) SetSnapshotPublisher(p SnapshotPublisher) { i.publisher = p }
 
 // RunOnce performs a single cycle: fetch, score, persist, roll up.
 //
@@ -259,7 +272,28 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 		"stuck", stats.Flagged[quality.FlagStuck],
 		"spatial_outlier", stats.Flagged[quality.FlagSpatialOutlier],
 	)
+
+	i.publishSnapshot(ctx)
+
 	return stats, nil
+}
+
+// publishSnapshot rebuilds the served snapshot at the end of a cycle.
+//
+// Errors are logged, never returned: a stale snapshot serves last cycle's data,
+// while a failed RunOnce loses this cycle's readings and may restart-loop the
+// collector. The weaker failure mode wins.
+func (i *Ingester) publishSnapshot(ctx context.Context) {
+	if i.publisher == nil {
+		return
+	}
+	// i.now() is the injectable clock this package already uses everywhere;
+	// calling time.Now directly would make the publisher the one part of the
+	// cycle that ignores a test's fixed clock.
+	if err := i.publisher.Publish(ctx, i.now()); err != nil {
+		slog.Error("snapshot publish failed; serving the previous snapshot",
+			"error", err)
+	}
 }
 
 // rollupBacklog drains the rollup backlog (capped at maxBucketsPerTick) and,
