@@ -300,8 +300,23 @@ func TestEndToEndPageRendersFromTheDatabase(t *testing.T) {
 	public, _ := runningWith(t, st)
 
 	body := readAll(t, get(t, public, "/area/sofia"))
-	if !strings.Contains(body, "3") {
-		t.Error("the area page does not show the sensor count")
+	// A bare Contains(body, "3") is satisfied by the page's own
+	// data-lon="23.32"/data-lat="42.69" attributes regardless of the actual
+	// sensor count (proven by mutation below), so match the sensor count in
+	// the exact markup produced by area.gohtml's "{{.Area.SensorCount}}
+	// {{.T "area.sensors"}}" line: "<p>3 сензора</p>" for the (unprefixed,
+	// Bulgarian-locale) /area/sofia route. Any digit from a coordinate,
+	// timestamp, or CSS class cannot satisfy this.
+	const wantSensorCount = "<p>3 сензора</p>"
+	if !strings.Contains(body, wantSensorCount) {
+		t.Errorf("the area page does not show the sensor count in its own markup: want substring %q, got body:\n%s", wantSensorCount, body)
+	}
+	// Guard against a page that renders blank (or near-blank) but still
+	// returns 200: the template always emits the breadcrumb link and the
+	// map island regardless of coverage, so their absence means nothing
+	// rendered at all.
+	if !strings.Contains(body, `data-island="map"`) {
+		t.Error("the area page did not render the map island — page may be blank")
 	}
 	if strings.Contains(body, "Недостатъчно данни") {
 		t.Error("a covered area is shown as uncovered")
