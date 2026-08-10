@@ -212,3 +212,31 @@ func TestEnumerationCheckRunsBeforeTheBodyIsWritten(t *testing.T) {
 		t.Fatal("the 429 response carried the sensor payload")
 	}
 }
+
+// TestUnknownSlugDoesNotConsumeAreaBudget pins the ordering that
+// handleAreaSensors relies on: the known-slug lookup runs BEFORE
+// ObserveArea, so a 404 for garbage never touches the caller's enumeration
+// budget. If that ordering were reversed, an attacker could exhaust a
+// shared bucket cheaply with nonexistent slugs, and an innocent client with
+// a stale bookmark would burn its own budget on a typo.
+func TestUnknownSlugDoesNotConsumeAreaBudget(t *testing.T) {
+	fix := fixture(t)
+	d := deps(t, fix)
+
+	// Fire more distinct UNKNOWN slugs than the area budget allows. If an
+	// unknown slug consumed budget, this alone would exhaust it.
+	for i := 0; i < ratelimit.DistinctAreaLimit+2; i++ {
+		slug := "unknown-" + string(rune('a'+i))
+		rec := serve(t, d, get("/api/v1/area/"+slug+"/sensors", "203.0.113.12"))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want 404", slug, rec.Code)
+		}
+	}
+
+	// A real, known slug from the SAME client must still succeed: the budget
+	// must not have been touched by the unknown-slug requests above.
+	rec := serve(t, d, get("/api/v1/area/sofia/sensors", "203.0.113.12"))
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 for a known slug after only unknown-slug requests", rec.Code)
+	}
+}
