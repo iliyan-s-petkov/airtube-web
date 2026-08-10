@@ -33,3 +33,75 @@ border (cut at longitude 28.00, so it drops Balchik, Kavarna and Shabla) and is
 never loaded at runtime. Tests that assert "just outside the boundary" depend on
 knowing its exact shape, so it stays as it is. Do not substitute this file for
 it, and do not import that one in production.
+
+## `oblasti.geojson`, `cities.geojson`, `sofia-districts.geojson`
+
+The three area tiers `/api/v1/overview` serves. Import order does not matter,
+but all three must be imported before the API reports meaningful coverage:
+
+```bash
+airbg import-areas data/boundaries/oblasti.geojson oblast
+airbg import-areas data/boundaries/cities.geojson city
+airbg import-areas data/boundaries/sofia-districts.geojson neighbourhood
+```
+
+**Source:** OpenStreetMap, via the Overpass API
+(`overpass-api.de`/`overpass.kumi.systems`). Administrative levels, per Phase 1
+§5.4's intent, with the actual levels OSM uses for each tier in Bulgaria (which
+are not uniform — see below): 4 for oblasti, 8 or 5 for cities depending on
+which level a given city is mapped at, 6 for Sofia's districts. Retrieved
+2026-08-10.
+
+**Oblasti (28 features):** `boundary=administrative`, `admin_level=4`, inside
+the `ISO3166-1=BG` area. One relation per oblast; matches exactly.
+
+**Cities (27 features, not 28):** Bulgaria has 28 oblasti but only 27 distinct
+oblast-capital cities — Sofia is the administrative seat of both Sofia-grad
+(admin_level 4, an oblast that *is* the city) and Sofia Oblast (admin_level 4,
+a separate oblast whose `admin_centre` node sits at the same coordinates as
+central Sofia, confirmed against this file's own Overpass response). A
+28th "city" feature would mean committing Sofia's polygon twice under two
+slugs — the same physical place claiming two rows — which is worse than a
+file that honestly has 27. OSM's `admin_level=8` ("city proper") boundary,
+tagged `place=city` or `place=town`, exists for only 13 of the 27 capitals
+(Sofia, Ruse, Dobrich, Razgrad, Targovishte, Silistra, Shumen, Varna, Gabrovo,
+Veliko Tarnovo, Kyustendil, Burgas, Vidin); the other 14 capitals
+(Blagoevgrad, Vratsa, Kardzhali, Lovech, Montana, Pazardzhik, Pernik, Pleven,
+Plovdiv, Sliven, Smolyan, Haskovo, Stara Zagora, Yambol) have no separate
+settlement-level boundary in OSM at all, so their `admin_level=5`
+(`border_type=municipality`) boundary is used instead — that covers the whole
+municipality, not just the built-up city, which is an acceptable
+approximation for point-in-polygon area aggregation but not a survey-grade
+city outline.
+
+**Sofia districts (24 features):** the 24 `raiони` are `boundary=administrative`
+relations at `admin_level=6` inside the area named `Столична` (`admin_level=5`,
+the "Stolichna" municipality — the brief's assumed name `Столична община` and
+assumed `admin_level=9` do not match current OSM tagging; `admin_level=9`
+under `Столична` is a finer subdivision, not the district level). Includes
+`Лозенец` (Lozenets), which the importer test in
+`internal/area/committed_boundaries_test.go` uses as its cross-tier point.
+
+**Licence:** ODbL 1.0. Attribution — "© OpenStreetMap contributors" — must
+appear in the site footer alongside sensor.community's. This is a licence
+obligation, not a courtesy.
+
+**Geometry:** fetched with `out geom;` (full outer-ring coordinates inline, no
+separate `out body`/`out skel` pass needed), then cleaned and simplified with
+`ST_MakeValid`, `ST_SimplifyPreserveTopology(geom, 0.002)` (roughly 200 m), and
+`ST_CollectionExtract(..., 3)` to drop stray linestrings. `ST_MakeValid` is
+needed here — several relations contain a spurious near-zero-length "outer"
+member way (an OSM digitisation artefact) that, treated as its own ring,
+collapses into a degenerate line under simplification and turns the result
+into a `GeometryCollection` that `area.Import`'s `validateGeometry` would
+reject; `ST_MakeValid` before simplifying repairs that without hand-editing the
+source rings. `ST_SimplifyPreserveTopology` rather than `ST_Simplify` because
+plain simplification can also emit self-intersecting rings on its own.
+Vertex counts dropped by roughly 20–25x (oblasti: 369,993 → 14,051; cities:
+109,412 → 5,635; sofia-districts: 26,457 → 1,394) while staying far more
+precise than point-in-polygon on a sensor coordinate requires.
+
+**Slugs** are transliterated from `name_bg` to ASCII. They appear in URLs
+(`/oblast/{slug}`), so they must be stable: changing a slug breaks every
+inbound link and every search-engine result for that page. Treat them as
+permanent once shipped.
