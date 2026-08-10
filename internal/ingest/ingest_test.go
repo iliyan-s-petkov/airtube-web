@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"airbg.org/internal/area"
 	"airbg.org/internal/db"
 	"airbg.org/internal/ingest"
@@ -364,6 +366,52 @@ func TestNoPublisherIsFine(t *testing.T) {
 
 	if _, err := ing.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce with no publisher: %v", err)
+	}
+}
+
+// observingPublisher queries the store, at the exact moment Publish is
+// invoked, for the row this cycle's fetch should have just written. It exists
+// because TestRunOncePublishesASnapshot and its neighbours only count
+// invocations: that stays green even if publishSnapshot is hoisted to the
+// first line of RunOnce, before the fetch and the write, because a
+// recordingPublisher never looks at what state (if any) the write left
+// behind. This fake does — it asserts on causation, not position.
+type observingPublisher struct {
+	pool     *pgxpool.Pool
+	sensorID int64
+	metric   string
+	sawRows  int
+}
+
+func (p *observingPublisher) Publish(ctx context.Context, _ time.Time) error {
+	return p.pool.QueryRow(ctx,
+		`SELECT count(*) FROM reading WHERE sensor_id = $1 AND metric = $2`,
+		p.sensorID, p.metric,
+	).Scan(&p.sawRows)
+}
+
+// TestPublishSeesThisCyclesWrites pins publish-after-commit ordering: the
+// snapshot must be built from data that already includes what this cycle
+// just wrote, not built before the write lands (which would silently and
+// permanently serve one-cycle-stale data — the pages, JSON API and metrics
+// all look healthy, and nothing but a direct comparison against upstream
+// would ever reveal it).
+func TestPublishSeesThisCyclesWrites(t *testing.T) {
+	ts := time.Date(2026, 1, 15, 8, 3, 0, 0, time.UTC)
+	f := stubFetcher{readings: []upstream.Reading{
+		reading(42, "temperature", 22, 0, ts),
+	}}
+	ctx, st, ing := newIngester(t, f)
+
+	pub := &observingPublisher{pool: st.Pool(), sensorID: 42, metric: "temperature"}
+	ing.SetSnapshotPublisher(pub)
+
+	if _, err := ing.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	if pub.sawRows != 1 {
+		t.Errorf("Publish observed %d row(s) for sensor 42/temperature, want 1 — this cycle's write must be committed before publish runs", pub.sawRows)
 	}
 }
 
