@@ -127,6 +127,124 @@ func TestAreaAggregatesRespectsCoverageThreshold(t *testing.T) {
 	if got := three.Values["P2"]; got < 19.9 || got > 20.1 {
 		t.Errorf("three-sensors P2 = %v, want 20 (mean of 10, 20, 30)", got)
 	}
+
+	// Bulgaria's lon range (22-29) and lat range (41-45) do not overlap, so
+	// checking each coordinate against its OWN range — never as a combined
+	// pair or distance tolerance — is what catches a lon/lat swap. A swapped
+	// pair here would put CentroidLon around 43 (outside 22-29) and
+	// CentroidLat around 25 (outside 41-45); both checks below would fail.
+	assertInBulgaria(t, "two-sensors centroid", two.CentroidLon, two.CentroidLat)
+	assertInBulgaria(t, "three-sensors centroid", three.CentroidLon, three.CentroidLat)
+}
+
+// assertInBulgaria checks lon and lat against their OWN ranges separately.
+// Bulgaria spans lon 22-29, lat 41-45 — ranges that do not overlap, so a swap
+// (lon and lat transposed) is detectable only by checking each axis on its own
+// range, never as a combined pair or distance-from-expected tolerance.
+func assertInBulgaria(t *testing.T, label string, lon, lat float64) {
+	t.Helper()
+	if lon < 22 || lon > 29 {
+		t.Errorf("%s: lon = %v, want [22, 29]; a value in the lat range (41-45) means lon/lat are swapped", label, lon)
+	}
+	if lat < 41 || lat > 45 {
+		t.Errorf("%s: lat = %v, want [41, 45]; a value in the lon range (22-29) means lon/lat are swapped", label, lat)
+	}
+}
+
+// TestAreaAggregatesCountsDistinctSensorsNotRows pins "three readings from one
+// sensor is not coverage" (brief, Phase 1 §5.7) directly: one sensor reporting
+// several metrics must count as ONE sensor toward the threshold, not one per
+// row. If count(DISTINCT sensor_id) were ever "optimised" to count(*), this
+// area would wrongly cross CoverageThreshold on a single sensor.
+func TestAreaAggregatesCountsDistinctSensorsNotRows(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	seedArea(t, ctx, pool, "one-sensor-many-readings", "oblast", 23.0, 42.0)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	for _, m := range []struct {
+		name string
+		v    float64
+	}{
+		{"P1", 30}, {"P2", 18}, {"temperature", 21}, {"humidity", 55}, {"pressure", 1013},
+	} {
+		seedSensorReading(t, ctx, pool, 40, 23.0, 42.0, m.name, m.v, "ok", now)
+	}
+
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.AreaAggregates(ctx, []string{"oblast"})
+	if err != nil {
+		t.Fatalf("AreaAggregates: %v", err)
+	}
+	if len(aggs) != 1 {
+		t.Fatalf("got %d aggregates, want 1", len(aggs))
+	}
+	if aggs[0].SensorCount != 1 {
+		t.Errorf("SensorCount = %d, want 1 (5 readings from one sensor is not 5 sensors)", aggs[0].SensorCount)
+	}
+	if aggs[0].Covered {
+		t.Error("Covered = true with 1 sensor reporting 5 metrics; a single sensor cannot cross CoverageThreshold no matter how many metrics it reports")
+	}
+	if len(aggs[0].Values) != 0 {
+		t.Errorf("published values %v; an uncovered area must publish no number at all", aggs[0].Values)
+	}
+}
+
+// TestAreaAggregatesExcludesStaleReadings pins freshnessWindow: a reading
+// older than the window must not count toward SensorCount or influence
+// Values, even though the sensor otherwise looks perfectly healthy.
+func TestAreaAggregatesExcludesStaleReadings(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	seedArea(t, ctx, pool, "stale-mix", "oblast", 23.0, 42.0)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	seedSensorReading(t, ctx, pool, 50, 23.0, 42.0, "P2", 10, "ok", now)
+	seedSensorReading(t, ctx, pool, 51, 23.001, 42.001, "P2", 10, "ok", now)
+	seedSensorReading(t, ctx, pool, 52, 23.002, 42.002, "P2", 10, "ok", now)
+	// Stale: outside freshnessWindow (2h), and far enough from 10 that if it
+	// were counted, both SensorCount (4, not 3) and the mean would be wrong.
+	seedSensorReading(t, ctx, pool, 53, 23.003, 42.003, "P2", 1000, "ok", now.Add(-3*time.Hour))
+
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.AreaAggregates(ctx, []string{"oblast"})
+	if err != nil {
+		t.Fatalf("AreaAggregates: %v", err)
+	}
+	if len(aggs) != 1 {
+		t.Fatalf("got %d aggregates, want 1", len(aggs))
+	}
+	if aggs[0].SensorCount != 3 {
+		t.Errorf("SensorCount = %d, want 3; the stale sensor (reading is 3h old) must not count", aggs[0].SensorCount)
+	}
+	if got := aggs[0].Values["P2"]; got < 9.9 || got > 10.1 {
+		t.Errorf("P2 = %v, want 10; a value near 257 means the stale reading was counted", got)
+	}
+}
+
+// TestLatestSensorsExcludesStaleReadings pins the same freshnessWindow rule
+// for LatestSensors: a sensor whose only reading is stale must not appear at
+// all in the result.
+func TestLatestSensorsExcludesStaleReadings(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	seedSensorReading(t, ctx, pool, 60, 23.0, 42.0, "P2", 15, "ok", now.Add(-3*time.Hour))
+
+	sensors, err := s.LatestSensors(ctx)
+	if err != nil {
+		t.Fatalf("LatestSensors: %v", err)
+	}
+	for _, sr := range sensors {
+		if sr.SensorID == 60 {
+			t.Fatalf("sensor 60 present with only a 3h-old reading; freshnessWindow (2h) must exclude it: %+v", sr)
+		}
+	}
 }
 
 // TestAreaAggregatesExcludesFlaggedReadings asserts the quality filter. Written
@@ -255,4 +373,5 @@ func TestLatestSensorsReturnsOneRowPerSensor(t *testing.T) {
 	if got := sensors[0].Values["P2"]; got != 18 {
 		t.Errorf("P2 = %v, want 18", got)
 	}
+	assertInBulgaria(t, "sensor 30", sensors[0].Lon, sensors[0].Lat)
 }

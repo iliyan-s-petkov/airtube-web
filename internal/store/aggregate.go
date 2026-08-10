@@ -151,8 +151,9 @@ SELECT s.sensor_id, s.sensor_type,
               FROM area_sensor asx WHERE asx.sensor_id = s.sensor_id),
            ARRAY[]::text[]),
        -- The worst flag on any of this sensor's metrics, so one bad metric
-       -- marks the sensor rather than being averaged away. 'ok' sorts first,
-       -- so max() over the text form picks any non-ok flag.
+       -- marks the sensor rather than being averaged away. The FILTER excludes
+       -- 'ok' rows before max() runs, so any surviving non-ok flag wins; only
+       -- if every metric is 'ok' does max() see nothing and COALESCE to 'ok'.
        COALESCE(max(l.quality::text) FILTER (WHERE l.quality <> 'ok'), 'ok'),
        jsonb_object_agg(l.metric, round(l.value::numeric, 2))
            FILTER (WHERE l.quality = ANY($2::quality_flag[]))
