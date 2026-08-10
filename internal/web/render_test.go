@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -199,6 +200,40 @@ func TestAlternateLanguageLinks(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page is missing %q", want)
+		}
+	}
+}
+
+// missingKeyMarker matches i18n.Catalogue.T's fallback marker, "!key!" — see
+// internal/i18n/i18n.go. Matched by shape (an exclamation mark, a run of
+// catalogue-key characters, another exclamation mark), not by a bare "!",
+// so ordinary copy or punctuation containing "!" cannot trip this test.
+var missingKeyMarker = regexp.MustCompile(`![A-Za-z0-9_.]+!`)
+
+// TestNoMissingCatalogueKeyMarkerAnywhere renders every page Routes serves, in
+// both languages, and fails if any rendered page contains i18n's "!key!"
+// fallback marker.
+//
+// T is fail-visible, not fail-loud: a typo'd or renamed key renders as
+// "!nav.abuot!" on a live page while every other test — and the process
+// itself — stays green. Nothing else in this tree pins "every key a template
+// references exists in every language", and Tasks 17/18 and Phase 3 will all
+// add or rename keys against these templates, so this is exactly the
+// boundary where that contract needs to be enforced.
+func TestNoMissingCatalogueKeyMarkerAnywhere(t *testing.T) {
+	rr := renderer(t, fixture(t))
+
+	pages := []string{
+		"/", "/en/", // index
+		"/area/sofia", "/en/area/sofia", // area, covered branch
+		"/area/vidin", "/en/area/vidin", // area, insufficient-coverage branch
+		"/area/nope", "/en/area/nope", // error page (404)
+	}
+
+	for _, path := range pages {
+		body := fetch(t, rr, path).Body.String()
+		if m := missingKeyMarker.FindString(body); m != "" {
+			t.Errorf("%s renders a missing-catalogue-key marker %s — the template references a key that does not exist in this language's catalogue", path, m)
 		}
 	}
 }
