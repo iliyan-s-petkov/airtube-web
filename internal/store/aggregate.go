@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // CoverageThreshold is the minimum number of distinct sensors with usable
@@ -249,4 +251,71 @@ func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string,
 		return nil, fmt.Errorf("store: sensor series rows: %w", err)
 	}
 	return out, nil
+}
+
+// areaRawSeriesSQL averages across the area's sensors at each timestamp.
+//
+// Grouped by time so two sensors reporting at the same instant produce ONE
+// point. Without the grouping the result is every sensor's reading in
+// timestamp order, which renders as a sawtooth that a reader would interpret as
+// rapid air-quality swings rather than as sensors disagreeing.
+//
+// area_sensor carries area_slug directly (migration 00004) — there is no
+// numeric area.id to join through.
+const areaRawSeriesSQL = `
+SELECT r.time, avg(r.value)
+  FROM reading r
+  JOIN area_sensor asx ON asx.sensor_id = r.sensor_id
+  JOIN area a          ON a.slug = asx.area_slug
+ WHERE a.slug   = $1
+   AND r.metric = $2
+   AND r.time  >= $3
+   AND r.quality = ANY($4::quality_flag[])
+ GROUP BY r.time
+ ORDER BY r.time`
+
+// areaHourlySeriesSQL is the same over the rollup. reading_hourly carries no
+// quality column — the rollup is built from readings that already passed the
+// filter, so re-filtering here would be impossible AND unnecessary.
+const areaHourlySeriesSQL = `
+SELECT h.bucket, avg(h.avg_value)
+  FROM reading_hourly h
+  JOIN area_sensor asx ON asx.sensor_id = h.sensor_id
+  JOIN area a          ON a.slug = asx.area_slug
+ WHERE a.slug   = $1
+   AND h.metric = $2
+   AND h.bucket >= $3
+ GROUP BY h.bucket
+ ORDER BY h.bucket`
+
+// AreaSeries returns the area-mean time series for one metric.
+//
+// hourly selects the rollup. The caller decides, because only the caller knows
+// the requested window — and raw readings are retained for 30 days, so a longer
+// window queried against `reading` returns a silently truncated series rather
+// than an error.
+func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool) ([]Point, error) {
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if hourly {
+		rows, err = s.pool.Query(ctx, areaHourlySeriesSQL, slug, metric, since)
+	} else {
+		rows, err = s.pool.Query(ctx, areaRawSeriesSQL, slug, metric, since, usableQuality)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: area series for %q: %w", slug, err)
+	}
+	defer rows.Close()
+
+	var points []Point
+	for rows.Next() {
+		var p Point
+		if err := rows.Scan(&p.Time, &p.Value); err != nil {
+			return nil, fmt.Errorf("store: scan area series: %w", err)
+		}
+		points = append(points, p)
+	}
+	return points, rows.Err()
 }

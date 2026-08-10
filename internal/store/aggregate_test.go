@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -374,4 +375,92 @@ func TestLatestSensorsReturnsOneRowPerSensor(t *testing.T) {
 		t.Errorf("P2 = %v, want 18", got)
 	}
 	assertInBulgaria(t, "sensor 30", sensors[0].Lon, sensors[0].Lat)
+}
+
+// TestAreaSeriesAveragesAcrossSensors: the area series is the mean of the
+// sensors in the area at each instant, not a concatenation of their readings.
+// Concatenating would produce a sawtooth that looks like violent air-quality
+// swings but is really just sensors disagreeing — the most misleading possible
+// chart to publish under a public-health banner.
+func TestAreaSeriesAveragesAcrossSensors(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	for i, v := range []float64{10, 30} {
+		id := int64(700 + i)
+		lon := 23.3219 + float64(i)*0.001
+		seedSensorReading(t, ctx, pool, id, lon, 42.6977, "P2", v, "ok", base)
+	}
+	assignAreas(t, ctx, pool)
+
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("got %d points, want 1 (two sensors at one instant must average into one point)", len(points))
+	}
+	if points[0].Value != 20 {
+		t.Errorf("value = %v, want 20 (the mean of 10 and 30)", points[0].Value)
+	}
+}
+
+// TestAreaSeriesExcludesFlaggedReadings: the same quality filter the aggregates
+// use must apply here, or a chart shows values the map refuses to.
+func TestAreaSeriesExcludesFlaggedReadings(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	seedSensorReading(t, ctx, pool, 800, 23.3219, 42.6977, "P2", 10, "ok", base)
+	// A stuck sensor pegged at 1000. If the filter is dropped the mean becomes
+	// 505 rather than 10 — a 50x error, impossible to miss.
+	seedSensorReading(t, ctx, pool, 801, 23.3229, 42.6977, "P2", 1000, "stuck", base)
+	assignAreas(t, ctx, pool)
+
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("got %d points, want 1", len(points))
+	}
+	if points[0].Value != 10 {
+		t.Errorf("value = %v, want 10; a flagged reading was included", points[0].Value)
+	}
+}
+
+// TestAreaSeriesExcludesOutOfRangeNaN: deferred item (b) — a faulty sensor can
+// report NaN, and strconv.ParseFloat("nan", ...) succeeds while NaN compares
+// false against every < and > in a plain range check. The ingest-time
+// out_of_range flag (internal/quality) is what actually rejects it — InRange
+// returns false for NaN because NaN >= min and NaN <= max are both false — and
+// this test pins that AreaSeries' quality filter honours that flag rather than
+// re-deriving its own numeric check that a NaN could slip past.
+func TestAreaSeriesExcludesOutOfRangeNaN(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	seedArea(t, ctx, pool, "nan-area", "oblast", 23.5, 42.5)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	seedSensorReading(t, ctx, pool, 900, 23.5, 42.5, "P2", 10, "ok", base)
+	seedSensorReading(t, ctx, pool, 901, 23.501, 42.5, "P2", math.NaN(), "out_of_range", base)
+	assignAreas(t, ctx, pool)
+
+	points, err := s.AreaSeries(ctx, "nan-area", "P2", base.Add(-time.Hour), false)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("got %d points, want 1", len(points))
+	}
+	if points[0].Value != 10 {
+		t.Errorf("value = %v, want 10; a NaN reading flagged out_of_range leaked into the average", points[0].Value)
+	}
 }
