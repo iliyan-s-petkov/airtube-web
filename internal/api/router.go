@@ -1,0 +1,171 @@
+// Package api serves the JSON endpoints from Phase 1 §7.
+//
+// Every response except /locate comes from the in-memory snapshot, so a request
+// costs a pointer load and a byte-slice write. That is the whole
+// denial-of-service posture: there is no per-request query to overwhelm.
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"airbg.org/internal/ratelimit"
+	"airbg.org/internal/snapshot"
+	"airbg.org/internal/store"
+)
+
+// DataSource is the whole database surface this package uses. Narrowed to three
+// methods so the handlers can be tested against a stub instead of a container —
+// and so it is obvious at a glance which endpoints touch the database at all
+// (only /locate and the two series endpoints; everything else is served from
+// the snapshot).
+type DataSource interface {
+	AreaAtPoint(ctx context.Context, lon, lat float64) (string, error)
+	SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool) ([]store.Point, error)
+	AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool) ([]store.Point, error)
+}
+
+type Deps struct {
+	Snapshots *snapshot.Holder
+	Breadth   *ratelimit.Breadth
+	Store     DataSource
+	BaseURL   string
+}
+
+// Cache lifetimes, in seconds.
+//
+// 150 s — half the 300 s poll interval — is deliberate. A max-age equal to the
+// poll interval means a copy cached one second after a rebuild is served until
+// one second after the NEXT rebuild: nearly two full cycles of staleness. Half
+// the interval bounds worst-case staleness at one cycle.
+//
+// scalesMaxAge is long because the EAQI bands are legislation, not measurements.
+const (
+	dataMaxAge   = 150
+	scalesMaxAge = 86400
+)
+
+func NewRouter(d Deps) *http.ServeMux {
+	mux := http.NewServeMux()
+
+	// Method-qualified patterns, so ServeMux answers 405 for anything else
+	// without a per-handler check.
+	mux.HandleFunc("GET /api/v1/overview", d.handleOverview)
+	mux.HandleFunc("GET /api/v1/areas", d.handleAreas)
+	mux.HandleFunc("GET /api/v1/meta", d.handleMeta)
+	mux.HandleFunc("GET /api/v1/scales", d.handleScales)
+	mux.HandleFunc("GET /api/v1/area/{slug}/sensors", d.handleAreaSensors)
+	mux.HandleFunc("GET /api/v1/area/{slug}/series", d.handleAreaSeries)
+	mux.HandleFunc("GET /api/v1/sensor/{id}/series", d.handleSensorSeries)
+	mux.HandleFunc("GET /api/v1/locate", d.handleLocate)
+
+	// Phase 1 §7.4's partner API is deferred to Phase 4. The path is reserved
+	// now so the version namespace cannot be taken by anything else, and it
+	// answers a truthful 501 rather than a 404 that would suggest the design
+	// never existed.
+	mux.HandleFunc("/api/partner/v1/", func(w http.ResponseWriter, _ *http.Request) {
+		writeError(w, http.StatusNotImplemented, "not_implemented",
+			"The partner API is not available yet.")
+	})
+
+	return mux
+}
+
+// errorBody is the single failure envelope. Fixed code, fixed sentence — never a
+// Go error string, which would leak table names, file paths and driver
+// internals to anyone who can provoke a failure.
+type errorBody struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	// Never let an error response be cached: a transient 503 cached for even a
+	// few minutes turns a blip into an outage for everyone behind that cache.
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(errorBody{Error: code, Message: message})
+}
+
+func writeUnavailable(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "30")
+	writeError(w, http.StatusServiceUnavailable, "unavailable",
+		"Data is not ready yet. Please try again shortly.")
+}
+
+// serveBody writes one prepared snapshot body, handling revalidation and
+// content coding.
+func serveBody(w http.ResponseWriter, r *http.Request, b snapshot.Body, maxAge int) {
+	h := w.Header()
+	h.Set("Content-Type", "application/json; charset=utf-8")
+	h.Set("ETag", b.ETag)
+	h.Set("Cache-Control", "public, max-age="+strconv.Itoa(maxAge))
+	// Vary is mandatory once the body varies by Accept-Encoding: without it a
+	// shared cache may hand a gzip body to a client that never asked for one.
+	h.Set("Vary", "Accept-Encoding")
+
+	// Compare against every tag the client offers, and honour "*". Substring
+	// matching would be wrong in the other direction too — a stale tag that
+	// happens to contain the current one would produce a spurious 304.
+	if matchesETag(r.Header.Get("If-None-Match"), b.ETag) {
+		// 304 must carry no body; the headers above are the whole response.
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	if acceptsGzip(r.Header.Get("Accept-Encoding")) && len(b.Gzip) > 0 {
+		h.Set("Content-Encoding", "gzip")
+		h.Set("Content-Length", strconv.Itoa(len(b.Gzip)))
+		_, _ = w.Write(b.Gzip)
+		return
+	}
+	h.Set("Content-Length", strconv.Itoa(len(b.JSON)))
+	_, _ = w.Write(b.JSON)
+}
+
+func matchesETag(ifNoneMatch, etag string) bool {
+	if ifNoneMatch == "" {
+		return false
+	}
+	for _, candidate := range strings.Split(ifNoneMatch, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" {
+			return true
+		}
+		// A weak validator (W/"…") compares equal to the strong tag for the
+		// weak comparison that If-None-Match uses.
+		candidate = strings.TrimPrefix(candidate, "W/")
+		if candidate == etag {
+			return true
+		}
+	}
+	return false
+}
+
+// acceptsGzip parses Accept-Encoding just far enough to honour an explicit
+// q=0 refusal. "gzip;q=0" means "do not send me gzip", and a naive
+// strings.Contains check reads it as consent.
+func acceptsGzip(header string) bool {
+	for _, part := range strings.Split(header, ",") {
+		fields := strings.Split(strings.TrimSpace(part), ";")
+		coding := strings.ToLower(strings.TrimSpace(fields[0]))
+		if coding != "gzip" && coding != "*" {
+			continue
+		}
+		for _, param := range fields[1:] {
+			param = strings.ReplaceAll(strings.ToLower(param), " ", "")
+			if strings.HasPrefix(param, "q=") {
+				if q, err := strconv.ParseFloat(strings.TrimPrefix(param, "q="), 64); err == nil && q == 0 {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false
+}
