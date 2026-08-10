@@ -205,14 +205,17 @@ func TestAlternateLanguageLinks(t *testing.T) {
 }
 
 // missingKeyMarker matches i18n.Catalogue.T's fallback marker, "!key!" — see
-// internal/i18n/i18n.go. Matched by shape (an exclamation mark, a run of
-// catalogue-key characters, another exclamation mark), not by a bare "!",
-// so ordinary copy or punctuation containing "!" cannot trip this test.
-var missingKeyMarker = regexp.MustCompile(`![A-Za-z0-9_.]+!`)
+// internal/i18n/i18n.go. Matched by SHAPE, not by a bare "!": every catalogue
+// key is dotted (e.g. "nav.about", "error.unavailable.title"), so the pattern
+// requires an interior dot. Without that, "!" + word + "!" would also match
+// ordinary copy such as two adjacent exclamatory words with no space between
+// them ("Wow!Great!") — legitimate Bulgarian or English text should never be
+// able to fail this test.
+var missingKeyMarker = regexp.MustCompile(`![A-Za-z0-9_]+\.[A-Za-z0-9_.]+!`)
 
-// TestNoMissingCatalogueKeyMarkerAnywhere renders every page Routes serves, in
-// both languages, and fails if any rendered page contains i18n's "!key!"
-// fallback marker.
+// TestNoMissingCatalogueKeyMarkerAnywhere renders every page Routes serves —
+// including all three error states, not just 404 — in both languages, and
+// fails if any rendered page contains i18n's "!key!" fallback marker.
 //
 // T is fail-visible, not fail-loud: a typo'd or renamed key renders as
 // "!nav.abuot!" on a live page while every other test — and the process
@@ -220,20 +223,43 @@ var missingKeyMarker = regexp.MustCompile(`![A-Za-z0-9_.]+!`)
 // references exists in every language", and Tasks 17/18 and Phase 3 will all
 // add or rename keys against these templates, so this is exactly the
 // boundary where that contract needs to be enforced.
+//
+// The "unavailable" and "internal" error states matter as much as "not_found":
+// they are what a visitor sees when the snapshot is not ready or a handler
+// panics — the "we are having problems" page is the worst possible place for
+// a missing-key marker, and the one nobody looks at during normal
+// development. "unavailable" is reached through its real call path
+// (handleIndex answers 503 before the first snapshot); "internal" has no
+// caller inside this package yet, so it is reached the way a future caller
+// (Task 17's panic recovery) will reach it: by calling the exported
+// RenderError directly, without touching its signature.
 func TestNoMissingCatalogueKeyMarkerAnywhere(t *testing.T) {
 	rr := renderer(t, fixture(t))
 
-	pages := []string{
+	bodies := map[string]string{}
+
+	for _, path := range []string{
 		"/", "/en/", // index
 		"/area/sofia", "/en/area/sofia", // area, covered branch
 		"/area/vidin", "/en/area/vidin", // area, insufficient-coverage branch
-		"/area/nope", "/en/area/nope", // error page (404)
+		"/area/nope", "/en/area/nope", // error page, not_found branch
+	} {
+		bodies[path] = fetch(t, rr, path).Body.String()
 	}
 
-	for _, path := range pages {
-		body := fetch(t, rr, path).Body.String()
+	unavailableRR := renderer(t, nil)
+	bodies["/ (unavailable)"] = fetch(t, unavailableRR, "/").Body.String()
+	bodies["/en/ (unavailable)"] = fetch(t, unavailableRR, "/en/").Body.String()
+
+	for _, path := range []string{"/broken", "/en/broken"} {
+		rec := httptest.NewRecorder()
+		rr.RenderError(rec, httptest.NewRequest(http.MethodGet, path, nil), http.StatusInternalServerError, "internal")
+		bodies[path+" (internal)"] = rec.Body.String()
+	}
+
+	for name, body := range bodies {
 		if m := missingKeyMarker.FindString(body); m != "" {
-			t.Errorf("%s renders a missing-catalogue-key marker %s — the template references a key that does not exist in this language's catalogue", path, m)
+			t.Errorf("%s renders a missing-catalogue-key marker %s — the template references a key that does not exist in this language's catalogue", name, m)
 		}
 	}
 }
