@@ -8,17 +8,16 @@ import (
 	"airbg.org/internal/ratelimit"
 )
 
-var (
-	requestsTotal = metrics.CounterVec(
-		"airbg_http_requests_total",
-		"Requests served, by route pattern.",
-		"pattern")
-
-	rateLimited = metrics.CounterVec(
-		"airbg_http_rate_limited_total",
-		"Requests refused by the origin token buckets, by route pattern.",
-		"pattern")
-)
+// requestsTotal used to live here too, labelled "pattern", but it duplicated
+// internal/metrics.httpRequests (same name, different label name) and — because
+// RateLimit runs OUTSIDE the mux, before routing — could only ever record
+// pattern="unmatched". A counter that structurally cannot distinguish routes
+// carried no information the other copy did not already carry correctly, so
+// it was removed rather than renamed.
+var rateLimited = metrics.CounterVec(
+	"airbg_http_rate_limited_total",
+	"Requests refused by the origin token buckets, by route pattern.",
+	"pattern")
 
 // orderProbe, when non-nil, is called by name at each middleware's entry, in
 // the order a request actually passes through them. Nothing else in this
@@ -69,7 +68,6 @@ func RateLimit(next http.Handler, l *ratelimit.Limiter) http.Handler {
 			_, _ = w.Write([]byte(`{"error":"rate_limited","message":"Too many requests. Please slow down."}`))
 			return
 		}
-		requestsTotal.With(patternLabel(r)).Inc()
 		next.ServeHTTP(w, r)
 	})
 }
