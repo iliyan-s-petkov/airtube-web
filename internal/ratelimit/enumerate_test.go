@@ -1,0 +1,214 @@
+package ratelimit_test
+
+import (
+	"testing"
+	"time"
+
+	"airbg.org/internal/ratelimit"
+)
+
+func breadth(t *testing.T, areaLimit, sensorLimit int) (*ratelimit.Breadth, *clock) {
+	t.Helper()
+	c := newClock()
+	b := ratelimit.NewBreadth(areaLimit, sensorLimit, time.Hour)
+	b.SetClockForTesting(c.now)
+	return b, c
+}
+
+// TestRepeatedSameAreaIsNotEnumeration is the false-positive guard, and the
+// reason this counts DISTINCT slugs rather than requests. Someone watching one
+// city's page all afternoon — a resident checking the air before a run — must
+// never be flagged. A volume counter cannot tell them from a scraper; a breadth
+// counter can.
+func TestRepeatedSameAreaIsNotEnumeration(t *testing.T) {
+	b, _ := breadth(t, 3, 10)
+
+	for i := 0; i < 500; i++ {
+		if !b.ObserveArea("client", "sofia") {
+			t.Fatalf("flagged at request %d for repeatedly viewing ONE area", i+1)
+		}
+	}
+}
+
+func TestDistinctAreasTripTheLimit(t *testing.T) {
+	b, _ := breadth(t, 3, 10)
+
+	for _, slug := range []string{"sofia", "plovdiv", "varna"} {
+		if !b.ObserveArea("client", slug) {
+			t.Fatalf("flagged at or below the limit on %q", slug)
+		}
+	}
+	if b.ObserveArea("client", "burgas") {
+		t.Error("the 4th distinct area was allowed with a limit of 3")
+	}
+}
+
+// TestTrippedClientStaysTrippedForKnownAreas: once over the limit, a client must
+// be refused even for a slug it already visited. Otherwise a scraper walks the
+// country, trips at the end, and then replays its whole visited set freely —
+// which is exactly the extraction the check exists to stop.
+func TestTrippedClientStaysTrippedForKnownAreas(t *testing.T) {
+	b, _ := breadth(t, 2, 10)
+
+	b.ObserveArea("client", "a")
+	b.ObserveArea("client", "b")
+	b.ObserveArea("client", "c") // trips
+
+	if b.ObserveArea("client", "a") {
+		t.Error("a tripped client was allowed to re-request an already-seen area")
+	}
+}
+
+func TestDistinctSensorsTripSeparately(t *testing.T) {
+	b, _ := breadth(t, 100, 3)
+
+	for _, id := range []int64{1, 2, 3} {
+		if !b.ObserveSensor("client", id) {
+			t.Fatalf("flagged at or below the sensor limit on %d", id)
+		}
+	}
+	if b.ObserveSensor("client", 4) {
+		t.Error("the 4th distinct sensor was allowed with a limit of 3")
+	}
+	// The area budget must be untouched — the two dimensions are independent,
+	// or a sensor-heavy session would lock a user out of the map.
+	if !b.ObserveArea("client", "sofia") {
+		t.Error("tripping the sensor limit also blocked areas")
+	}
+}
+
+func TestKeysAreIndependentForBreadth(t *testing.T) {
+	b, _ := breadth(t, 1, 1)
+
+	b.ObserveArea("a", "sofia")
+	b.ObserveArea("a", "varna") // a trips
+
+	if !b.ObserveArea("b", "sofia") {
+		t.Error("client b was blocked by client a's enumeration; on CGNAT that would lock out a whole mobile network at once")
+	}
+}
+
+// TestWindowResets: the window must roll, or a client that once tripped is
+// blocked forever. On CGNAT one abuser shares an address with thousands of
+// legitimate users, so a permanent block is collateral damage measured in
+// neighbourhoods.
+func TestWindowResets(t *testing.T) {
+	b, c := breadth(t, 2, 10)
+
+	b.ObserveArea("client", "a")
+	b.ObserveArea("client", "b")
+	if b.ObserveArea("client", "c") {
+		t.Fatal("did not trip")
+	}
+
+	c.advance(61 * time.Minute)
+	if !b.ObserveArea("client", "d") {
+		t.Error("still blocked after the window elapsed")
+	}
+}
+
+// TestEvictRemovesIdleBreadthKeys — same unbounded-growth hazard as the token
+// buckets, with a bigger footprint: each entry holds two sets, not one counter.
+func TestEvictRemovesIdleBreadthKeys(t *testing.T) {
+	b, c := breadth(t, 5, 5)
+
+	b.ObserveArea("a", "x")
+	b.ObserveArea("b", "y")
+	if got := b.Len(); got != 2 {
+		t.Fatalf("Len() = %d, want 2", got)
+	}
+
+	c.advance(3 * time.Hour)
+	b.Evict()
+	if got := b.Len(); got != 0 {
+		t.Errorf("Len() = %d after eviction, want 0", got)
+	}
+}
+
+// TestSetSizeIsBoundedWhenTripped: after tripping, the sets must stop growing.
+// A tripped client that kept inserting every new slug it asked for would let an
+// attacker who has ALREADY been flagged keep allocating memory — turning a
+// refused request into a slow leak.
+func TestSetSizeIsBoundedWhenTripped(t *testing.T) {
+	b, _ := breadth(t, 2, 2)
+
+	for i := 0; i < 10_000; i++ {
+		b.ObserveArea("client", string(rune(i%0x4000+0x100)))
+	}
+	if got := b.Len(); got != 1 {
+		t.Fatalf("Len() = %d, want 1 key", got)
+	}
+	if got := b.SlugSetSizeForTesting("client"); got > 3 {
+		t.Errorf("slug set grew to %d entries after tripping; a refused client must stop consuming memory", got)
+	}
+}
+
+// TestActiveKeyIsNeverEvicted pins that a key touched inside the eviction
+// window survives a sweep, so a normal browsing session is never dropped
+// mid-window and silently handed a clean slate (or, worse, reset in a way
+// that would let the caller re-trip a threshold accidentally).
+func TestActiveKeyIsNeverEvicted(t *testing.T) {
+	b, c := breadth(t, 5, 5)
+
+	b.ObserveArea("client", "x")
+	c.advance(30 * time.Minute)
+	b.ObserveArea("client", "y") // keeps it active
+	b.Evict()
+
+	if got := b.Len(); got != 1 {
+		t.Fatalf("Len() = %d, want 1 (active key must survive eviction)", got)
+	}
+}
+
+// TestAreaLimitBoundaryIsExclusive pins the exact threshold semantics at N-1
+// and N: the Nth distinct area is allowed, the (N+1)th is refused.
+func TestAreaLimitBoundaryIsExclusive(t *testing.T) {
+	b, _ := breadth(t, 3, 10)
+
+	if !b.ObserveArea("client", "s1") {
+		t.Fatal("1st distinct area (N-2) refused")
+	}
+	if !b.ObserveArea("client", "s2") {
+		t.Fatal("2nd distinct area (N-1) refused")
+	}
+	if !b.ObserveArea("client", "s3") {
+		t.Fatal("3rd distinct area (N, the limit) refused")
+	}
+	if b.ObserveArea("client", "s4") {
+		t.Error("4th distinct area (N+1) allowed")
+	}
+}
+
+// TestSensorLimitBoundaryIsExclusive is the sensor-side twin of the area
+// boundary test, at the sensor limit rather than the area limit.
+func TestSensorLimitBoundaryIsExclusive(t *testing.T) {
+	b, _ := breadth(t, 10, 2)
+
+	if !b.ObserveSensor("client", 1) {
+		t.Fatal("1st distinct sensor (N-1) refused")
+	}
+	if !b.ObserveSensor("client", 2) {
+		t.Fatal("2nd distinct sensor (N, the limit) refused")
+	}
+	if b.ObserveSensor("client", 3) {
+		t.Error("3rd distinct sensor (N+1) allowed")
+	}
+}
+
+// TestTwoKeysDoNotShareASet pins that distinct client keys never share the
+// underlying slug set — a bug that merged sets could let one client's
+// visited areas silently pre-populate another's budget.
+func TestTwoKeysDoNotShareASet(t *testing.T) {
+	b, _ := breadth(t, 2, 10)
+
+	b.ObserveArea("a", "sofia")
+	b.ObserveArea("b", "sofia")
+	b.ObserveArea("b", "varna")
+
+	if got := b.SlugSetSizeForTesting("a"); got != 1 {
+		t.Errorf("client a's slug set size = %d, want 1", got)
+	}
+	if got := b.SlugSetSizeForTesting("b"); got != 2 {
+		t.Errorf("client b's slug set size = %d, want 2", got)
+	}
+}
