@@ -14,15 +14,20 @@ import (
 	"airbg.org/internal/backfill"
 	"airbg.org/internal/config"
 	"airbg.org/internal/db"
+	"airbg.org/internal/i18n"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
+	"airbg.org/internal/server"
+	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|backfill|import-areas|purge-outside-boundary>")
+		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|import-areas|purge-outside-boundary>")
 		os.Exit(2)
 	}
 
@@ -54,6 +59,12 @@ func main() {
 		client := upstream.New(cfg.UpstreamURL, 30*time.Second)
 		ing := ingest.New(client, store.New(pool), quality.NewHistory(12))
 		ing.Loop(ctx, cfg.PollInterval)
+
+	case "serve":
+		if err := runServe(ctx, cfg, pool); err != nil {
+			slog.Error("serve", "error", err)
+			os.Exit(1)
+		}
 
 	case "backfill":
 		if len(os.Args) < 4 {
@@ -144,4 +155,66 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown subcommand %q\n", os.Args[1])
 		os.Exit(2)
 	}
+}
+
+func runServe(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
+	log := slog.Default()
+	st := store.New(pool)
+	holder := snapshot.NewHolder()
+	pub := server.NewPublisher(st, holder, log)
+
+	cat, err := i18n.Load()
+	if err != nil {
+		return err
+	}
+
+	// Build once at startup so the first visitor is not met with a 503 for a
+	// whole poll interval. A failure here is logged, not fatal: the process
+	// still serves "data is not ready yet" and the next cycle fixes it.
+	if err := pub.Publish(ctx, time.Now().UTC()); err != nil {
+		log.Error("initial snapshot build failed; starting with no data", "error", err)
+	}
+
+	srv, err := server.New(server.Options{
+		ListenAddr:        cfg.ListenAddr,
+		MetricsAddr:       cfg.MetricsAddr,
+		Catalogue:         cat,
+		Snapshots:         holder,
+		Store:             st,
+		Publisher:         pub,
+		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
+		BaseURL:           cfg.BaseURL,
+		Logger:            log,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Same construction as the existing "collect" case — one poller, not two.
+	ing := ingest.New(
+		upstream.New(cfg.UpstreamURL, 30*time.Second),
+		st,
+		quality.NewHistory(12),
+	)
+	ing.SetSnapshotPublisher(pub)
+
+	// The poller and the server share one process because the snapshot lives in
+	// this process's memory: a separately deployed collector could fill the
+	// database but could never swap the pointer this server reads.
+	pollCtx, stopPolling := context.WithCancel(ctx)
+	defer stopPolling()
+
+	polled := make(chan struct{})
+	go func() {
+		defer close(polled)
+		ing.Loop(pollCtx, cfg.PollInterval) // returns when pollCtx is cancelled
+	}()
+
+	err = srv.Run(ctx)
+
+	// Stop the poller and wait for it, so the process does not exit with a
+	// half-written cycle in flight.
+	stopPolling()
+	<-polled
+	return err
 }

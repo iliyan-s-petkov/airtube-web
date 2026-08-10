@@ -188,3 +188,44 @@ func escapeLabelValue(s string) string {
 // Thin wrappers so the atomic gauge reads clearly at the call site.
 func float64bits(f float64) uint64     { return math.Float64bits(f) }
 func float64frombits(b uint64) float64 { return math.Float64frombits(b) }
+
+// Vec carries exactly one label dimension (Task 5), so route and status are
+// two vectors rather than one two-label vector. That is not a workaround: the
+// cross product of route x status is the cardinality that would need bounding,
+// and keeping them separate makes the bound structural.
+var (
+	httpRequests  = CounterVec("airbg_http_requests_total", "HTTP requests served, by route.", "route")
+	httpResponses = CounterVec("airbg_http_responses_total", "HTTP responses served, by status.", "status")
+)
+
+// Instrument counts requests by ROUTE PATTERN and status.
+//
+// r.Pattern, never r.URL.Path: the path is attacker-controlled, and one label
+// per distinct path turns the metrics registry into an unbounded map that any
+// client can grow — the counter that reports the attack becomes the attack.
+func Instrument(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+
+		next.ServeHTTP(rec, r)
+
+		route := r.Pattern
+		if route == "" {
+			// An unmatched request has no pattern. Labelling it with the path
+			// would hand an attacker a way to grow the map at will.
+			route = "unmatched"
+		}
+		httpRequests.With(route).Inc()
+		httpResponses.With(strconv.Itoa(rec.status)).Inc()
+	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
