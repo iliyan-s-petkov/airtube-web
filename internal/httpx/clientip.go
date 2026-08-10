@@ -141,6 +141,7 @@ const (
 // line end up naming different clients.
 func WithClientIP(next http.Handler, r *IPResolver) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		probe("withClientIP")
 		ctx := req.Context()
 		ctx = context.WithValue(ctx, ctxClientIP, r.ClientIP(req))
 		ctx = context.WithValue(ctx, ctxBucketKey, r.BucketKey(req))

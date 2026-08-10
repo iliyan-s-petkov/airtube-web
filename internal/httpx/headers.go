@@ -35,6 +35,7 @@ const CSPValue = "default-src 'self'; " +
 // a developer's browser to HTTPS for localhost.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probe("securityHeaders")
 		h := w.Header()
 		h.Set("Content-Security-Policy", CSPValue)
 		h.Set("X-Content-Type-Options", "nosniff")
@@ -55,6 +56,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 // it is a single request.
 func LimitBody(next http.Handler, maxBytes int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probe("limitBody")
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 		}

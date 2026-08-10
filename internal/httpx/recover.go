@@ -42,6 +42,7 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 // 500 would both log noise and defeat the abort.
 func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probe("recover")
 		rec := &statusRecorder{ResponseWriter: w}
 
 		defer func() {

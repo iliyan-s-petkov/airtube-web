@@ -3,8 +3,10 @@ package httpx_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -226,5 +228,85 @@ func TestChainProvidesClientIPToTheHandler(t *testing.T) {
 
 	if got != "203.0.113.53" {
 		t.Errorf("BucketKeyFrom = %q, want %q", got, "203.0.113.53")
+	}
+}
+
+// TestChainRecoverIsOutermostOfEveryMiddleware is the test the earlier round
+// was missing. Every other panic-based test in this file panics from the
+// FINAL HANDLER, which is downstream of every middleware regardless of their
+// relative order — so those tests cannot tell "Recover outermost" apart from
+// "Recover nested one layer in".
+//
+// This test panics from INSIDE a middleware instead. RateLimit panics on
+// l.Allow when given a nil *ratelimit.Limiter — a real, reachable bug
+// surface, not a synthetic stand-in — and that panic occurs entirely inside
+// RateLimit's closure, before next.ServeHTTP is ever called. The test only
+// passes if Recover genuinely wraps RateLimit, not merely the handler.
+func TestChainRecoverIsOutermostOfEveryMiddleware(t *testing.T) {
+	chain := httpx.Chain{
+		Resolver:     resolver(t),
+		Limiter:      nil, // l.Allow(key) on a nil *Limiter panics inside RateLimit.
+		MaxBodyBytes: 4096,
+	}
+	h := chain.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil)
+	r.RemoteAddr = "203.0.113.61:41000"
+	// If Recover does not wrap RateLimit, this call panics and the test fails
+	// loudly — a panic in one middleware must not be able to kill a
+	// connection that every other middleware is still relying on Recover for.
+	h.ServeHTTP(rec, r)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "nil pointer") || strings.Contains(body, "invalid memory address") {
+		t.Error("the panic value leaked into the response body")
+	}
+	if strings.Contains(body, "goroutine") {
+		t.Error("a stack trace leaked into the response body")
+	}
+}
+
+// TestChainWrapComposesInDocumentedOrder observes Chain.Wrap's actual
+// composition order directly, by recording the sequence in which each layer's
+// handler runs as one request passes through — not by inspecting Chain's
+// fields, which hold a Resolver, a Limiter and a byte count and reveal
+// nothing about wrap order.
+func TestChainWrapComposesInDocumentedOrder(t *testing.T) {
+	var (
+		mu    sync.Mutex
+		order []string
+	)
+	record := func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+		order = append(order, name)
+	}
+
+	httpx.SetOrderProbeForTesting(record)
+	defer httpx.SetOrderProbeForTesting(nil)
+
+	chain := httpx.Chain{
+		Resolver:     resolver(t),
+		Limiter:      ratelimit.New(ratelimit.Rate{PerSecond: 100, Burst: 100}, time.Hour),
+		MaxBodyBytes: 4096,
+	}
+	h := chain.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		record("handler")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil)
+	r.RemoteAddr = "203.0.113.62:41000"
+	h.ServeHTTP(httptest.NewRecorder(), r)
+
+	want := []string{"recover", "securityHeaders", "withClientIP", "rateLimit", "limitBody", "handler"}
+	if !reflect.DeepEqual(order, want) {
+		t.Errorf("composition order = %v, want %v", order, want)
 	}
 }

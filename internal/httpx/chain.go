@@ -20,6 +20,28 @@ var (
 		"pattern")
 )
 
+// orderProbe, when non-nil, is called by name at each middleware's entry, in
+// the order a request actually passes through them. Nothing else in this
+// package can observe Chain.Wrap's real composition order — the struct only
+// holds a Resolver, a Limiter and a byte count, none of which reveal wrapping
+// order — so tests that need to pin the order call SetOrderProbeForTesting
+// rather than inspect Chain's fields.
+//
+// Nil in production: every call site guards on it, so shipping this costs one
+// nil check per middleware per request.
+var orderProbe func(name string)
+
+// SetOrderProbeForTesting installs or clears the order-observation hook.
+func SetOrderProbeForTesting(fn func(name string)) {
+	orderProbe = fn
+}
+
+func probe(name string) {
+	if orderProbe != nil {
+		orderProbe(name)
+	}
+}
+
 // RateLimit refuses a request when its client's bucket is empty.
 //
 // It requires WithClientIP upstream of it; BucketKeyFrom returns
@@ -27,6 +49,7 @@ var (
 // guarantees the ordering.
 func RateLimit(next http.Handler, l *ratelimit.Limiter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probe("rateLimit")
 		key := BucketKeyFrom(r.Context())
 		ok, retryAfter := l.Allow(key)
 		if !ok {
