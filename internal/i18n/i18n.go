@@ -32,18 +32,30 @@ func Load() (*Catalogue, error) {
 		if err != nil {
 			return nil, fmt.Errorf("i18n: reading %s.json: %w", lang, err)
 		}
-		var m map[string]string
-		if err := json.Unmarshal(raw, &m); err != nil {
-			return nil, fmt.Errorf("i18n: parsing %s.json: %w", lang, err)
-		}
-		if len(m) == 0 {
-			// An empty catalogue would render every label as a fallback marker
-			// on a live page. Fail at startup instead.
-			return nil, fmt.Errorf("i18n: %s.json contains no messages", lang)
+		m, err := parseCatalogue(lang, raw)
+		if err != nil {
+			return nil, err
 		}
 		c.messages[lang] = m
 	}
 	return c, nil
+}
+
+// parseCatalogue parses and validates a single catalogue's raw JSON bytes,
+// rejecting an empty or unparseable catalogue. Factored out of Load so the
+// rejection can be exercised directly with injected bytes in tests, without
+// needing to corrupt the embedded FS to prove the guard fires.
+func parseCatalogue(lang string, raw []byte) (map[string]string, error) {
+	var m map[string]string
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("i18n: parsing %s.json: %w", lang, err)
+	}
+	if len(m) == 0 {
+		// An empty catalogue would render every label as a fallback marker
+		// on a live page. Fail at startup instead.
+		return nil, fmt.Errorf("i18n: %s.json contains no messages", lang)
+	}
+	return m, nil
 }
 
 // T returns the message for key in lang.
