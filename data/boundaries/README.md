@@ -105,3 +105,38 @@ precise than point-in-polygon on a sensor coordinate requires.
 (`/oblast/{slug}`), so they must be stable: changing a slug breaks every
 inbound link and every search-engine result for that page. Treat them as
 permanent once shipped.
+
+### Slugs must be unique across every `kind`, not just within one file
+
+`area.slug` is the table's `PRIMARY KEY`, shared globally across all `kind`
+values, and `area.Import` upserts on it (`ON CONFLICT (slug) DO UPDATE SET
+kind = EXCLUDED.kind, ...`). A Bulgarian oblast and its capital city share the
+same name and therefore the same transliteration — "Варна" oblast and "Варна"
+city both slugify to `varna` — so importing `oblasti.geojson` then
+`cities.geojson`, exactly the order this file documents above, silently
+rewrote 26 of 28 oblast rows into city rows: same slug, so the second import's
+`kind`/`name_bg`/`name_en`/`geom` overwrote the first import's row rather than
+inserting a new one. `SELECT count(*) FROM area WHERE kind = 'oblast'` dropped
+from 28 to 2. This is caught by
+`internal/area/committed_boundaries_test.go`'s
+`TestAllFourFilesImportWithoutRowLoss`, which asserts per-kind row counts in
+the database after all four files are imported together — not just each
+file's parsed feature count, which stays correct regardless of what happens
+in the table.
+
+**Fix:** every oblast slug carries a uniform `-oblast` suffix
+(`varna-oblast`, `plovdiv-oblast`, `sofiya-grad-oblast`, `sofiyska-oblast`, all
+28, including the two Sofia oblasti whose slugs never collided with a city in
+the first place). The suffix is uniform rather than applied only where a
+collision exists today, because a collision-driven rule breaks again the
+first time a new city is added whose name happens to match an oblast that
+currently has no colliding city. Cities keep their bare slug (`varna`,
+`plovdiv`) because a city is what a reader searches for, and the slug is what
+appears in its URL (`/area/varna`). Sofia district slugs are untouched.
+
+Checked and confirmed collision-free (28+27+24+1 = 80 distinct slugs, `bulgaria` included):
+oblast vs. city (the only pair that collided, now fixed by the suffix), city
+vs. Sofia district, oblast vs. Sofia district, and every one of the three
+files against `bulgaria.geojson`'s own `bulgaria` slug. Any future fourth or
+fifth tier must run the same cross-file slug check before being committed —
+the primary key does not care which file a row came from.

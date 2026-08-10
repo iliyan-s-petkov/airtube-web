@@ -93,6 +93,91 @@ func TestSofiaSensorResolvesThroughAllTiers(t *testing.T) {
 	}
 }
 
+// TestAllFourFilesImportWithoutRowLoss imports bulgaria.geojson, oblasti.geojson,
+// cities.geojson and sofia-districts.geojson together, in the order the README
+// documents, and asserts the resulting per-kind row counts in the database —
+// not just the parsed feature counts Import returns.
+//
+// This is the test that would have caught the slug collision between oblasti
+// and cities: 26 of 27 city slugs used to be byte-identical to an oblast slug
+// (same Bulgarian name, same transliteration — "Варна" oblast and "Варна"
+// city both slugified to "varna"). area.slug is the table's global PRIMARY
+// KEY across every kind, and Import's ON CONFLICT (slug) DO UPDATE SET kind =
+// EXCLUDED.kind, ... rewrote 26 oblast rows into city rows on the second
+// import, leaving only 2 oblasti in the table. Every existing test still
+// passed: TestCommittedBoundariesImport only checks Import's returned feature
+// count (a property of the parsed JSON, unconditionally correct regardless of
+// what the database ends up holding), and
+// TestSofiaSensorResolvesThroughAllTiers only probes the one point whose
+// oblast slugs (sofia-grad/sofia oblast) happen not to collide with any city
+// slug. A per-kind count after all imports is the one assertion that cannot
+// be fooled by a row silently changing kind.
+func TestAllFourFilesImportWithoutRowLoss(t *testing.T) {
+	ctx, pool := migrated(t)
+
+	for _, f := range []struct{ path, kind string }{
+		{"../../data/boundaries/bulgaria.geojson", "country"},
+		{"../../data/boundaries/oblasti.geojson", "oblast"},
+		{"../../data/boundaries/cities.geojson", "city"},
+		{"../../data/boundaries/sofia-districts.geojson", "neighbourhood"},
+	} {
+		if _, err := area.Import(ctx, pool, f.path, f.kind); err != nil {
+			t.Fatalf("Import(%s, %s): %v", f.path, f.kind, err)
+		}
+	}
+
+	wantByKind := map[string]int{
+		"country":       1,
+		"oblast":        28,
+		"city":          27,
+		"neighbourhood": 24,
+	}
+
+	rows, err := pool.Query(ctx, `SELECT kind, count(*) FROM area GROUP BY kind`)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+
+	gotByKind := map[string]int{}
+	for rows.Next() {
+		var kind string
+		var n int
+		if err := rows.Scan(&kind, &n); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		gotByKind[kind] = n
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+
+	for kind, want := range wantByKind {
+		if got := gotByKind[kind]; got != want {
+			t.Errorf("area rows with kind = %q: got %d, want %d (got map: %v)", kind, got, want, gotByKind)
+		}
+	}
+	for kind := range gotByKind {
+		if _, known := wantByKind[kind]; !known {
+			t.Errorf("unexpected kind %q in area table with %d rows", kind, gotByKind[kind])
+		}
+	}
+
+	// A row silently changing kind (Finding 1's failure mode) never changes
+	// the total row count or the distinct-slug count on its own, but a slug
+	// collision that caused one row to overwrite another WOULD show up here:
+	// distinct slugs would be lower than the row count only if two different
+	// logical rows had been coalesced into one by a primary-key clash.
+	var total, distinctSlugs int
+	err = pool.QueryRow(ctx, `SELECT count(*), count(DISTINCT slug) FROM area`).Scan(&total, &distinctSlugs)
+	if err != nil {
+		t.Fatalf("distinct slug query: %v", err)
+	}
+	if distinctSlugs != total {
+		t.Errorf("count(DISTINCT slug) = %d, count(*) = %d — slugs are not unique across kinds", distinctSlugs, total)
+	}
+}
+
 // TestBoundariesDoNotSwapCoordinates is the swap detector for this data. A
 // GeoJSON file written with [lat, lon] instead of [lon, lat] still parses, still
 // imports, and still produces valid polygons — they simply sit in the Indian
