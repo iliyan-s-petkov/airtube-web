@@ -1,0 +1,27 @@
+{{define "title"}}{{.Area.Name}} — {{.T "site.title"}}{{end}}
+
+{{define "main"}}
+<nav aria-label="breadcrumb"><a href="{{.Path "/"}}">{{.T "area.back_to_map"}}</a></nav>
+
+<h1>{{.Area.Name}}</h1>
+
+{{if .Area.Covered}}
+  <p>{{.Area.SensorCount}} {{.T "area.sensors"}}</p>
+  {{/* Phase 3 mounts the chart island here; the data comes from
+       /api/v1/area/{slug}/series. Server-side we render the sensor count and
+       the coverage state only — the numbers themselves live behind the API so
+       there is exactly one place that applies the quality filter. */}}
+  <div id="chart" data-island="chart" data-slug="{{.Area.Slug}}"></div>
+{{else}}
+  <div class="notice">
+    <p><strong>{{.T "area.no_coverage"}}</strong></p>
+    <p>{{.T "area.no_coverage_detail"}}</p>
+  </div>
+{{end}}
+
+<div id="area-map" data-island="map"
+     data-slug="{{.Area.Slug}}"
+     data-zoom="{{.Area.Zoom}}"
+     data-lon="{{.Area.Lon}}"
+     data-lat="{{.Area.Lat}}"></div>
+{{end}}

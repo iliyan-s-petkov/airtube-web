@@ -1,0 +1,33 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{block "title" .}}{{.T "site.title"}}{{end}}</title>
+<meta name="description" content="{{.T "site.tagline"}}">
+<link rel="canonical" href="{{.CanonicalURL}}">
+{{range .Alternates}}<link rel="alternate" hreflang="{{.Lang}}" href="{{.URL}}">
+{{end}}<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <a href="{{.Path "/"}}"><strong>{{.T "site.title"}}</strong></a>
+  <nav>
+    <a href="{{.Path "/"}}">{{.T "nav.map"}}</a>
+    <a href="{{.Path "/areas"}}">{{.T "nav.areas"}}</a>
+    <a href="{{.OtherLangURL}}" hreflang="{{.OtherLang}}">{{.T "lang.switch"}}</a>
+  </nav>
+</header>
+
+<main>
+{{block "main" .}}{{end}}
+</main>
+
+<footer>
+  <p class="disclaimer">{{.T "disclaimer"}}</p>
+  <p>{{.T "footer.data"}}</p>
+  <p>{{.T "footer.boundaries"}}</p>
+  {{if not .GeneratedAt.IsZero}}<p>{{.T "area.updated"}}: <time datetime="{{.GeneratedAtISO}}">{{.GeneratedAtHuman}}</time></p>{{end}}
+</footer>
+</body>
+</html>{{end}}
