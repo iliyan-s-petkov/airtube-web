@@ -492,8 +492,8 @@ on a missing manifest.
 | `internal/api/series.go` | modify | snapshot fast path for `P2`/`24h`; DB fall-through |
 | `internal/api/router.go` | modify | admission semaphore on DB-backed routes (§12.3) |
 | `internal/server/server.go` | modify | limiting listener (§13.3) |
-| `cmd/airbg/main.go` | modify | two pools: `apiPool`, `collectorPool` (§12.3a) |
-| `internal/db/db.go` | modify | `Open` takes a max-conns override |
+| `cmd/airbg/main.go` | *(done, `258c4dc`)* | two pools: `apiPool`, `collectorPool` (§12.3a) |
+| `internal/db/db.go` | *(done, `258c4dc`)* | `OpenPair` returns a sized pool per workload |
 
 ## 11. Risks
 
@@ -522,6 +522,16 @@ on a missing manifest.
 
 The question this section answers: does the design hold at hundreds to
 thousands of simultaneous visitors, and where does it break first.
+
+**Where this work lives.** The server-side items in §12 and §13 that do not
+depend on the frontend are planned and implemented separately, in
+`docs/superpowers/plans/2026-08-11-airbg-hardening.md`, so they can land before
+any Node toolchain exists. That plan covers §7.1's snapshot-backed default
+series, §12.3's admission control, §13.3's connection cap, §13.5's scoped
+statement timeout, and §13.2's `Permissions-Policy` and
+`Cross-Origin-Resource-Policy`. Two items stay here because they are meaningless
+without the frontend: §13.1's npm supply-chain controls, and §13.2's
+`CSP(basemapHost)`. §12.3a already landed on master as commit `258c4dc`.
 
 ### 12.1 What is already effectively free
 
@@ -589,7 +599,15 @@ other, and it is why per-IP rate limiting alone is not capacity control.
 rather than left to a CPU-count default, so capacity is a stated number and not
 a property of the container's core allocation.
 
-### 12.3a Separate the collector's pool from the API's
+### 12.3a Separate the collector's pool from the API's — **landed**
+
+**Status: fixed on `master` ahead of 3a, commit `258c4dc`.** It was a Phase 2
+bug, not a 3a feature: it fires on a schedule in the code that is deployed today,
+with no frontend involved. Kept here because the reasoning is what justifies the
+other two capacity controls. The paragraphs below are written in the present
+tense of the bug; `db.OpenPair`, `AIRBG_DB_API_CONNS` and
+`AIRBG_DB_COLLECTOR_CONNS` now exist, and `runServe` fails closed if it is ever
+handed the same pool twice.
 
 `cmd/airbg/main.go` opens exactly one `pgxpool` and hands it to both the
 collector and the request handlers. `db.AssignStatementTimeout` is **60 s**,
@@ -681,7 +699,9 @@ and no automatic updates. Five direct dependencies is a deliberate ceiling.
 - **CSP stays free of `'unsafe-inline'` and `'unsafe-eval'`.** MapLibre needs
   `worker-src 'self' blob:`, which Phase 1 already anticipated and put in
   `CSPValue`. Nothing in 3a widens the policy except the basemap host, and
-  `CSP("")` is tested byte-identical to Phase 2's constant (§9).
+  `CSP("")` is tested byte-identical to Phase 2's constant (§9). If a MapLibre
+  upgrade ever needs more, that is a reviewed diff to the constant — never an
+  `'unsafe-*'` allowance.
 - **`Cross-Origin-Resource-Policy: same-origin`** joins the existing
   `Cross-Origin-Opener-Policy`, so the JSON payloads cannot be pulled into a
   third-party document context.
@@ -766,7 +786,3 @@ authentication). No secret reaches the browser except the basemap key, which is
 public by the vendor's design and restricted by domain at the vendor. No SQL is
 constructed in 3a — the snapshot fast path issues no query at all, and the
 fall-through path is Phase 2's existing parameterised query, unmodified.
-4. **CSP and MapLibre workers.** `worker-src 'self' blob:` is already in
-   `CSPValue`, which was written in Phase 1 anticipating exactly this. If a
-   MapLibre upgrade needs more, the CSP change is a reviewed diff, never an
-   `'unsafe-*'` allowance.
