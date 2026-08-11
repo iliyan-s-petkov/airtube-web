@@ -1,11 +1,18 @@
 package web
 
 import (
+	"io/fs"
 	"net/http"
 	"sort"
+	"strings"
 
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
+)
+
+const (
+	immutableCacheControl = "public, max-age=31536000, immutable"
+	staticCacheControl    = "public, max-age=3600"
 )
 
 // Routes returns the page routes plus the embedded static assets.
@@ -29,7 +36,16 @@ func (rr *Renderer) Routes() *http.ServeMux {
 		mux.HandleFunc("GET "+prefix+"/area/{slug}", rr.handleArea)
 	}
 
-	mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
+	// Content-hashed bundles: cacheable forever, because the name changes when
+	// the content does. This is the payoff for `manifest: true` in the Vite
+	// config; without it the hashing buys nothing.
+	mux.Handle("GET /static/build/", http.StripPrefix("/static/build/",
+		cacheControl(noDirList(http.FileServer(http.FS(distSubFS()))), immutableCacheControl)))
+
+	// Hand-written CSS keeps a stable name, so it gets a short TTL instead. An
+	// immutable header here would pin an edited stylesheet in every visitor's
+	// browser for a year.
+	mux.Handle("GET /static/", cacheControl(noDirList(http.FileServer(http.FS(staticFS))), staticCacheControl))
 
 	// Anything unmatched is a rendered 404, not net/http's bare text one.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -99,4 +115,43 @@ func rowFrom(meta snapshot.AreaMeta, lang string) AreaRow {
 		Lon: meta.CentroidLon, Lat: meta.CentroidLat, Zoom: meta.DefaultZoom,
 		Covered: meta.Covered, SensorCount: meta.SensorCount,
 	}
+}
+
+// distSubFS strips the "dist" prefix so /static/build/assets/x.js maps to
+// dist/assets/x.js. The error is impossible — the directory is embedded, so it
+// exists — and an empty FS would serve 404s rather than panic, which is the
+// correct degradation for a path that only serves optional bundles.
+func distSubFS() fs.FS {
+	sub, err := fs.Sub(distFS, "dist")
+	if err != nil {
+		return distFS
+	}
+	return sub
+}
+
+// cacheControl sets the header before delegating, so a FileServer that writes
+// its own headers cannot clobber it.
+func cacheControl(next http.Handler, value string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", value)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// noDirList turns a request for a directory into a 404 before the FileServer
+// can render an index of it.
+//
+// Checked by path shape rather than by stat-ing the filesystem: a trailing
+// slash is the only way http.FileServer serves a listing (it redirects
+// "/dir" to "/dir/" first), so refusing the slash refuses the listing without a
+// second filesystem lookup. An empty path — the prefix-stripped form of
+// "/static/build/" — is the root directory and gets the same treatment.
+func noDirList(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "" || r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
