@@ -158,6 +158,38 @@ throttled while a crawler walking every area trips within a dozen requests.
 If a future change adds a bbox parameter, this entire defence is gone. The test
 `TestOverviewTakesNoBoundingBox` exists to make that change fail loudly.
 
+### Why per-entity responses are not edge-cacheable
+
+`Cache-Control` visibility is part of that defence, not a performance setting.
+Responses keyed by a **slug or a sensor ID** — `/api/v1/area/{slug}/sensors` and
+both `/series` endpoints — are sent `private, max-age=…`, so only the requesting
+client's own browser may store them. The aggregate responses that every visitor
+asks for identically — `/api/v1/overview`, `/api/v1/areas`, `/api/v1/meta`,
+`/api/v1/scales` — are `public`, and edge-caching those is doing real
+denial-of-service work.
+
+The reason for the split: the breadth counter only sees requests that reach the
+origin. If a per-entity response were `public`, a shared or edge cache would
+serve a warmed slug without `ObserveArea` ever being called — so a scraper's
+distinct-slug count would not grow for warm slugs, and a client that had
+*already* tripped the limit and was being answered 429 by the origin could still
+read every warm area straight out of the edge. `private` guarantees that a
+request for a *different* entity always reaches the origin and is counted, while
+still letting a normal reader's repeat views come from their own browser cache.
+
+The same reasoning is why `max-age` on the `/series` endpoints scales with the
+requested period (150 s for `24h` up to 3 h for `1y`), and why those two routes
+carry a **second, tighter token bucket** (1 rps, burst 10) on top of the global
+one. They are the only endpoints that reach PostgreSQL, and the breadth counter
+cannot bound them: it counts *distinct* slugs and sensor IDs, so replaying one
+`?period=1y` request costs it nothing. Both values are code constants
+(`internal/api/series.go`), not environment variables.
+
+Raising these to `public`, or adding a Cloudflare Cache Rule that caches
+`/api/v1/area/*/sensors` or `/api/v1/sensor/*`, silently reopens that hole. Cache
+hit rate on those paths is not a metric to optimise.
+`TestOverviewIsPubliclyCacheableAndPerEntityIsNot` pins the distinction.
+
 ## Database
 
 PostgreSQL 18 with **both PostGIS and TimescaleDB** is required. Use the

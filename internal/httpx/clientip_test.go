@@ -60,6 +60,53 @@ func TestSpoofedHeaderChainIsIgnored(t *testing.T) {
 	}
 }
 
+// TestCommaBearingHeaderFromTrustedPeerFallsBackToPeer pins the comma reject in
+// ClientIP — the one place where a mistake is a full client-IP spoof.
+//
+// Cloudflare sends exactly ONE address in CF-Connecting-IP, never a list. A
+// comma therefore means the value did not come from Cloudflare, so it must be
+// rejected outright and the socket peer used instead. The tempting "lenient"
+// refactor — split on comma and take the first (or last) element — is the
+// classic X-Forwarded-For prepend attack: a client behind the proxy chooses
+// which address it is attributed to and every rate limit in the system becomes
+// a no-op. That refactor is exactly what this test forbids.
+//
+// Note on the trusted peer: this is the dangerous direction. The untrusted-peer
+// case (TestSpoofedHeaderChainIsIgnored) is guarded by the trust check one line
+// earlier; here the trust check PASSES and the comma reject is the only thing
+// standing between the caller and its chosen identity.
+func TestCommaBearingHeaderFromTrustedPeerFallsBackToPeer(t *testing.T) {
+	// Both header elements are individually well-formed addresses, so a
+	// split-and-parse implementation would happily accept either one.
+	const (
+		peer     = "173.245.48.1" // inside 173.245.48.0/20, a real Cloudflare range
+		first    = "1.2.3.4"
+		appended = "9.9.9.9"
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = peer + ":41000"
+	req.Header.Set("CF-Connecting-IP", first+", "+appended)
+
+	// Name the address that was chosen, so a failure says WHO was trusted
+	// rather than merely that the answer was wrong.
+	switch got := resolver(t).ClientIP(req).String(); got {
+	case peer:
+		// Correct: the comma-bearing header was rejected entirely.
+	case first:
+		t.Fatalf("ClientIP = %s, want the socket peer %s: the FIRST element of a "+
+			"comma-separated CF-Connecting-IP was trusted, so a client behind the "+
+			"proxy picks its own rate-limit identity by prepending an address", got, peer)
+	case appended:
+		t.Fatalf("ClientIP = %s, want the socket peer %s: the LAST element of a "+
+			"comma-separated CF-Connecting-IP was trusted, so a client behind the "+
+			"proxy picks its own rate-limit identity by appending an address", got, peer)
+	default:
+		t.Fatalf("ClientIP = %s, want the socket peer %s: a comma-bearing "+
+			"CF-Connecting-IP must be rejected and the peer used", got, peer)
+	}
+}
+
 // TestMalformedHeaderFromTrustedPeerFallsBack: a trusted peer sending garbage
 // must fall back to the socket address, not produce a zero Addr. A zero Addr
 // stringifies to "invalid IP" and every such request would share one bucket —

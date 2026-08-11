@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"airbg.org/internal/httpx"
+	"airbg.org/internal/ratelimit"
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
 )
@@ -34,6 +35,46 @@ var periods = map[string]struct {
 func parsePeriod(v string) (time.Duration, bool, bool) {
 	p, ok := periods[v]
 	return p.window, p.hourly, ok
+}
+
+// seriesMaxAge is the cache lifetime per period. An explicit table, not a
+// formula: four values that each need their own justification are clearer as
+// four literals than as a fitted curve.
+//
+// The reasoning is that a series' freshness requirement scales with how much of
+// its window the newest point represents. A 24h chart of raw readings is a live
+// view — one new point every few minutes visibly moves its right edge — so it
+// keeps the snapshot-cadence 150 s. A 1-year chart is hourly rollups: one new
+// point per hour, at the far right of 8,760, and re-fetching it every 150 s
+// re-runs the single most expensive query in the service to redraw a pixel.
+//
+// This is also the volume bound the breadth counter cannot give. Breadth counts
+// DISTINCT slugs and sensor IDs, so repeating one expensive request is free by
+// design (see ratelimit/enumerate.go) — the only limit on a replayed
+// ?period=1y is the token bucket. A long max-age lets any cache in front of the
+// origin absorb that replay instead of PostgreSQL.
+//
+// Caveat, and the reason seriesLimiter below also exists: these responses are
+// cachePrivate (they are keyed by slug or sensor ID and so are enumerable), so
+// the cache absorbing the repeats is the requesting client's OWN browser, not a
+// shared edge. That bounds a normal reader and an unsophisticated scraper; it
+// does nothing against a client that ignores Cache-Control. The token bucket
+// below is what bounds that one.
+var seriesMaxAge = map[string]int{
+	"24h": 150,   // one snapshot cycle; the chart's right edge is live
+	"7d":  600,   // 10 min: a new raw point is a small fraction of the window
+	"30d": 1800,  // 30 min
+	"1y":  10800, // 3 h: hourly rollups, and the query is the heaviest we run
+}
+
+// maxAgeFor falls back to the shared data lifetime for an unrecognised period.
+// Unreachable — parsePeriod rejects anything not in `periods` — but a missing
+// map entry would otherwise mean max-age=0 and no caching at all.
+func maxAgeFor(period string) int {
+	if age, ok := seriesMaxAge[period]; ok {
+		return age
+	}
+	return dataMaxAge
 }
 
 // ParsePeriodForTesting exposes parsePeriod so the raw/hourly cut-over can be
@@ -93,6 +134,56 @@ func joinComma(items []string) string {
 	return out
 }
 
+// seriesRate bounds the two DB-backed routes directly.
+//
+// Why a second bucket at all: the global limit (10 rps, burst 60) is sized for a
+// human page load, which fans out to several snapshot reads costing a pointer
+// load each. The series endpoints are the only ones that reach PostgreSQL, and
+// the breadth counter cannot help — it counts DISTINCT slugs and sensor IDs, so
+// replaying ONE ?period=1y request is free by design. Without this, the cheapest
+// way to load the database is to ask the same expensive question 10 times a
+// second forever.
+//
+// 1 rps with a burst of 10 is generous for the real client: a chart is drawn
+// once per user interaction, and a page showing several metrics at once spends
+// the burst, not the sustained rate. It is two orders of magnitude below what a
+// replay attack needs to matter.
+//
+// Deliberately keyed on the same client key as the global bucket, so the two
+// limits compose rather than each granting a separate allowance.
+var seriesRate = ratelimit.Rate{PerSecond: 1, Burst: 10}
+
+// seriesBucketTTL matches the global bucket's TTL: long enough that stepping
+// away and coming back does not hand out a fresh burst.
+const seriesBucketTTL = 30 * time.Minute
+
+// NewSeriesLimiter builds the series bucket. Exported so the server can own it
+// and run its evictor for the process lifetime — an un-swept limiter map is
+// itself the memory leak the limiter exists to prevent.
+func NewSeriesLimiter() *ratelimit.Limiter {
+	return ratelimit.New(seriesRate, seriesBucketTTL)
+}
+
+// allowSeriesQuery spends a token from the series bucket, answering 429 with a
+// truthful Retry-After when it is empty.
+//
+// Called after validation and after the breadth check, but BEFORE the query: the
+// entire point is that a refused request costs no database work.
+func (d Deps) allowSeriesQuery(w http.ResponseWriter, r *http.Request) bool {
+	ok, retryAfter := d.SeriesLimiter.Allow(httpx.BucketKeyFrom(r.Context()))
+	if ok {
+		return true
+	}
+	secs := int(retryAfter.Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(secs))
+	writeError(w, http.StatusTooManyRequests, "rate_limited",
+		"Too many history requests. Please slow down.")
+	return false
+}
+
 func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -110,6 +201,10 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 	if !d.Breadth.ObserveSensor(httpx.BucketKeyFrom(r.Context()), id) {
 		enumerationTrips.With("sensor").Inc()
 		writeTooManySensors(w)
+		return
+	}
+
+	if !d.allowSeriesQuery(w, r) {
 		return
 	}
 
@@ -151,6 +246,10 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !d.allowSeriesQuery(w, r) {
+		return
+	}
+
 	points, err := d.Store.AreaSeries(r.Context(), slug, metric, since, hourly)
 	if err != nil {
 		slog.Error("area series query failed", "slug", slug, "metric", metric, "error", err)
@@ -183,6 +282,9 @@ func writeSeries(w http.ResponseWriter, body seriesBody, points []store.Point) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(dataMaxAge))
+	// cachePrivate, not public: a series response is keyed by sensor ID or slug,
+	// so it is enumerable and must never be servable from a shared cache that
+	// the breadth counter cannot see. See router.go's cachePublic/cachePrivate.
+	setCacheControl(w.Header(), cachePrivate, maxAgeFor(body.Period))
 	_, _ = w.Write(encoded)
 }

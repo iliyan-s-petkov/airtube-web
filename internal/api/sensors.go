@@ -43,7 +43,7 @@ func (d Deps) handleAreaSensors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serveBody(w, r, body, dataMaxAge)
+	serveBody(w, r, body, cachePrivate, dataMaxAge)
 }
 
 // writeTooManyAreas answers an enumeration trip.

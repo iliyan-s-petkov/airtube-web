@@ -281,19 +281,47 @@ func vecLabelCounts(t *testing.T, body, metricName string) map[string]int {
 // with different label names and help text). Grepping for the name's mere
 // presence would not have caught that; only counting the HELP/TYPE blocks
 // does.
+//
+// The property is general — EVERY family in the exposition must declare itself
+// once — so every name in the parsed maps is checked, not just the one that
+// happened to be duplicated. Naming a single metric would leave the next
+// collision, under any other name, entirely unguarded.
 func TestExpositionHasNoDuplicateMetricFamilies(t *testing.T) {
 	_, private := running(t)
 	body := scrapeExposition(t, private)
 
 	help, typ := metaLineCounts(body)
 
-	const name = "airbg_http_requests_total"
-	if got := help[name]; got != 1 {
-		t.Errorf("%d %q lines for %s, want exactly 1 — duplicate families under one "+
-			"name is invalid exposition format", got, "# HELP", name)
+	// The exposition is not empty — otherwise a scrape that returned nothing at
+	// all would satisfy every loop below by vacuum.
+	if len(help) == 0 || len(typ) == 0 {
+		t.Fatalf("exposition declared %d HELP and %d TYPE families, want at least one of each; "+
+			"an empty scrape makes the checks below vacuous", len(help), len(typ))
 	}
-	if got := typ[name]; got != 1 {
-		t.Errorf("%d %q lines for %s, want exactly 1", got, "# TYPE", name)
+
+	for name, got := range help {
+		if got != 1 {
+			t.Errorf("%d %q lines for %s, want exactly 1 — duplicate families under one "+
+				"name is invalid exposition format", got, "# HELP", name)
+		}
+	}
+	for name, got := range typ {
+		if got != 1 {
+			t.Errorf("%d %q lines for %s, want exactly 1", got, "# TYPE", name)
+		}
+	}
+
+	// A family declaring TYPE without HELP (or the reverse) is the other way
+	// this can go wrong, and it is free to check while the maps are open.
+	for name := range typ {
+		if _, ok := help[name]; !ok {
+			t.Errorf("%s has a %q line but no %q line", name, "# TYPE", "# HELP")
+		}
+	}
+	for name := range help {
+		if _, ok := typ[name]; !ok {
+			t.Errorf("%s has a %q line but no %q line", name, "# HELP", "# TYPE")
+		}
 	}
 }
 

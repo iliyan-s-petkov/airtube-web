@@ -39,11 +39,12 @@ type Options struct {
 }
 
 type Server struct {
-	public  *http.Server
-	private *http.Server
-	limiter *ratelimit.Limiter
-	breadth *ratelimit.Breadth
-	log     *slog.Logger
+	public        *http.Server
+	private       *http.Server
+	limiter       *ratelimit.Limiter
+	breadth       *ratelimit.Breadth
+	seriesLimiter *ratelimit.Limiter
+	log           *slog.Logger
 }
 
 // Timeouts. Every one of these is a bound on what a single connection can cost.
@@ -97,6 +98,7 @@ func New(opts Options) (*Server, error) {
 	}
 
 	limiter := ratelimit.New(apiRate, bucketTTL)
+	seriesLimiter := api.NewSeriesLimiter()
 	breadth := ratelimit.NewBreadth(
 		ratelimit.DistinctAreaLimit,
 		ratelimit.DistinctSensorLimit,
@@ -104,10 +106,11 @@ func New(opts Options) (*Server, error) {
 	)
 
 	apiMux := api.NewRouter(api.Deps{
-		Snapshots: opts.Snapshots,
-		Breadth:   breadth,
-		Store:     opts.Store,
-		BaseURL:   opts.BaseURL,
+		Snapshots:     opts.Snapshots,
+		Breadth:       breadth,
+		Store:         opts.Store,
+		BaseURL:       opts.BaseURL,
+		SeriesLimiter: seriesLimiter,
 	})
 
 	// The API mounts under /api/; everything else is a page. One mux at the
@@ -141,9 +144,10 @@ func New(opts Options) (*Server, error) {
 			WriteTimeout:      writeTimeout,
 			IdleTimeout:       idleTimeout,
 		},
-		limiter: limiter,
-		breadth: breadth,
-		log:     opts.Logger,
+		limiter:       limiter,
+		breadth:       breadth,
+		seriesLimiter: seriesLimiter,
+		log:           opts.Logger,
 	}
 	return s, nil
 }
@@ -182,6 +186,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// StartEvicting calls stop when ctx is cancelled.
 	s.limiter.StartEvicting(ctx, evictInterval)
 	s.breadth.StartEvicting(ctx, evictInterval)
+	s.seriesLimiter.StartEvicting(ctx, evictInterval)
 
 	select {
 	case <-ctx.Done():

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
@@ -217,5 +218,96 @@ func TestUnknownSensorSeriesDoesNotConsumeBudget(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("sensor %s: status = %d, want 200", id, rec.Code)
 		}
+	}
+}
+
+// TestLongPeriodSeriesGetsALongerMaxAge pins the period-scaled cache lifetime.
+//
+// The series endpoints are the only ones that reach PostgreSQL, and the breadth
+// counter cannot bound them: it counts DISTINCT slugs and sensor IDs, so
+// replaying ONE ?period=1y request is free by design. A 1-year series is hourly
+// rollups — one new point per hour at the right edge of 8,760 — so re-running the
+// heaviest query in the service on the same 150 s cadence as a live 24h chart is
+// pure waste. Longer windows therefore get longer TTLs, monotonically.
+//
+// Monotonicity across the WHOLE vocabulary, not just the endpoints of it: a
+// mapping that gives 1y a long TTL while leaving 7d and 30d at the short one
+// would pass a two-value comparison and still re-run two of the three expensive
+// periods at full rate.
+func TestLongPeriodSeriesGetsALongerMaxAge(t *testing.T) {
+	d := withPoints(t, samplePoints())
+
+	// The declared period order, shortest window first.
+	ordered := []string{"24h", "7d", "30d", "1y"}
+
+	ages := make(map[string]int, len(ordered))
+	for i, period := range ordered {
+		// A fresh client IP per period: the series token bucket is per client
+		// key, and this test is about cache lifetimes, not refusals.
+		rec := serve(t, d, get("/api/v1/sensor/42/series?metric=P2&period="+period,
+			"203.0.113."+itoa(200+i)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("period=%s: status = %d, want 200 (body: %s)", period, rec.Code, rec.Body.String())
+		}
+		_, raw := cacheVisibility(t, rec, "period="+period)
+		age, err := strconv.Atoi(raw)
+		if err != nil {
+			t.Fatalf("period=%s: max-age=%q is not an integer: %v", period, raw, err)
+		}
+		ages[period] = age
+	}
+
+	for i := 1; i < len(ordered); i++ {
+		prev, cur := ordered[i-1], ordered[i]
+		if ages[cur] <= ages[prev] {
+			t.Errorf("max-age for period=%s is %d, not greater than period=%s's %d: a longer "+
+				"window must be cacheable for longer, or its repeats go to the database at "+
+				"the same rate as a live chart's", cur, ages[cur], prev, ages[prev])
+		}
+	}
+
+	// And the specific pair the finding is about, stated outright so a failure
+	// names the endpoint that actually costs money.
+	if ages["1y"] <= ages["24h"] {
+		t.Errorf("period=1y max-age is %d and period=24h is %d: the most expensive query "+
+			"in the service is cached no longer than the cheapest", ages["1y"], ages["24h"])
+	}
+}
+
+// TestSeriesRepeatsAreBoundedByTheirOwnBucket pins the direct cost bound on the
+// two DB-backed routes.
+//
+// Repeats are free to the breadth counter by design — that is what makes "reads
+// one city all day" indistinguishable from one request — so before this bucket
+// existed the only limit on replaying ?period=1y was the global 10 rps, i.e.
+// 10 PostgreSQL queries per second per client, forever. The same request must
+// eventually be refused, and refused BEFORE the query, not after.
+func TestSeriesRepeatsAreBoundedByTheirOwnBucket(t *testing.T) {
+	d := withPoints(t, samplePoints())
+	// One router, so one bucket persists across the whole loop.
+	h := router(t, d)
+
+	const path = "/api/v1/sensor/42/series?metric=P2&period=1y"
+	refusedAt := 0
+	// Comfortably more than the burst; 1 rps refill cannot mask it at this speed.
+	for i := 1; i <= 40; i++ {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, get(path, "203.0.113.150"))
+		if rec.Code == http.StatusTooManyRequests {
+			refusedAt = i
+			break
+		}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200 or 429 (body: %s)", i, rec.Code, rec.Body.String())
+		}
+	}
+
+	if refusedAt == 0 {
+		t.Fatal("40 identical ?period=1y requests were all served: the heaviest query in " +
+			"the service has no volume bound, because the breadth counter treats repeats as free")
+	}
+	if refusedAt <= 1 {
+		t.Errorf("refused on request %d; the first request must always be served — a series "+
+			"endpoint that 429s a fresh client is broken, not protected", refusedAt)
 	}
 }

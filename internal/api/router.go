@@ -34,6 +34,17 @@ type Deps struct {
 	Breadth   *ratelimit.Breadth
 	Store     DataSource
 	BaseURL   string
+
+	// SeriesLimiter is a second, much tighter token bucket scoped to the two
+	// DB-backed series routes. The global bucket (10 rps) is sized for a page
+	// load fanning out to several snapshot reads; a series request costs a
+	// PostgreSQL query, and repeating one is free as far as the breadth counter
+	// is concerned. See seriesRate.
+	//
+	// NewRouter substitutes a default when this is nil, so a handler is never
+	// unlimited; production passes one explicitly so its evictor is wired to the
+	// server's lifetime.
+	SeriesLimiter *ratelimit.Limiter
 }
 
 // Cache lifetimes, in seconds.
@@ -49,7 +60,43 @@ const (
 	scalesMaxAge = 86400
 )
 
+// Cache visibility. This is a security control, not a performance knob.
+//
+// The anti-extraction design is tiering, not authentication: no endpoint takes a
+// bounding box or an unbounded list, so bulk extraction requires ENUMERATING
+// areas and sensors, and that is what ratelimit.Breadth counts — distinct slugs
+// and sensor IDs per client key. The counter only sees requests that reach the
+// origin.
+//
+//   - cachePublic is for the non-enumerable aggregate responses (/overview,
+//     /areas, /meta, /scales). Every visitor asks for the same single resource,
+//     there is no per-entity key to walk, and edge caching them is real
+//     denial-of-service protection we must not give up.
+//   - cachePrivate is for everything keyed by a slug or a sensor ID
+//     (/area/{slug}/sensors and both /series endpoints). Marked public, a shared
+//     or edge cache would serve a warmed slug without ObserveArea ever seeing
+//     the request — so a scraper's distinct-slug count would not grow, and a
+//     client that has ALREADY tripped the breadth limit could still read every
+//     warm slug straight out of the edge. private keeps the response cacheable
+//     in the requesting client's own browser (which is where the repeat traffic
+//     of a normal reader lives) while guaranteeing that a request for a
+//     DIFFERENT entity always reaches the origin and is counted.
+const (
+	cachePublic  = "public"
+	cachePrivate = "private"
+)
+
+func setCacheControl(h http.Header, visibility string, maxAge int) {
+	h.Set("Cache-Control", visibility+", max-age="+strconv.Itoa(maxAge))
+}
+
 func NewRouter(d Deps) *http.ServeMux {
+	// Fail closed: a nil SeriesLimiter would leave the heaviest endpoints bounded
+	// only by the global bucket, which is the hole this exists to close.
+	if d.SeriesLimiter == nil {
+		d.SeriesLimiter = NewSeriesLimiter()
+	}
+
 	mux := http.NewServeMux()
 
 	// Method-qualified patterns, so ServeMux answers 405 for anything else
@@ -100,11 +147,14 @@ func writeUnavailable(w http.ResponseWriter) {
 
 // serveBody writes one prepared snapshot body, handling revalidation and
 // content coding.
-func serveBody(w http.ResponseWriter, r *http.Request, b snapshot.Body, maxAge int) {
+// The visibility argument is explicit at every call site rather than defaulted,
+// so adding an endpoint forces a decision about whether its response is
+// enumerable — see the cachePublic/cachePrivate comment above.
+func serveBody(w http.ResponseWriter, r *http.Request, b snapshot.Body, visibility string, maxAge int) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Set("ETag", b.ETag)
-	h.Set("Cache-Control", "public, max-age="+strconv.Itoa(maxAge))
+	setCacheControl(h, visibility, maxAge)
 	// Vary is mandatory once the body varies by Accept-Encoding: without it a
 	// shared cache may hand a gzip body to a client that never asked for one.
 	h.Set("Vary", "Accept-Encoding")

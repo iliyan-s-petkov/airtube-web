@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"airbg.org/internal/store"
@@ -31,9 +30,9 @@ func (d Deps) handleOverview(w http.ResponseWriter, r *http.Request) {
 
 	switch r.URL.Query().Get("tier") {
 	case "", "country":
-		serveBody(w, r, snap.Overview, dataMaxAge)
+		serveBody(w, r, snap.Overview, cachePublic, dataMaxAge)
 	case "city":
-		serveBody(w, r, snap.OverviewCity, dataMaxAge)
+		serveBody(w, r, snap.OverviewCity, cachePublic, dataMaxAge)
 	default:
 		// Explicit 400 rather than falling back to the country tier: quietly
 		// answering a different question than the one asked hides frontend bugs
@@ -49,7 +48,7 @@ func (d Deps) handleAreas(w http.ResponseWriter, r *http.Request) {
 		writeUnavailable(w)
 		return
 	}
-	serveBody(w, r, snap.Areas, dataMaxAge)
+	serveBody(w, r, snap.Areas, cachePublic, dataMaxAge)
 }
 
 type metaBody struct {
@@ -102,7 +101,7 @@ func (d Deps) handleMeta(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(dataMaxAge))
+	setCacheControl(w.Header(), cachePublic, dataMaxAge)
 	_, _ = w.Write(body)
 }
 
@@ -113,6 +112,6 @@ func (d Deps) handleScales(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(scalesMaxAge))
+	setCacheControl(w.Header(), cachePublic, scalesMaxAge)
 	_, _ = w.Write(body)
 }

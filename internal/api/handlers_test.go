@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,14 +18,21 @@ import (
 // "unattributed" key and the breadth tests would interfere with each other.
 func serve(t *testing.T, d api.Deps, req *http.Request) *httptest.ResponseRecorder {
 	t.Helper()
+	rec := httptest.NewRecorder()
+	router(t, d).ServeHTTP(rec, req)
+	return rec
+}
+
+// router builds the wrapped handler once, for tests that need per-router state
+// (the series token bucket) to persist across several requests. serve builds a
+// fresh one per call, which is what keeps unrelated tests from sharing buckets.
+func router(t *testing.T, d api.Deps) http.Handler {
+	t.Helper()
 	res, err := httpx.NewIPResolver(nil)
 	if err != nil {
 		t.Fatalf("NewIPResolver: %v", err)
 	}
-	h := httpx.WithClientIP(api.NewRouter(d), res)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
+	return httpx.WithClientIP(api.NewRouter(d), res)
 }
 
 func get(path, clientIP string) *http.Request {
@@ -84,11 +92,11 @@ func TestMetaReportsGeneratedAtAndCoverage(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	var got struct {
-		GeneratedAt        time.Time `json:"generated_at"`
-		CoverageThreshold  int       `json:"coverage_threshold"`
-		Attribution        string    `json:"attribution"`
-		BoundaryAttribution string   `json:"boundary_attribution"`
-		Metrics            []string  `json:"metrics"`
+		GeneratedAt         time.Time `json:"generated_at"`
+		CoverageThreshold   int       `json:"coverage_threshold"`
+		Attribution         string    `json:"attribution"`
+		BoundaryAttribution string    `json:"boundary_attribution"`
+		Metrics             []string  `json:"metrics"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v (%s)", err, rec.Body.String())
@@ -238,5 +246,84 @@ func TestUnknownSlugDoesNotConsumeAreaBudget(t *testing.T) {
 	rec := serve(t, d, get("/api/v1/area/sofia/sensors", "203.0.113.12"))
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 for a known slug after only unknown-slug requests", rec.Code)
+	}
+}
+
+// cacheVisibility returns the visibility token of a Cache-Control header
+// ("public"/"private") and its max-age, failing the test if either is missing.
+func cacheVisibility(t *testing.T, rec *httptest.ResponseRecorder, what string) (string, string) {
+	t.Helper()
+	cc := rec.Header().Get("Cache-Control")
+	if cc == "" {
+		t.Fatalf("%s: no Cache-Control header at all", what)
+	}
+	visibility, maxAge := "", ""
+	for _, part := range strings.Split(cc, ",") {
+		part = strings.TrimSpace(part)
+		switch {
+		case part == "public" || part == "private":
+			visibility = part
+		case strings.HasPrefix(part, "max-age="):
+			maxAge = strings.TrimPrefix(part, "max-age=")
+		}
+	}
+	if visibility == "" {
+		t.Fatalf("%s: Cache-Control = %q names neither public nor private; a shared cache "+
+			"decides for itself what to do with it", what, cc)
+	}
+	if maxAge == "" {
+		t.Fatalf("%s: Cache-Control = %q has no max-age", what, cc)
+	}
+	return visibility, maxAge
+}
+
+// TestOverviewIsPubliclyCacheableAndPerEntityIsNot pins the cache-visibility
+// split, which is a security control rather than a performance setting.
+//
+// The breadth counter only sees requests that reach the origin. A per-entity
+// response marked `public` may be served by a shared or edge cache without
+// ObserveArea ever being called — so a scraper's distinct-slug count would stop
+// growing for warmed slugs, and a client that had ALREADY tripped the limit
+// could still read every warm area out of the edge. The aggregate responses have
+// no per-entity key to walk, are requested identically by every visitor, and
+// must stay `public` so edge caching keeps doing its denial-of-service work.
+//
+// Both halves are asserted together on purpose: pinning only "per-entity is
+// private" would be satisfied by making everything private, which throws away
+// the edge protection and would look like a passing test.
+func TestOverviewIsPubliclyCacheableAndPerEntityIsNot(t *testing.T) {
+	d := deps(t, fixture(t))
+
+	for _, path := range []string{
+		"/api/v1/overview",
+		"/api/v1/areas",
+		"/api/v1/meta",
+		"/api/v1/scales",
+	} {
+		rec := serve(t, d, get(path, "203.0.113.90"))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", path, rec.Code)
+		}
+		if got, _ := cacheVisibility(t, rec, path); got != "public" {
+			t.Errorf("%s is %s, want public: it is a single non-enumerable resource "+
+				"every visitor requests, and edge-caching it is real DoS protection", path, got)
+		}
+	}
+
+	// Everything keyed by a slug or a sensor ID is enumerable.
+	for _, path := range []string{
+		"/api/v1/area/sofia/sensors",
+		"/api/v1/area/sofia/series?metric=P2&period=24h",
+		"/api/v1/sensor/42/series?metric=P2&period=24h",
+	} {
+		rec := serve(t, d, get(path, "203.0.113.91"))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200 (body: %s)", path, rec.Code, rec.Body.String())
+		}
+		if got, _ := cacheVisibility(t, rec, path); got != "private" {
+			t.Errorf("%s is %s, want private: a shared cache serving this by slug or "+
+				"sensor id would hand out entities the breadth counter never saw requested, "+
+				"including to a client already refused by the origin", path, got)
+		}
 	}
 }
