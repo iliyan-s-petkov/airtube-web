@@ -26,6 +26,39 @@ type Body struct {
 	ETag string
 }
 
+// The one series the frontend draws by default. Exported because two packages
+// must agree on it: snapshot.Build precomputes exactly this combination, and
+// api.handleAreaSeries serves from the snapshot for exactly this combination.
+// A literal in each package would let them drift, and the symptom would be a
+// silent fall-through to the database on every page view — which is the thing
+// this whole change exists to prevent.
+//
+// DefaultSeriesWindow must equal the window api.parsePeriod derives from
+// DefaultSeriesPeriod. TestDefaultSeriesPeriodMatchesParsePeriod pins that.
+const (
+	DefaultSeriesMetric = "P2"
+	DefaultSeriesPeriod = "24h"
+	DefaultSeriesWindow = 24 * time.Hour
+)
+
+// SeriesPayload is the wire shape of both series endpoints.
+//
+// Columnar because uPlot consumes parallel arrays directly and same-typed
+// adjacent values compress well. It lives here, rather than in the api package
+// where it started, because the snapshot must produce byte-identical responses
+// to the database-backed path: api can import snapshot, snapshot cannot import
+// api, and two structs with matching tags would be a shape that has to be kept
+// identical by discipline instead of by the compiler.
+type SeriesPayload struct {
+	SensorID *int64      `json:"sensor_id,omitempty"`
+	Slug     string      `json:"slug,omitempty"`
+	Metric   string      `json:"metric"`
+	Period   string      `json:"period"`
+	Hourly   bool        `json:"hourly"`
+	Times    []time.Time `json:"t"`
+	Values   []float64   `json:"v"`
+}
+
 // AreaMeta is the non-payload metadata a handler needs about an area: enough to
 // validate a slug, resolve /locate, and render a page header, without going to
 // the database.
@@ -54,6 +87,17 @@ type Snapshot struct {
 	// one with no sensors — a missing key must mean "no such area" (404) and
 	// never "this area happens to be empty" (200 with an empty list).
 	AreaSensors map[string]Body
+
+	// AreaSeries is the DefaultSeriesMetric / DefaultSeriesPeriod history for
+	// each area, keyed by slug. Present for every known slug, with empty arrays
+	// where an area has no readings — same rule as AreaSensors, for the same
+	// reason: a missing key must mean 404, not "quiet area".
+	//
+	// Only the default combination is precomputed. Every other metric and
+	// period stays database-backed on purpose: precomputing them means a
+	// payload per area per metric per period, which is a cache larger than the
+	// data.
+	AreaSeries map[string]Body
 
 	// KnownSlugs is the validation set for {slug} path parameters. Validating
 	// against it means no caller-supplied slug ever reaches a query.

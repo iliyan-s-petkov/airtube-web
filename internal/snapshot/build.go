@@ -103,6 +103,14 @@ func Build(ctx context.Context, s *store.Store, now time.Time) (*Snapshot, error
 		return nil, fmt.Errorf("snapshot: sensors: %w", err)
 	}
 
+	// One query for every area, not one per area: Build runs on the collector
+	// pool (4 connections) and the neighbourhood import multiplies the area
+	// count by an order of magnitude.
+	seriesBySlug, err := s.AllAreaSeries(ctx, DefaultSeriesMetric, now.Add(-DefaultSeriesWindow), false)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: area series: %w", err)
+	}
+
 	all := make([]store.AreaAggregate, 0, len(countryAggs)+len(cityAggs))
 	all = append(all, countryAggs...)
 	all = append(all, cityAggs...)
@@ -110,6 +118,7 @@ func Build(ctx context.Context, s *store.Store, now time.Time) (*Snapshot, error
 	snap := &Snapshot{
 		GeneratedAt: now,
 		AreaSensors: make(map[string]Body, len(all)),
+		AreaSeries:  make(map[string]Body, len(all)),
 		KnownSlugs:  make(map[string]AreaMeta, len(all)),
 	}
 
@@ -147,6 +156,12 @@ func Build(ctx context.Context, s *store.Store, now time.Time) (*Snapshot, error
 			return nil, fmt.Errorf("snapshot: encode sensors for %q: %w", slug, err)
 		}
 		snap.AreaSensors[slug] = body
+
+		seriesBody, err := encode(seriesPayloadFrom(slug, seriesBySlug[slug]))
+		if err != nil {
+			return nil, fmt.Errorf("snapshot: encode series for %q: %w", slug, err)
+		}
+		snap.AreaSeries[slug] = seriesBody
 	}
 
 	return snap, nil
@@ -202,6 +217,27 @@ func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPaylo
 		}
 	}
 	return sensorPayload{GeneratedAt: now, Sensors: cols}
+}
+
+// seriesPayloadFrom converts store points to the wire shape.
+//
+// The slices are allocated with make even when there are no points: a nil slice
+// marshals to `null`, and a charting library handed null throws instead of
+// drawing an empty axis.
+func seriesPayloadFrom(slug string, points []store.Point) SeriesPayload {
+	p := SeriesPayload{
+		Slug:   slug,
+		Metric: DefaultSeriesMetric,
+		Period: DefaultSeriesPeriod,
+		Hourly: false,
+		Times:  make([]time.Time, 0, len(points)),
+		Values: make([]float64, 0, len(points)),
+	}
+	for _, pt := range points {
+		p.Times = append(p.Times, pt.Time)
+		p.Values = append(p.Values, pt.Value)
+	}
+	return p
 }
 
 // encode serialises, gzips, and hashes one payload.
