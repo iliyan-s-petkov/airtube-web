@@ -8,7 +8,8 @@
 <link rel="canonical" href="{{.CanonicalURL}}">
 {{range .Alternates}}<link rel="alternate" hreflang="{{.Lang}}" href="{{.URL}}">
 {{end}}<link rel="stylesheet" href="/static/app.css">
-</head>
+{{with .Assets.Style "main"}}<link rel="stylesheet" href="{{.}}">
+{{end}}</head>
 <body>
 <header>
   <a href="{{.Path "/"}}"><strong>{{.T "site.title"}}</strong></a>
@@ -29,5 +30,6 @@
   <p>{{.T "footer.boundaries"}}</p>
   {{if not .GeneratedAt.IsZero}}<p>{{.T "area.updated"}}: <time datetime="{{.GeneratedAtISO}}">{{.GeneratedAtHuman}}</time></p>{{end}}
 </footer>
-</body>
+{{with .Assets.Script "main"}}<script type="module" src="{{.}}"></script>
+{{end}}</body>
 </html>{{end}}

@@ -22,6 +22,7 @@ import (
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
+	"airbg.org/internal/web"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -211,6 +212,16 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	// still serves "data is not ready yet" and the next cycle fixes it.
 	if err := pub.Publish(ctx, time.Now().UTC()); err != nil {
 		log.Error("initial snapshot build failed; starting with no data", "error", err)
+	}
+
+	// One line, so a developer who ran `go run ./cmd/airbg` without building the
+	// frontend discovers it in one second rather than wondering why the map is
+	// missing. The no-manifest path is a supported mode, not an error — hence
+	// Info, not Warn.
+	if assets, found := web.LoadAssets(); found {
+		log.Info("assets", "state", "loaded", "script", assets.Script("main"))
+	} else {
+		log.Info("assets", "state", "no manifest — serving without islands (run 'npm run build' in web/)")
 	}
 
 	srv, err := server.New(server.Options{

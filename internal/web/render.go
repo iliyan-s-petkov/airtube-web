@@ -24,10 +24,19 @@ var templateFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
+// all:dist rather than dist — the plain form skips files beginning with "." or
+// "_", which would exclude both the committed .keep and Vite's
+// .vite/manifest.json, and the embed would then fail to compile on a clean
+// checkout for a reason with no obvious connection to either.
+//
+//go:embed all:dist
+var distFS embed.FS
+
 type Renderer struct {
 	cat     *i18n.Catalogue
 	holder  *snapshot.Holder
 	baseURL string
+	assets  Assets
 
 	// One parsed template set per page, each cloned from the base. A single
 	// set would not work: every page defines "main", and the last parse would
@@ -41,6 +50,10 @@ func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, baseURL string) (
 		baseURL: strings.TrimSuffix(baseURL, "/"),
 		pages:   make(map[string]*template.Template),
 	}
+	// Parsed once at construction, like the templates: with no manifest this
+	// resolves to the zero Assets, and every template call site degrades to
+	// no <script> tag rather than failing.
+	rr.assets, _ = LoadAssets()
 
 	for _, page := range []string{"index", "area", "error"} {
 		t, err := template.New("base.gohtml").ParseFS(templateFS,
@@ -70,6 +83,11 @@ type PageData struct {
 
 	TitleKey string
 	BodyKey  string
+
+	// Assets resolves to hashed script/style paths when a Vite build has been
+	// embedded, and to nothing when the dist tree holds only .keep — see
+	// assets.go and internal/web/dist/.keep.
+	Assets Assets
 
 	cat *i18n.Catalogue
 }
@@ -122,7 +140,9 @@ func (p PageData) Alternates() []alternate {
 
 func (p PageData) GeneratedAtISO() string { return p.GeneratedAt.UTC().Format(time.RFC3339) }
 
-func (p PageData) GeneratedAtHuman() string { return p.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC") }
+func (p PageData) GeneratedAtHuman() string {
+	return p.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC")
+}
 
 // newPageData builds the common fields for one request.
 func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageData {
@@ -133,6 +153,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 	return PageData{
 		Lang: lang, OtherLang: other, RequestPath: path,
 		BaseURL: rr.baseURL, GeneratedAt: generatedAt, cat: rr.cat,
+		Assets: rr.assets,
 	}
 }
 

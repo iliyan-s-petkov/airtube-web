@@ -7,3 +7,9 @@ CLAUDE.md
 
 # Local Claude Code settings — personal, not team configuration.
 .claude/
+
+# Vite output. Built by `npm run build` in web/, embedded by internal/web.
+# .keep is committed so //go:embed always has a match — see the 3a spec §4.2.
+internal/web/dist/*
+!internal/web/dist/.keep
+web/node_modules/
