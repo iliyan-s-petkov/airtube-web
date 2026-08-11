@@ -73,7 +73,23 @@ const MinPollInterval = 30 * time.Second
 // would start a new directive, a quote or apostrophe that could close one, a
 // space — is rejected here, at config load, rather than trusted through to
 // the one place that assembles the header text.
+//
+// This pattern has no IPv6 literal support: a bracketed IPv6 host such as
+// "[::1]:8080" contains colons that are not a single port separator, and
+// would either fail this pattern or be misread by it. IPv6 basemap hosts are
+// therefore rejected, not silently mishandled — see maxHostLength below for
+// the same fail-closed posture applied to length rather than character set.
 var hostPattern = regexp.MustCompile(`^[A-Za-z0-9.-]+(:[0-9]+)?$`)
+
+// maxHostLength bounds AIRBG_BASEMAP_STYLE_URL's host to the DNS name limit
+// (RFC 1035 §3.1). Without this, hostPattern's charset check alone would
+// happily accept an operator-supplied host thousands of characters long, and
+// httpx.CSP concatenates that host into the policy twice (img-src and
+// connect-src), producing an oversized header on every single response. Not
+// an injection — the charset is already constrained — but a resource cost
+// worth rejecting at load time with a message naming the variable, the same
+// way every other malformed value here is rejected.
+const maxHostLength = 253
 
 type Config struct {
 	DatabaseURL  string
@@ -227,6 +243,15 @@ func Load() (Config, error) {
 		if err != nil || u.Scheme != "https" || u.Host == "" {
 			return Config{}, fmt.Errorf("config: AIRBG_BASEMAP_STYLE_URL must be an absolute https URL (got %q)", style)
 		}
+		// A URL carrying credentials (https://user:pw@host/...) is rejected,
+		// not stripped. PageData.BasemapStyleURL ships this string verbatim to
+		// every browser that loads the map (Task 6), so silently dropping the
+		// userinfo would leave the operator believing an authenticated basemap
+		// works when it does not — the same "tell them, don't guess" posture
+		// as every other rejection in this function.
+		if u.User != nil {
+			return Config{}, fmt.Errorf("config: AIRBG_BASEMAP_STYLE_URL must not contain userinfo (got %q)", style)
+		}
 		// u.Host alone is not proof the value is safe to widen a CSP header
 		// with by concatenation — url.Parse accepts a Host containing ';', '"'
 		// or "'" as long as it has no bare space (see hostPattern's comment).
@@ -234,6 +259,12 @@ func Load() (Config, error) {
 		// reaches httpx.CSP.
 		if !hostPattern.MatchString(u.Host) {
 			return Config{}, fmt.Errorf("config: AIRBG_BASEMAP_STYLE_URL host %q is not a plain host or host:port", u.Host)
+		}
+		// hostPattern's charset check does not bound length: reject a host
+		// longer than a DNS name can legitimately be, rather than letting it
+		// through to be concatenated twice into every response's CSP header.
+		if len(u.Hostname()) > maxHostLength {
+			return Config{}, fmt.Errorf("config: AIRBG_BASEMAP_STYLE_URL host is %d characters, longer than the %d-character DNS name limit", len(u.Hostname()), maxHostLength)
 		}
 		cfg.BasemapStyleURL = style
 		cfg.BasemapHost = u.Host

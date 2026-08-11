@@ -445,3 +445,47 @@ func TestAcceptsBasemapHostWithPort(t *testing.T) {
 		t.Errorf("BasemapHost = %q, want %q", got, want)
 	}
 }
+
+// TestRejectsBasemapURLWithCredentials. PageData.BasemapStyleURL ships this
+// string verbatim to every browser that loads the map (Task 6), so a URL
+// carrying "user:pw@" would leak those credentials to every visitor the
+// moment that field is rendered. Nothing consumes the field yet, which is the
+// only reason this is not already a live leak — Load must reject it outright
+// rather than silently stripping the userinfo, so a misconfigured
+// authenticated basemap fails loudly instead of quietly serving as if
+// unauthenticated. The value below is an obvious placeholder, not a
+// realistic-looking credential.
+func TestRejectsBasemapURLWithCredentials(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	t.Setenv("AIRBG_BASEMAP_STYLE_URL", "https://placeholder-user:placeholder-pass@tiles.example/style.json")
+
+	cfg, err := Load()
+	if err == nil {
+		t.Fatalf("Load() accepted a AIRBG_BASEMAP_STYLE_URL with userinfo; BasemapStyleURL = %q", cfg.BasemapStyleURL)
+	}
+	if !strings.Contains(err.Error(), "AIRBG_BASEMAP_STYLE_URL") {
+		t.Errorf("error does not name the variable: %v", err)
+	}
+	if cfg.BasemapStyleURL != "" {
+		t.Errorf("BasemapStyleURL = %q on error, want empty", cfg.BasemapStyleURL)
+	}
+}
+
+// TestRejectsBasemapHostLongerThanDNSLimit. hostPattern's charset check does
+// not bound length, and httpx.CSP concatenates the host into the policy
+// twice (img-src and connect-src) — an operator-supplied host of unbounded
+// length would double into an oversized header on every response. 253 is the
+// DNS name limit (RFC 1035 §3.1); one character past it must be rejected.
+func TestRejectsBasemapHostLongerThanDNSLimit(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	longHost := strings.Repeat("a", 254) + ".example"
+	t.Setenv("AIRBG_BASEMAP_STYLE_URL", "https://"+longHost+"/style.json")
+
+	if _, err := Load(); err == nil {
+		t.Errorf("Load() accepted a %d-character AIRBG_BASEMAP_STYLE_URL host", len(longHost))
+	} else if !strings.Contains(err.Error(), "AIRBG_BASEMAP_STYLE_URL") {
+		t.Errorf("error does not name the variable: %v", err)
+	}
+}
