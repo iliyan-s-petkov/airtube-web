@@ -48,6 +48,14 @@ func (d Deps) handleLocate(w http.ResponseWriter, r *http.Request) {
 		Lon: defaultLon, Lat: defaultLat, Zoom: defaultZoom, Source: "default",
 	}
 
+	// degraded distinguishes the two ways this handler can return the default
+	// body WITHOUT having established anything about the caller: a shed request
+	// and a failed lookup. The bytes are identical to the confident default, so
+	// nothing downstream could tell them apart — which is exactly why the flag
+	// exists, and why it is set at the two branches that know, not guessed at
+	// the bottom. It is read once, by cacheControlFor.
+	degraded := false
+
 	// The headers are honoured ONLY from a trusted peer, exactly as
 	// CF-Connecting-IP is. Anything else is caller-supplied data.
 	if httpx.PeerTrustedFrom(r.Context()) {
@@ -60,13 +68,17 @@ func (d Deps) handleLocate(w http.ResponseWriter, r *http.Request) {
 			// the query outright fails, for a request that needs no successful
 			// query at all. The refusal is still counted, inside
 			// tryAdmitQuery, so an operator sees the control fire.
-			if release, admitted := d.tryAdmitQuery("locate"); admitted {
+			release, admitted := d.tryAdmitQuery("locate")
+			if !admitted {
+				degraded = true
+			} else {
 				slug, err := d.Store.AreaAtPoint(r.Context(), lon, lat)
 				release()
 				if err != nil {
 					// A failed lookup degrades to the national view rather than
 					// failing the request: the caller wanted a map to open, and
 					// a wider map is a worse answer but still an answer.
+					degraded = true
 					slog.Warn("locate lookup failed", "error", err)
 				} else if meta, known := snap.KnownSlugs[slug]; known {
 					body = locateBody{
@@ -86,11 +98,31 @@ func (d Deps) handleLocate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	// private: the response varies by caller IP. A shared cache storing it
-	// would hand one visitor's city to everyone behind the same edge node.
-	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("Cache-Control", cacheControlFor(degraded))
 	w.Header().Set("Vary", "CF-IPLatitude, CF-IPLongitude")
 	_, _ = w.Write(encoded)
+}
+
+// cacheControlFor picks /locate's cache directive from whether the answer is a
+// fact or a symptom.
+//
+// Never "public" in either case: the response varies by caller IP, and a shared
+// cache storing it would hand one visitor's city to everyone behind the same
+// edge node.
+//
+// The 300s lifetime is only correct for an answer that will still be true in
+// 300s — a resolved area, or a lookup that ran and found the caller outside
+// every area. A shed request and a failed query produce the same national body
+// while establishing nothing, and caching that for five minutes would pin a
+// visitor to the wide map long after a spike that lasted seconds. Shedding is a
+// designed, routine event, so this is a case that will be hit rather than a
+// theoretical one. no-store rather than max-age=0 because the directive should
+// state the intent: there is nothing here worth keeping.
+func cacheControlFor(degraded bool) string {
+	if degraded {
+		return "no-store"
+	}
+	return "private, max-age=300"
 }
 
 // headerCoords parses and range-checks Cloudflare's visitor-location headers.
