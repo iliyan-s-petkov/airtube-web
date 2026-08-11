@@ -38,6 +38,20 @@ const (
 	// exception there would mean opening a transaction solely to relax a limit
 	// nothing was hitting.
 	OperatorStatementTimeout = "10min"
+
+	// SeriesStatementTimeout bounds the two database-backed series queries.
+	//
+	// Shorter than the pool default of 15s, and deliberately so. These queries
+	// run while holding one of a small number of admission slots
+	// (internal/admit), so the time each one may hold a slot while Postgres is
+	// unwell is the thing being bounded — not the query's own reasonable
+	// duration. A healthy 1-year rollup query returns in well under a second;
+	// anything approaching five is a symptom, and failing fast frees the slot
+	// for a request that can be served.
+	//
+	// This is the alternative to a circuit breaker (spec §13.5): the same
+	// fail-fast effect, with no breaker state to get wrong.
+	SeriesStatementTimeout = "5s"
 )
 
 // SetLocalStatementTimeout raises statement_timeout for the duration of tx

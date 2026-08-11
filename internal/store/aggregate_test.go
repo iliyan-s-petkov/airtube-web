@@ -565,3 +565,63 @@ func TestAreaSeriesExcludesOutOfRangeNaN(t *testing.T) {
 		t.Errorf("value = %v, want 10; a NaN reading flagged out_of_range leaked into the average", points[0].Value)
 	}
 }
+
+// TestSeriesQueriesUseTheShortStatementTimeout pins the scoped bound. The pool
+// default is 15s, which is right for an ordinary read but far too long to hold
+// one of 16 admission slots while Postgres is unwell: sixteen slots x fifteen
+// seconds is a wall of 503s for every other reader.
+//
+// pg_sleep is the only honest way to assert a timeout — the query must actually
+// exceed it. 6s sleeps against a 5s bound, so the margin is a full second in
+// each direction.
+func TestSeriesQueriesUseTheShortStatementTimeout(t *testing.T) {
+	ctx := context.Background()
+	pool := testsupport.NewPostgres(t)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
+		t.Fatalf("SetLocalStatementTimeout: %v", err)
+	}
+
+	start := time.Now()
+	_, err = tx.Exec(ctx, `SELECT pg_sleep(6)`)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("a 6s query completed under the series statement timeout")
+	}
+	// The bound must be the database's, not the test's patience.
+	if elapsed > 10*time.Second {
+		t.Errorf("took %v; the statement timeout was not applied", elapsed)
+	}
+	if db.SeriesStatementTimeout != "5s" {
+		t.Errorf("SeriesStatementTimeout = %q; this test's 6s sleep assumes 5s", db.SeriesStatementTimeout)
+	}
+}
+
+// TestAreaSeriesStillReturnsDataInsideItsTransaction. Wrapping a read in a
+// transaction is exactly the kind of change that can return an empty result set
+// while every timeout test still passes — a chart that is blank rather than
+// wrong, which is harder to notice in review than a failure.
+func TestAreaSeriesStillReturnsDataInsideItsTransaction(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20)
+
+	points, err := s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("got %d points, want 1", len(points))
+	}
+	if points[0].Value != 15 {
+		t.Errorf("value = %v, want 15", points[0].Value)
+	}
+}

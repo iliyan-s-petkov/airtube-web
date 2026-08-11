@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"airbg.org/internal/db"
 )
 
 // CoverageThreshold is the minimum number of distinct sensors with usable
@@ -221,18 +223,25 @@ SELECT bucket, avg_value FROM reading_hourly
 // (migration 00003), so any window reaching further back must come from
 // reading_hourly or it silently returns a truncated series that looks complete.
 func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool) ([]Point, error) {
-	var rows interface {
-		Next() bool
-		Scan(...any) error
-		Err() error
-		Close()
+	// A transaction only so statement_timeout can be scoped: set_config's local
+	// flag is transaction-scoped, and this read must not inherit the pool-wide
+	// 15s. Rolled back rather than committed — nothing is written, and a rollback
+	// of a read-only transaction is the cheaper of the two.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin sensor series: %w", err)
 	}
-	var err error
+	defer tx.Rollback(ctx)
 
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
+		return nil, fmt.Errorf("store: sensor series timeout: %w", err)
+	}
+
+	var rows pgx.Rows
 	if hourly {
-		rows, err = s.pool.Query(ctx, hourlySeriesSQL, sensorID, metric, since)
+		rows, err = tx.Query(ctx, hourlySeriesSQL, sensorID, metric, since)
 	} else {
-		rows, err = s.pool.Query(ctx, rawSeriesSQL, sensorID, metric, since, usableQuality)
+		rows, err = tx.Query(ctx, rawSeriesSQL, sensorID, metric, since, usableQuality)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: sensor series: %w", err)
@@ -367,14 +376,25 @@ func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Tim
 // window queried against `reading` returns a silently truncated series rather
 // than an error.
 func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool) ([]Point, error) {
-	var (
-		rows pgx.Rows
-		err  error
-	)
+	// A transaction only so statement_timeout can be scoped: set_config's local
+	// flag is transaction-scoped, and this read must not inherit the pool-wide
+	// 15s. Rolled back rather than committed — nothing is written, and a rollback
+	// of a read-only transaction is the cheaper of the two.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin area series: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
+		return nil, fmt.Errorf("store: area series timeout: %w", err)
+	}
+
+	var rows pgx.Rows
 	if hourly {
-		rows, err = s.pool.Query(ctx, areaHourlySeriesSQL, slug, metric, since)
+		rows, err = tx.Query(ctx, areaHourlySeriesSQL, slug, metric, since)
 	} else {
-		rows, err = s.pool.Query(ctx, areaRawSeriesSQL, slug, metric, since, usableQuality)
+		rows, err = tx.Query(ctx, areaRawSeriesSQL, slug, metric, since, usableQuality)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: area series for %q: %w", slug, err)
