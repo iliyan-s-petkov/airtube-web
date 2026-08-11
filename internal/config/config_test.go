@@ -20,6 +20,76 @@ func clearEnv(t *testing.T) {
 	t.Setenv("AIRBG_METRICS_ADDR", "")
 	t.Setenv("AIRBG_TRUSTED_PROXY_CIDRS", "")
 	t.Setenv("AIRBG_BASE_URL", "")
+	t.Setenv("AIRBG_DB_API_CONNS", "")
+	t.Setenv("AIRBG_DB_COLLECTOR_CONNS", "")
+}
+
+// TestPoolSizeDefaults pins the bulkhead's sizing. These are two separate pools
+// because the collector may hold a connection for a minute under
+// AssignStatementTimeout; the defaults must be stated numbers rather than
+// max(4, numCPU), or the deployed capacity silently tracks the container's core
+// allocation.
+func TestPoolSizeDefaults(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DBAPIConns != defaultDBAPIConns {
+		t.Errorf("DBAPIConns = %d, want %d", cfg.DBAPIConns, defaultDBAPIConns)
+	}
+	if cfg.DBCollectorConns != defaultDBCollectorConns {
+		t.Errorf("DBCollectorConns = %d, want %d", cfg.DBCollectorConns, defaultDBCollectorConns)
+	}
+}
+
+func TestPoolSizeOverrides(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	t.Setenv("AIRBG_DB_API_CONNS", "24")
+	t.Setenv("AIRBG_DB_COLLECTOR_CONNS", "6")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DBAPIConns != 24 {
+		t.Errorf("DBAPIConns = %d, want 24", cfg.DBAPIConns)
+	}
+	if cfg.DBCollectorConns != 6 {
+		t.Errorf("DBCollectorConns = %d, want 6", cfg.DBCollectorConns)
+	}
+}
+
+// TestRejectsNonPositivePoolSizes fails closed at startup. pgxpool reads
+// MaxConns <= 0 as "use the default", so a "0" that Load waved through would
+// restore max(4, numCPU) on that pool — the operator would have asked for a
+// specific capacity and silently got the host's core count instead.
+func TestRejectsNonPositivePoolSizes(t *testing.T) {
+	for _, tc := range []struct{ name, key, value string }{
+		{"zero api", "AIRBG_DB_API_CONNS", "0"},
+		{"zero collector", "AIRBG_DB_COLLECTOR_CONNS", "0"},
+		{"negative api", "AIRBG_DB_API_CONNS", "-1"},
+		{"negative collector", "AIRBG_DB_COLLECTOR_CONNS", "-4"},
+		{"not a number", "AIRBG_DB_API_CONNS", "eight"},
+		{"fractional", "AIRBG_DB_COLLECTOR_CONNS", "2.5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+			t.Setenv(tc.key, tc.value)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("Load() accepted %s=%q", tc.key, tc.value)
+			}
+			if !strings.Contains(err.Error(), tc.key) {
+				t.Errorf("error %v does not name %s; a startup failure must name the variable that caused it", err, tc.key)
+			}
+		})
+	}
 }
 
 func TestLoadRequiresDatabaseURL(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,6 +19,14 @@ const (
 	defaultListenAddr  = "127.0.0.1:8080"
 	defaultMetricsAddr = "127.0.0.1:9090"
 	defaultBaseURL     = "http://localhost:8080"
+)
+
+// Pool sizes for the serve command's two pools. Their sum is what Postgres sees
+// from one instance, so raising either is a decision about the database's
+// max_connections, not just about this process.
+const (
+	defaultDBAPIConns       int32 = 8
+	defaultDBCollectorConns int32 = 4
 )
 
 // MinPollInterval is the smallest accepted AIRBG_POLL_INTERVAL.
@@ -60,6 +69,18 @@ type Config struct {
 
 	// BaseURL is the public origin, used to build canonical and hreflang links.
 	BaseURL string
+
+	// DBAPIConns and DBCollectorConns size the two connection pools the serve
+	// command opens. They are separate because the two workloads are separate:
+	// the collector may hold a connection for up to AssignStatementTimeout (60s)
+	// on every poll cycle, and while both shared one pool, request handlers
+	// starved behind it on a schedule. See db.OpenPair.
+	//
+	// Stated numbers rather than pgxpool's max(4, numCPU) default, so deployed
+	// capacity is a decision and not a side effect of the container's core
+	// allocation.
+	DBAPIConns       int32
+	DBCollectorConns int32
 }
 
 func Load() (Config, error) {
@@ -113,7 +134,36 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: AIRBG_BASE_URL must be absolute, e.g. https://airbg.org (got %q)", cfg.BaseURL)
 	}
 
+	apiConns, err := envPositiveInt32("AIRBG_DB_API_CONNS", defaultDBAPIConns)
+	if err != nil {
+		return Config{}, err
+	}
+	collectorConns, err := envPositiveInt32("AIRBG_DB_COLLECTOR_CONNS", defaultDBCollectorConns)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.DBAPIConns, cfg.DBCollectorConns = apiConns, collectorConns
+
 	return cfg, nil
+}
+
+// envPositiveInt32 reads a pool size. Rejecting zero and negatives here, naming
+// the variable, is the point: pgxpool reads MaxConns <= 0 as "use the default",
+// so a "0" waved through at load time would look like an explicit choice of no
+// capacity and silently become max(4, numCPU) instead.
+func envPositiveInt32(key string, fallback int32) (int32, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("config: %s %q is not a whole number: %w", key, v, err)
+	}
+	if n < 1 {
+		return 0, fmt.Errorf("config: %s must be at least 1, got %d", key, n)
+	}
+	return int32(n), nil
 }
 
 func envOr(key, fallback string) string {

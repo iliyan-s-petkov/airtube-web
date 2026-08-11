@@ -83,6 +83,8 @@ There are no config files and no secrets in the repo.
 | `AIRBG_METRICS_ADDR` | no | `127.0.0.1:9090` |
 | `AIRBG_TRUSTED_PROXY_CIDRS` | no | *(empty)* |
 | `AIRBG_BASE_URL` | no | `http://localhost:8080` |
+| `AIRBG_DB_API_CONNS` | no | `8` |
+| `AIRBG_DB_COLLECTOR_CONNS` | no | `4` |
 
 `AIRBG_POLL_INTERVAL` must be at least **30s**. Anything smaller is rejected at
 startup: `0s` and negative values would panic `time.NewTicker`, and a
@@ -117,7 +119,25 @@ enumeration trips, and internal error rates — exactly the reconnaissance the
 anti-extraction design exists to deny — so it must never be reachable from the
 public listener.
 
-Four environment variables configure serving:
+`serve` also opens **two connection pools**, not one. This is a bulkhead, and
+the failure it prevents needs no traffic and no attacker: `area.AssignSensors`
+runs under a 60s statement timeout on every poll cycle, so the collector may
+legitimately hold a connection for a minute. While both workloads shared one
+pool of `max(4, numCPU)` connections, request handlers blocked inside
+`pgxpool.Acquire` behind the poll cycle **on a schedule** — and every control in
+place saw a healthy system, because it was one. Rate limiting bounds one client
+and admission control bounds the crowd; neither can bound one workload's effect
+on another's capacity. Only separate pools can (`db.OpenPair`).
+
+The sizes are stated numbers rather than pgxpool's `max(4, numCPU)` default, so
+deployed capacity is a decision and not a side effect of the container's core
+allocation. Their **sum** is what Postgres sees from one instance, so raising
+either is a decision about the database's `max_connections`. Zero and negative
+values are rejected at startup: pgxpool reads `MaxConns <= 0` as "use the
+default", so a `0` waved through would look like an explicit choice and silently
+become the host's core count instead.
+
+Six environment variables configure serving:
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -125,6 +145,8 @@ Four environment variables configure serving:
 | `AIRBG_METRICS_ADDR` | `127.0.0.1:9090` | Private listener for `/metrics` and `/healthz`. Never route this publicly. |
 | `AIRBG_TRUSTED_PROXY_CIDRS` | *(empty)* | Peer ranges whose `CF-Connecting-IP` header is believed. **Empty means trust nobody** — the correct value for local development and for any origin not behind Cloudflare. Setting this while the origin is also directly reachable lets anyone who can reach it spoof their client IP and bypass every rate limit; restrict the origin first, then set this. |
 | `AIRBG_BASE_URL` | `http://localhost:8080` | Public origin, used for canonical and hreflang links. Must be absolute. |
+| `AIRBG_DB_API_CONNS` | `8` | Connections available to request handlers. This is the API's real concurrency ceiling for anything that touches the database. |
+| `AIRBG_DB_COLLECTOR_CONNS` | `4` | Connections available to the poller and the snapshot publisher — the side of the bulkhead allowed to be slow. |
 
 Endpoints:
 
