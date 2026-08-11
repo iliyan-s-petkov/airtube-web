@@ -77,9 +77,13 @@ type limitConn struct {
 
 func (c *limitConn) Close() error {
 	err := c.Conn.Close()
-	// Once, because a double Close must not credit a slot that was already
-	// returned: over-crediting would let the listener exceed its cap, and a cap
-	// that silently stops capping is worse than none.
+	// Once, because a double Close must not release the slot twice: without
+	// this guard, a second release does <-l.slots on a buffered channel that is
+	// already empty (the first Close drained it), so the second Close blocks
+	// forever on that receive — and once a later connection's Close finally
+	// sends into the channel, the blocked receive steals that connection's
+	// slot instead of its own. The cap shrinks and the caller (a net/http
+	// connection goroutine, in production) hangs.
 	c.once.Do(c.release)
 	return err
 }

@@ -39,7 +39,16 @@ func TestLimitListenerClosesConnectionsOverTheCap(t *testing.T) {
 		t.Fatalf("dial 1: %v", err)
 	}
 	t.Cleanup(func() { first.Close() })
-	held := <-accepted // the one permitted connection, still open
+
+	// Bounded, like the equivalent wait below: an unbounded receive here would
+	// hang the whole suite to the 10-minute panic instead of failing with a
+	// useful message if the limiter admits nothing.
+	var held net.Conn
+	select {
+	case held = <-accepted: // the one permitted connection, still open
+	case <-time.After(2 * time.Second):
+		t.Fatal("the one permitted connection was never accepted")
+	}
 
 	second, err := net.Dial("tcp", base.Addr().String())
 	if err != nil {
@@ -105,6 +114,59 @@ func TestLimitListenerCountsRejections(t *testing.T) {
 	// Delta, not absolute: the counter is process-global.
 	if got := ConnectionsRejectedCountForTesting() - before; got < 1 {
 		t.Errorf("rejections = %d, want at least 1", got)
+	}
+}
+
+// TestLimitListenerDoubleCloseDoesNotHang. net/http can call Close more than
+// once on the same connection. Without the sync.Once guard, a second Close
+// does <-l.slots on a channel the first Close already drained, so the receive
+// blocks forever — the guard is not about avoiding an over-credit, it is about
+// avoiding a caller (a net/http connection goroutine, in production) that hangs
+// forever on its own second Close.
+func TestLimitListenerDoubleCloseDoesNotHang(t *testing.T) {
+	base, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	ln := LimitListener(base, 1)
+	t.Cleanup(func() { ln.Close() })
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		accepted <- c
+	}()
+
+	dialed, err := net.Dial("tcp", base.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { dialed.Close() })
+
+	var conn net.Conn
+	select {
+	case conn = <-accepted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the connection was never accepted")
+	}
+
+	if err := conn.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		conn.Close() // second Close on the same connection
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("second Close did not return within 1s; it is blocked on an already-drained slots channel")
 	}
 }
 
