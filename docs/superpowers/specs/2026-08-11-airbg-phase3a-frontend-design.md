@@ -354,12 +354,43 @@ way a chart silently renders every point in 1970.
 3a draws one series: `P2`, period `24h`, for the area in `data-slug`. Period
 and metric selectors are 3b.
 
+### 7.1 The default series moves into the snapshot
+
+Phase 2 serves `/api/v1/area/{slug}/series` from Postgres on every request. That
+was acceptable when nothing called it. 3a calls it on **every area page load**,
+which would make the chart the only database-backed page view on the site — see
+§12 for why that collapses.
+
+So 3a moves the one series 3a actually draws into the precomputed snapshot,
+where it belongs:
+
+- `snapshot.Snapshot` grows `AreaSeries map[string]Body`, keyed by slug, holding
+  the `P2` / `24h` payload. Built, marshalled, gzipped and ETagged by
+  `snapshot.Build` exactly like `AreaSensors`, once per ingest cycle.
+- `handleAreaSeries` serves from the snapshot when
+  `metric == "P2" && period == "24h"`, and falls through to the database for
+  every other combination.
+- The snapshot-served path spends **no** series-limiter token and issues no
+  query. It stays `Cache-Control: private` — it is per-entity and enumerable, so
+  `ObserveArea` must still see it.
+
+This is not an optimisation bolted on late. The 24-hour area aggregate changes
+once per ingest cycle, identical to every other payload already in the
+snapshot; serving it from Postgres per request was the anomaly. It also means
+3a's page-load fan-out is **zero** database queries, which is the property that
+makes the answer to "does this scale to thousands of users" a simple yes.
+
+Per-sensor series (3b) and non-default periods stay database-backed on purpose:
+they are not precomputable without building a payload per sensor per period,
+which is a cache larger than the data.
+
 ## 8. Rate-limit interaction
 
 The series limiter is 1 rps / burst 10, keyed by IP prefix, and per-entity
-responses are `private` so no shared cache absorbs anything. `lib/api.js` is
-therefore not a convenience wrapper; it is the component that keeps the site
-usable:
+responses are `private` so no shared cache absorbs anything. With §7.1 in place
+3a's own page loads never touch that limiter — but `lib/api.js` still owns the
+fetch policy, because 3b's fan-out will, and because the map's per-area sensor
+requests are enumeration-counted:
 
 - **In-flight dedup.** One outstanding request per `(endpoint, entity, metric,
   period)` key. Concurrent callers await the same promise.
@@ -374,10 +405,13 @@ usable:
   limited, retrying") and retried once after 2 s. No exponential-backoff
   storm; no silent blank chart.
 
-3a's fan-out is exactly one series request per area page, so the current limit
-holds. The Phase 2 note to re-check the limit against real fan-out comes due in
-**3b**, when the metric switcher can issue up to seven, and it is recorded here
-so it is not lost: 3b must re-measure before shipping.
+With §7.1, 3a's steady-state fan-out is one snapshot read per area page and no
+limiter token at all, so the current limit holds with room to spare. The Phase 2
+note to re-check it against real fan-out comes due in **3b**, when the metric
+switcher can issue up to seven metrics × four periods against the
+database-backed fall-through path. Recorded here so it is not lost: 3b must
+re-measure before shipping, and should consider whether the switcher's defaults
+belong in the snapshot too.
 
 ## 9. Testing
 
@@ -410,6 +444,20 @@ MapLibre in jsdom asserts that jsdom stubs work, not that the map does.
   `img-src` directives — so widening the policy can never silently drop
   `object-src 'none'` or a `frame-ancestors` clause.
 
+**Go, `internal/{snapshot,api,server}`** — the capacity and hardening work:
+- `Build` populates `AreaSeries` for every known slug, and a `P2`/`24h` request
+  is answered with the snapshot's bytes while the pool records **zero**
+  acquisitions. The zero-query assertion is the whole point of §7.1; a test that
+  only checks the response body would pass with the DB path still live.
+- A non-default period on the same slug still reaches Postgres and returns real
+  data — the fall-through is not accidentally dead.
+- With the semaphore filled, the next DB-backed request returns `503` with
+  `Retry-After`, **immediately** rather than after a delay, and
+  `airbg_admission_rejected_total` increases by one. Assert the delta, not the
+  absolute count: `internal/metrics` counters are process-global.
+- The limiting listener closes connection N+1 while the first N stay usable.
+- `Permissions-Policy` is present on an HTML response and denies `geolocation`.
+
 Per this project's standing rule, each of those Go assertions gets mutation-
 proven: break the production line, quote the real failure, revert, confirm
 `git diff` is empty. The manifest-absent test is the one most likely to be
@@ -432,10 +480,14 @@ on a missing manifest.
 | `internal/web/templates/base.gohtml` | modify | conditional `<script>`/`<link>` |
 | `internal/web/templates/{index,area}.gohtml` | modify | add `data-metric="P2"` |
 | `internal/httpx/headers.go` | modify | `CSPValue` → `CSP(basemapHost)`; `SecurityHeaders` takes the built policy |
-| `internal/config/config.go` | modify | `AIRBG_BASEMAP_KEY`, `AIRBG_BASEMAP_STYLE_URL` |
+| `internal/config/config.go` | modify | `AIRBG_BASEMAP_KEY`, `AIRBG_BASEMAP_STYLE_URL`, `AIRBG_MAX_DB_INFLIGHT`, `AIRBG_MAX_CONNS` |
 | `Dockerfile` | create | multi-stage node → go → distroless |
 | `.gitignore` | modify | `internal/web/dist/*`, `!.../dist/.keep`, `web/node_modules/` |
 | `internal/i18n/{bg,en}.json` | modify | map/chart UI strings (legend, hint, 429 notice) |
+| `internal/snapshot/{snapshot,build}.go` | modify | `AreaSeries map[string]Body` (§7.1) |
+| `internal/api/series.go` | modify | snapshot fast path for `P2`/`24h`; DB fall-through |
+| `internal/api/router.go` | modify | admission semaphore on DB-backed routes (§12.3) |
+| `internal/server/server.go` | modify | limiting listener (§13.3) |
 
 ## 11. Risks
 
@@ -449,6 +501,188 @@ on a missing manifest.
 3. **Vite manifest path.** Vite moved the manifest to `dist/.vite/manifest.json`
    in v5. `assets.go` looks for it there and falls back to `dist/manifest.json`;
    the manifest-present test pins whichever one the pinned Vite emits.
+4. **Bundle weight.** MapLibre GL JS is the heaviest thing on the site by an
+   order of magnitude (~250 KB gzipped). It is content-hashed and
+   `immutable`, so the edge serves it and a repeat visitor pays nothing — but
+   the first paint on a slow mobile connection is dominated by it. Measured at
+   3a's end; if it is unacceptable, the lever is lazy-loading the map island on
+   viewport intersection, not swapping libraries.
+
+## 12. Load and capacity
+
+The question this section answers: does the design hold at hundreds to
+thousands of simultaneous visitors, and where does it break first.
+
+### 12.1 What is already effectively free
+
+Phase 2's read path is better than a typical JSON API by construction, and 3a
+depends on that:
+
+- `snapshot.Body` holds **pre-marshalled JSON, pre-gzipped bytes, and an ETag**,
+  all computed once per ingest cycle. Serving a request is
+  `atomic.Pointer.Load()` plus one write of an existing byte slice. No
+  per-request `json.Marshal`, no per-request `gzip.Write`, no allocation
+  proportional to payload size.
+- `AreaSensors` is a prebuilt map keyed by slug, so even the per-area sensor
+  payload — the hottest data path once users zoom in — is a map lookup.
+- Aggregates (`/overview` both tiers, `/areas`, `/meta`, `/scales`) are
+  `Cache-Control: public, max-age=150` with an ETag, so Cloudflare absorbs
+  essentially all of that traffic and the origin sees roughly one request per
+  path per 150 s per PoP.
+
+Consequence: on the aggregate and sensor paths, thousands of concurrent visitors
+is a bandwidth question, not a CPU or database question. No change needed.
+
+### 12.2 Where it breaks: the database-backed series path
+
+Phase 2 serves every `/series` request from Postgres. Two facts combine badly:
+
+- The series limiter is **per IP prefix** — 1 rps, burst 10. It bounds what one
+  client can do and says nothing about aggregate load.
+- `db.Open` calls `pgxpool.ParseConfig` without setting `MaxConns`, so the pool
+  defaults to `max(4, numCPU)` connections.
+
+So N distinct client prefixes are collectively permitted N requests per second,
+funnelled into a handful of connections. Excess requests block inside
+`pool.Acquire`, each holding a goroutine and a socket, until the 30 s
+`WriteTimeout` fires — at which point a large fraction of requests fail at once.
+That is queue collapse, and the per-IP limiter never sees it coming because
+every individual client is behaving perfectly.
+
+Nothing exercised this in Phase 2 because nothing called `/series`. 3a would
+have called it on **every area page view**.
+
+Two changes close it:
+
+1. **§7.1** — the series 3a actually draws comes out of the snapshot, so the
+   normal page view makes zero queries. This is the fix that matters.
+2. **§12.3** — a global cap on what remains, so the residual DB path fails fast
+   instead of queueing.
+
+### 12.3 Admission control on the database-backed routes
+
+A counted semaphore, sized from config, wraps the handlers that can still reach
+Postgres (the `/series` DB fall-through and `/locate`):
+
+- Acquire is **non-blocking**. No slot free → `503` with `Retry-After: 2` and a
+  `airbg_admission_rejected_total` increment. Never a queue.
+- Size defaults to `pool_max_conns × 2` and is settable via
+  `AIRBG_MAX_DB_INFLIGHT`, because the right number depends on the deployed
+  Postgres, not on the code.
+
+Failing 10 % of requests in 2 ms is a functioning site under load. Queueing 100 %
+of them for 30 s is an outage that also looks like an outage to every user who
+was only trying to read the map. The semaphore is what converts one into the
+other, and it is why per-IP rate limiting alone is not capacity control.
+
+`pool_max_conns` also gets set explicitly in the deployed `AIRBG_DATABASE_URL`
+rather than left to a CPU-count default, so capacity is a stated number and not
+a property of the container's core allocation.
+
+### 12.4 What still needs measuring, and when
+
+Load testing belongs in Phase 4 against real infrastructure, not in 3a against
+a laptop. What 3a owes Phase 4 is the numbers to test against, recorded here:
+
+| Path | Origin cost per request | Expected origin RPS at 1000 concurrent users |
+|---|---|---|
+| `/`, `/area/{slug}` (HTML) | template execute, `public, max-age=150` | low — edge-absorbed |
+| `/static/build/*` | embed read, `immutable` | ~0 after first fill |
+| `/api/v1/overview*`, `/areas`, `/meta`, `/scales` | pointer load + write | ~0 — edge-absorbed |
+| `/api/v1/area/{slug}/sensors` | map lookup + write, `private` | one per zoom-in per user |
+| `/api/v1/area/{slug}/series` (P2/24h) | map lookup + write, `private` | one per area page view |
+| `/api/v1/area/{slug}/series` (other) | **Postgres query** | bounded by §12.3 |
+
+The only row with an unbounded shape is the last one, and it is now the only row
+with a hard cap in front of it.
+
+## 13. Security hardening
+
+§3 lists what earlier phases already enforce. This section covers what Phase 3a
+newly puts at risk, because a frontend build step is a materially different
+attack surface from a stdlib-only Go binary.
+
+### 13.1 The npm supply chain — the largest new surface
+
+Until now the project's dependency rule has been absolute: no new Go dependency,
+ever. 3a breaks that shape deliberately, and it is worth naming precisely what
+is being accepted. `maplibre-gl`, `uplot`, `svelte`, `vite` and `vitest` bring
+in hundreds of transitive packages, whose build-time code runs on the build
+machine and whose output is **embedded in the Go binary and served from the
+site's own origin under a CSP that trusts `'self'`**. A malicious package does
+not need to escape a sandbox; it only needs to write into the bundle.
+
+Controls, all in scope for 3a:
+
+- `package-lock.json` is committed, and the build uses `npm ci` — never
+  `npm install`, which is permitted to resolve differently.
+- **`npm ci --ignore-scripts`.** Lifecycle scripts (`preinstall`, `postinstall`)
+  are the actual mechanism of nearly every published npm compromise. None of
+  the five direct dependencies needs one; if a future dependency does, that is
+  a reviewed decision, not a default.
+- Direct dependencies are pinned to exact versions — no `^`, no `~`.
+- `npm audit --audit-level=high` runs in the build stage and fails it. A
+  vulnerability advisory that lands after the lockfile was written should break
+  the build, not ship.
+- The Node stage produces `dist/` and nothing else; it does not appear in the
+  final image, so no Node runtime, no `node_modules`, and no npm-installed
+  binary reaches production.
+
+Residual risk, stated rather than hidden: a compromised release of a pinned
+dependency that passes `npm audit` at build time still lands in the bundle. The
+mitigation available to a project this size is a small, boring dependency set
+and no automatic updates. Five direct dependencies is a deliberate ceiling.
+
+### 13.2 Response headers
+
+- **`Permissions-Policy` is added now**, denying everything the site does not
+  use: `geolocation=(), camera=(), microphone=(), payment=(), usb=()`. 3b opens
+  `geolocation=(self)` as a reviewed one-line change when the locate button
+  ships. This is the header that keeps a compromised bundle from silently
+  reaching for device capabilities, which is exactly the §13.1 failure mode.
+- **CSP stays free of `'unsafe-inline'` and `'unsafe-eval'`.** MapLibre needs
+  `worker-src 'self' blob:`, which Phase 1 already anticipated and put in
+  `CSPValue`. Nothing in 3a widens the policy except the basemap host, and
+  `CSP("")` is tested byte-identical to Phase 2's constant (§9).
+- **`Cross-Origin-Resource-Policy: same-origin`** joins the existing
+  `Cross-Origin-Opener-Policy`, so the JSON payloads cannot be pulled into a
+  third-party document context.
+
+### 13.3 Connection-level limits
+
+Phase 2's timeouts bound how long a single request may take. They do not bound
+how many sockets a host may hold open, so file-descriptor exhaustion is
+currently unaddressed: 50 000 idle connections that each send one byte of a
+request header every 4 s cost almost nothing to create and defeat nothing that
+is currently in place.
+
+3a adds a limiting `net.Listener` wrapping the public listener: a counted
+accept, with the connection closed immediately when the count is exceeded. Cap
+from `AIRBG_MAX_CONNS`, defaulting to 4096. Hand-rolled in ~30 lines rather than
+taking `golang.org/x/net/netutil` — the no-new-Go-dependency rule holds.
+
+This overlaps with Cloudflare's own protection, and that overlap is the point:
+per §11 and Phase 4, the origin being reachable only through Cloudflare is an
+*unverified assumption* today. A control that only works when the assumption
+holds is not a control.
+
+### 13.4 The third-party basemap
+
+Accepted by the user with the tradeoffs stated (§6.5); recorded here as a
+security fact rather than re-litigated. The vendor serves a style JSON that may
+reference sprite, glyph and tile URLs of its choosing. CSP constrains those to
+the vendor's host, so a vendor compromise means the vendor learns which tiles a
+visitor requests — it does not give script execution on the origin. That is the
+correct boundary, and it is the reason the vendor host is added to `connect-src`
+and `img-src` only, never to `script-src`.
+
+### 13.5 What 3a does not change
+
+No authentication (Phase 1 decision: anti-extraction is tiering, not
+authentication). No secret reaches the browser except the basemap key, which is
+public by the vendor's design and restricted by domain at the vendor. No SQL is
+constructed in 3a — the snapshot fast path issues no query at all, and the
+fall-through path is Phase 2's existing parameterised query, unmodified.
 4. **CSP and MapLibre workers.** `worker-src 'self' blob:` is already in
    `CSPValue`, which was written in Phase 1 anticipating exactly this. If a
    MapLibre upgrade needs more, the CSP change is a reviewed diff, never an
