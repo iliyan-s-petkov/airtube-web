@@ -456,6 +456,10 @@ MapLibre in jsdom asserts that jsdom stubs work, not that the map does.
   `airbg_admission_rejected_total` increases by one. Assert the delta, not the
   absolute count: `internal/metrics` counters are process-global.
 - The limiting listener closes connection N+1 while the first N stay usable.
+- **Bulkhead (§12.3a):** with `collectorPool` saturated by long-running queries,
+  an API request still completes. The mutation to prove this is not inert:
+  pointing both consumers back at one pool must make the test hang until the
+  request's own timeout, not merely change a number.
 - `Permissions-Policy` is present on an HTML response and denies `geolocation`.
 
 Per this project's standing rule, each of those Go assertions gets mutation-
@@ -480,7 +484,7 @@ on a missing manifest.
 | `internal/web/templates/base.gohtml` | modify | conditional `<script>`/`<link>` |
 | `internal/web/templates/{index,area}.gohtml` | modify | add `data-metric="P2"` |
 | `internal/httpx/headers.go` | modify | `CSPValue` → `CSP(basemapHost)`; `SecurityHeaders` takes the built policy |
-| `internal/config/config.go` | modify | `AIRBG_BASEMAP_KEY`, `AIRBG_BASEMAP_STYLE_URL`, `AIRBG_MAX_DB_INFLIGHT`, `AIRBG_MAX_CONNS` |
+| `internal/config/config.go` | modify | `AIRBG_BASEMAP_KEY`, `AIRBG_BASEMAP_STYLE_URL`, `AIRBG_MAX_DB_INFLIGHT`, `AIRBG_MAX_CONNS`, `AIRBG_DB_API_CONNS`, `AIRBG_DB_COLLECTOR_CONNS` |
 | `Dockerfile` | create | multi-stage node → go → distroless |
 | `.gitignore` | modify | `internal/web/dist/*`, `!.../dist/.keep`, `web/node_modules/` |
 | `internal/i18n/{bg,en}.json` | modify | map/chart UI strings (legend, hint, 429 notice) |
@@ -488,6 +492,8 @@ on a missing manifest.
 | `internal/api/series.go` | modify | snapshot fast path for `P2`/`24h`; DB fall-through |
 | `internal/api/router.go` | modify | admission semaphore on DB-backed routes (§12.3) |
 | `internal/server/server.go` | modify | limiting listener (§13.3) |
+| `cmd/airbg/main.go` | modify | two pools: `apiPool`, `collectorPool` (§12.3a) |
+| `internal/db/db.go` | modify | `Open` takes a max-conns override |
 
 ## 11. Risks
 
@@ -507,6 +513,10 @@ on a missing manifest.
    the first paint on a slow mobile connection is dominated by it. Measured at
    3a's end; if it is unacceptable, the lever is lazy-loading the map island on
    viewport intersection, not swapping libraries.
+5. **`/healthz` is on the private, loopback-bound listener.** Correct for a
+   single-container deploy whose orchestrator probes locally; an external load
+   balancer cannot reach it. Phase 4 decision, recorded here so it is not
+   discovered during a deployment.
 
 ## 12. Load and capacity
 
@@ -578,6 +588,34 @@ other, and it is why per-IP rate limiting alone is not capacity control.
 `pool_max_conns` also gets set explicitly in the deployed `AIRBG_DATABASE_URL`
 rather than left to a CPU-count default, so capacity is a stated number and not
 a property of the container's core allocation.
+
+### 12.3a Separate the collector's pool from the API's
+
+`cmd/airbg/main.go` opens exactly one `pgxpool` and hands it to both the
+collector and the request handlers. `db.AssignStatementTimeout` is **60 s**,
+bounding the ingest cycle's `area × sensor` `ST_Covers` join.
+
+So on every poll cycle the collector may legitimately hold connections for up to
+a minute, out of a pool defaulting to `max(4, numCPU)`. Request handlers starve
+behind it.
+
+This is a worse failure than §12.2 in one specific way: it needs **no traffic
+and no attacker**. It happens on a schedule, by design, and every control
+already in place — the per-IP limiter, the admission semaphore — sees a
+perfectly healthy system, because it is one.
+
+3a opens **two pools** from the same `AIRBG_DATABASE_URL`:
+
+- `apiPool` — sized `AIRBG_DB_API_CONNS` (default 8). Serves request handlers.
+  Never touched by ingest.
+- `collectorPool` — sized `AIRBG_DB_COLLECTOR_CONNS` (default 4). Serves the
+  poll cycle, backfill and area maintenance, and is the only pool where a 60 s
+  statement timeout is reachable.
+
+This is a bulkhead, and it is the mechanism the design was missing. Rate
+limiting bounds one client; the semaphore bounds the crowd; the bulkhead stops
+two *different workloads* from consuming each other's capacity. None of the
+three substitutes for another.
 
 ### 12.4 What still needs measuring, and when
 
@@ -676,7 +714,52 @@ visitor requests — it does not give script execution on the origin. That is th
 correct boundary, and it is the reason the vendor host is added to `connect-src`
 and `img-src` only, never to `script-src`.
 
-### 13.5 What 3a does not change
+### 13.5 Mechanisms considered and deliberately not implemented
+
+Written down because each one is a thing a reviewer will reasonably ask for, and
+an undocumented absence looks like an oversight.
+
+**CORS — none, on purpose.** There are no `Access-Control-*` headers anywhere in
+the project and none should be added. Two reasons. First, the frontend is
+same-origin, so it never needs them. Second, and more importantly, CORS is
+routinely mistaken for a server-side control: the absence of
+`Access-Control-Allow-Origin` prevents other-origin **browser JavaScript** from
+reading a response, and prevents nothing else. `curl`, a scripted scraper and a
+server-side fetch are all entirely unaffected. It is not an anti-extraction
+mechanism and cannot be made into one. Adding a permissive ACAO would be a
+downgrade with no compensating benefit. The header doing real work in this space
+is `Cross-Origin-Resource-Policy` (§13.2).
+
+**Circuit breaker on the upstream API — not implemented.** The poll runs once
+per interval (floor 30 s, deployed in minutes), single-threaded, with an
+`http.Client` timeout. Failure already degrades correctly: the snapshot is
+last-known-good behind an atomic pointer, and `airbg_snapshot_age_seconds` makes
+staleness observable and alertable. A breaker in front of a call made once every
+few minutes protects nothing. Relatedly, the collector does **not** retry a
+failed poll, and should not start: retries amplify load against a struggling
+upstream and the next cycle is minutes away regardless.
+
+**Circuit breaker on Postgres — not implemented; a scoped timeout instead.** The
+admission semaphore (§12.3) already sheds load and fails fast. The only thing a
+breaker would add is that, while Postgres is unreachable, the in-flight slots
+fail immediately rather than each paying the full statement timeout. Real but
+small, and achievable with less machinery: the series fall-through query gets a
+short scoped statement timeout rather than the pool default. Same effect, no
+breaker state to get wrong.
+
+**CSRF protection — not applicable.** No state-changing endpoint, no cookies, no
+sessions; every route is a GET. There is nothing to forge.
+
+**HTTP/2 concurrent-stream limits — not applicable yet.** TLS terminates at
+Cloudflare and the origin speaks HTTP/1.1. If the origin ever serves h2c
+directly, `MaxConcurrentStreams` becomes relevant and this decision must be
+revisited.
+
+**mTLS or request signing between Cloudflare and the origin — Phase 4.** The
+origin-lock decision is the actual control; implementing this here would be a
+second, weaker copy of it.
+
+### 13.6 What 3a does not change
 
 No authentication (Phase 1 decision: anti-extraction is tiering, not
 authentication). No secret reaches the browser except the basemap key, which is
