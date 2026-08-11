@@ -12,6 +12,7 @@ import (
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/metrics"
 	"airbg.org/internal/ratelimit"
+	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
 )
@@ -84,19 +85,6 @@ func maxAgeFor(period string) int {
 // asserted directly. Testing it only through the handler would leave the
 // hourly flag verified by nothing — the stub returns the same points either way.
 func ParsePeriodForTesting(v string) (time.Duration, bool, bool) { return parsePeriod(v) }
-
-// seriesBody is columnar for the same reasons as the sensor payload: uPlot
-// (Phase 3) consumes parallel arrays directly, and same-typed adjacent values
-// compress well.
-type seriesBody struct {
-	SensorID *int64      `json:"sensor_id,omitempty"`
-	Slug     string      `json:"slug,omitempty"`
-	Metric   string      `json:"metric"`
-	Period   string      `json:"period"`
-	Hourly   bool        `json:"hourly"`
-	Times    []time.Time `json:"t"`
-	Values   []float64   `json:"v"`
-}
 
 // seriesRequest validates everything a series endpoint takes from the caller.
 // Returning ok=false means a response has already been written.
@@ -270,7 +258,7 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSeries(w, seriesBody{
+	writeSeries(w, snapshot.SeriesPayload{
 		SensorID: &id, Metric: metric, Period: period, Hourly: hourly,
 	}, points)
 }
@@ -299,6 +287,26 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Serve the one precomputed combination from memory. Placed here, not
+	// earlier, and not later, for two reasons that are both load-bearing:
+	//
+	//   - AFTER the breadth check, because the response is per-entity and
+	//     enumerable regardless of where it came from. A fast path that skipped
+	//     ObserveArea would let a scraper walk every slug's history for free.
+	//   - BEFORE allowSeriesQuery, because this request issues no query. The
+	//     series bucket exists to protect Postgres, and spending its tokens on
+	//     requests that never reach Postgres would starve the path it is
+	//     actually guarding.
+	if metric == snapshot.DefaultSeriesMetric && period == snapshot.DefaultSeriesPeriod {
+		if body, ok := snap.AreaSeries[slug]; ok {
+			serveBody(w, r, body, cachePrivate, maxAgeFor(period))
+			return
+		}
+		// No entry for a known slug means a snapshot built before this field
+		// existed, or a build that failed partway. Fall through to the database
+		// rather than 404 a slug we know exists.
+	}
+
 	if !d.allowSeriesQuery(w, r, "area") {
 		return
 	}
@@ -310,10 +318,10 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSeries(w, seriesBody{Slug: slug, Metric: metric, Period: period, Hourly: hourly}, points)
+	writeSeries(w, snapshot.SeriesPayload{Slug: slug, Metric: metric, Period: period, Hourly: hourly}, points)
 }
 
-func writeSeries(w http.ResponseWriter, body seriesBody, points []store.Point) {
+func writeSeries(w http.ResponseWriter, body snapshot.SeriesPayload, points []store.Point) {
 	// Allocated with make, not left nil: a nil slice marshals to `null`, and a
 	// charting library handed null throws instead of drawing an empty axis.
 	body.Times = make([]time.Time, 0, len(points))
