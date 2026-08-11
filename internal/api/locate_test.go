@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"airbg.org/internal/admit"
 	"airbg.org/internal/api"
 	"airbg.org/internal/httpx"
 )
@@ -147,5 +148,48 @@ func TestLocateIsNeverCachedPublicly(t *testing.T) {
 	cc := rec.Header().Get("Cache-Control")
 	if !strings.Contains(cc, "private") && !strings.Contains(cc, "no-store") {
 		t.Errorf("Cache-Control = %q; a per-IP response must not be publicly cacheable", cc)
+	}
+}
+
+// TestLocateRefusesWhenAdmissionIsFull mirrors the series admission tests: a
+// database admission refusal is a 503 with Retry-After, not a lie that the
+// caller itself asked for too much, and it must cost no database work.
+func TestLocateRefusesWhenAdmissionIsFull(t *testing.T) {
+	sem, err := admit.New(1)
+	if err != nil {
+		t.Fatalf("admit.New: %v", err)
+	}
+	// Occupy the only slot for the duration of the request. Deterministic: no
+	// sleep and no race, the handler either finds a slot or it does not.
+	release, ok := sem.TryAcquire()
+	if !ok {
+		t.Fatal("could not occupy the semaphore")
+	}
+	defer release()
+
+	stub := &stubSource{slug: "sofia"}
+	d := deps(t, fixture(t))
+	d.Store = stub
+	d.Admission = sem
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/locate", nil)
+	req.RemoteAddr = "173.245.48.1:41000"
+	req.Header.Set("CF-IPLatitude", "42.6977")
+	req.Header.Set("CF-IPLongitude", "23.3219")
+
+	before := api.AdmissionRejectedCountForTesting("locate")
+	rec := locateVia(t, d, httpx.DefaultCloudflareCIDRs(), req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "2" {
+		t.Errorf("Retry-After = %q, want \"2\"", got)
+	}
+	if stub.areaAtPointCalls != 0 {
+		t.Errorf("AreaAtPoint called %d times, want 0 — a refused request must cost no database work", stub.areaAtPointCalls)
+	}
+	if got := api.AdmissionRejectedCountForTesting("locate") - before; got != 1 {
+		t.Errorf("admission refusals = %d, want 1", got)
 	}
 }

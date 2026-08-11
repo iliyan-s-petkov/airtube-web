@@ -52,7 +52,12 @@ func (d Deps) handleLocate(w http.ResponseWriter, r *http.Request) {
 	// CF-Connecting-IP is. Anything else is caller-supplied data.
 	if httpx.PeerTrustedFrom(r.Context()) {
 		if lon, lat, ok := headerCoords(r); ok {
+			release, admitted := d.admitQuery(w, "locate")
+			if !admitted {
+				return
+			}
 			slug, err := d.Store.AreaAtPoint(r.Context(), lon, lat)
+			release()
 			if err != nil {
 				// A failed lookup degrades to the national view rather than
 				// failing the request: the caller wanted a map to open, and a

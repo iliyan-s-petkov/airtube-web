@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"time"
 
+	"airbg.org/internal/admit"
 	"airbg.org/internal/api"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
@@ -36,6 +37,10 @@ type Options struct {
 	TrustedProxyCIDRs []string
 	BaseURL           string
 	Logger            *slog.Logger
+
+	// MaxDBInflight bounds how many requests may be inside a database query at
+	// once, across every client. See internal/admit and config.MaxDBInflight.
+	MaxDBInflight int32
 }
 
 type Server struct {
@@ -63,6 +68,11 @@ const (
 	// maxBodyBytes: this service answers GETs. Anything larger than a
 	// generously sized header block is not a request we serve.
 	maxBodyBytes = 64 << 10
+
+	// defaultMaxDBInflight matches config.defaultMaxDBInflight: the API pool's
+	// 8 connections, doubled. Used only when Options.MaxDBInflight is zero — see
+	// the comment at its one call site.
+	defaultMaxDBInflight int32 = 16
 )
 
 // The rate limit. Deliberately generous for a human reading the map — a page
@@ -105,12 +115,30 @@ func New(opts Options) (*Server, error) {
 		ratelimit.EnumerationWindow,
 	)
 
+	// Built here, not left for api.NewRouter's fail-closed default, so its size
+	// is the operator's configured value rather than the package-level fallback.
+	//
+	// A zero Options.MaxDBInflight means "not set" rather than "admit nothing":
+	// config.Load always supplies a positive value in production, but tests
+	// (and any other caller that builds Options by hand) commonly omit it, and
+	// silently refusing every database-backed request would be a surprising way
+	// to find that out.
+	maxInflight := opts.MaxDBInflight
+	if maxInflight <= 0 {
+		maxInflight = defaultMaxDBInflight
+	}
+	admission, err := admit.New(int(maxInflight))
+	if err != nil {
+		return nil, fmt.Errorf("server: admission: %w", err)
+	}
+
 	apiMux := api.NewRouter(api.Deps{
 		Snapshots:     opts.Snapshots,
 		Breadth:       breadth,
 		Store:         opts.Store,
 		BaseURL:       opts.BaseURL,
 		SeriesLimiter: seriesLimiter,
+		Admission:     admission,
 	})
 
 	// The API mounts under /api/; everything else is a page. One mux at the

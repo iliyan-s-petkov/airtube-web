@@ -32,9 +32,15 @@ type stubSource struct {
 	// and its neighbours assert on this directly: the whole point of Task 1 is
 	// that the default combination never reaches here.
 	areaSeriesCalls int
+
+	// areaAtPointCalls counts calls to AreaAtPoint. The locate admission tests
+	// assert on this directly: a request refused by the admission semaphore
+	// must never have reached the database.
+	areaAtPointCalls int
 }
 
 func (s *stubSource) AreaAtPoint(_ context.Context, _, _ float64) (string, error) {
+	s.areaAtPointCalls++
 	return s.slug, s.err
 }
 

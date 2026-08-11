@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"airbg.org/internal/admit"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/metrics"
 	"airbg.org/internal/ratelimit"
@@ -16,6 +17,53 @@ import (
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
 )
+
+// admissionRejected counts requests shed by the admission semaphore.
+//
+// Separate from the two rate-limit counters because it answers a different
+// operational question. A rate-limit refusal says "this client is asking for too
+// much"; an admission refusal says "the service is at its database capacity
+// regardless of who is asking". Under load an operator needs to tell those
+// apart: the first is somebody misbehaving, the second is a sizing decision that
+// has been reached.
+//
+// The label is the route, chosen from a fixed set of literals in the handlers.
+// No request input reaches it, so cardinality is bounded by the code — the same
+// rule as enumerationTrips and seriesRateLimited.
+var admissionRejected = metrics.CounterVec(
+	"airbg_admission_rejected_total",
+	"Requests shed by the database admission semaphore, by route.",
+	"route")
+
+// admitQuery takes an admission slot or answers 503.
+//
+// Called immediately before the query and released immediately after, so the
+// slot covers the database round trip and nothing else. Wrapping the whole
+// handler would hold a slot through JSON encoding and the response write, which
+// are not the scarce resource.
+//
+// 503 rather than 429 on purpose: the client is within its own limit and did
+// nothing wrong. Retry-After is 2 seconds — long enough for the in-flight
+// queries to drain, short enough that a legitimate reader's chart appears late
+// rather than never.
+func (d Deps) admitQuery(w http.ResponseWriter, route string) (release func(), ok bool) {
+	release, ok = d.Admission.TryAcquire()
+	if ok {
+		return release, true
+	}
+	admissionRejected.With(route).Inc()
+	w.Header().Set("Retry-After", "2")
+	writeError(w, http.StatusServiceUnavailable, "unavailable",
+		"The service is busy. Please try again shortly.")
+	return nil, false
+}
+
+// AdmissionRejectedCountForTesting reads the shed counter for one route so a
+// test can assert in DELTA. The counter is process-global, so an absolute count
+// would depend on which other tests had already run.
+func AdmissionRejectedCountForTesting(route string) int64 {
+	return admissionRejected.With(route).Value()
+}
 
 // The period vocabulary. Fixed rather than free-form on purpose: an arbitrary
 // duration lets one request ask for ten years of raw readings, which is
@@ -182,6 +230,22 @@ var defaultSeriesLimiter = sync.OnceValue(func() *ratelimit.Limiter {
 	return l
 })
 
+// defaultAdmission is the substitute NewRouter uses when Deps carries none.
+// Built once per process, like defaultSeriesLimiter and for the same reason: a
+// fresh one per NewRouter call would give each router its own cap, so an
+// embedder holding several would collectively exceed the number.
+//
+// The error from admit.New is impossible here — the literal is positive — and is
+// discarded rather than plumbed into a signature that has no way to report it.
+var defaultAdmission = sync.OnceValue(func() *admit.Semaphore {
+	s, _ := admit.New(defaultMaxDBInflight)
+	return s
+})
+
+// defaultMaxDBInflight matches config's default: the API pool's 8 connections,
+// doubled, so a little queueing inside pgxpool is allowed but a pile-up is not.
+const defaultMaxDBInflight = 16
+
 // seriesRateLimited counts refusals by the series bucket.
 //
 // A sibling of airbg_http_rate_limited_total rather than the same counter: that
@@ -249,7 +313,12 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	release, ok := d.admitQuery(w, "sensor_series")
+	if !ok {
+		return
+	}
 	points, err := d.Store.SensorSeries(r.Context(), id, metric, since, hourly)
+	release()
 	if err != nil {
 		// Logged with the detail, answered without it. A pgx error carries the
 		// SQL text and table names.
@@ -311,7 +380,12 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	release, ok := d.admitQuery(w, "area_series")
+	if !ok {
+		return
+	}
 	points, err := d.Store.AreaSeries(r.Context(), slug, metric, since, hourly)
+	release()
 	if err != nil {
 		slog.Error("area series query failed", "slug", slug, "metric", metric, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal", "Internal server error.")

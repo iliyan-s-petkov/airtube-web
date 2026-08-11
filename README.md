@@ -85,6 +85,7 @@ There are no config files and no secrets in the repo.
 | `AIRBG_BASE_URL` | no | `http://localhost:8080` |
 | `AIRBG_DB_API_CONNS` | no | `8` |
 | `AIRBG_DB_COLLECTOR_CONNS` | no | `4` |
+| `AIRBG_MAX_DB_INFLIGHT` | no | `16` |
 
 `AIRBG_POLL_INTERVAL` must be at least **30s**. Anything smaller is rejected at
 startup: `0s` and negative values would panic `time.NewTicker`, and a
@@ -137,7 +138,7 @@ values are rejected at startup: pgxpool reads `MaxConns <= 0` as "use the
 default", so a `0` waved through would look like an explicit choice and silently
 become the host's core count instead.
 
-Six environment variables configure serving:
+Seven environment variables configure serving:
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -147,6 +148,7 @@ Six environment variables configure serving:
 | `AIRBG_BASE_URL` | `http://localhost:8080` | Public origin, used for canonical and hreflang links. Must be absolute. |
 | `AIRBG_DB_API_CONNS` | `8` | Connections available to request handlers. This is the API's real concurrency ceiling for anything that touches the database. |
 | `AIRBG_DB_COLLECTOR_CONNS` | `4` | Connections available to the poller and the snapshot publisher — the side of the bulkhead allowed to be slow. |
+| `AIRBG_MAX_DB_INFLIGHT` | `16` | Caps how many requests may be inside a database query at once, **across every client** — a rate limiter only bounds one client, so a crowd of individually well-behaved clients could otherwise collectively queue more concurrent work than the pool can serve, piling up inside `pgxpool.Acquire` until `WriteTimeout` fires. Refusals here answer `503` with `Retry-After: 2`, never `429` — the caller did nothing wrong, so it must not be told to back off as if it had. |
 
 Endpoints:
 

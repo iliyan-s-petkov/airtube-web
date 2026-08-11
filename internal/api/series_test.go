@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/admit"
 	"airbg.org/internal/api"
 	"airbg.org/internal/ratelimit"
 	"airbg.org/internal/snapshot"
@@ -384,10 +385,24 @@ func TestSeriesRefusalIsCounted(t *testing.T) {
 
 // newTestRouter builds a router over a stub store and a snapshot, reusing the
 // package's existing deps/router helpers rather than a parallel construction.
+//
+// Delegates to newTestRouterWithAdmission with a nil semaphore so the two
+// constructions cannot drift: a test that needs an explicit admission cap and
+// one that does not are otherwise easy to accidentally diverge.
 func newTestRouter(t *testing.T, stub *stubSource, snap *snapshot.Snapshot) http.Handler {
+	t.Helper()
+	return newTestRouterWithAdmission(t, stub, snap, nil)
+}
+
+// newTestRouterWithAdmission is newTestRouter with an explicit admission
+// semaphore, for tests that need to control the database admission cap
+// directly (a nil Admission would make NewRouter substitute the process-wide
+// default, sized 16, which these tests would then have to outrun).
+func newTestRouterWithAdmission(t *testing.T, stub *stubSource, snap *snapshot.Snapshot, sem *admit.Semaphore) http.Handler {
 	t.Helper()
 	d := deps(t, snap)
 	d.Store = stub
+	d.Admission = sem
 	return router(t, d)
 }
 
@@ -548,5 +563,91 @@ func TestDefaultSeriesPeriodMatchesParsePeriod(t *testing.T) {
 	}
 	if hourly {
 		t.Error("hourly = true, but Build precomputes the raw series (hourly=false)")
+	}
+}
+
+// TestSeriesRefusesWhenAdmissionIsFull. The status is 503 with Retry-After, not
+// 429: the client did nothing wrong and its own limit is not the thing that was
+// exceeded. Telling it "too many requests" would be a lie, and a client that
+// backs off per-client when the server is globally saturated backs off wrongly.
+func TestSeriesRefusesWhenAdmissionIsFull(t *testing.T) {
+	sem, err := admit.New(1)
+	if err != nil {
+		t.Fatalf("admit.New: %v", err)
+	}
+	// Occupy the only slot for the duration of the request. Deterministic: no
+	// sleep and no race, the handler either finds a slot or it does not.
+	release, ok := sem.TryAcquire()
+	if !ok {
+		t.Fatal("could not occupy the semaphore")
+	}
+	defer release()
+
+	stub := &stubSource{}
+	srv := newTestRouterWithAdmission(t, stub, snapshotWithAreaSeries(t, "sofia"), sem)
+
+	before := api.AdmissionRejectedCountForTesting("area_series")
+	rec := httptest.NewRecorder()
+	// A period the snapshot does not precompute, so the request really wants
+	// the database.
+	srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/sofia/series?metric=P2&period=7d"))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "2" {
+		t.Errorf("Retry-After = %q, want \"2\"", got)
+	}
+	if stub.areaSeriesCalls != 0 {
+		t.Errorf("AreaSeries called %d times, want 0 — a refused request must cost no database work", stub.areaSeriesCalls)
+	}
+	if got := api.AdmissionRejectedCountForTesting("area_series") - before; got != 1 {
+		t.Errorf("admission refusals = %d, want 1", got)
+	}
+}
+
+// TestSeriesReleasesItsSlot. Without this the cap is a one-way ratchet: the
+// service would work for exactly `size` requests and refuse everything after,
+// which is a failure mode that only appears in production and looks like a
+// database outage.
+func TestSeriesReleasesItsSlot(t *testing.T) {
+	sem, err := admit.New(1)
+	if err != nil {
+		t.Fatalf("admit.New: %v", err)
+	}
+	stub := &stubSource{}
+	srv := newTestRouterWithAdmission(t, stub, snapshotWithAreaSeries(t, "sofia"), sem)
+
+	for i := 0; i < 3; i++ {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/sofia/series?metric=P2&period=7d"))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200 — the slot was not released", i, rec.Code)
+		}
+	}
+	if got := sem.InFlight(); got != 0 {
+		t.Errorf("InFlight = %d after three completed requests, want 0", got)
+	}
+}
+
+// TestSnapshotSeriesDoesNotConsumeAdmission. The snapshot path issues no query,
+// so it must not compete for a slot sized against the database.
+func TestSnapshotSeriesDoesNotConsumeAdmission(t *testing.T) {
+	sem, err := admit.New(1)
+	if err != nil {
+		t.Fatalf("admit.New: %v", err)
+	}
+	release, ok := sem.TryAcquire()
+	if !ok {
+		t.Fatal("could not occupy the semaphore")
+	}
+	defer release()
+
+	srv := newTestRouterWithAdmission(t, &stubSource{}, snapshotWithAreaSeries(t, "sofia"), sem)
+
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/sofia/series?metric=P2&period=24h"))
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 — a memory-served response was refused by a database cap", rec.Code)
 	}
 }

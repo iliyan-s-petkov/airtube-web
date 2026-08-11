@@ -29,6 +29,11 @@ const (
 	defaultDBCollectorConns int32 = 4
 )
 
+// defaultMaxDBInflight is defaultDBAPIConns doubled: enough that a brief burst
+// queues inside pgxpool rather than being shed, and low enough that a sustained
+// one is shed in microseconds instead of piling up until the write timeout.
+const defaultMaxDBInflight int32 = 16
+
 // MinPollInterval is the smallest accepted AIRBG_POLL_INTERVAL.
 //
 // Two distinct failures live below this floor, and both must be rejected here
@@ -81,6 +86,13 @@ type Config struct {
 	// allocation.
 	DBAPIConns       int32
 	DBCollectorConns int32
+
+	// MaxDBInflight bounds how many requests may be inside a database query at
+	// once, across every client — see internal/admit. A per-client rate limiter
+	// says nothing about the crowd: N well-behaved clients can still collectively
+	// queue more concurrent work than the pool can serve, and the excess waits
+	// inside pgxpool.Acquire until the write timeout fires.
+	MaxDBInflight int32
 }
 
 func Load() (Config, error) {
@@ -143,6 +155,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.DBAPIConns, cfg.DBCollectorConns = apiConns, collectorConns
+
+	maxInflight, err := envPositiveInt32("AIRBG_MAX_DB_INFLIGHT", defaultMaxDBInflight)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.MaxDBInflight = maxInflight
 
 	return cfg, nil
 }
