@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"airbg.org/internal/admit"
 )
 
 const defaultUpstreamURL = "https://data.sensor.community/airrohr/v1/filter/country=BG"
@@ -29,10 +31,9 @@ const (
 	defaultDBCollectorConns int32 = 4
 )
 
-// defaultMaxDBInflight is defaultDBAPIConns doubled: enough that a brief burst
-// queues inside pgxpool rather than being shed, and low enough that a sustained
-// one is shed in microseconds instead of piling up until the write timeout.
-const defaultMaxDBInflight int32 = 16
+// defaultMaxDBInflight is defaultDBAPIConns doubled — see admit.DefaultSize,
+// which is the single source of this number for config, api and server alike.
+const defaultMaxDBInflight int32 = admit.DefaultSize
 
 // defaultMaxConns bounds how many connections the public listener holds open
 // at once. Generous relative to defaultMaxDBInflight: most held connections are

@@ -75,10 +75,10 @@ const (
 	// generously sized header block is not a request we serve.
 	maxBodyBytes = 64 << 10
 
-	// defaultMaxDBInflight matches config.defaultMaxDBInflight: the API pool's
-	// 8 connections, doubled. Used only when Options.MaxDBInflight is zero — see
-	// the comment at its one call site.
-	defaultMaxDBInflight int32 = 16
+	// defaultMaxDBInflight is admit.DefaultSize, the one definition shared with
+	// config and api. Used only when Options.MaxDBInflight is zero — see the
+	// comment at its one call site.
+	defaultMaxDBInflight int32 = admit.DefaultSize
 
 	// defaultMaxConns matches config.defaultMaxConns. Used only when
 	// Options.MaxConns is zero — see the comment at its one call site.

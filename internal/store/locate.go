@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
+	"airbg.org/internal/db"
 )
 
 // areaAtPointSQL finds the smallest area containing a point.
@@ -34,8 +36,24 @@ SELECT a.slug
 //
 // An empty result is not an error. A visitor abroad is a normal case.
 func (s *Store) AreaAtPoint(ctx context.Context, lon, lat float64) (string, error) {
+	// A transaction only so statement_timeout can be scoped, exactly as in
+	// AreaSeries. /locate shares the API admission semaphore with the two series
+	// routes, so an ST_Covers lookup left on the pool-wide 15s could hold every
+	// admission slot for 15s on a sick database and shed all series traffic —
+	// the slot-hogging the 5s bound exists to prevent. Rolled back rather than
+	// committed: nothing is written.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("store: begin area at point: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
+		return "", fmt.Errorf("store: area at point timeout: %w", err)
+	}
+
 	var slug string
-	err := s.pool.QueryRow(ctx, areaAtPointSQL, lon, lat).Scan(&slug)
+	err = tx.QueryRow(ctx, areaAtPointSQL, lon, lat).Scan(&slug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}

@@ -35,23 +35,41 @@ var admissionRejected = metrics.CounterVec(
 	"Requests shed by the database admission semaphore, by route.",
 	"route")
 
-// admitQuery takes an admission slot or answers 503.
+// tryAdmitQuery takes an admission slot, counting a refusal but writing nothing.
 //
 // Called immediately before the query and released immediately after, so the
 // slot covers the database round trip and nothing else. Wrapping the whole
 // handler would hold a slot through JSON encoding and the response write, which
 // are not the scarce resource.
 //
-// 503 rather than 429 on purpose: the client is within its own limit and did
-// nothing wrong. Retry-After is 2 seconds — long enough for the in-flight
-// queries to drain, short enough that a legitimate reader's chart appears late
-// rather than never.
-func (d Deps) admitQuery(w http.ResponseWriter, route string) (release func(), ok bool) {
+// The counter is incremented here rather than at the call sites so that every
+// route — the ones that fail and the one that degrades — is visible under the
+// same metric. An operator needs to know the control fired even when the caller
+// never saw an error.
+func (d Deps) tryAdmitQuery(route string) (release func(), ok bool) {
 	release, ok = d.Admission.TryAcquire()
 	if ok {
 		return release, true
 	}
 	admissionRejected.With(route).Inc()
+	return nil, false
+}
+
+// admitQuery takes an admission slot or answers 503.
+//
+// For the routes whose whole answer IS the query: with no slot there is nothing
+// truthful to return, so the request fails. /locate is the exception — it has a
+// usable default view and calls tryAdmitQuery directly.
+//
+// 503 rather than 429 on purpose: the client is within its own limit and did
+// nothing wrong. Retry-After is 2 seconds — long enough for the in-flight
+// queries to drain, short enough that a legitimate reader's chart appears late
+// rather than never.
+func (d Deps) admitQuery(w http.ResponseWriter, route string) (release func(), ok bool) {
+	release, ok = d.tryAdmitQuery(route)
+	if ok {
+		return release, true
+	}
 	w.Header().Set("Retry-After", "2")
 	writeError(w, http.StatusServiceUnavailable, "unavailable",
 		"The service is busy. Please try again shortly.")
@@ -242,9 +260,10 @@ var defaultAdmission = sync.OnceValue(func() *admit.Semaphore {
 	return s
 })
 
-// defaultMaxDBInflight matches config's default: the API pool's 8 connections,
-// doubled, so a little queueing inside pgxpool is allowed but a pile-up is not.
-const defaultMaxDBInflight = 16
+// defaultMaxDBInflight is admit.DefaultSize, the one definition shared with
+// config and server, so an unconfigured router cannot end up with a different
+// cap from the documented default.
+const defaultMaxDBInflight = admit.DefaultSize
 
 // seriesRateLimited counts refusals by the series bucket.
 //

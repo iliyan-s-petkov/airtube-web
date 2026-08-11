@@ -151,10 +151,13 @@ func TestLocateIsNeverCachedPublicly(t *testing.T) {
 	}
 }
 
-// TestLocateRefusesWhenAdmissionIsFull mirrors the series admission tests: a
-// database admission refusal is a 503 with Retry-After, not a lie that the
-// caller itself asked for too much, and it must cost no database work.
-func TestLocateRefusesWhenAdmissionIsFull(t *testing.T) {
+// TestLocateDegradesWhenAdmissionIsFull. /locate deliberately does NOT mirror
+// the series routes' 503 here. It has a usable answer that needs no query at
+// all — the national view it already returns when the lookup fails — so
+// answering 503 would make the route LESS available under load than it is when
+// the database itself is broken. The refusal must still cost no database work
+// and must still be counted, or the control would be invisible to an operator.
+func TestLocateDegradesWhenAdmissionIsFull(t *testing.T) {
 	sem, err := admit.New(1)
 	if err != nil {
 		t.Fatalf("admit.New: %v", err)
@@ -180,11 +183,30 @@ func TestLocateRefusesWhenAdmissionIsFull(t *testing.T) {
 	before := api.AdmissionRejectedCountForTesting("locate")
 	rec := locateVia(t, d, httpx.DefaultCloudflareCIDRs(), req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 with the default view (body: %s)", rec.Code, rec.Body.String())
 	}
-	if got := rec.Header().Get("Retry-After"); got != "2" {
-		t.Errorf("Retry-After = %q, want \"2\"", got)
+
+	var got locateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Source != "default" {
+		t.Errorf("source = %q, want default", got.Source)
+	}
+	if got.Slug != "" {
+		t.Errorf("slug = %q, want empty — no lookup ran", got.Slug)
+	}
+	// Bulgaria's centre, as in TestLocateFallsBackToTheNationalView: asserted as
+	// ranges so a lon/lat swap is visible.
+	if got.Lon < 22 || got.Lon > 29 {
+		t.Errorf("lon = %v, want a Bulgarian longitude (22–29)", got.Lon)
+	}
+	if got.Lat < 41 || got.Lat > 45 {
+		t.Errorf("lat = %v, want a Bulgarian latitude (41–45)", got.Lat)
+	}
+	if got.Zoom == 0 {
+		t.Error("zoom is 0; the client has no initial view")
 	}
 	if stub.areaAtPointCalls != 0 {
 		t.Errorf("AreaAtPoint called %d times, want 0 — a refused request must cost no database work", stub.areaAtPointCalls)

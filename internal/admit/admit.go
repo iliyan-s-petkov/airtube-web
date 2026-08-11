@@ -21,6 +21,21 @@ import (
 	"sync/atomic"
 )
 
+// DefaultSize is the cap used wherever nothing configures one: the API pool's
+// default 8 connections (config.defaultDBAPIConns) doubled, so a brief burst
+// queues inside pgxpool rather than being shed, while a sustained one is shed in
+// microseconds instead of piling up until the write timeout.
+//
+// It lives here, in the package that owns the control, because three packages
+// need the same number — config's AIRBG_MAX_DB_INFLIGHT default, api's
+// fail-closed defaultAdmission, and server's fallback when Options omits it —
+// and this is the only one of the four that all of them can import without an
+// import cycle. Triplicated literals would let the documented default and the
+// applied one drift apart silently.
+//
+// Untyped on purpose: config and server want int32, api wants int.
+const DefaultSize = 16
+
 // Semaphore is a counted, non-blocking gate. Safe for concurrent use.
 type Semaphore struct {
 	slots    chan struct{}
