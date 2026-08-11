@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -40,6 +41,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// serve is the only subcommand that runs two workloads in one process, so it
+	// is the only one that needs the bulkhead — and it must not also hold a
+	// third, unused pool. Handled before the shared pool is opened.
+	if os.Args[1] == "serve" {
+		if err := serveCommand(ctx, cfg); err != nil {
+			slog.Error("serve", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("database", "error", err)
@@ -59,12 +71,6 @@ func main() {
 		client := upstream.New(cfg.UpstreamURL, 30*time.Second)
 		ing := ingest.New(client, store.New(pool), quality.NewHistory(12))
 		ing.Loop(ctx, cfg.PollInterval)
-
-	case "serve":
-		if err := runServe(ctx, cfg, pool); err != nil {
-			slog.Error("serve", "error", err)
-			os.Exit(1)
-		}
 
 	case "backfill":
 		if len(os.Args) < 4 {
@@ -157,11 +163,43 @@ func main() {
 	}
 }
 
-func runServe(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
+// serveCommand owns the two pools' lifetimes. Separate from runServe so the
+// deferred Close calls actually run: main's error paths call os.Exit, which
+// skips defers.
+func serveCommand(ctx context.Context, cfg config.Config) error {
+	apiPool, collectorPool, err := db.OpenPair(ctx, cfg.DatabaseURL, cfg.DBAPIConns, cfg.DBCollectorConns)
+	if err != nil {
+		return err
+	}
+	defer apiPool.Close()
+	defer collectorPool.Close()
+
+	return runServe(ctx, cfg, apiPool, collectorPool)
+}
+
+func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pgxpool.Pool) error {
+	// Fail closed on the exact regression this function exists to prevent. A
+	// future refactor that collapses the two pools back into one would otherwise
+	// reintroduce the starvation silently — nothing about it is visible in a
+	// response, a metric, or a log line until the poll cycle happens to overlap
+	// with traffic.
+	if apiPool == collectorPool {
+		return errors.New("serve: the request and collector pools are the same pool; " +
+			"the collector holds connections for up to " + db.AssignStatementTimeout +
+			" per cycle and would starve request handlers (see db.OpenPair)")
+	}
+
 	log := slog.Default()
-	st := store.New(pool)
+
+	// Request handlers get the API pool. The collector and the snapshot
+	// publisher get the collector pool: building a snapshot is background work
+	// that queries every area, so it belongs on the side of the bulkhead that is
+	// allowed to be slow.
+	apiStore := store.New(apiPool)
+	collectorStore := store.New(collectorPool)
+
 	holder := snapshot.NewHolder()
-	pub := server.NewPublisher(st, holder, log)
+	pub := server.NewPublisher(collectorStore, holder, log)
 
 	cat, err := i18n.Load()
 	if err != nil {
@@ -180,7 +218,7 @@ func runServe(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error 
 		MetricsAddr:       cfg.MetricsAddr,
 		Catalogue:         cat,
 		Snapshots:         holder,
-		Store:             st,
+		Store:             apiStore,
 		Publisher:         pub,
 		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
 		BaseURL:           cfg.BaseURL,
@@ -193,7 +231,7 @@ func runServe(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error 
 	// Same construction as the existing "collect" case — one poller, not two.
 	ing := ingest.New(
 		upstream.New(cfg.UpstreamURL, 30*time.Second),
-		st,
+		collectorStore,
 		quality.NewHistory(12),
 	)
 	ing.SetSnapshotPublisher(pub)
