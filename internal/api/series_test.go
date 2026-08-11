@@ -311,3 +311,71 @@ func TestSeriesRepeatsAreBoundedByTheirOwnBucket(t *testing.T) {
 			"endpoint that 429s a fresh client is broken, not protected", refusedAt)
 	}
 }
+
+// TestNilSeriesLimiterStillFailsClosed covers the substitution path in NewRouter.
+//
+// A nil SeriesLimiter must not mean "unlimited" — that would make the fail-closed
+// default a hole rather than a default — and it must not mean an un-swept limiter
+// either, which is why the substitute is the shared, evicted instance rather than
+// a fresh one per call.
+func TestNilSeriesLimiterStillFailsClosed(t *testing.T) {
+	d := withPoints(t, samplePoints())
+	d.SeriesLimiter = nil // the case under test
+
+	h := router(t, d)
+
+	// A client key used by no other test, because the substituted limiter is
+	// process-wide and shared.
+	const clientIP = "198.18.7.7"
+	const path = "/api/v1/sensor/42/series?metric=P2&period=1y"
+
+	refused := false
+	for i := 1; i <= 60; i++ {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, get(path, clientIP))
+		if rec.Code == http.StatusTooManyRequests {
+			refused = true
+			break
+		}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200 or 429 (body: %s)", i, rec.Code, rec.Body.String())
+		}
+	}
+	if !refused {
+		t.Error("a router built with a nil SeriesLimiter served 60 identical ?period=1y " +
+			"requests: the fail-closed default is not limiting anything")
+	}
+}
+
+// TestSeriesRefusalIsCounted pins that a series 429 reaches the metrics.
+//
+// Refusals on the heaviest path are exactly what an operator needs to see under
+// attack, and the global airbg_http_rate_limited_total cannot show them — it is
+// incremented outside the mux by a different bucket. Counted in DELTA, because
+// internal/metrics registers process-global counters shared by every test in the
+// binary; an absolute count would depend on test order.
+func TestSeriesRefusalIsCounted(t *testing.T) {
+	before := api.SeriesRateLimitedCountForTesting("sensor")
+
+	d := withPoints(t, samplePoints())
+	h := router(t, d)
+
+	const path = "/api/v1/sensor/42/series?metric=P2&period=1y"
+	var refusals int64
+	for i := 1; i <= 40; i++ {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, get(path, "203.0.113.160"))
+		if rec.Code == http.StatusTooManyRequests {
+			refusals++
+		}
+	}
+	if refusals == 0 {
+		t.Fatal("no request was refused, so there is nothing to have counted")
+	}
+
+	if got := api.SeriesRateLimitedCountForTesting("sensor") - before; got != refusals {
+		t.Errorf("airbg_series_rate_limited_total{dimension=\"sensor\"} rose by %d, want %d: "+
+			"a refusal on the database-backed path that no counter records is invisible to "+
+			"the operator precisely when it matters", got, refusals)
+	}
+}

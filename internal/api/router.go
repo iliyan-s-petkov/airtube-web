@@ -93,8 +93,13 @@ func setCacheControl(h http.Header, visibility string, maxAge int) {
 func NewRouter(d Deps) *http.ServeMux {
 	// Fail closed: a nil SeriesLimiter would leave the heaviest endpoints bounded
 	// only by the global bucket, which is the hole this exists to close.
+	//
+	// The substitute is the shared, swept defaultSeriesLimiter rather than a fresh
+	// per-call one. A fresh one would have no evictor — nothing here has a context
+	// to tie one to — so its map would grow for as long as the router lived,
+	// making the fail-closed default a quiet leak.
 	if d.SeriesLimiter == nil {
-		d.SeriesLimiter = NewSeriesLimiter()
+		d.SeriesLimiter = defaultSeriesLimiter()
 	}
 
 	mux := http.NewServeMux()

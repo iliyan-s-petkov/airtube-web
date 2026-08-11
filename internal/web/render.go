@@ -136,6 +136,20 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 	}
 }
 
+// pageCacheControl is what a SUCCESSFUL page render carries. 150 s matches the
+// API's dataMaxAge — half the poll interval — for the same reason: a copy cached
+// just after a rebuild would otherwise survive until just after the next one.
+//
+// A page is entity-keyed at /{lang}/area/{slug} and still public, unlike the
+// entity-keyed JSON endpoints. That is safe for two specific reasons, and it
+// stops being safe if either changes: the page exposes nothing beyond what the
+// already-public /api/v1/areas aggregate carries — no sensor coordinates, no
+// per-sensor detail — and it never calls ObserveArea, so an edge cache serving
+// it cannot hide an observation the breadth counter was relying on. If this page
+// ever grows sensor-level data, or starts feeding the breadth counter, it must
+// become private like /api/v1/area/{slug}/sensors.
+const pageCacheControl = "public, max-age=150"
+
 // render executes one page.
 //
 // Rendered into a buffer first, then copied out. Writing straight to the
@@ -158,7 +172,25 @@ func (rr *Renderer) render(w http.ResponseWriter, status int, page string, data 
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=150")
+	// Cacheability is decided HERE, from the status, rather than trusted from
+	// whatever the caller left in the header.
+	//
+	// It used to be an unconditional "public, max-age=150" set at this point,
+	// which silently overwrote the "no-store" RenderError had already set one
+	// call frame up — so rendered 404 and 503 pages were edge-cacheable for 150
+	// seconds. The 503 is the damaging one: a transient no-snapshot window (a
+	// restart, a failed poll) got pinned at the edge and served to every visitor
+	// for 150 s after the process was healthy again, turning a blip into an
+	// outage.
+	//
+	// Deriving it from the status rather than fixing the call order is
+	// deliberate: ordering is a convention a future caller can break silently,
+	// while an error status simply cannot be marked cacheable from here.
+	if status == http.StatusOK {
+		w.Header().Set("Cache-Control", pageCacheControl)
+	} else {
+		w.Header().Set("Cache-Control", "no-store")
+	}
 	w.Header().Set("Vary", "Accept-Encoding")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(buf.String()))
@@ -180,6 +212,8 @@ func (rr *Renderer) RenderError(w http.ResponseWriter, r *http.Request, status i
 	data := rr.newPageData(lang, path, time.Time{})
 	data.TitleKey = "error." + kind + ".title"
 	data.BodyKey = "error." + kind + ".body"
-	w.Header().Set("Cache-Control", "no-store")
+	// No Cache-Control set here: render derives it from the status, so an error
+	// page is no-store by construction. Setting it here as well was how the
+	// overwrite bug hid — it looked handled at this level and was undone below.
 	rr.render(w, status, "error", data)
 }

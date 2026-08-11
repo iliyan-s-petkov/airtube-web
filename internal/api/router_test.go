@@ -47,6 +47,12 @@ func deps(t *testing.T, snap *snapshot.Snapshot) api.Deps {
 		Breadth:   ratelimit.NewBreadth(ratelimit.DistinctAreaLimit, ratelimit.DistinctSensorLimit, time.Hour),
 		Store:     stubSource{slug: "sofia"},
 		BaseURL:   "https://airbg.org",
+		// An explicit per-test series bucket. Left nil, NewRouter substitutes the
+		// process-wide default, and every test in the binary would then share one
+		// bucket — so a test that spends its burst would 429 an unrelated test
+		// using the same client IP. The nil path is covered deliberately by
+		// TestNilSeriesLimiterStillFailsClosed.
+		SeriesLimiter: api.NewSeriesLimiter(),
 	}
 }
 

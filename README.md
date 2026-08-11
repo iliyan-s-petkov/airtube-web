@@ -183,7 +183,15 @@ carry a **second, tighter token bucket** (1 rps, burst 10) on top of the global
 one. They are the only endpoints that reach PostgreSQL, and the breadth counter
 cannot bound them: it counts *distinct* slugs and sensor IDs, so replaying one
 `?period=1y` request costs it nothing. Both values are code constants
-(`internal/api/series.go`), not environment variables.
+(`internal/api/series.go`), not environment variables. Refusals by that bucket are
+counted separately as `airbg_series_rate_limited_total`, labelled by dimension
+(`sensor`/`area`) — the global `airbg_http_rate_limited_total` cannot show them,
+because it is incremented outside the mux by a different bucket.
+
+Rendered error pages (`404`, `503`) are `no-store`, decided from the response
+status inside `render` rather than set by the caller. A cached `503` is the one
+that hurts: a transient no-snapshot window would otherwise be pinned at the edge
+and served to every visitor for 150 s after the origin recovered.
 
 Raising these to `public`, or adding a Cloudflare Cache Rule that caches
 `/api/v1/area/*/sensors` or `/api/v1/sensor/*`, silently reopens that hole. Cache

@@ -1,13 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"airbg.org/internal/httpx"
+	"airbg.org/internal/metrics"
 	"airbg.org/internal/ratelimit"
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
@@ -157,23 +160,73 @@ var seriesRate = ratelimit.Rate{PerSecond: 1, Burst: 10}
 // away and coming back does not hand out a fresh burst.
 const seriesBucketTTL = 30 * time.Minute
 
-// NewSeriesLimiter builds the series bucket. Exported so the server can own it
-// and run its evictor for the process lifetime — an un-swept limiter map is
-// itself the memory leak the limiter exists to prevent.
+// seriesEvictInterval sweeps the series bucket's map. Matches the server's own
+// eviction cadence; the map is small (one entry per client key that asked for
+// history) so the sweep is cheap.
+const seriesEvictInterval = 5 * time.Minute
+
+// NewSeriesLimiter builds a series bucket. The caller owns it and is responsible
+// for running its evictor — an un-swept limiter map is itself the memory leak the
+// limiter exists to prevent. server.New does exactly that, tying the evictor to
+// the server's context.
 func NewSeriesLimiter() *ratelimit.Limiter {
 	return ratelimit.New(seriesRate, seriesBucketTTL)
 }
+
+// defaultSeriesLimiter is the fallback NewRouter substitutes when Deps carries no
+// SeriesLimiter, so a router is never built with the heaviest endpoints
+// unlimited.
+//
+// Built once per process and swept, rather than freshly per NewRouter call.
+// Per-call would have been the obvious thing and is wrong twice over: an
+// un-swept limiter grows its map for as long as its router lives (unbounded for
+// an embedder that keeps one), and starting a goroutine per NewRouter call to
+// sweep it would leak a ticker per call instead. One shared, swept instance has
+// neither problem, and its evictor is correctly scoped to the process because
+// the value itself is.
+//
+// context.Background() is deliberate and is the one place in this codebase that
+// starts a goroutine outside a caller's lifetime: this limiter has no owner to
+// take a context from, and it must live exactly as long as the process.
+var defaultSeriesLimiter = sync.OnceValue(func() *ratelimit.Limiter {
+	l := NewSeriesLimiter()
+	l.StartEvicting(context.Background(), seriesEvictInterval)
+	return l
+})
+
+// seriesRateLimited counts refusals by the series bucket.
+//
+// A sibling of airbg_http_rate_limited_total rather than the same counter: that
+// one reports the GLOBAL bucket, is incremented from outside the mux, and mixing
+// two limiters with different rates under one name would make neither
+// attributable. Under attack an operator needs to know which limit is biting,
+// and the series bucket biting means the database is the target.
+//
+// The label is the dimension — "sensor" or "area" — chosen from the handler, a
+// fixed two-value set. No request input reaches it, so cardinality is bounded by
+// the code and not by the caller. (That is the same rule as enumerationTrips,
+// and the reason neither labels by path.)
+var seriesRateLimited = metrics.CounterVec(
+	"airbg_series_rate_limited_total",
+	"Series requests refused by the per-route series token bucket, by dimension.",
+	"dimension")
 
 // allowSeriesQuery spends a token from the series bucket, answering 429 with a
 // truthful Retry-After when it is empty.
 //
 // Called after validation and after the breadth check, but BEFORE the query: the
 // entire point is that a refused request costs no database work.
-func (d Deps) allowSeriesQuery(w http.ResponseWriter, r *http.Request) bool {
+//
+// dimension is "sensor" or "area", a literal from the calling handler.
+func (d Deps) allowSeriesQuery(w http.ResponseWriter, r *http.Request, dimension string) bool {
 	ok, retryAfter := d.SeriesLimiter.Allow(httpx.BucketKeyFrom(r.Context()))
 	if ok {
 		return true
 	}
+	// Counted before the response is written, so a refusal is never invisible to
+	// metrics even if the write fails. Refusals on the heaviest path are exactly
+	// what an operator needs to see under attack.
+	seriesRateLimited.With(dimension).Inc()
 	secs := int(retryAfter.Seconds())
 	if secs < 1 {
 		secs = 1
@@ -204,7 +257,7 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !d.allowSeriesQuery(w, r) {
+	if !d.allowSeriesQuery(w, r, "sensor") {
 		return
 	}
 
@@ -246,7 +299,7 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !d.allowSeriesQuery(w, r) {
+	if !d.allowSeriesQuery(w, r, "area") {
 		return
 	}
 
@@ -287,4 +340,12 @@ func writeSeries(w http.ResponseWriter, body seriesBody, points []store.Point) {
 	// the breadth counter cannot see. See router.go's cachePublic/cachePrivate.
 	setCacheControl(w.Header(), cachePrivate, maxAgeFor(body.Period))
 	_, _ = w.Write(encoded)
+}
+
+// SeriesRateLimitedCountForTesting reads the series-refusal counter for one
+// dimension, so a test can assert in DELTA that a 429 was recorded. The counter
+// is process-global (internal/metrics registers it once at init), so an absolute
+// count would depend on which other tests had already run.
+func SeriesRateLimitedCountForTesting(dimension string) int64 {
+	return seriesRateLimited.With(dimension).Value()
 }

@@ -263,3 +263,63 @@ func TestNoMissingCatalogueKeyMarkerAnywhere(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderedErrorPagesAreNotCacheable pins that an error render's no-store
+// survives, and that a successful render is still publicly cacheable.
+//
+// The bug this closes: render() set "public, max-age=150" unconditionally, AFTER
+// RenderError had already set "no-store" one frame up, so the error page's
+// no-store was silently overwritten and rendered 404s and 503s were
+// edge-cacheable for 150 s. The 503 is the damaging one — a transient
+// no-snapshot window (restart, failed poll) gets pinned at the edge and served
+// to every visitor for 150 s after the process is healthy again, which converts
+// a blip into an outage.
+//
+// The success case is asserted in the same test on purpose: "no page is
+// cacheable" would satisfy the error half while throwing away the edge caching
+// the pages rely on, and would look green.
+func TestRenderedErrorPagesAreNotCacheable(t *testing.T) {
+	// 404: a known-good snapshot, an unknown slug.
+	// 503: no snapshot at all, so every page is unavailable.
+	for _, tc := range []struct {
+		name       string
+		snap       *snapshot.Snapshot
+		path       string
+		wantStatus int
+	}{
+		{"rendered 404", fixture(t), "/area/no-such-place", http.StatusNotFound},
+		{"rendered 404 (en)", fixture(t), "/en/area/no-such-place", http.StatusNotFound},
+		{"rendered 503", nil, "/", http.StatusServiceUnavailable},
+		{"rendered 503 (en)", nil, "/en/", http.StatusServiceUnavailable},
+	} {
+		rec := fetch(t, renderer(t, tc.snap), tc.path)
+		if rec.Code != tc.wantStatus {
+			t.Fatalf("%s: status = %d, want %d", tc.name, rec.Code, tc.wantStatus)
+		}
+		cc := rec.Header().Get("Cache-Control")
+		if cc != "no-store" {
+			t.Errorf("%s (%s): Cache-Control = %q, want %q — a cached error page pins a "+
+				"transient failure at the edge and serves it to every visitor after the "+
+				"origin has recovered", tc.name, tc.path, cc, "no-store")
+		}
+		// Belt and braces: whatever the exact string, it must not invite a
+		// shared cache to store it.
+		if strings.Contains(cc, "public") || strings.Contains(cc, "max-age=150") {
+			t.Errorf("%s (%s): Cache-Control = %q marks an error response cacheable",
+				tc.name, tc.path, cc)
+		}
+	}
+
+	// And the other half: a successful page render keeps its public caching.
+	for _, path := range []string{"/", "/en/", "/area/sofia"} {
+		rec := fetch(t, renderer(t, fixture(t)), path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", path, rec.Code)
+		}
+		if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=150" {
+			t.Errorf("%s: Cache-Control = %q, want %q — page renders are the aggregate, "+
+				"non-enumerable surface and must stay edge-cacheable", path, cc,
+				"public, max-age=150")
+		}
+	}
+}

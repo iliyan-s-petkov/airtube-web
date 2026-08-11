@@ -3,6 +3,7 @@ package httpx_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 
 	"airbg.org/internal/httpx"
@@ -104,6 +105,76 @@ func TestCommaBearingHeaderFromTrustedPeerFallsBackToPeer(t *testing.T) {
 	default:
 		t.Fatalf("ClientIP = %s, want the socket peer %s: a comma-bearing "+
 			"CF-Connecting-IP must be rejected and the peer used", got, peer)
+	}
+}
+
+// TestZonedCommaHeaderFromTrustedPeerFallsBackToPeer is the case that proves
+// `!strings.Contains(v, ",")` is load-bearing rather than decorative, and it is
+// here because a previous round asserted the opposite and was wrong.
+//
+// The claim was "netip.ParseAddr rejects every string containing a comma, so
+// deleting the comma check cannot change behaviour". That is true of every
+// dotted-quad and plain IPv6 form — and false for a ZONE IDENTIFIER. Everything
+// after `%` in an IPv6 address is an opaque interface name, so `fe80::1%a,b`
+// parses cleanly, commas and all. With the comma check deleted this value is
+// accepted, and BucketKey then takes its /64:
+//
+//	guard present → ClientIP 173.245.48.1, bucket "173.245.48.1"
+//	guard deleted → ClientIP fe80::1%a,b,  bucket "fe80::/64"
+//
+// The exploit is not a parse error, it is bucket selection. A caller behind the
+// trusted proxy names an arbitrary /64 and so chooses which bucket it spends:
+// a fresh one per request to evade the limiter entirely, or a victim's to
+// exhaust someone else's allowance. Both directions are handed over by one
+// deleted conjunct.
+//
+// The bucket key is asserted as well as the address, because the key is the
+// thing the attack manipulates — an address assertion alone would pass any
+// future change that resolved the peer correctly but keyed on something else.
+func TestZonedCommaHeaderFromTrustedPeerFallsBackToPeer(t *testing.T) {
+	const (
+		peer = "173.245.48.1" // inside 173.245.48.0/20, a real Cloudflare range
+		// A comma-bearing value that netip.ParseAddr ACCEPTS: the comma sits in
+		// the zone, which is an opaque string.
+		zoned      = "fe80::1%a,b"
+		zonedBuckt = "fe80::/64"
+	)
+
+	// Guard the premise. If a future Go release tightens zone parsing, this
+	// stops being the case that pins the comma check, and the test should say
+	// so loudly rather than pass for the wrong reason.
+	if _, err := netip.ParseAddr(zoned); err != nil {
+		t.Fatalf("premise broken: netip.ParseAddr(%q) now fails (%v), so this test no "+
+			"longer exercises an accepted comma-bearing value; find another one or the "+
+			"comma check is genuinely unobservable", zoned, err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = peer + ":41000"
+	req.Header.Set("CF-Connecting-IP", zoned)
+
+	res := resolver(t)
+
+	switch got := res.ClientIP(req).String(); got {
+	case peer:
+		// Correct: rejected on the comma, before parsing could succeed.
+	case zoned:
+		t.Errorf("ClientIP = %s, want the socket peer %s: a comma-bearing "+
+			"CF-Connecting-IP was accepted because its comma hid in an IPv6 zone, so the "+
+			"caller now names its own rate-limit bucket", got, peer)
+	default:
+		t.Errorf("ClientIP = %s, want the socket peer %s", got, peer)
+	}
+
+	switch got := res.BucketKey(req); got {
+	case peer:
+		// Correct: keyed on the socket peer.
+	case zonedBuckt:
+		t.Errorf("BucketKey = %q, want %q: the caller chose its own /64 bucket through a "+
+			"zoned CF-Connecting-IP — it can mint a fresh bucket per request to evade the "+
+			"limiter, or name a victim's /64 to exhaust their allowance", got, peer)
+	default:
+		t.Errorf("BucketKey = %q, want %q", got, peer)
 	}
 }
 
