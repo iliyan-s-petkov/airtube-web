@@ -34,6 +34,13 @@ const (
 // one is shed in microseconds instead of piling up until the write timeout.
 const defaultMaxDBInflight int32 = 16
 
+// defaultMaxConns bounds how many connections the public listener holds open
+// at once. Generous relative to defaultMaxDBInflight: most held connections are
+// idle keep-alives or slow trickles, not requests in flight, so this cap exists
+// to stop file-descriptor exhaustion rather than to shape request concurrency —
+// that is what MaxDBInflight and the rate limiter are for.
+const defaultMaxConns int32 = 4096
+
 // MinPollInterval is the smallest accepted AIRBG_POLL_INTERVAL.
 //
 // Two distinct failures live below this floor, and both must be rejected here
@@ -93,6 +100,13 @@ type Config struct {
 	// queue more concurrent work than the pool can serve, and the excess waits
 	// inside pgxpool.Acquire until the write timeout fires.
 	MaxDBInflight int32
+
+	// MaxConns bounds how many connections the public listener holds open at
+	// once — a socket-count cap, not a request cap. Nothing else in this
+	// process bounds how many mostly-idle connections the host may hold, and
+	// that is a separate failure mode from request concurrency: file-descriptor
+	// exhaustion needs no completed request to happen. See internal/httpx.LimitListener.
+	MaxConns int32
 }
 
 func Load() (Config, error) {
@@ -161,6 +175,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.MaxDBInflight = maxInflight
+
+	maxConns, err := envPositiveInt32("AIRBG_MAX_CONNS", defaultMaxConns)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.MaxConns = maxConns
 
 	return cfg, nil
 }

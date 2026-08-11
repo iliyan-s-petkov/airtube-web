@@ -224,6 +224,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		BaseURL:           cfg.BaseURL,
 		Logger:            log,
 		MaxDBInflight:     cfg.MaxDBInflight,
+		MaxConns:          cfg.MaxConns,
 	})
 	if err != nil {
 		return err
