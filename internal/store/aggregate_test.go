@@ -2,10 +2,12 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"airbg.org/internal/area"
@@ -566,41 +568,89 @@ func TestAreaSeriesExcludesOutOfRangeNaN(t *testing.T) {
 	}
 }
 
-// TestSeriesQueriesUseTheShortStatementTimeout pins the scoped bound. The pool
-// default is 15s, which is right for an ordinary read but far too long to hold
-// one of 16 admission slots while Postgres is unwell: sixteen slots x fifteen
-// seconds is a wall of 503s for every other reader.
+// TestAreaSeriesTimesOutUnderItsOwnScopedBound drives AreaSeries itself,
+// rather than db.SetLocalStatementTimeout and pg_sleep in isolation. An
+// earlier version of this test (TestSeriesQueriesUseTheShortStatementTimeout)
+// called the db helper and ran an ad-hoc pg_sleep directly, never AreaSeries
+// or SensorSeries — so it could not have caught a missing timeout call in
+// either function, which is exactly the mutation review found inert.
 //
-// pg_sleep is the only honest way to assert a timeout — the query must actually
-// exceed it. 6s sleeps against a 5s bound, so the margin is a full second in
-// each direction.
-func TestSeriesQueriesUseTheShortStatementTimeout(t *testing.T) {
-	ctx := context.Background()
-	pool := testsupport.NewPostgres(t)
+// A second session locks the reading table ACCESS EXCLUSIVE and holds it open
+// for the whole test, so AreaSeries' own query blocks waiting for the lock.
+// Its own scoped statement_timeout — not the pool's 15s default — must abort
+// that wait at 5s.
+func TestAreaSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
 
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
+	// Two live connections are required: one held open by the blocker's
+	// transaction, one for AreaSeries' own Begin. Asserted, not assumed — the
+	// pool defaults to more than one, but a future change to that default
+	// must not silently turn this into a test that deadlocks on itself.
+	if pool.Config().MaxConns < 2 {
+		t.Fatalf("pool MaxConns = %d, want >= 2 so the blocker and AreaSeries use distinct connections", pool.Config().MaxConns)
 	}
-	defer tx.Rollback(ctx)
 
-	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
-		t.Fatalf("SetLocalStatementTimeout: %v", err)
+	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20)
+
+	// Another session holds ACCESS EXCLUSIVE on reading; AreaSeries' own
+	// statement_timeout must abort it, not the pool's 15s.
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("blocker Begin: %v", err)
+	}
+	defer blocker.Rollback(ctx)
+	if _, err := blocker.Exec(ctx, `LOCK TABLE reading IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("LOCK TABLE: %v", err)
 	}
 
 	start := time.Now()
-	_, err = tx.Exec(ctx, `SELECT pg_sleep(6)`)
+	_, err = s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false)
 	elapsed := time.Since(start)
 
-	if err == nil {
-		t.Fatal("a 6s query completed under the series statement timeout")
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "57014" {
+		t.Fatalf("AreaSeries err = %v, want SQLSTATE 57014 (query_canceled)", err)
 	}
-	// The bound must be the database's, not the test's patience.
+	// The bound must be the scoped 5s, not the pool's 15s default.
 	if elapsed > 10*time.Second {
-		t.Errorf("took %v; the statement timeout was not applied", elapsed)
+		t.Errorf("took %v; the pool's 15s bound applied, not the scoped 5s", elapsed)
 	}
-	if db.SeriesStatementTimeout != "5s" {
-		t.Errorf("SeriesStatementTimeout = %q; this test's 6s sleep assumes 5s", db.SeriesStatementTimeout)
+}
+
+// TestSensorSeriesTimesOutUnderItsOwnScopedBound mirrors the AreaSeries test
+// above for SensorSeries: same lock, same assertion, the other database-backed
+// series query that got the same scoped-timeout treatment.
+func TestSensorSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	if pool.Config().MaxConns < 2 {
+		t.Fatalf("pool MaxConns = %d, want >= 2 so the blocker and SensorSeries use distinct connections", pool.Config().MaxConns)
+	}
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	seedSensorReading(t, ctx, pool, 950, 23.5, 42.5, "P2", 10, "ok", now)
+
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("blocker Begin: %v", err)
+	}
+	defer blocker.Rollback(ctx)
+	if _, err := blocker.Exec(ctx, `LOCK TABLE reading IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("LOCK TABLE: %v", err)
+	}
+
+	start := time.Now()
+	_, err = s.SensorSeries(ctx, 950, "P2", now.Add(-time.Hour), false)
+	elapsed := time.Since(start)
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "57014" {
+		t.Fatalf("SensorSeries err = %v, want SQLSTATE 57014 (query_canceled)", err)
+	}
+	if elapsed > 10*time.Second {
+		t.Errorf("took %v; the pool's 15s bound applied, not the scoped 5s", elapsed)
 	}
 }
 
