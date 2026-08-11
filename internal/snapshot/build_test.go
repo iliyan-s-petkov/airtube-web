@@ -199,9 +199,6 @@ func TestBuildIncludesEmptyAreasInAreaSensors(t *testing.T) {
 	}
 }
 
-// TestBuildSensorPayloadIsColumnar pins the wire format from Phase 1 §7.3.
-// Phase 3's MapLibre layer consumes typed arrays; a silent switch to
-// row-per-sensor would break it at runtime, not at compile time.
 // TestBuildIncludesAreaSeriesForEveryKnownSlug mirrors the AreaSensors rule: a
 // missing key must mean "no such area" (404), never "this area happens to have
 // no history" (which must be a 200 with empty arrays). An area page for a quiet
@@ -258,6 +255,9 @@ func TestAreaSeriesPayloadUsesEmptyArraysNotNull(t *testing.T) {
 	}
 }
 
+// TestBuildSensorPayloadIsColumnar pins the wire format from Phase 1 §7.3.
+// Phase 3's MapLibre layer consumes typed arrays; a silent switch to
+// row-per-sensor would break it at runtime, not at compile time.
 func TestBuildSensorPayloadIsColumnar(t *testing.T) {
 	ctx, pool := migrated(t)
 	seed(t, ctx, pool)

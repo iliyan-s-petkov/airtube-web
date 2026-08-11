@@ -435,13 +435,6 @@ func TestAreaSeriesExcludesFlaggedReadings(t *testing.T) {
 	}
 }
 
-// TestAreaSeriesExcludesOutOfRangeNaN: deferred item (b) — a faulty sensor can
-// report NaN, and strconv.ParseFloat("nan", ...) succeeds while NaN compares
-// false against every < and > in a plain range check. The ingest-time
-// out_of_range flag (internal/quality) is what actually rejects it — InRange
-// returns false for NaN because NaN >= min and NaN <= max are both false — and
-// this test pins that AreaSeries' quality filter honours that flag rather than
-// re-deriving its own numeric check that a NaN could slip past.
 // seedAreaSeriesFixture seeds two sensors in one area and one sensor in
 // another, plus an out-of-range reading in the first area, so the parity test
 // exercises both the (slug, time) grouping and the quality filter rather than
@@ -543,6 +536,13 @@ func TestAllAreaSeriesGroupsSensorsAtTheSameInstant(t *testing.T) {
 	}
 }
 
+// TestAreaSeriesExcludesOutOfRangeNaN: deferred item (b) — a faulty sensor can
+// report NaN, and strconv.ParseFloat("nan", ...) succeeds while NaN compares
+// false against every < and > in a plain range check. The ingest-time
+// out_of_range flag (internal/quality) is what actually rejects it — InRange
+// returns false for NaN because NaN >= min and NaN <= max are both false — and
+// this test pins that AreaSeries' quality filter honours that flag rather than
+// re-deriving its own numeric check that a NaN could slip past.
 func TestAreaSeriesExcludesOutOfRangeNaN(t *testing.T) {
 	ctx, pool := migrated(t)
 	s := store.New(pool)
