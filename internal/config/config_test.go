@@ -24,6 +24,8 @@ func clearEnv(t *testing.T) {
 	t.Setenv("AIRBG_DB_COLLECTOR_CONNS", "")
 	t.Setenv("AIRBG_MAX_DB_INFLIGHT", "")
 	t.Setenv("AIRBG_MAX_CONNS", "")
+	t.Setenv("AIRBG_BASEMAP_STYLE_URL", "")
+	t.Setenv("AIRBG_BASEMAP_KEY", "")
 }
 
 // TestPoolSizeDefaults pins the bulkhead's sizing. These are two separate pools
@@ -335,5 +337,111 @@ func TestBaseURLMustBeAbsolute(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load accepted a relative AIRBG_BASE_URL; canonical and hreflang links would be broken")
+	}
+}
+
+// TestBasemapKeyIsSubstitutedIntoTheStyleURL. An unsubstituted {key} reaches the
+// browser and fails every tile request with a vendor error that looks nothing
+// like "you forgot an environment variable".
+func TestBasemapKeyIsSubstitutedIntoTheStyleURL(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	t.Setenv("AIRBG_BASEMAP_STYLE_URL", "https://tiles.example/style.json?key={key}")
+	t.Setenv("AIRBG_BASEMAP_KEY", "s3cret")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := cfg.BasemapStyleURL, "https://tiles.example/style.json?key=s3cret"; got != want {
+		t.Errorf("BasemapStyleURL = %q, want %q", got, want)
+	}
+	if got, want := cfg.BasemapHost, "tiles.example"; got != want {
+		t.Errorf("BasemapHost = %q, want %q", got, want)
+	}
+}
+
+// TestNoBasemapConfiguredIsNotAnError. Local development must work with no
+// vendor account: the map renders markers over a plain background.
+func TestNoBasemapConfiguredIsNotAnError(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.BasemapStyleURL != "" || cfg.BasemapHost != "" {
+		t.Errorf("BasemapStyleURL = %q, BasemapHost = %q, want both empty", cfg.BasemapStyleURL, cfg.BasemapHost)
+	}
+}
+
+// TestRejectsNonHTTPSBasemapURL. An http tile source is a mixed-content failure
+// in every browser, so accepting it would ship a map that cannot work.
+func TestRejectsNonHTTPSBasemapURL(t *testing.T) {
+	for _, tc := range []struct{ name, value string }{
+		{"plain http", "http://tiles.example/style.json"},
+		{"no scheme", "tiles.example/style.json"},
+		{"no host", "https:///style.json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+			t.Setenv("AIRBG_BASEMAP_STYLE_URL", tc.value)
+
+			if _, err := Load(); err == nil {
+				t.Errorf("Load() accepted AIRBG_BASEMAP_STYLE_URL=%q", tc.value)
+			} else if !strings.Contains(err.Error(), "AIRBG_BASEMAP_STYLE_URL") {
+				t.Errorf("error does not name the variable: %v", err)
+			}
+		})
+	}
+}
+
+// TestRejectsHostileBasemapHost is the injection-surface test the CSP change
+// creates. httpx.CSP builds the header by string concatenation, so a
+// AIRBG_BASEMAP_STYLE_URL whose host contains a semicolon, a quote or an
+// apostrophe could otherwise widen the policy with an attacker-chosen
+// directive — up to and including reintroducing 'unsafe-inline' — the moment
+// it reaches a response. net/url's Host field does not protect against this on
+// its own: it accepts each of these characters as long as the value has no
+// bare space (proven by exploration, not assumed), so the rejection has to
+// happen here, at config load, rather than by trusting url.Parse succeeding.
+func TestRejectsHostileBasemapHost(t *testing.T) {
+	for _, tc := range []struct{ name, value string }{
+		{"semicolon injects a directive", "https://tiles.example;object-src/style.json"},
+		{"double quote", "https://tiles.example\"evil/style.json"},
+		{"single quote", "https://tiles.example'evil/style.json"},
+		{"comma", "https://tiles.example,evil/style.json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+			t.Setenv("AIRBG_BASEMAP_STYLE_URL", tc.value)
+
+			if _, err := Load(); err == nil {
+				t.Errorf("Load() accepted hostile AIRBG_BASEMAP_STYLE_URL=%q", tc.value)
+			} else if !strings.Contains(err.Error(), "AIRBG_BASEMAP_STYLE_URL") {
+				t.Errorf("error does not name the variable: %v", err)
+			}
+		})
+	}
+}
+
+// TestAcceptsBasemapHostWithPort. "host:port" is explicitly in scope — a
+// self-hosted tile server behind a non-standard port is a legitimate
+// deployment, and rejecting it would push an operator toward a workaround
+// this validation cannot see.
+func TestAcceptsBasemapHostWithPort(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	t.Setenv("AIRBG_BASEMAP_STYLE_URL", "https://tiles.example:8443/style.json")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := cfg.BasemapHost, "tiles.example:8443"; got != want {
+		t.Errorf("BasemapHost = %q, want %q", got, want)
 	}
 }

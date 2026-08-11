@@ -21,6 +21,7 @@ import (
 
 	"airbg.org/internal/area"
 	"airbg.org/internal/db"
+	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/server"
 	"airbg.org/internal/snapshot"
@@ -110,7 +111,12 @@ func seedReading(t *testing.T, st *store.Store, sensorID int64, lon, lat float64
 // and snapshot. It returns the public and private listener addresses, exactly
 // like server_test.go's running(t), but against real data instead of a fixed
 // fixture snapshot.
-func runningWith(t *testing.T, st *store.Store) (public, private string) {
+// configure, when supplied, is applied to the Options after the fields above
+// are set and before server.New runs — the seam TestConfiguredBasemapReachesTheResponsePolicy
+// uses to set Options.CSP without every other e2e test needing to know that
+// field exists. Existing call sites pass none, which is why it is variadic
+// rather than a required parameter.
+func runningWith(t *testing.T, st *store.Store, configure ...func(*server.Options)) (public, private string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -131,11 +137,15 @@ func runningWith(t *testing.T, st *store.Store) (public, private string) {
 	}
 
 	public, private = free(t), free(t)
-	srv, err := server.New(server.Options{
+	opts := server.Options{
 		ListenAddr: public, MetricsAddr: private,
 		Catalogue: cat, Snapshots: holder, Store: st, Publisher: pub,
 		BaseURL: "http://" + public, Logger: log,
-	})
+	}
+	for _, fn := range configure {
+		fn(&opts)
+	}
+	srv, err := server.New(opts)
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
 	}
@@ -320,5 +330,25 @@ func TestEndToEndPageRendersFromTheDatabase(t *testing.T) {
 	}
 	if strings.Contains(body, "Недостатъчно данни") {
 		t.Error("a covered area is shown as uncovered")
+	}
+}
+
+// TestConfiguredBasemapReachesTheResponsePolicy is the wiring test: CSP() being
+// correct is worthless if the value never reaches a response. Nothing else in
+// the suite crosses config -> main -> server -> Chain -> SecurityHeaders.
+func TestConfiguredBasemapReachesTheResponsePolicy(t *testing.T) {
+	st, cleanup := newIntegrationStore(t)
+	defer cleanup()
+
+	seedArea(t, st, "sofia", "oblast", 23.32, 42.69)
+
+	public, _ := runningWith(t, st, func(o *server.Options) {
+		o.CSP = httpx.CSP("tiles.example")
+	})
+
+	resp := get(t, public, "/")
+	got := resp.Header.Get("Content-Security-Policy")
+	if !strings.Contains(got, "connect-src 'self' https://tiles.example") {
+		t.Errorf("Content-Security-Policy = %q, missing the basemap host in connect-src", got)
 	}
 }

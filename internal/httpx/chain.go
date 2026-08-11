@@ -87,18 +87,23 @@ type Chain struct {
 	Resolver     *IPResolver
 	Limiter      *ratelimit.Limiter
 	MaxBodyBytes int64
+
+	// CSP is the policy SecurityHeaders sets. Per-process rather than constant,
+	// because it is widened by the configured basemap host. Empty falls back to
+	// CSPValue.
+	CSP string
 }
 
 // Wrap builds the handler. Order, outermost first:
 //
 //  1. Recover      — must be outermost, or a panic in any other middleware
-//                    kills the connection with no response and no metric.
+//     kills the connection with no response and no metric.
 //  2. SecurityHeaders — inside Recover so its headers are already set when a
-//                    panic unwinds and Recover writes its 500.
+//     panic unwinds and Recover writes its 500.
 //  3. WithClientIP — must precede RateLimit, which keys on its output.
 //  4. RateLimit    — as early as possible: everything downstream of it is work
-//                    a refused request must not cost us. This is the ordering
-//                    property TestChainRateLimitsBeforeReachingTheHandler pins.
+//     a refused request must not cost us. This is the ordering
+//     property TestChainRateLimitsBeforeReachingTheHandler pins.
 //  5. LimitBody    — cheap, and only relevant to a request that got this far.
 //  6. the handler.
 //
@@ -109,7 +114,7 @@ func (c Chain) Wrap(h http.Handler) http.Handler {
 	h = LimitBody(h, c.MaxBodyBytes)
 	h = RateLimit(h, c.Limiter)
 	h = WithClientIP(h, c.Resolver)
-	h = SecurityHeaders(h)
+	h = SecurityHeaders(h, c.CSP)
 	h = Recover(h)
 	return h
 }

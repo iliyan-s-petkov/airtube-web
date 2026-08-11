@@ -33,10 +33,11 @@ var staticFS embed.FS
 var distFS embed.FS
 
 type Renderer struct {
-	cat     *i18n.Catalogue
-	holder  *snapshot.Holder
-	baseURL string
-	assets  Assets
+	cat             *i18n.Catalogue
+	holder          *snapshot.Holder
+	baseURL         string
+	basemapStyleURL string
+	assets          Assets
 
 	// One parsed template set per page, each cloned from the base. A single
 	// set would not work: every page defines "main", and the last parse would
@@ -44,11 +45,18 @@ type Renderer struct {
 	pages map[string]*template.Template
 }
 
-func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, baseURL string) (*Renderer, error) {
+// NewRenderer builds the page renderer. basemapStyleURL is the MapLibre style
+// JSON URL with its {key} placeholder already substituted by config.Load —
+// empty means no basemap vendor is configured, and every page renders its
+// data markers over a plain background instead. It is carried straight
+// through to PageData rather than re-derived, so the one place a vendor
+// switch happens is the config load that also derived the CSP's basemap host.
+func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, baseURL, basemapStyleURL string) (*Renderer, error) {
 	rr := &Renderer{
 		cat: cat, holder: holder,
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		pages:   make(map[string]*template.Template),
+		baseURL:         strings.TrimSuffix(baseURL, "/"),
+		basemapStyleURL: basemapStyleURL,
+		pages:           make(map[string]*template.Template),
 	}
 	// Parsed once at construction, like the templates: with no manifest this
 	// resolves to the zero Assets, and every template call site degrades to
@@ -88,6 +96,10 @@ type PageData struct {
 	// embedded, and to nothing when the dist tree holds only .keep — see
 	// assets.go and internal/web/dist/.keep.
 	Assets Assets
+
+	// BasemapStyleURL is the MapLibre style JSON URL, key already substituted,
+	// or empty when no basemap vendor is configured. See config.Config.BasemapStyleURL.
+	BasemapStyleURL string
 
 	cat *i18n.Catalogue
 }
@@ -153,7 +165,8 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 	return PageData{
 		Lang: lang, OtherLang: other, RequestPath: path,
 		BaseURL: rr.baseURL, GeneratedAt: generatedAt, cat: rr.cat,
-		Assets: rr.assets,
+		Assets:          rr.assets,
+		BasemapStyleURL: rr.basemapStyleURL,
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -61,6 +62,19 @@ const defaultMaxConns int32 = 4096
 //     and far above the rate at which we become a nuisance.
 const MinPollInterval = 30 * time.Second
 
+// hostPattern is what a "plain host (or host:port)" is allowed to look like
+// once it is going straight into a Content-Security-Policy header by string
+// concatenation (see httpx.CSP). net/url happily parses a Host containing a
+// space, a semicolon or a quote — those are only rejected when they appear
+// alongside a literal space (see the exploration this pattern was written
+// against) — so url.Parse succeeding is not proof the value is safe to widen
+// a header with. This is the second, narrower gate: letters, digits, dots and
+// hyphens, with an optional ":port" suffix. Anything else — a semicolon that
+// would start a new directive, a quote or apostrophe that could close one, a
+// space — is rejected here, at config load, rather than trusted through to
+// the one place that assembles the header text.
+var hostPattern = regexp.MustCompile(`^[A-Za-z0-9.-]+(:[0-9]+)?$`)
+
 type Config struct {
 	DatabaseURL  string
 	UpstreamURL  string
@@ -108,6 +122,24 @@ type Config struct {
 	// that is a separate failure mode from request concurrency: file-descriptor
 	// exhaustion needs no completed request to happen. See internal/httpx.LimitListener.
 	MaxConns int32
+
+	// BasemapStyleURL is the MapLibre style JSON URL with AIRBG_BASEMAP_KEY
+	// already substituted for its {key} placeholder. Empty means no basemap:
+	// the map renders data markers over a plain background, so local
+	// development needs no vendor account.
+	//
+	// The key is PUBLIC by nature — it ships in a URL the browser fetches.
+	// Domain restriction at the vendor is the only control, and it is a Phase 4
+	// deployment step, not something this process can enforce.
+	BasemapStyleURL string
+
+	// BasemapHost is BasemapStyleURL's hostname, used to widen the CSP. Derived
+	// here rather than configured separately so a vendor switch cannot leave the
+	// policy pointing at the old host. Validated against hostPattern, not just
+	// parsed: this value is about to be concatenated into a CSP header
+	// (httpx.CSP), and url.Parse alone does not guarantee the result contains
+	// none of ';', '"', "'" or a space.
+	BasemapHost string
 }
 
 func Load() (Config, error) {
@@ -182,6 +214,30 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.MaxConns = maxConns
+
+	style := strings.TrimSpace(os.Getenv("AIRBG_BASEMAP_STYLE_URL"))
+	if style != "" {
+		// The key is substituted here, once, at startup. A template left
+		// unsubstituted would reach the browser with a literal {key} in it and
+		// fail every tile request with a vendor error nobody would connect to a
+		// missing env var.
+		style = strings.ReplaceAll(style, "{key}", os.Getenv("AIRBG_BASEMAP_KEY"))
+
+		u, err := url.Parse(style)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return Config{}, fmt.Errorf("config: AIRBG_BASEMAP_STYLE_URL must be an absolute https URL (got %q)", style)
+		}
+		// u.Host alone is not proof the value is safe to widen a CSP header
+		// with by concatenation — url.Parse accepts a Host containing ';', '"'
+		// or "'" as long as it has no bare space (see hostPattern's comment).
+		// Reject anything that is not a plain host or host:port before it ever
+		// reaches httpx.CSP.
+		if !hostPattern.MatchString(u.Host) {
+			return Config{}, fmt.Errorf("config: AIRBG_BASEMAP_STYLE_URL host %q is not a plain host or host:port", u.Host)
+		}
+		cfg.BasemapStyleURL = style
+		cfg.BasemapHost = u.Host
+	}
 
 	return cfg, nil
 }

@@ -38,6 +38,47 @@ const CSPValue = "default-src 'self'; " +
 // anything uses it is an allowance nobody chose.
 const PermissionsPolicyValue = "geolocation=(), camera=(), microphone=(), payment=(), usb=()"
 
+// CSP builds the policy, widening connect-src and img-src by the basemap host.
+//
+// An empty host yields exactly CSPValue, byte for byte — pinned by
+// TestCSPWithNoBasemapIsUnchanged, so a deployment with no basemap is provably
+// unaffected by this function existing.
+//
+// Built by assembling named directives rather than by string-replacing inside
+// CSPValue. Substring surgery on a policy is how `object-src 'none'` silently
+// disappears: the edit that drops it looks like the edit that widens
+// connect-src, and nothing fails.
+//
+// The host is a bare hostname (optionally with a port), taken from the basemap
+// style URL's origin at startup — never from a request. https:// is prepended
+// unconditionally: a tile vendor reached over plain HTTP would be a
+// mixed-content error in the browser long before the CSP mattered.
+//
+// basemapHost is trusted here because config.Load already validated it against
+// hostPattern before storing it in Config.BasemapHost — this function does not
+// re-validate, so any new call site must go through that same gate rather than
+// handing a request-derived or otherwise unvalidated string to a function that
+// assembles a header value by concatenation.
+func CSP(basemapHost string) string {
+	connect := "'self'"
+	img := "'self' data: blob:"
+	if basemapHost != "" {
+		connect += " https://" + basemapHost
+		img += " https://" + basemapHost
+	}
+	return "default-src 'self'; " +
+		"script-src 'self'; " +
+		"style-src 'self'; " +
+		"img-src " + img + "; " +
+		"font-src 'self'; " +
+		"connect-src " + connect + "; " +
+		"worker-src 'self' blob:; " +
+		"object-src 'none'; " +
+		"base-uri 'none'; " +
+		"form-action 'none'; " +
+		"frame-ancestors 'none'"
+}
+
 // SecurityHeaders sets the response headers that do not depend on the handler.
 //
 // Set BEFORE calling next, so they are already on the ResponseWriter if the
@@ -46,11 +87,20 @@ const PermissionsPolicyValue = "geolocation=(), camera=(), microphone=(), paymen
 // HSTS is deliberately absent here and set by Cloudflare instead: sending it
 // from the origin would also apply to a local `serve` over plain HTTP, pinning
 // a developer's browser to HTTPS for localhost.
-func SecurityHeaders(next http.Handler) http.Handler {
+//
+// csp is per-process rather than the CSPValue constant, because it is widened
+// by the configured basemap host. Empty falls back to CSPValue — fail closed:
+// an empty policy means a caller forgot the argument, and a response with no
+// CSP at all is a worse outcome than one with a policy that does not know
+// about the basemap.
+func SecurityHeaders(next http.Handler, csp string) http.Handler {
+	if csp == "" {
+		csp = CSPValue
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probe("securityHeaders")
 		h := w.Header()
-		h.Set("Content-Security-Policy", CSPValue)
+		h.Set("Content-Security-Policy", csp)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		// Legacy, for browsers that predate frame-ancestors. Harmless where

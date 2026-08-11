@@ -15,6 +15,7 @@ import (
 	"airbg.org/internal/backfill"
 	"airbg.org/internal/config"
 	"airbg.org/internal/db"
+	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
@@ -224,6 +225,9 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		log.Info("assets", "state", "no manifest — serving without islands (run 'npm run build' in web/)")
 	}
 
+	// Built here, in main, rather than inside server.New: this is the one place
+	// the configured basemap host reaches the CSP, and it keeps the server
+	// package from needing to know how a policy is assembled.
 	srv, err := server.New(server.Options{
 		ListenAddr:        cfg.ListenAddr,
 		MetricsAddr:       cfg.MetricsAddr,
@@ -236,6 +240,8 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		Logger:            log,
 		MaxDBInflight:     cfg.MaxDBInflight,
 		MaxConns:          cfg.MaxConns,
+		BasemapStyleURL:   cfg.BasemapStyleURL,
+		CSP:               httpx.CSP(cfg.BasemapHost),
 	})
 	if err != nil {
 		return err

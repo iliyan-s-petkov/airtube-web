@@ -66,7 +66,7 @@ func rendererForAssetsTest(t *testing.T) *Renderer {
 				Covered: true, SensorCount: 12},
 		},
 	})
-	rr, err := NewRenderer(cat, h, "https://airbg.org")
+	rr, err := NewRenderer(cat, h, "https://airbg.org", "")
 	if err != nil {
 		t.Fatalf("NewRenderer: %v", err)
 	}

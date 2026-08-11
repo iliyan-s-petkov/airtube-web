@@ -24,7 +24,7 @@ func renderer(t *testing.T, snap *snapshot.Snapshot) *web.Renderer {
 	if snap != nil {
 		h.Store(snap)
 	}
-	rr, err := web.NewRenderer(cat, h, "https://airbg.org")
+	rr, err := web.NewRenderer(cat, h, "https://airbg.org", "")
 	if err != nil {
 		t.Fatalf("NewRenderer: %v", err)
 	}
