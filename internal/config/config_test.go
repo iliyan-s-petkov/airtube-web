@@ -22,6 +22,8 @@ func clearEnv(t *testing.T) {
 	t.Setenv("AIRBG_BASE_URL", "")
 	t.Setenv("AIRBG_DB_API_CONNS", "")
 	t.Setenv("AIRBG_DB_COLLECTOR_CONNS", "")
+	t.Setenv("AIRBG_MAX_DB_INFLIGHT", "")
+	t.Setenv("AIRBG_MAX_CONNS", "")
 }
 
 // TestPoolSizeDefaults pins the bulkhead's sizing. These are two separate pools
@@ -42,6 +44,65 @@ func TestPoolSizeDefaults(t *testing.T) {
 	}
 	if cfg.DBCollectorConns != defaultDBCollectorConns {
 		t.Errorf("DBCollectorConns = %d, want %d", cfg.DBCollectorConns, defaultDBCollectorConns)
+	}
+}
+
+// TestMaxDBInflightDefault pins the admission cap's default: defaultDBAPIConns
+// doubled, so a router built without explicit configuration behaves like the
+// deployed one (see api.defaultAdmission).
+func TestMaxDBInflightDefault(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MaxDBInflight != defaultMaxDBInflight {
+		t.Errorf("MaxDBInflight = %d, want %d", cfg.MaxDBInflight, defaultMaxDBInflight)
+	}
+}
+
+func TestMaxDBInflightOverride(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	t.Setenv("AIRBG_MAX_DB_INFLIGHT", "32")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MaxDBInflight != 32 {
+		t.Errorf("MaxDBInflight = %d, want 32", cfg.MaxDBInflight)
+	}
+}
+
+// TestMaxConnsDefault pins the connection cap's default: generous relative to
+// MaxDBInflight, because this bounds sockets rather than requests in flight.
+func TestMaxConnsDefault(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MaxConns != defaultMaxConns {
+		t.Errorf("MaxConns = %d, want %d", cfg.MaxConns, defaultMaxConns)
+	}
+}
+
+func TestMaxConnsOverride(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/airbg")
+	t.Setenv("AIRBG_MAX_CONNS", "128")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MaxConns != 128 {
+		t.Errorf("MaxConns = %d, want 128", cfg.MaxConns)
 	}
 }
 
@@ -75,6 +136,9 @@ func TestRejectsNonPositivePoolSizes(t *testing.T) {
 		{"negative collector", "AIRBG_DB_COLLECTOR_CONNS", "-4"},
 		{"not a number", "AIRBG_DB_API_CONNS", "eight"},
 		{"fractional", "AIRBG_DB_COLLECTOR_CONNS", "2.5"},
+		{"zero inflight", "AIRBG_MAX_DB_INFLIGHT", "0"},
+		{"zero max conns", "AIRBG_MAX_CONNS", "0"},
+		{"negative max conns", "AIRBG_MAX_CONNS", "-1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clearEnv(t)

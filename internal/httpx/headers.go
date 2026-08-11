@@ -25,6 +25,19 @@ const CSPValue = "default-src 'self'; " +
 	"form-action 'none'; " +
 	"frame-ancestors 'none'"
 
+// PermissionsPolicyValue denies every browser capability the site does not use.
+//
+// The threat this addresses is the frontend bundle itself: it is built from
+// hundreds of transitive npm packages and served same-origin under a CSP that
+// trusts 'self', so a malicious package does not need to escape a sandbox — it
+// only needs to be in the bundle. A denial here is enforced by the browser
+// regardless of what the bundle asks for.
+//
+// geolocation is denied even though Phase 3b's "sensors near me" button will
+// need it. Opening it then is a reviewed one-line change; having it open before
+// anything uses it is an allowance nobody chose.
+const PermissionsPolicyValue = "geolocation=(), camera=(), microphone=(), payment=(), usb=()"
+
 // SecurityHeaders sets the response headers that do not depend on the handler.
 //
 // Set BEFORE calling next, so they are already on the ResponseWriter if the
@@ -44,6 +57,12 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		// both are understood; the CSP directive wins there.
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Permissions-Policy", PermissionsPolicyValue)
+		// same-origin, so the per-entity JSON payloads cannot be pulled into
+		// a third-party document context. This is the header that does the
+		// job CORS is commonly mistaken for; see the deliberate absence of
+		// every Access-Control-* header, pinned by TestNoCORSHeaders.
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		next.ServeHTTP(w, r)
 	})
 }

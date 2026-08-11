@@ -223,6 +223,8 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
 		BaseURL:           cfg.BaseURL,
 		Logger:            log,
+		MaxDBInflight:     cfg.MaxDBInflight,
+		MaxConns:          cfg.MaxConns,
 	})
 	if err != nil {
 		return err

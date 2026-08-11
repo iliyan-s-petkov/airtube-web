@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,12 +159,11 @@ func TestBuildETagIsStableForIdenticalData(t *testing.T) {
 	}
 }
 
-// TestBuildIncludesEmptyAreasInAreaSensors: a known area with no sensors must
-// have an AreaSensors entry, so the handler can distinguish 404 (no such area)
-// from 200-with-nothing-in-it. Collapsing those two is how "this region has no
-// data" gets served as "this region does not exist".
-func TestBuildIncludesEmptyAreasInAreaSensors(t *testing.T) {
-	ctx, pool := migrated(t)
+// seedAreasWithOneEmptyArea extends seed with one more oblast that has no
+// sensors at all, for the tests that need to distinguish "no such area" (404)
+// from "this area has nothing in it" (200, empty).
+func seedAreasWithOneEmptyArea(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
 	seed(t, ctx, pool)
 
 	_, err := pool.Exec(ctx,
@@ -174,6 +174,15 @@ func TestBuildIncludesEmptyAreasInAreaSensors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed empty area: %v", err)
 	}
+}
+
+// TestBuildIncludesEmptyAreasInAreaSensors: a known area with no sensors must
+// have an AreaSensors entry, so the handler can distinguish 404 (no such area)
+// from 200-with-nothing-in-it. Collapsing those two is how "this region has no
+// data" gets served as "this region does not exist".
+func TestBuildIncludesEmptyAreasInAreaSensors(t *testing.T) {
+	ctx, pool := migrated(t)
+	seedAreasWithOneEmptyArea(t, ctx, pool)
 
 	snap, err := snapshot.Build(ctx, store.New(pool), time.Unix(1_800_000_000, 0).UTC())
 	if err != nil {
@@ -187,6 +196,62 @@ func TestBuildIncludesEmptyAreasInAreaSensors(t *testing.T) {
 	}
 	if meta := snap.KnownSlugs["empty-oblast"]; meta.Covered {
 		t.Error("an area with no sensors reports Covered = true")
+	}
+}
+
+// TestBuildIncludesAreaSeriesForEveryKnownSlug mirrors the AreaSensors rule: a
+// missing key must mean "no such area" (404), never "this area happens to have
+// no history" (which must be a 200 with empty arrays). An area page for a quiet
+// area must render an empty chart, not a not-found.
+func TestBuildIncludesAreaSeriesForEveryKnownSlug(t *testing.T) {
+	ctx, pool := migrated(t)
+	seedAreasWithOneEmptyArea(t, ctx, pool)
+
+	snap, err := snapshot.Build(ctx, store.New(pool), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(snap.KnownSlugs) == 0 {
+		t.Fatal("no known slugs; the fixture is not being seen")
+	}
+	for slug := range snap.KnownSlugs {
+		body, ok := snap.AreaSeries[slug]
+		if !ok {
+			t.Errorf("AreaSeries has no entry for known slug %q", slug)
+			continue
+		}
+		if len(body.JSON) == 0 || len(body.Gzip) == 0 || body.ETag == "" {
+			t.Errorf("AreaSeries[%q] is not fully prepared: json=%d gzip=%d etag=%q",
+				slug, len(body.JSON), len(body.Gzip), body.ETag)
+		}
+	}
+}
+
+// TestAreaSeriesPayloadUsesEmptyArraysNotNull guards the exact failure a nil
+// slice causes: `null` reaches uPlot, which throws instead of drawing an empty
+// axis. writeSeries already allocates with make for the same reason; the
+// snapshot path must not reintroduce the bug on the other side.
+func TestAreaSeriesPayloadUsesEmptyArraysNotNull(t *testing.T) {
+	ctx, pool := migrated(t)
+	seedAreasWithOneEmptyArea(t, ctx, pool)
+
+	snap, err := snapshot.Build(ctx, store.New(pool), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var found bool
+	for slug, body := range snap.AreaSeries {
+		if !strings.Contains(string(body.JSON), `"t":[]`) {
+			continue
+		}
+		found = true
+		if strings.Contains(string(body.JSON), "null") {
+			t.Errorf("AreaSeries[%q] contains null: %s", slug, body.JSON)
+		}
+	}
+	if !found {
+		t.Fatal("no empty series in the snapshot; the fixture must include an area with no readings or this test proves nothing")
 	}
 }
 

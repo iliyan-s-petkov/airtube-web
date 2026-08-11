@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"airbg.org/internal/db"
 )
 
 // CoverageThreshold is the minimum number of distinct sensors with usable
@@ -221,18 +223,25 @@ SELECT bucket, avg_value FROM reading_hourly
 // (migration 00003), so any window reaching further back must come from
 // reading_hourly or it silently returns a truncated series that looks complete.
 func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool) ([]Point, error) {
-	var rows interface {
-		Next() bool
-		Scan(...any) error
-		Err() error
-		Close()
+	// A transaction only so statement_timeout can be scoped: set_config's local
+	// flag is transaction-scoped, and this read must not inherit the pool-wide
+	// 15s. Rolled back rather than committed — nothing is written, and a rollback
+	// of a read-only transaction is the cheaper of the two.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin sensor series: %w", err)
 	}
-	var err error
+	defer tx.Rollback(ctx)
 
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
+		return nil, fmt.Errorf("store: sensor series timeout: %w", err)
+	}
+
+	var rows pgx.Rows
 	if hourly {
-		rows, err = s.pool.Query(ctx, hourlySeriesSQL, sensorID, metric, since)
+		rows, err = tx.Query(ctx, hourlySeriesSQL, sensorID, metric, since)
 	} else {
-		rows, err = s.pool.Query(ctx, rawSeriesSQL, sensorID, metric, since, usableQuality)
+		rows, err = tx.Query(ctx, rawSeriesSQL, sensorID, metric, since, usableQuality)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: sensor series: %w", err)
@@ -288,6 +297,78 @@ SELECT h.bucket, avg(h.avg_value)
  GROUP BY h.bucket
  ORDER BY h.bucket`
 
+// allAreaRawSeriesSQL is areaRawSeriesSQL for EVERY area in one round trip.
+//
+// The per-area query exists for the database-backed fall-through, where the
+// caller has named one slug. This one exists for snapshot.Build, which needs all
+// of them at once: looping the per-area query would issue one query per area per
+// ingest cycle — hundreds once neighbourhood boundaries are imported — against
+// the collector pool's four connections.
+//
+// Grouped by (slug, time), so a sensor belonging to two areas contributes to
+// both means, and two sensors reporting at the same instant produce one point.
+// Ordered by slug then time, so the scan below can rely on time order within
+// each slug without sorting afterwards.
+const allAreaRawSeriesSQL = `
+SELECT a.slug, r.time, avg(r.value)
+  FROM reading r
+  JOIN area_sensor asx ON asx.sensor_id = r.sensor_id
+  JOIN area a          ON a.slug = asx.area_slug
+ WHERE r.metric = $1
+   AND r.time  >= $2
+   AND r.quality = ANY($3::quality_flag[])
+ GROUP BY a.slug, r.time
+ ORDER BY a.slug, r.time`
+
+// allAreaHourlySeriesSQL is the same over the rollup. reading_hourly carries no
+// quality column: the rollup is built from readings that already passed the
+// filter.
+const allAreaHourlySeriesSQL = `
+SELECT a.slug, h.bucket, avg(h.avg_value)
+  FROM reading_hourly h
+  JOIN area_sensor asx ON asx.sensor_id = h.sensor_id
+  JOIN area a          ON a.slug = asx.area_slug
+ WHERE h.metric = $1
+   AND h.bucket >= $2
+ GROUP BY a.slug, h.bucket
+ ORDER BY a.slug, h.bucket`
+
+// AllAreaSeries returns the area-mean series for one metric, for every area
+// that has data in the window, keyed by slug.
+//
+// Areas with no readings are absent from the map rather than present with an
+// empty slice. snapshot.Build iterates its known slugs and looks each one up, so
+// a missing key is the correct representation of "no data" there — and a caller
+// that needs an entry per area must iterate its own slug set, not this map.
+func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Time, hourly bool) (map[string][]Point, error) {
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if hourly {
+		rows, err = s.pool.Query(ctx, allAreaHourlySeriesSQL, metric, since)
+	} else {
+		rows, err = s.pool.Query(ctx, allAreaRawSeriesSQL, metric, since, usableQuality)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: all area series for %q: %w", metric, err)
+	}
+	defer rows.Close()
+
+	out := make(map[string][]Point)
+	for rows.Next() {
+		var (
+			slug string
+			p    Point
+		)
+		if err := rows.Scan(&slug, &p.Time, &p.Value); err != nil {
+			return nil, fmt.Errorf("store: scan all area series: %w", err)
+		}
+		out[slug] = append(out[slug], p)
+	}
+	return out, rows.Err()
+}
+
 // AreaSeries returns the area-mean time series for one metric.
 //
 // hourly selects the rollup. The caller decides, because only the caller knows
@@ -295,14 +376,25 @@ SELECT h.bucket, avg(h.avg_value)
 // window queried against `reading` returns a silently truncated series rather
 // than an error.
 func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool) ([]Point, error) {
-	var (
-		rows pgx.Rows
-		err  error
-	)
+	// A transaction only so statement_timeout can be scoped: set_config's local
+	// flag is transaction-scoped, and this read must not inherit the pool-wide
+	// 15s. Rolled back rather than committed — nothing is written, and a rollback
+	// of a read-only transaction is the cheaper of the two.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin area series: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
+		return nil, fmt.Errorf("store: area series timeout: %w", err)
+	}
+
+	var rows pgx.Rows
 	if hourly {
-		rows, err = s.pool.Query(ctx, areaHourlySeriesSQL, slug, metric, since)
+		rows, err = tx.Query(ctx, areaHourlySeriesSQL, slug, metric, since)
 	} else {
-		rows, err = s.pool.Query(ctx, areaRawSeriesSQL, slug, metric, since, usableQuality)
+		rows, err = tx.Query(ctx, areaRawSeriesSQL, slug, metric, since, usableQuality)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: area series for %q: %w", slug, err)

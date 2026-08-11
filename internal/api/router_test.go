@@ -18,21 +18,38 @@ import (
 // stubSource satisfies api.DataSource without a database. The api package's
 // tests must not need a container: they are about HTTP semantics, and a
 // container per test would make them slow enough to be skipped.
+//
+// All methods take a pointer receiver, even though most tests use it as a
+// plain value, so the areaSeriesCalls counter — which several tests need to
+// read back after the request — mutates the instance the test holds rather
+// than a copy taken at the call site.
 type stubSource struct {
 	slug   string
 	points []store.Point
 	err    error
+
+	// areaSeriesCalls counts calls to AreaSeries. TestDefaultAreaSeriesIsServedFromTheSnapshot
+	// and its neighbours assert on this directly: the whole point of Task 1 is
+	// that the default combination never reaches here.
+	areaSeriesCalls int
+
+	// areaAtPointCalls counts calls to AreaAtPoint. The locate admission tests
+	// assert on this directly: a request refused by the admission semaphore
+	// must never have reached the database.
+	areaAtPointCalls int
 }
 
-func (s stubSource) AreaAtPoint(_ context.Context, _, _ float64) (string, error) {
+func (s *stubSource) AreaAtPoint(_ context.Context, _, _ float64) (string, error) {
+	s.areaAtPointCalls++
 	return s.slug, s.err
 }
 
-func (s stubSource) SensorSeries(_ context.Context, _ int64, _ string, _ time.Time, _ bool) ([]store.Point, error) {
+func (s *stubSource) SensorSeries(_ context.Context, _ int64, _ string, _ time.Time, _ bool) ([]store.Point, error) {
 	return s.points, s.err
 }
 
-func (s stubSource) AreaSeries(_ context.Context, _, _ string, _ time.Time, _ bool) ([]store.Point, error) {
+func (s *stubSource) AreaSeries(_ context.Context, _, _ string, _ time.Time, _ bool) ([]store.Point, error) {
+	s.areaSeriesCalls++
 	return s.points, s.err
 }
 
@@ -45,7 +62,7 @@ func deps(t *testing.T, snap *snapshot.Snapshot) api.Deps {
 	return api.Deps{
 		Snapshots: h,
 		Breadth:   ratelimit.NewBreadth(ratelimit.DistinctAreaLimit, ratelimit.DistinctSensorLimit, time.Hour),
-		Store:     stubSource{slug: "sofia"},
+		Store:     &stubSource{slug: "sofia"},
 		BaseURL:   "https://airbg.org",
 		// An explicit per-test series bucket. Left nil, NewRouter substitutes the
 		// process-wide default, and every test in the binary would then share one

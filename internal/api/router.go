@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"airbg.org/internal/admit"
 	"airbg.org/internal/ratelimit"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
@@ -45,6 +46,12 @@ type Deps struct {
 	// unlimited; production passes one explicitly so its evictor is wired to the
 	// server's lifetime.
 	SeriesLimiter *ratelimit.Limiter
+
+	// Admission bounds how many requests may be inside a database query at
+	// once, across all clients. SeriesLimiter bounds one client; this bounds the
+	// crowd. NewRouter substitutes a default when nil, so a handler is never
+	// admitted without a cap.
+	Admission *admit.Semaphore
 }
 
 // Cache lifetimes, in seconds.
@@ -100,6 +107,14 @@ func NewRouter(d Deps) *http.ServeMux {
 	// making the fail-closed default a quiet leak.
 	if d.SeriesLimiter == nil {
 		d.SeriesLimiter = defaultSeriesLimiter()
+	}
+
+	// Fail closed, exactly as with SeriesLimiter: a nil semaphore would leave
+	// the database paths uncapped, which is the hole this closes. The default is
+	// sized to the API pool's default (config.defaultDBAPIConns) doubled, so a
+	// router built without explicit configuration behaves like the deployed one.
+	if d.Admission == nil {
+		d.Admission = defaultAdmission()
 	}
 
 	mux := http.NewServeMux()

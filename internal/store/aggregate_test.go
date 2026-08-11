@@ -2,10 +2,12 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"airbg.org/internal/area"
@@ -435,6 +437,107 @@ func TestAreaSeriesExcludesFlaggedReadings(t *testing.T) {
 	}
 }
 
+// seedAreaSeriesFixture seeds two sensors in one area and one sensor in
+// another, plus an out-of-range reading in the first area, so the parity test
+// exercises both the (slug, time) grouping and the quality filter rather than
+// assuming either.
+func seedAreaSeriesFixture(t *testing.T, ctx contextT, pool poolT) {
+	t.Helper()
+	seedArea(t, ctx, pool, "series-a", "oblast", 23.0, 42.0)
+	seedArea(t, ctx, pool, "series-b", "oblast", 25.0, 43.0)
+
+	base := time.Now().UTC().Truncate(time.Minute)
+	// Two sensors in series-a reporting at the SAME instant.
+	seedSensorReading(t, ctx, pool, 200, 23.0, 42.0, "P2", 10, "ok", base)
+	seedSensorReading(t, ctx, pool, 201, 23.001, 42.001, "P2", 20, "ok", base)
+	// A flagged reading in series-a. If the quality filter were dropped, this
+	// would move AllAreaSeries's mean away from AreaSeries's, and the parity
+	// test would fail on the point value rather than passing by accident
+	// because the fixture had nothing bad in it.
+	seedSensorReading(t, ctx, pool, 203, 23.002, 42.002, "P2", 999, "out_of_range", base)
+	// One sensor in series-b.
+	seedSensorReading(t, ctx, pool, 202, 25.0, 43.0, "P2", 30, "ok", base)
+
+	assignAreas(t, ctx, pool)
+}
+
+// seedTwoSensorsOneInstant seeds one area with two sensors reporting the given
+// values at the same instant, and returns the area's slug and that instant.
+func seedTwoSensorsOneInstant(t *testing.T, ctx contextT, pool poolT, v1, v2 float64) (string, time.Time) {
+	t.Helper()
+	const slug = "one-instant"
+	seedArea(t, ctx, pool, slug, "oblast", 24.0, 42.5)
+	at := time.Now().UTC().Truncate(time.Minute)
+	seedSensorReading(t, ctx, pool, 300, 24.0, 42.5, "P2", v1, "ok", at)
+	seedSensorReading(t, ctx, pool, 301, 24.001, 42.501, "P2", v2, "ok", at)
+	assignAreas(t, ctx, pool)
+	return slug, at
+}
+
+// TestAllAreaSeriesMatchesThePerAreaQuery is the anti-drift test. AllAreaSeries
+// and AreaSeries are two SQL statements that must produce the same numbers, and
+// the snapshot path only serves the right data for as long as they agree. Any
+// future edit to one that is not mirrored in the other fails here rather than
+// silently shipping a chart that disagrees with the database-backed fall-through.
+func TestAllAreaSeriesMatchesThePerAreaQuery(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	// Two sensors in one area, one in another, and two readings at the SAME
+	// timestamp so the grouping is exercised rather than assumed.
+	seedAreaSeriesFixture(t, ctx, pool)
+
+	since := time.Now().UTC().Add(-24 * time.Hour)
+	all, err := s.AllAreaSeries(ctx, "P2", since, false)
+	if err != nil {
+		t.Fatalf("AllAreaSeries: %v", err)
+	}
+	if len(all) == 0 {
+		t.Fatal("AllAreaSeries returned no areas; the fixture is not being seen, so this test proves nothing")
+	}
+
+	for slug, batched := range all {
+		single, err := s.AreaSeries(ctx, slug, "P2", since, false)
+		if err != nil {
+			t.Fatalf("AreaSeries(%q): %v", slug, err)
+		}
+		if len(batched) != len(single) {
+			t.Fatalf("area %q: AllAreaSeries returned %d points, AreaSeries returned %d", slug, len(batched), len(single))
+		}
+		for i := range single {
+			if !batched[i].Time.Equal(single[i].Time) {
+				t.Errorf("area %q point %d: time = %v, want %v", slug, i, batched[i].Time, single[i].Time)
+			}
+			if batched[i].Value != single[i].Value {
+				t.Errorf("area %q point %d: value = %v, want %v", slug, i, batched[i].Value, single[i].Value)
+			}
+		}
+	}
+}
+
+// TestAllAreaSeriesGroupsSensorsAtTheSameInstant pins the averaging directly.
+// Without the (slug, time) grouping the result is every sensor's reading in
+// timestamp order, which renders as a sawtooth a reader would interpret as
+// rapid air-quality swings rather than as two sensors disagreeing.
+func TestAllAreaSeriesGroupsSensorsAtTheSameInstant(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20) // one area, one timestamp, values 10 and 20
+
+	points, err := s.AllAreaSeries(ctx, "P2", at.Add(-time.Hour), false)
+	if err != nil {
+		t.Fatalf("AllAreaSeries: %v", err)
+	}
+	got := points[slug]
+	if len(got) != 1 {
+		t.Fatalf("got %d points for %q, want 1 — the two sensors were not grouped", len(got), slug)
+	}
+	if got[0].Value != 15 {
+		t.Errorf("value = %v, want 15 (the mean of 10 and 20)", got[0].Value)
+	}
+}
+
 // TestAreaSeriesExcludesOutOfRangeNaN: deferred item (b) — a faulty sensor can
 // report NaN, and strconv.ParseFloat("nan", ...) succeeds while NaN compares
 // false against every < and > in a plain range check. The ingest-time
@@ -462,5 +565,113 @@ func TestAreaSeriesExcludesOutOfRangeNaN(t *testing.T) {
 	}
 	if points[0].Value != 10 {
 		t.Errorf("value = %v, want 10; a NaN reading flagged out_of_range leaked into the average", points[0].Value)
+	}
+}
+
+// TestAreaSeriesTimesOutUnderItsOwnScopedBound drives AreaSeries itself,
+// rather than db.SetLocalStatementTimeout and pg_sleep in isolation. An
+// earlier version of this test (TestSeriesQueriesUseTheShortStatementTimeout)
+// called the db helper and ran an ad-hoc pg_sleep directly, never AreaSeries
+// or SensorSeries — so it could not have caught a missing timeout call in
+// either function, which is exactly the mutation review found inert.
+//
+// A second session locks the reading table ACCESS EXCLUSIVE and holds it open
+// for the whole test, so AreaSeries' own query blocks waiting for the lock.
+// Its own scoped statement_timeout — not the pool's 15s default — must abort
+// that wait at 5s.
+func TestAreaSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	// Two live connections are required: one held open by the blocker's
+	// transaction, one for AreaSeries' own Begin. Asserted, not assumed — the
+	// pool defaults to more than one, but a future change to that default
+	// must not silently turn this into a test that deadlocks on itself.
+	if pool.Config().MaxConns < 2 {
+		t.Fatalf("pool MaxConns = %d, want >= 2 so the blocker and AreaSeries use distinct connections", pool.Config().MaxConns)
+	}
+
+	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20)
+
+	// Another session holds ACCESS EXCLUSIVE on reading; AreaSeries' own
+	// statement_timeout must abort it, not the pool's 15s.
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("blocker Begin: %v", err)
+	}
+	defer blocker.Rollback(ctx)
+	if _, err := blocker.Exec(ctx, `LOCK TABLE reading IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("LOCK TABLE: %v", err)
+	}
+
+	start := time.Now()
+	_, err = s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false)
+	elapsed := time.Since(start)
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "57014" {
+		t.Fatalf("AreaSeries err = %v, want SQLSTATE 57014 (query_canceled)", err)
+	}
+	// The bound must be the scoped 5s, not the pool's 15s default.
+	if elapsed > 10*time.Second {
+		t.Errorf("took %v; the pool's 15s bound applied, not the scoped 5s", elapsed)
+	}
+}
+
+// TestSensorSeriesTimesOutUnderItsOwnScopedBound mirrors the AreaSeries test
+// above for SensorSeries: same lock, same assertion, the other database-backed
+// series query that got the same scoped-timeout treatment.
+func TestSensorSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	if pool.Config().MaxConns < 2 {
+		t.Fatalf("pool MaxConns = %d, want >= 2 so the blocker and SensorSeries use distinct connections", pool.Config().MaxConns)
+	}
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	seedSensorReading(t, ctx, pool, 950, 23.5, 42.5, "P2", 10, "ok", now)
+
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("blocker Begin: %v", err)
+	}
+	defer blocker.Rollback(ctx)
+	if _, err := blocker.Exec(ctx, `LOCK TABLE reading IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("LOCK TABLE: %v", err)
+	}
+
+	start := time.Now()
+	_, err = s.SensorSeries(ctx, 950, "P2", now.Add(-time.Hour), false)
+	elapsed := time.Since(start)
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "57014" {
+		t.Fatalf("SensorSeries err = %v, want SQLSTATE 57014 (query_canceled)", err)
+	}
+	if elapsed > 10*time.Second {
+		t.Errorf("took %v; the pool's 15s bound applied, not the scoped 5s", elapsed)
+	}
+}
+
+// TestAreaSeriesStillReturnsDataInsideItsTransaction. Wrapping a read in a
+// transaction is exactly the kind of change that can return an empty result set
+// while every timeout test still passes — a chart that is blank rather than
+// wrong, which is harder to notice in review than a failure.
+func TestAreaSeriesStillReturnsDataInsideItsTransaction(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool)
+
+	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20)
+
+	points, err := s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("got %d points, want 1", len(points))
+	}
+	if points[0].Value != 15 {
+		t.Errorf("value = %v, want 15", points[0].Value)
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"airbg.org/internal/admit"
 )
 
 const defaultUpstreamURL = "https://data.sensor.community/airrohr/v1/filter/country=BG"
@@ -28,6 +30,17 @@ const (
 	defaultDBAPIConns       int32 = 8
 	defaultDBCollectorConns int32 = 4
 )
+
+// defaultMaxDBInflight is defaultDBAPIConns doubled — see admit.DefaultSize,
+// which is the single source of this number for config, api and server alike.
+const defaultMaxDBInflight int32 = admit.DefaultSize
+
+// defaultMaxConns bounds how many connections the public listener holds open
+// at once. Generous relative to defaultMaxDBInflight: most held connections are
+// idle keep-alives or slow trickles, not requests in flight, so this cap exists
+// to stop file-descriptor exhaustion rather than to shape request concurrency —
+// that is what MaxDBInflight and the rate limiter are for.
+const defaultMaxConns int32 = 4096
 
 // MinPollInterval is the smallest accepted AIRBG_POLL_INTERVAL.
 //
@@ -81,6 +94,20 @@ type Config struct {
 	// allocation.
 	DBAPIConns       int32
 	DBCollectorConns int32
+
+	// MaxDBInflight bounds how many requests may be inside a database query at
+	// once, across every client — see internal/admit. A per-client rate limiter
+	// says nothing about the crowd: N well-behaved clients can still collectively
+	// queue more concurrent work than the pool can serve, and the excess waits
+	// inside pgxpool.Acquire until the write timeout fires.
+	MaxDBInflight int32
+
+	// MaxConns bounds how many connections the public listener holds open at
+	// once — a socket-count cap, not a request cap. Nothing else in this
+	// process bounds how many mostly-idle connections the host may hold, and
+	// that is a separate failure mode from request concurrency: file-descriptor
+	// exhaustion needs no completed request to happen. See internal/httpx.LimitListener.
+	MaxConns int32
 }
 
 func Load() (Config, error) {
@@ -143,6 +170,18 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.DBAPIConns, cfg.DBCollectorConns = apiConns, collectorConns
+
+	maxInflight, err := envPositiveInt32("AIRBG_MAX_DB_INFLIGHT", defaultMaxDBInflight)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.MaxDBInflight = maxInflight
+
+	maxConns, err := envPositiveInt32("AIRBG_MAX_CONNS", defaultMaxConns)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.MaxConns = maxConns
 
 	return cfg, nil
 }

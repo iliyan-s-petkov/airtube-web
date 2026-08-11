@@ -9,12 +9,79 @@ import (
 	"sync"
 	"time"
 
+	"airbg.org/internal/admit"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/metrics"
 	"airbg.org/internal/ratelimit"
+	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
 )
+
+// admissionRejected counts requests shed by the admission semaphore.
+//
+// Separate from the two rate-limit counters because it answers a different
+// operational question. A rate-limit refusal says "this client is asking for too
+// much"; an admission refusal says "the service is at its database capacity
+// regardless of who is asking". Under load an operator needs to tell those
+// apart: the first is somebody misbehaving, the second is a sizing decision that
+// has been reached.
+//
+// The label is the route, chosen from a fixed set of literals in the handlers.
+// No request input reaches it, so cardinality is bounded by the code — the same
+// rule as enumerationTrips and seriesRateLimited.
+var admissionRejected = metrics.CounterVec(
+	"airbg_admission_rejected_total",
+	"Requests shed by the database admission semaphore, by route.",
+	"route")
+
+// tryAdmitQuery takes an admission slot, counting a refusal but writing nothing.
+//
+// Called immediately before the query and released immediately after, so the
+// slot covers the database round trip and nothing else. Wrapping the whole
+// handler would hold a slot through JSON encoding and the response write, which
+// are not the scarce resource.
+//
+// The counter is incremented here rather than at the call sites so that every
+// route — the ones that fail and the one that degrades — is visible under the
+// same metric. An operator needs to know the control fired even when the caller
+// never saw an error.
+func (d Deps) tryAdmitQuery(route string) (release func(), ok bool) {
+	release, ok = d.Admission.TryAcquire()
+	if ok {
+		return release, true
+	}
+	admissionRejected.With(route).Inc()
+	return nil, false
+}
+
+// admitQuery takes an admission slot or answers 503.
+//
+// For the routes whose whole answer IS the query: with no slot there is nothing
+// truthful to return, so the request fails. /locate is the exception — it has a
+// usable default view and calls tryAdmitQuery directly.
+//
+// 503 rather than 429 on purpose: the client is within its own limit and did
+// nothing wrong. Retry-After is 2 seconds — long enough for the in-flight
+// queries to drain, short enough that a legitimate reader's chart appears late
+// rather than never.
+func (d Deps) admitQuery(w http.ResponseWriter, route string) (release func(), ok bool) {
+	release, ok = d.tryAdmitQuery(route)
+	if ok {
+		return release, true
+	}
+	w.Header().Set("Retry-After", "2")
+	writeError(w, http.StatusServiceUnavailable, "unavailable",
+		"The service is busy. Please try again shortly.")
+	return nil, false
+}
+
+// AdmissionRejectedCountForTesting reads the shed counter for one route so a
+// test can assert in DELTA. The counter is process-global, so an absolute count
+// would depend on which other tests had already run.
+func AdmissionRejectedCountForTesting(route string) int64 {
+	return admissionRejected.With(route).Value()
+}
 
 // The period vocabulary. Fixed rather than free-form on purpose: an arbitrary
 // duration lets one request ask for ten years of raw readings, which is
@@ -84,19 +151,6 @@ func maxAgeFor(period string) int {
 // asserted directly. Testing it only through the handler would leave the
 // hourly flag verified by nothing — the stub returns the same points either way.
 func ParsePeriodForTesting(v string) (time.Duration, bool, bool) { return parsePeriod(v) }
-
-// seriesBody is columnar for the same reasons as the sensor payload: uPlot
-// (Phase 3) consumes parallel arrays directly, and same-typed adjacent values
-// compress well.
-type seriesBody struct {
-	SensorID *int64      `json:"sensor_id,omitempty"`
-	Slug     string      `json:"slug,omitempty"`
-	Metric   string      `json:"metric"`
-	Period   string      `json:"period"`
-	Hourly   bool        `json:"hourly"`
-	Times    []time.Time `json:"t"`
-	Values   []float64   `json:"v"`
-}
 
 // seriesRequest validates everything a series endpoint takes from the caller.
 // Returning ok=false means a response has already been written.
@@ -194,6 +248,23 @@ var defaultSeriesLimiter = sync.OnceValue(func() *ratelimit.Limiter {
 	return l
 })
 
+// defaultAdmission is the substitute NewRouter uses when Deps carries none.
+// Built once per process, like defaultSeriesLimiter and for the same reason: a
+// fresh one per NewRouter call would give each router its own cap, so an
+// embedder holding several would collectively exceed the number.
+//
+// The error from admit.New is impossible here — the literal is positive — and is
+// discarded rather than plumbed into a signature that has no way to report it.
+var defaultAdmission = sync.OnceValue(func() *admit.Semaphore {
+	s, _ := admit.New(defaultMaxDBInflight)
+	return s
+})
+
+// defaultMaxDBInflight is admit.DefaultSize, the one definition shared with
+// config and server, so an unconfigured router cannot end up with a different
+// cap from the documented default.
+const defaultMaxDBInflight = admit.DefaultSize
+
 // seriesRateLimited counts refusals by the series bucket.
 //
 // A sibling of airbg_http_rate_limited_total rather than the same counter: that
@@ -261,7 +332,12 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	release, ok := d.admitQuery(w, "sensor_series")
+	if !ok {
+		return
+	}
 	points, err := d.Store.SensorSeries(r.Context(), id, metric, since, hourly)
+	release()
 	if err != nil {
 		// Logged with the detail, answered without it. A pgx error carries the
 		// SQL text and table names.
@@ -270,7 +346,7 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSeries(w, seriesBody{
+	writeSeries(w, snapshot.SeriesPayload{
 		SensorID: &id, Metric: metric, Period: period, Hourly: hourly,
 	}, points)
 }
@@ -299,21 +375,46 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Serve the one precomputed combination from memory. Placed here, not
+	// earlier, and not later, for two reasons that are both load-bearing:
+	//
+	//   - AFTER the breadth check, because the response is per-entity and
+	//     enumerable regardless of where it came from. A fast path that skipped
+	//     ObserveArea would let a scraper walk every slug's history for free.
+	//   - BEFORE allowSeriesQuery, because this request issues no query. The
+	//     series bucket exists to protect Postgres, and spending its tokens on
+	//     requests that never reach Postgres would starve the path it is
+	//     actually guarding.
+	if metric == snapshot.DefaultSeriesMetric && period == snapshot.DefaultSeriesPeriod {
+		if body, ok := snap.AreaSeries[slug]; ok {
+			serveBody(w, r, body, cachePrivate, maxAgeFor(period))
+			return
+		}
+		// No entry for a known slug means a snapshot built before this field
+		// existed, or a build that failed partway. Fall through to the database
+		// rather than 404 a slug we know exists.
+	}
+
 	if !d.allowSeriesQuery(w, r, "area") {
 		return
 	}
 
+	release, ok := d.admitQuery(w, "area_series")
+	if !ok {
+		return
+	}
 	points, err := d.Store.AreaSeries(r.Context(), slug, metric, since, hourly)
+	release()
 	if err != nil {
 		slog.Error("area series query failed", "slug", slug, "metric", metric, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal", "Internal server error.")
 		return
 	}
 
-	writeSeries(w, seriesBody{Slug: slug, Metric: metric, Period: period, Hourly: hourly}, points)
+	writeSeries(w, snapshot.SeriesPayload{Slug: slug, Metric: metric, Period: period, Hourly: hourly}, points)
 }
 
-func writeSeries(w http.ResponseWriter, body seriesBody, points []store.Point) {
+func writeSeries(w http.ResponseWriter, body snapshot.SeriesPayload, points []store.Point) {
 	// Allocated with make, not left nil: a nil slice marshals to `null`, and a
 	// charting library handed null throws instead of drawing an empty axis.
 	body.Times = make([]time.Time, 0, len(points))

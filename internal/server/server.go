@@ -12,9 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
+	"airbg.org/internal/admit"
 	"airbg.org/internal/api"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
@@ -36,6 +38,14 @@ type Options struct {
 	TrustedProxyCIDRs []string
 	BaseURL           string
 	Logger            *slog.Logger
+
+	// MaxDBInflight bounds how many requests may be inside a database query at
+	// once, across every client. See internal/admit and config.MaxDBInflight.
+	MaxDBInflight int32
+
+	// MaxConns bounds how many connections the public listener holds open at
+	// once. See internal/httpx.LimitListener and config.MaxConns.
+	MaxConns int32
 }
 
 type Server struct {
@@ -45,6 +55,7 @@ type Server struct {
 	breadth       *ratelimit.Breadth
 	seriesLimiter *ratelimit.Limiter
 	log           *slog.Logger
+	maxConns      int32
 }
 
 // Timeouts. Every one of these is a bound on what a single connection can cost.
@@ -63,6 +74,15 @@ const (
 	// maxBodyBytes: this service answers GETs. Anything larger than a
 	// generously sized header block is not a request we serve.
 	maxBodyBytes = 64 << 10
+
+	// defaultMaxDBInflight is admit.DefaultSize, the one definition shared with
+	// config and api. Used only when Options.MaxDBInflight is zero — see the
+	// comment at its one call site.
+	defaultMaxDBInflight int32 = admit.DefaultSize
+
+	// defaultMaxConns matches config.defaultMaxConns. Used only when
+	// Options.MaxConns is zero — see the comment at its one call site.
+	defaultMaxConns int32 = 4096
 )
 
 // The rate limit. Deliberately generous for a human reading the map — a page
@@ -105,12 +125,40 @@ func New(opts Options) (*Server, error) {
 		ratelimit.EnumerationWindow,
 	)
 
+	// Built here, not left for api.NewRouter's fail-closed default, so its size
+	// is the operator's configured value rather than the package-level fallback.
+	//
+	// A zero Options.MaxDBInflight means "not set" rather than "admit nothing":
+	// config.Load always supplies a positive value in production, but tests
+	// (and any other caller that builds Options by hand) commonly omit it, and
+	// silently refusing every database-backed request would be a surprising way
+	// to find that out.
+	maxInflight := opts.MaxDBInflight
+	if maxInflight <= 0 {
+		maxInflight = defaultMaxDBInflight
+	}
+	admission, err := admit.New(int(maxInflight))
+	if err != nil {
+		return nil, fmt.Errorf("server: admission: %w", err)
+	}
+
+	// Zero means "not set" — the same convention as maxInflight above — but
+	// == 0 rather than <= 0: a negative value is a configuration mistake, and
+	// falling through to the error path is the honest response. config.Load
+	// never lets a negative value reach here in production; == 0 keeps that
+	// error path alive for any other caller that builds Options by hand.
+	maxConns := opts.MaxConns
+	if maxConns == 0 {
+		maxConns = defaultMaxConns
+	}
+
 	apiMux := api.NewRouter(api.Deps{
 		Snapshots:     opts.Snapshots,
 		Breadth:       breadth,
 		Store:         opts.Store,
 		BaseURL:       opts.BaseURL,
 		SeriesLimiter: seriesLimiter,
+		Admission:     admission,
 	})
 
 	// The API mounts under /api/; everything else is a page. One mux at the
@@ -148,6 +196,7 @@ func New(opts Options) (*Server, error) {
 		breadth:       breadth,
 		seriesLimiter: seriesLimiter,
 		log:           opts.Logger,
+		maxConns:      maxConns,
 	}
 	return s, nil
 }
@@ -178,7 +227,7 @@ func privateMux(opts Options) *http.ServeMux {
 func (s *Server) Run(ctx context.Context) error {
 	errCh := make(chan error, 2)
 
-	go func() { errCh <- listen(s.public) }()
+	go func() { errCh <- s.servePublic() }()
 	go func() { errCh <- listen(s.private) }()
 
 	// Sweeping the limiter and breadth maps is what keeps them bounded. Without
@@ -202,6 +251,22 @@ func (s *Server) Run(ctx context.Context) error {
 		// happens once shutdown is already under way.
 		return s.shutdown()
 	}
+}
+
+// servePublic listens and serves the public server under the connection cap.
+//
+// Separate from listen() because only the public listener is capped: the private
+// listener carries /metrics and /healthz on loopback, and capping it would mean a
+// connection flood could also blind the operator to the flood.
+func (s *Server) servePublic() error {
+	ln, err := net.Listen("tcp", s.public.Addr)
+	if err != nil {
+		return fmt.Errorf("listening on %s: %w", s.public.Addr, err)
+	}
+	if err := s.public.Serve(httpx.LimitListener(ln, int(s.maxConns))); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serving %s: %w", s.public.Addr, err)
+	}
+	return nil
 }
 
 func listen(srv *http.Server) error {

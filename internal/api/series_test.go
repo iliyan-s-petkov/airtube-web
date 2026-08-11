@@ -3,6 +3,7 @@ package api_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/admit"
 	"airbg.org/internal/api"
 	"airbg.org/internal/ratelimit"
+	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 )
 
@@ -23,7 +26,7 @@ func itoa(i int) string { return strconv.Itoa(i) }
 func withPoints(t *testing.T, points []store.Point) api.Deps {
 	t.Helper()
 	d := deps(t, fixture(t))
-	d.Store = stubSource{slug: "sofia", points: points}
+	d.Store = &stubSource{slug: "sofia", points: points}
 	return d
 }
 
@@ -159,7 +162,7 @@ func TestSensorSeriesEnumerationTrips(t *testing.T) {
 // pgx error carries the SQL and the table names.
 func TestSeriesDatabaseErrorIsNotLeaked(t *testing.T) {
 	d := deps(t, fixture(t))
-	d.Store = stubSource{err: errBoom}
+	d.Store = &stubSource{err: errBoom}
 
 	rec := serve(t, d, get("/api/v1/sensor/42/series?metric=P2&period=24h", "203.0.113.26"))
 	if rec.Code != http.StatusInternalServerError {
@@ -377,5 +380,274 @@ func TestSeriesRefusalIsCounted(t *testing.T) {
 		t.Errorf("airbg_series_rate_limited_total{dimension=\"sensor\"} rose by %d, want %d: "+
 			"a refusal on the database-backed path that no counter records is invisible to "+
 			"the operator precisely when it matters", got, refusals)
+	}
+}
+
+// newTestRouter builds a router over a stub store and a snapshot, reusing the
+// package's existing deps/router helpers rather than a parallel construction.
+//
+// Delegates to newTestRouterWithAdmission with a nil semaphore so the two
+// constructions cannot drift: a test that needs an explicit admission cap and
+// one that does not are otherwise easy to accidentally diverge.
+func newTestRouter(t *testing.T, stub *stubSource, snap *snapshot.Snapshot) http.Handler {
+	t.Helper()
+	return newTestRouterWithAdmission(t, stub, snap, nil)
+}
+
+// newTestRouterWithAdmission is newTestRouter with an explicit admission
+// semaphore, for tests that need to control the database admission cap
+// directly (a nil Admission would make NewRouter substitute the process-wide
+// default, sized 16, which these tests would then have to outrun).
+func newTestRouterWithAdmission(t *testing.T, stub *stubSource, snap *snapshot.Snapshot, sem *admit.Semaphore) http.Handler {
+	t.Helper()
+	d := deps(t, snap)
+	d.Store = stub
+	d.Admission = sem
+	return router(t, d)
+}
+
+// newSeriesRequest builds a GET request carrying a client IP, reusing the
+// package's existing get() helper. The IP is fixed and distinct from the ones
+// used elsewhere in this file: these tests build a fresh router (and so a
+// fresh breadth counter and rate limiter) per call, but a shared, unusual IP
+// keeps them from ever coincidentally colliding with another test's bucket.
+func newSeriesRequest(path string) *http.Request {
+	return get(path, "203.0.113.200")
+}
+
+// snapshotWithAreaSeries builds on fixture's minimal snapshot, replacing
+// KnownSlugs and AreaSeries with one entry per given slug.
+func snapshotWithAreaSeries(t *testing.T, slugs ...string) *snapshot.Snapshot {
+	t.Helper()
+	snap := fixture(t)
+	snap.KnownSlugs = make(map[string]snapshot.AreaMeta, len(slugs))
+	snap.AreaSeries = make(map[string]snapshot.Body, len(slugs))
+	for _, slug := range slugs {
+		snap.KnownSlugs[slug] = snapshot.AreaMeta{
+			Slug: slug, Kind: "oblast", NameBG: slug, NameEN: slug,
+			CentroidLon: 23.32, CentroidLat: 42.69, DefaultZoom: 9, Covered: true, SensorCount: 5,
+		}
+		snap.AreaSeries[slug] = snapshot.Body{
+			JSON: []byte(`{"slug":"` + slug + `","metric":"P2","period":"24h","hourly":false,"t":[],"v":[]}`),
+			Gzip: []byte("gzipped-series-" + slug),
+			ETag: `"series-` + slug + `"`,
+		}
+	}
+	return snap
+}
+
+// manySlugs returns n distinct, deterministic area slugs.
+func manySlugs(t *testing.T, n int) []string {
+	t.Helper()
+	slugs := make([]string, n)
+	for i := range slugs {
+		slugs[i] = fmt.Sprintf("area-%d", i)
+	}
+	return slugs
+}
+
+// breadthAreaLimitForTesting exposes the breadth area limit under the name
+// this file's tests expect. ratelimit.DistinctAreaLimit is already exported
+// for exactly this purpose (see TestAreaSensorsEnumerationTrips in
+// handlers_test.go), so this is a thin alias rather than a new production
+// accessor.
+func breadthAreaLimitForTesting() int { return ratelimit.DistinctAreaLimit }
+
+// TestDefaultAreaSeriesIsServedFromTheSnapshot is the whole point of the change:
+// the combination the frontend requests on every area page view must cost zero
+// database queries.
+func TestDefaultAreaSeriesIsServedFromTheSnapshot(t *testing.T) {
+	stub := &stubSource{}
+	srv := newTestRouter(t, stub, snapshotWithAreaSeries(t, "sofia"))
+
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/sofia/series?metric=P2&period=24h"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
+	}
+	if stub.areaSeriesCalls != 0 {
+		t.Errorf("AreaSeries called %d times, want 0 — the request reached the database", stub.areaSeriesCalls)
+	}
+	if got := rec.Header().Get("ETag"); got == "" {
+		t.Error("no ETag; the snapshot path must serve the prepared body, not a re-marshalled one")
+	}
+	// private, not public: a series response is keyed by slug, so it is
+	// enumerable and must never sit in a shared cache the breadth counter
+	// cannot see.
+	if got := rec.Header().Get("Cache-Control"); got != "private, max-age=150" {
+		t.Errorf("Cache-Control = %q, want \"private, max-age=150\"", got)
+	}
+}
+
+// TestNonDefaultAreaSeriesFallsThroughToTheDatabase. Only one combination is
+// precomputed; every other one must still work, or the metric and period
+// selectors in 3b have nothing to call.
+func TestNonDefaultAreaSeriesFallsThroughToTheDatabase(t *testing.T) {
+	for _, q := range []string{"metric=P1&period=24h", "metric=P2&period=7d"} {
+		t.Run(q, func(t *testing.T) {
+			stub := &stubSource{}
+			srv := newTestRouter(t, stub, snapshotWithAreaSeries(t, "sofia"))
+
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/sofia/series?"+q))
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
+			}
+			if stub.areaSeriesCalls != 1 {
+				t.Errorf("AreaSeries called %d times, want 1", stub.areaSeriesCalls)
+			}
+		})
+	}
+}
+
+// TestSnapshotSeriesSpendsNoSeriesToken. The series bucket is 1 rps / burst 10
+// and exists to protect Postgres. A request that issues no query must not spend
+// from it, or the frontend's own page views would exhaust the budget that is
+// there to bound the expensive path.
+func TestSnapshotSeriesSpendsNoSeriesToken(t *testing.T) {
+	stub := &stubSource{}
+	srv := newTestRouter(t, stub, snapshotWithAreaSeries(t, "sofia"))
+
+	before := api.SeriesRateLimitedCountForTesting("area")
+	// Comfortably more than the burst of 10.
+	for i := 0; i < 40; i++ {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/sofia/series?metric=P2&period=24h"))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200 — the snapshot path is spending tokens", i, rec.Code)
+		}
+	}
+	// Delta, not absolute: the counter is process-global.
+	if got := api.SeriesRateLimitedCountForTesting("area") - before; got != 0 {
+		t.Errorf("series refusals = %d, want 0", got)
+	}
+}
+
+// TestSnapshotSeriesIsStillCountedForBreadth. The response is per-entity and
+// enumerable whether it came from memory or from Postgres. If the fast path
+// skipped ObserveArea, a scraper could walk every slug's history for free —
+// which is precisely the extraction the tiering design exists to prevent.
+func TestSnapshotSeriesIsStillCountedForBreadth(t *testing.T) {
+	stub := &stubSource{}
+	slugs := manySlugs(t, breadthAreaLimitForTesting()+5) // more distinct slugs than the limit allows
+	srv := newTestRouter(t, stub, snapshotWithAreaSeries(t, slugs...))
+
+	var refused bool
+	for _, slug := range slugs {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/"+slug+"/series?metric=P2&period=24h"))
+		if rec.Code == http.StatusTooManyRequests {
+			refused = true
+			break
+		}
+	}
+	if !refused {
+		t.Error("walked more distinct slugs than the breadth limit allows without a single refusal")
+	}
+}
+
+// TestDefaultSeriesPeriodMatchesParsePeriod ties the snapshot's hardcoded window
+// to the api package's period vocabulary. Build derives `since` from
+// DefaultSeriesWindow; the handler derives it from parsePeriod. If those two ever
+// disagree, the snapshot serves a window that is not the one the label claims,
+// and nothing else in the suite would notice.
+func TestDefaultSeriesPeriodMatchesParsePeriod(t *testing.T) {
+	window, hourly, ok := api.ParsePeriodForTesting(snapshot.DefaultSeriesPeriod)
+	if !ok {
+		t.Fatalf("parsePeriod(%q) rejected the snapshot's default period", snapshot.DefaultSeriesPeriod)
+	}
+	if window != snapshot.DefaultSeriesWindow {
+		t.Errorf("window = %v, want %v", window, snapshot.DefaultSeriesWindow)
+	}
+	if hourly {
+		t.Error("hourly = true, but Build precomputes the raw series (hourly=false)")
+	}
+}
+
+// TestSeriesRefusesWhenAdmissionIsFull. The status is 503 with Retry-After, not
+// 429: the client did nothing wrong and its own limit is not the thing that was
+// exceeded. Telling it "too many requests" would be a lie, and a client that
+// backs off per-client when the server is globally saturated backs off wrongly.
+func TestSeriesRefusesWhenAdmissionIsFull(t *testing.T) {
+	sem, err := admit.New(1)
+	if err != nil {
+		t.Fatalf("admit.New: %v", err)
+	}
+	// Occupy the only slot for the duration of the request. Deterministic: no
+	// sleep and no race, the handler either finds a slot or it does not.
+	release, ok := sem.TryAcquire()
+	if !ok {
+		t.Fatal("could not occupy the semaphore")
+	}
+	defer release()
+
+	stub := &stubSource{}
+	srv := newTestRouterWithAdmission(t, stub, snapshotWithAreaSeries(t, "sofia"), sem)
+
+	before := api.AdmissionRejectedCountForTesting("area_series")
+	rec := httptest.NewRecorder()
+	// A period the snapshot does not precompute, so the request really wants
+	// the database.
+	srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/sofia/series?metric=P2&period=7d"))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "2" {
+		t.Errorf("Retry-After = %q, want \"2\"", got)
+	}
+	if stub.areaSeriesCalls != 0 {
+		t.Errorf("AreaSeries called %d times, want 0 — a refused request must cost no database work", stub.areaSeriesCalls)
+	}
+	if got := api.AdmissionRejectedCountForTesting("area_series") - before; got != 1 {
+		t.Errorf("admission refusals = %d, want 1", got)
+	}
+}
+
+// TestSeriesReleasesItsSlot. Without this the cap is a one-way ratchet: the
+// service would work for exactly `size` requests and refuse everything after,
+// which is a failure mode that only appears in production and looks like a
+// database outage.
+func TestSeriesReleasesItsSlot(t *testing.T) {
+	sem, err := admit.New(1)
+	if err != nil {
+		t.Fatalf("admit.New: %v", err)
+	}
+	stub := &stubSource{}
+	srv := newTestRouterWithAdmission(t, stub, snapshotWithAreaSeries(t, "sofia"), sem)
+
+	for i := 0; i < 3; i++ {
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/sofia/series?metric=P2&period=7d"))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200 — the slot was not released", i, rec.Code)
+		}
+	}
+	if got := sem.InFlight(); got != 0 {
+		t.Errorf("InFlight = %d after three completed requests, want 0", got)
+	}
+}
+
+// TestSnapshotSeriesDoesNotConsumeAdmission. The snapshot path issues no query,
+// so it must not compete for a slot sized against the database.
+func TestSnapshotSeriesDoesNotConsumeAdmission(t *testing.T) {
+	sem, err := admit.New(1)
+	if err != nil {
+		t.Fatalf("admit.New: %v", err)
+	}
+	release, ok := sem.TryAcquire()
+	if !ok {
+		t.Fatal("could not occupy the semaphore")
+	}
+	defer release()
+
+	srv := newTestRouterWithAdmission(t, &stubSource{}, snapshotWithAreaSeries(t, "sofia"), sem)
+
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, newSeriesRequest("/api/v1/area/sofia/series?metric=P2&period=24h"))
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 — a memory-served response was refused by a database cap", rec.Code)
 	}
 }

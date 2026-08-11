@@ -208,7 +208,7 @@ func TestEnumerationCheckRunsBeforeTheBodyIsWritten(t *testing.T) {
 		Snapshots: deps(t, fix).Snapshots,
 		// A limit of zero trips on the very first request.
 		Breadth: ratelimit.NewBreadth(0, 0, time.Hour),
-		Store:   stubSource{slug: "sofia"},
+		Store:   &stubSource{slug: "sofia"},
 		BaseURL: "https://airbg.org",
 	}
 
