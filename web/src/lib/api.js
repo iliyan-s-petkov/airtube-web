@@ -7,10 +7,17 @@
 // request is not merely wasteful, it spends a budget the user did not intend to
 // spend.
 
-// A 429 is retried once after a fixed delay. Deliberately not exponential
-// backoff: under a limiter, a page that keeps retrying is the storm the limiter
-// exists to stop.
+// A 429 is retried once, after the delay the server asked for. Deliberately
+// not exponential backoff: under a limiter, a page that keeps retrying is the
+// storm the limiter exists to stop.
 export const RATE_LIMIT_RETRY_MS = 2000
+
+// Ceiling on how long we will ever wait for a single retry. A server (or a CDN
+// in front of it) asking for longer than this is telling us it will not serve
+// this request soon — waiting it out would hang the page with no explanation,
+// which is worse than failing fast. When the server's Retry-After exceeds this,
+// we give up immediately rather than sleep the capped time and retry anyway.
+const RETRY_AFTER_CAP_MS = 30000
 
 // Keyed by URL, which already encodes (endpoint, entity, metric, period) — the
 // four things that identify a distinct response. Lives for the page's lifetime;
@@ -53,7 +60,15 @@ async function fetchOnce(url, retryOn429) {
   let response = await fetch(url, { headers: { Accept: 'application/json' } })
 
   if (response.status === 429 && retryOn429) {
-    await delay(RATE_LIMIT_RETRY_MS)
+    const retryMs = retryDelayMs(response)
+    if (retryMs > RETRY_AFTER_CAP_MS) {
+      // The server is asking for longer than we're willing to wait. Fail now
+      // instead of sleeping the capped time and retrying anyway — a server
+      // that says "try again in a day" is not going to be fixed by us trying
+      // again in 30 seconds.
+      throw new Error(`${url}: HTTP 429 (Retry-After exceeds ${RETRY_AFTER_CAP_MS}ms cap)`)
+    }
+    await delay(retryMs)
     response = await fetch(url, { headers: { Accept: 'application/json' } })
   }
   if (!response.ok) {
@@ -63,6 +78,21 @@ async function fetchOnce(url, retryOn429) {
     throw new Error(`${url}: HTTP ${response.status}`)
   }
   return response.json()
+}
+
+// Retry-After is legally either a delay in seconds or an HTTP-date. We only
+// honour the seconds form; anything else (a date, empty, negative, zero, NaN,
+// garbage text, or a missing header) falls back to the fixed delay. Falling
+// back to 0/undefined/NaN would hand setTimeout a delay that fires
+// immediately — precisely the retry-storm this module exists to prevent.
+function retryDelayMs(response) {
+  const header = response.headers && response.headers.get ? response.headers.get('Retry-After') : null
+  if (header == null || header === '') return RATE_LIMIT_RETRY_MS
+
+  const seconds = Number(header)
+  if (!Number.isFinite(seconds) || seconds <= 0) return RATE_LIMIT_RETRY_MS
+
+  return seconds * 1000
 }
 
 function delay(ms) {
