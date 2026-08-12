@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales } from '../map.js'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData } from '../map.js'
+import { clearCache } from '../../lib/api.js'
+import { NO_DATA_COLOUR } from '../../lib/colour.js'
 
 // urlFor is the anti-enumeration seam: it is the ONLY place a tier turns into a
 // request URL, and it must never accept a bounding box or build one from a
@@ -115,15 +117,20 @@ describe('readConfig', () => {
     expect(cfg.basemap).toBe('')
   })
 
-  it('carries every server-rendered translation string through to cfg.t', () => {
+  // toEqual, not toMatchObject: cfg.t must contain exactly these keys. A field
+  // read from an attribute no template renders any more (t.noData, dropped with
+  // data-t-no-data) is the same "written but never read" asymmetry pointing the
+  // other way, and it silently resolves to ''.
+  it('carries every server-rendered translation string through to cfg.t, and no others', () => {
     const cfg = readConfig({
       dataset: {
-        tLegend: 'Air quality', tNoData: 'Not enough data', tHint: 'Select an area',
+        tLegend: 'Air quality', tHint: 'Select an area',
         tRateLimited: 'Retrying', tUnavailable: 'Unavailable',
+        tNoData: 'Not enough data', // no longer rendered; must not reappear in cfg
       },
     })
     expect(cfg.t).toEqual({
-      legend: 'Air quality', noData: 'Not enough data', hint: 'Select an area',
+      legend: 'Air quality', hint: 'Select an area',
       rateLimited: 'Retrying', unavailable: 'Unavailable',
     })
   })
@@ -172,6 +179,33 @@ describe('debounce', () => {
   })
 })
 
+// hintController is the precedence rule: an error outranks the routine tier
+// hint permanently. `render` is the only side effect, so these drive the real
+// rule with an array as the sink — no DOM, and no second implementation that
+// could disagree with the one the page runs.
+describe('hintController', () => {
+  it('shows and clears the routine hint while no error is outstanding', () => {
+    const rendered = []
+    const c = hintController((t) => rendered.push(t))
+
+    c.showHint('Select an area')
+    c.showHint('')
+
+    expect(rendered).toEqual(['Select an area', ''])
+  })
+
+  it('refuses to let a later showHint erase an error', () => {
+    const rendered = []
+    const c = hintController((t) => rendered.push(t))
+
+    c.showError('Map data is unavailable right now')
+    c.showHint('')
+    c.showHint('Select an area')
+
+    expect(rendered).toEqual(['Map data is unavailable right now'])
+  })
+})
+
 // loadScales: without the band tables every marker is painted NO_DATA_COLOUR,
 // so a failed /api/v1/scales produces a uniformly grey map. On an air-quality
 // site that reads as "the whole country has insufficient data" — a confident
@@ -181,8 +215,12 @@ describe('loadScales', () => {
   const cfg = { t: { unavailable: 'Map data is unavailable right now' } }
 
   function stubChrome() {
-    const hints = []
-    return { hints, showHint: (text) => hints.push(text) }
+    const calls = []
+    return {
+      calls,
+      showHint: (text) => calls.push(['hint', text]),
+      showError: (text) => calls.push(['error', text]),
+    }
   }
 
   it('explains an all-grey map when the scales request fails', async () => {
@@ -190,21 +228,101 @@ describe('loadScales', () => {
     const scales = await loadScales(chrome, cfg, async () => { throw new Error('HTTP 500') })
 
     expect(scales).toBe(null)
-    expect(chrome.hints).toContain(cfg.t.unavailable)
+    // showError, not showHint: the scales are never refetched, so the condition
+    // is permanent for this page and the message must outrank the tier hint.
+    expect(chrome.calls).toEqual([['error', cfg.t.unavailable]])
   })
 
-  it('shows no hint when the scales load, so the banner keeps its meaning', async () => {
+  it('says nothing when the scales load, so the banner keeps its meaning', async () => {
     const chrome = stubChrome()
     const tables = [{ metric: 'P2', bands: [{ upper: 10, colour: '#000000' }] }]
     const scales = await loadScales(chrome, cfg, async () => tables)
 
     expect(scales).toBe(tables)
-    expect(chrome.hints).toEqual([])
+    expect(chrome.calls).toEqual([])
   })
 
   it('asks the scales endpoint and nothing else', async () => {
     const urls = []
     await loadScales(stubChrome(), cfg, async (url) => { urls.push(url); return [] })
     expect(urls).toEqual(['/api/v1/scales'])
+  })
+})
+
+// initData is the ORDERING test, and it is the one that matters. The three
+// loadScales cases above all passed while the fix was unreachable in
+// production: initData runs refresh immediately afterwards, refresh calls
+// showHint('') whenever the zoom's tier is served as-is, and clear-on-empty
+// then wiped the explanation before the visitor ever saw it. Nothing that
+// exercises either function alone can observe that.
+//
+// Driven through the REAL hintController with an array sink and a fake map
+// object (getZoom/getSource only — refresh touches nothing else), over a
+// stubbed global fetch. No jsdom, no MapLibre, no component render.
+describe('initData ordering', () => {
+  const cfg = {
+    metric: 'P2',
+    t: { hint: 'Select an area', unavailable: 'Map data is unavailable right now' },
+  }
+
+  // Zoom 7 is the index page's server-rendered default, where tierFor gives
+  // 'country' and refresh serves it as-is — so refresh takes the showHint('')
+  // path. That is the production scenario, not a contrived one.
+  function fakeMap(zoom = 7) {
+    const painted = []
+    return {
+      painted,
+      getZoom: () => zoom,
+      getSource: () => ({ setData: (data) => painted.push(data) }),
+    }
+  }
+
+  function stubFetch({ scalesOk }) {
+    return vi.fn(async (url) => {
+      if (url === '/api/v1/scales') {
+        if (!scalesOk) return { ok: false, status: 500, headers: new Headers() }
+        return {
+          ok: true, status: 200, headers: new Headers(),
+          json: async () => [{ metric: 'P2', bands: [{ upper: 10, colour: '#00ff00' }] }],
+        }
+      }
+      return {
+        ok: true, status: 200, headers: new Headers(),
+        json: async () => ({ areas: [{ slug: 'sofia', lon: 23.3, lat: 42.7, covered: true, values: { P2: 5 }, sensor_count: 9 }] }),
+      }
+    })
+  }
+
+  beforeEach(() => { clearCache() })
+
+  it('still explains the grey map after refresh has run', async () => {
+    vi.stubGlobal('fetch', stubFetch({ scalesOk: false }))
+    const rendered = []
+    const chrome = hintController((t) => rendered.push(t))
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+
+    await initData(map, state, cfg, chrome)
+
+    // The FINAL displayed state, not "was called with it at some point":
+    // refresh's showHint('') runs after the error and used to win.
+    expect(rendered.at(-1)).toBe(cfg.t.unavailable)
+    expect(state.scales).toBe(null)
+    // And the aggregate fetch still succeeded, so this is the exact scenario
+    // the fix exists for: real markers, no colour scale, uniformly grey.
+    expect(map.painted).toHaveLength(1)
+    expect(map.painted[0].features[0].properties.colour).toBe(NO_DATA_COLOUR)
+  })
+
+  it('leaves the banner empty when everything loads', async () => {
+    vi.stubGlobal('fetch', stubFetch({ scalesOk: true }))
+    const rendered = []
+    const chrome = hintController((t) => rendered.push(t))
+    const map = fakeMap()
+
+    await initData(map, { slug: null, tier: null, scales: null }, cfg, chrome)
+
+    expect(rendered.at(-1)).toBe('')
+    expect(map.painted[0].features[0].properties.colour).toBe('#00ff00')
   })
 })

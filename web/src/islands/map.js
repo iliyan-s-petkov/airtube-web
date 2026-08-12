@@ -55,9 +55,7 @@ export function mount(el) {
       },
     })
 
-    state.scales = await loadScales(chrome, cfg)
-
-    await refresh(map, state, cfg, chrome)
+    await initData(map, state, cfg, chrome)
   })
 
   map.on('moveend', debounce(() => refresh(map, state, cfg, chrome), MOVE_DEBOUNCE_MS))
@@ -72,22 +70,39 @@ export function mount(el) {
   })
 }
 
+// initData is the whole body of the MapLibre 'load' handler after the source and
+// layer exist: load the colour scales, then paint.
+//
+// Exported as ONE unit, and tested as one, because the ORDER of these two steps
+// is load-bearing and a per-function test cannot see it. Round 1 of this fix
+// tested loadScales in isolation and passed while being unreachable in
+// production: refresh calls showHint('') on the ordinary path, which used to
+// erase the scales-failure explanation set moments earlier. The bug lived
+// between the two functions, so the test has to span both.
+export async function initData(map, state, cfg, chrome) {
+  state.scales = await loadScales(chrome, cfg)
+  await refresh(map, state, cfg, chrome)
+}
+
 // loadScales fetches the band tables once per page load. Cache-Control: public,
 // so it costs nothing on a repeat visit.
 //
 // A null result is NOT silent. Without the band tables, bandsFor returns [] and
 // colourFor paints every marker NO_DATA_COLOUR — a uniformly grey map, which on
 // an air-quality site reads as "the whole country has insufficient data" rather
-// than "we could not load the colour scale". Showing the same hint refresh
-// already shows on a failed fetch explains the grey instead of merely
-// displaying it.
+// than "we could not load the colour scale".
 //
-// Exported and given its dependencies as arguments so a test can drive both
-// branches with a stub chrome object — the call site lives inside a MapLibre
-// 'load' handler, which no pure-logic test can reach.
+// Reported through showError, not showHint: the scales are fetched exactly once
+// per page load and never retried, so an all-grey map is permanent for the
+// lifetime of the page and its explanation has to be too. showHint's text is
+// recomputed on every refresh and cleared when it does not apply — which is
+// precisely what silently erased this message before.
+//
+// Given its dependencies as arguments so a test can drive both branches with a
+// stub chrome — the call site is inside a MapLibre 'load' handler.
 export async function loadScales(chrome, cfg, fetchJSON = getJSON) {
   const scales = await fetchJSON('/api/v1/scales').catch(() => null)
-  if (scales === null) chrome.showHint(cfg.t.unavailable)
+  if (scales === null) chrome.showError(cfg.t.unavailable)
   return scales
 }
 
@@ -198,7 +213,6 @@ export function readConfig(el) {
     // catalogue, and a second copy here would drift on the first edit.
     t: {
       legend: d.tLegend || '',
-      noData: d.tNoData || '',
       hint: d.tHint || '',
       rateLimited: d.tRateLimited || '',
       unavailable: d.tUnavailable || '',
@@ -214,6 +228,38 @@ function emptyCollection() {
 // basemap is configured. Data markers still render, over a plain background.
 function blankStyle() {
   return { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#eef2f5' } }] }
+}
+
+// hintController owns the ONE rule about the hint banner: an error outranks the
+// routine hint, permanently.
+//
+// showHint is called on every refresh with the text that applies right now, and
+// with '' when none does — that clear-on-empty is what makes the tier hint
+// disappear when it stops applying. It is also what silently erased the
+// scales-failure explanation, because refresh runs immediately after the scales
+// load and calls showHint('') whenever the zoom's tier is served as-is (the
+// common case: zoom 7 on / and zoom ~10 on an area page). ANYONE ADDING A
+// showHint CALL SHOULD KNOW IT CAN ERASE A REAL ERROR MESSAGE — use showError
+// for anything the visitor must keep seeing.
+//
+// Pure and separate from the DOM on purpose: `render` is the only side effect,
+// so the precedence rule itself can be driven by a test with an array as the
+// sink instead of a browser, and the rule the test exercises is the same code
+// the page runs.
+export function hintController(render) {
+  let stickyError = ''
+  return {
+    showHint(text) {
+      // Deliberately not "only ignore the empty string": once the map is known
+      // to be uncoloured, the tier hint is the lesser message too.
+      if (stickyError) return
+      render(text)
+    },
+    showError(text) {
+      stickyError = text
+      render(text)
+    },
+  }
 }
 
 export function debounce(fn, ms) {
@@ -244,10 +290,10 @@ function mountChrome(el, cfg) {
   hint.hidden = true
   el.appendChild(hint)
 
-  return {
-    showHint(text) {
-      hint.textContent = text
-      hint.hidden = !text
-    },
-  }
+  // The precedence rule lives in hintController; this is only the wiring from
+  // its decision to the banner. textContent, never innerHTML.
+  return hintController((text) => {
+    hint.textContent = text
+    hint.hidden = !text
+  })
 }
