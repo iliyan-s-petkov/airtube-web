@@ -142,7 +142,7 @@ Every value below is the value the code uses today.
 listen:
   addr: "127.0.0.1:8080"
   metrics_addr: "127.0.0.1:9090"
-  base_url: ""
+  base_url: "http://localhost:8080"
   trusted_proxy_cidrs: []
   max_conns: 4096
 
@@ -176,8 +176,13 @@ ratelimit:
     retry_after: 2s
   enumerate:
     areas_per_window: 12
+    sensors_per_window: 40
     window: 1h
     retry_after: 900s
+
+cache:
+  data_max_age: 150s
+  scales_max_age: 24h
 
 upstream:
   url: "https://data.sensor.community/airrohr/v1/filter/country=BG"
@@ -336,6 +341,9 @@ Every scalar is validated at load with an error that names the key. Not a generi
 | `upstream.max_payload_bytes` | `> 0` |
 | `upstream.url`, `basemap.style_url` | existing rules unchanged: absolute `https`, no userinfo, plain host or host:port, host no longer than `basemap.max_host_length` |
 | `listen.trusted_proxy_cidrs` | existing rule unchanged: each entry parses as a CIDR |
+| `listen.addr` vs `listen.metrics_addr` | existing rule unchanged: must differ. Equal addresses put `/metrics` on the public chain, handing an attacker the counters that show whether their probing is being limited |
+| `cache.data_max_age` | `> 0`, and **`<= upstream.poll_interval / 2`**. The existing comment explains why: a `max-age` equal to the poll interval means a copy cached one second after a rebuild is served until one second after the *next* one — nearly two cycles of staleness. Half the interval bounds it at one. Retuning `poll_interval` without this check silently doubles worst-case staleness, so the relationship is validated rather than left as a comment |
+| `cache.scales_max_age` | `> 0` |
 | `database.statement_timeouts.*` | non-empty, and parses as a Postgres interval the same way the current constants do |
 
 **Why the `ranges` completeness rule matters more than it looks.** `quality.InRange` looks up
@@ -401,8 +409,8 @@ Constants are **deleted**, not shadowed. Each package receives only its group.
 |---|---|
 | `internal/quality` | `Score`, `SpatialCheck`, `InRange` become methods on a `Scorer` built by `NewScorer(cfg.Quality)`. Deletes `minNeighbours`, `madScale`, `madThreshold`, `NeighbourRadiusMetres`, `earthRadiusMetres`, `metricRanges`. `NewHistory` takes `history_depth` from config at its one call site |
 | `internal/store` | `New(pool, cfg.Store)`. Deletes `CoverageThreshold` and `freshnessWindow`; `internal/api/overview.go` reads the config value for the `coverage_threshold` field it publishes |
-| `internal/ratelimit` | `NewLimiter` takes the shard count. `EnumerationWindow` and the 12-area cap become constructor parameters |
-| `internal/api` | `Deps` gains the rate, period and retry-after values. Deletes `seriesRate`, `seriesBucketTTL`, `seriesEvictInterval`, `defaultMaxDBInflight`, the period map, and the literal `Retry-After` strings in `sensors.go` and `series.go` |
+| `internal/ratelimit` | `New` takes the shard count. `DistinctAreaLimit` (12), `DistinctSensorLimit` (40) and `EnumerationWindow` are deleted — `NewBreadth` already takes all three as parameters, so only the constants at the `server.go` call site move to config |
+| `internal/api` | `Deps` gains the rate, period, retry-after and cache values. Deletes `seriesRate`, `seriesBucketTTL`, `seriesEvictInterval`, `defaultMaxDBInflight`, the period map, `dataMaxAge`, `scalesMaxAge`, and the literal `Retry-After` strings in `sensors.go` and `series.go`. `cachePublic`/`cachePrivate` are **not** configurable — they are the anti-extraction control described in §6.3's reasoning, not a tunable |
 | `internal/server` | `Options` gains the timeouts and the bucket TTL pair. Deletes `apiRate`, the five timeout constants, `bucketTTL`, `evictInterval`, `defaultMaxConns` |
 | `internal/snapshot` | `DefaultSeriesWindow` and `DefaultSeriesMetric` become fields derived from `series.default_period` and `series.default_metric` |
 | `internal/upstream` | `New(url, timeout, maxPayloadBytes)`. Deletes `maxPayloadBytes` |
