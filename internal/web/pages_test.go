@@ -43,6 +43,28 @@ func TestHandWrittenStaticIsCacheableButNotImmutable(t *testing.T) {
 	}
 }
 
+// TestMapLibreWorkerFilesAreNotImmutablyCached. These two files are unhashed
+// by necessity (MapLibre resolves them itself at runtime, so their URL must
+// stay fixed across a version bump), which means the usual immutable header
+// would let a stale pair survive for up to a year after a bump — silently,
+// since a mismatched worker produces no console error, just a map that never
+// finishes loading. A short, revalidating TTL bounds that instead.
+func TestMapLibreWorkerFilesAreNotImmutablyCached(t *testing.T) {
+	rr := renderer(t, nil)
+
+	for _, name := range []string{"maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"} {
+		t.Run(name, func(t *testing.T) {
+			rec := fetch(t, rr, "/static/build/assets/"+name)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (has `npm run build` been run in web/?)", rec.Code)
+			}
+			if got, want := rec.Header().Get("Cache-Control"), "public, max-age=300, must-revalidate"; got != want {
+				t.Errorf("Cache-Control = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 // TestStaticDirectoriesAre404NotListings. A listing enumerates every chunk and
 // every asset for free. net/http's FileServer does this by default, so the
 // absence of a wrapper is the bug.
