@@ -328,7 +328,17 @@ func TestEndToEndPageRendersFromTheDatabase(t *testing.T) {
 	if !strings.Contains(body, `data-island="map"`) {
 		t.Error("the area page did not render the map island — page may be blank")
 	}
-	if strings.Contains(body, "Недостатъчно данни") {
+	// A bare Contains(body, "Недостатъчно данни") is satisfied by
+	// data-t-no-data="Недостатъчно данни" — the map island's attribute,
+	// present on every area page regardless of coverage (area.gohtml:36) —
+	// because "Недостатъчно данни" (map.legend.no_data) is a strict prefix of
+	// "Недостатъчно данни за този район" (area.no_coverage). That collision
+	// made this assertion fire unconditionally once Task 7 added the chart
+	// island's sibling attributes to the same block; match the exact markup
+	// of area.gohtml's {{else}} branch instead, the way the sensor-count
+	// assertion above already does.
+	const wantNoCoverageMarkup = `<p><strong>Недостатъчно данни за този район</strong></p>`
+	if strings.Contains(body, wantNoCoverageMarkup) {
 		t.Error("a covered area is shown as uncovered")
 	}
 }
