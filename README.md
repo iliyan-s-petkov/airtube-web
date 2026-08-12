@@ -262,11 +262,34 @@ unless `AIRBG_LIVE_TEST=1` is set.
 ## Container image
 
 ```bash
-docker build -t airbg:dev .
+docker build -t airbg .
 ```
 
 Produces a distroless, non-root image with a single static binary as its
-entrypoint (default command `collect`). No shell, no package manager.
+entrypoint (default command `serve`; run the collector separately with
+`docker run ... airbg collect`). No shell, no package manager.
+
+The build is multi-stage: a `node:26-alpine` stage runs `npm ci
+--ignore-scripts` and `npm run build` inside `web/` to produce the Vite
+bundle, a `golang:1.26` stage embeds that bundle and compiles the binary, and
+the final stage is `gcr.io/distroless/static-debian13:nonroot` with nothing
+but the binary in it. Nothing from `node_modules` or the Node toolchain
+reaches the runtime image.
+
+For local development, build the frontend once and then run the server
+directly:
+
+```bash
+cd web && npm ci --ignore-scripts && npm run build
+cd ..
+go run ./cmd/airbg serve
+```
+
+Skipping the `npm run build` step is a supported, if degraded, mode: the
+server starts fine and serves the same pages without the map or chart
+islands (no JavaScript, no CSS from the bundle), and logs one line at
+startup — `assets state="no manifest — serving without islands (run 'npm
+run build' in web/)"` — so the gap is discoverable rather than silent.
 
 ## Known limitations
 
