@@ -13,8 +13,10 @@ describe('resolveLoader', () => {
   it('resolves the registered "map" island to a loader function', () => {
     expect(typeof resolveLoader('map')).toBe('function')
   })
+  it('resolves the registered "chart" island to a loader function', () => {
+    expect(typeof resolveLoader('chart')).toBe('function')
+  })
   it('resolves an unregistered island name to null, not undefined and not a throw', () => {
-    expect(resolveLoader('chart')).toBeNull()
     expect(resolveLoader('')).toBeNull()
     expect(resolveLoader('nonsense')).toBeNull()
   })

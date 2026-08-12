@@ -7,11 +7,17 @@
 
 {{if .Area.Covered}}
   <p>{{.Area.SensorCount}} {{.T "area.sensors"}}</p>
-  {{/* Phase 3 mounts the chart island here; the data comes from
-       /api/v1/area/{slug}/series. Server-side we render the sensor count and
-       the coverage state only — the numbers themselves live behind the API so
-       there is exactly one place that applies the quality filter. */}}
-  <div id="chart" data-island="chart" data-slug="{{.Area.Slug}}"></div>
+  {{/* The chart island: one series, one metric (P2), one period (24h) — period
+       and metric selectors are Phase 3b. Server-side we render the sensor
+       count and the coverage state only — the numbers themselves live behind
+       the API so there is exactly one place that applies the quality filter. */}}
+  <div id="chart" data-island="chart"
+       data-slug="{{.Area.Slug}}"
+       data-metric="P2"
+       data-period="24h"
+       data-t-title="{{.T "chart.title"}}"
+       data-t-empty="{{.T "chart.empty"}}"
+       data-t-value="{{.T "chart.axis.value"}}"></div>
 {{else}}
   <div class="notice">
     <p><strong>{{.T "area.no_coverage"}}</strong></p>

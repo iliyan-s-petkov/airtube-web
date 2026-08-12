@@ -7,7 +7,7 @@
 // emits the attributes.
 const ISLANDS = {
   map: () => import('./islands/map.js'),
-  // chart: () => import('./islands/chart.js'), // added by a later task
+  chart: () => import('./islands/chart.js'),
 }
 
 // resolveLoader is the pure lookup at the heart of "leave the server-rendered

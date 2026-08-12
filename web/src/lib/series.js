@@ -1,6 +1,13 @@
 // uPlot wants [xs, ys] with x in epoch SECONDS, so the only transform is a
 // divide by 1000. Handing it milliseconds renders every point in 1970 and
 // throws no error, which is why the unit is asserted directly in the test.
+//
+// uPlot also requires x to be monotonically increasing, and this function
+// does not sort or check that — deliberately: sorting here would be dead code
+// today and would silently hide a server regression tomorrow. The precondition
+// holds because every series query this consumes ends `ORDER BY time` or
+// `ORDER BY bucket`, ascending (internal/store/aggregate.go: AreaSeries,
+// AllAreaSeries) — the server is the source of that guarantee, not this file.
 export function toUplotData(body) {
   const times = body?.t ?? []
   const values = body?.v ?? []
