@@ -125,3 +125,35 @@ func TestCommittedConfigHasEveryKey(t *testing.T) {
 		t.Errorf("airbg.yaml is missing %d keys: %v", len(missing), missing)
 	}
 }
+
+// readRaw must reject secrets at the file level, not just accept valid files.
+// This test proves the rejectSecrets call inside readRaw is actually wired.
+func TestReadRawRejectsSecretsViaSecretKeys(t *testing.T) {
+	path := writeTemp(t, "basemap:\n  key: \"abc123\"\nlisten:\n  addr: \"127.0.0.1:8080\"\n")
+	_, err := readRaw(path)
+	if err == nil {
+		t.Fatal("readRaw with basemap.key secret error = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "basemap.key") {
+		t.Errorf("error %q does not name basemap.key", err)
+	}
+	if !strings.Contains(err.Error(), "environment") {
+		t.Errorf("error %q does not mention environment variable", err)
+	}
+}
+
+// readRaw must reject full-path secret matches (database.url), proving the
+// secretPaths wiring is integrated into readRaw.
+func TestReadRawRejectsSecretsViaSecretPaths(t *testing.T) {
+	path := writeTemp(t, "database:\n  url: \"postgres://u:p@h/db\"\nlisten:\n  addr: \"127.0.0.1:8080\"\n")
+	_, err := readRaw(path)
+	if err == nil {
+		t.Fatal("readRaw with database.url secret error = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "database.url") {
+		t.Errorf("error %q does not name database.url", err)
+	}
+	if !strings.Contains(err.Error(), "AIRBG_DATABASE_URL") {
+		t.Errorf("error %q does not mention AIRBG_DATABASE_URL", err)
+	}
+}
