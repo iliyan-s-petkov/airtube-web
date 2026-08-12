@@ -29,7 +29,7 @@ func TestTemperatureOutlierIsFlagged(t *testing.T) {
 	neighbours := []Neighbour{
 		{Value: -10}, {Value: -9.5}, {Value: -10.5}, {Value: -11},
 	}
-	if got := SpatialCheck("temperature", 22, neighbours); got != FlagSpatialOutlier {
+	if got := testScorer().SpatialCheck("temperature", 22, neighbours); got != FlagSpatialOutlier {
 		t.Errorf("SpatialCheck = %v, want %v", got, FlagSpatialOutlier)
 	}
 }
@@ -38,7 +38,7 @@ func TestNormalTemperatureVariationIsNotFlagged(t *testing.T) {
 	neighbours := []Neighbour{
 		{Value: -10}, {Value: -9.5}, {Value: -10.5}, {Value: -11},
 	}
-	if got := SpatialCheck("temperature", -9.8, neighbours); got != FlagOK {
+	if got := testScorer().SpatialCheck("temperature", -9.8, neighbours); got != FlagOK {
 		t.Errorf("SpatialCheck = %v, want %v", got, FlagOK)
 	}
 }
@@ -49,7 +49,7 @@ func TestTightNeighbourhoodDoesNotFlagNormalVariation(t *testing.T) {
 	neighbours := []Neighbour{
 		{Value: 20}, {Value: 20}, {Value: 20}, {Value: 20},
 	}
-	if got := SpatialCheck("temperature", 21, neighbours); got != FlagOK {
+	if got := testScorer().SpatialCheck("temperature", 21, neighbours); got != FlagOK {
 		t.Errorf("SpatialCheck = %v, want %v — floor not applied", got, FlagOK)
 	}
 }
@@ -61,7 +61,7 @@ func TestRealPMEpisodeIsNotFlagged(t *testing.T) {
 	neighbours := []Neighbour{
 		{Value: 180}, {Value: 210}, {Value: 195}, {Value: 220},
 	}
-	if got := SpatialCheck("P1", 200, neighbours); got != FlagOK {
+	if got := testScorer().SpatialCheck("P1", 200, neighbours); got != FlagOK {
 		t.Errorf("SpatialCheck = %v, want %v", got, FlagOK)
 	}
 }
@@ -72,7 +72,7 @@ func TestLocalPMSourceIsNotFlagged(t *testing.T) {
 	neighbours := []Neighbour{
 		{Value: 30}, {Value: 28}, {Value: 32}, {Value: 25},
 	}
-	if got := SpatialCheck("P1", 120, neighbours); got != FlagOK {
+	if got := testScorer().SpatialCheck("P1", 120, neighbours); got != FlagOK {
 		t.Errorf("SpatialCheck = %v, want %v", got, FlagOK)
 	}
 }
@@ -82,14 +82,14 @@ func TestBrokenPMSensorIsFlagged(t *testing.T) {
 	neighbours := []Neighbour{
 		{Value: 30}, {Value: 28}, {Value: 32}, {Value: 25},
 	}
-	if got := SpatialCheck("P1", 900, neighbours); got != FlagSpatialOutlier {
+	if got := testScorer().SpatialCheck("P1", 900, neighbours); got != FlagSpatialOutlier {
 		t.Errorf("SpatialCheck = %v, want %v", got, FlagSpatialOutlier)
 	}
 }
 
 func TestTooFewNeighbours(t *testing.T) {
 	neighbours := []Neighbour{{Value: -10}, {Value: -9}}
-	if got := SpatialCheck("temperature", 22, neighbours); got != FlagNoNeighbours {
+	if got := testScorer().SpatialCheck("temperature", 22, neighbours); got != FlagNoNeighbours {
 		t.Errorf("SpatialCheck = %v, want %v", got, FlagNoNeighbours)
 	}
 }
@@ -105,9 +105,9 @@ func TestNoNeighboursIsUsable(t *testing.T) {
 
 func TestSpatialCheckIsDeterministic(t *testing.T) {
 	neighbours := []Neighbour{{Value: -10}, {Value: -9.5}, {Value: -10.5}}
-	first := SpatialCheck("temperature", 22, neighbours)
+	first := testScorer().SpatialCheck("temperature", 22, neighbours)
 	for i := 0; i < 100; i++ {
-		if got := SpatialCheck("temperature", 22, neighbours); got != first {
+		if got := testScorer().SpatialCheck("temperature", 22, neighbours); got != first {
 			t.Fatalf("non-deterministic: got %v then %v", first, got)
 		}
 	}
@@ -115,7 +115,7 @@ func TestSpatialCheckIsDeterministic(t *testing.T) {
 
 func TestSpatialCheckDoesNotMutateInput(t *testing.T) {
 	neighbours := []Neighbour{{Value: 5}, {Value: 1}, {Value: 3}}
-	SpatialCheck("temperature", 3, neighbours)
+	testScorer().SpatialCheck("temperature", 3, neighbours)
 	want := []float64{5, 1, 3}
 	for i, n := range neighbours {
 		if math.Abs(n.Value-want[i]) > 1e-9 {

@@ -5,8 +5,31 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/upstream"
 )
+
+// testScorer builds a Scorer with the same values airbg.yaml ships, so the
+// existing assertions keep asserting the same thresholds.
+func testScorer() *Scorer {
+	return NewScorer(config.Quality{
+		MinNeighbours:         3,
+		MADScale:              1.4826,
+		MADThreshold:          3.5,
+		NeighbourRadiusMetres: 15000.0,
+		EarthRadiusMetres:     6371000.0,
+		HistoryDepth:          12,
+		Ranges: map[string]config.Range{
+			"P1":           {Min: 0, Max: 1000},
+			"P2":           {Min: 0, Max: 1000},
+			"temperature":  {Min: -40, Max: 60},
+			"humidity":     {Min: 0, Max: 100},
+			"pressure":     {Min: 650, Max: 1100},
+			"noise_LAeq":   {Min: 25, Max: 120},
+			"noise_LA_max": {Min: 25, Max: 120},
+		},
+	})
+}
 
 // Sofia, and points roughly 1 km apart from it.
 func at(id int64, metric string, value float64, lonOffset float64) upstream.Reading {
@@ -39,7 +62,7 @@ func TestScoreFlagsOutOfRangeBeforeAnythingElse(t *testing.T) {
 		at(3, "temperature", -10.5, 0.02),
 		at(4, "temperature", -9.5, 0.03),
 	}
-	scored := Score(readings, NewHistory(12))
+	scored := testScorer().Score(readings, NewHistory(12))
 	if got := flagOf(t, scored, 1); got != FlagOutOfRange {
 		t.Errorf("flag = %v, want %v", got, FlagOutOfRange)
 	}
@@ -53,7 +76,7 @@ func TestScoreFlagsTheSpecExample(t *testing.T) {
 		at(3, "temperature", -10.5, 0.02),
 		at(4, "temperature", -9.5, 0.03),
 	}
-	scored := Score(readings, NewHistory(12))
+	scored := testScorer().Score(readings, NewHistory(12))
 
 	if got := flagOf(t, scored, 1); got != FlagSpatialOutlier {
 		t.Errorf("broken sensor flag = %v, want %v", got, FlagSpatialOutlier)
@@ -100,7 +123,7 @@ func TestScoreExcludesOutOfRangeNeighboursFromTheReference(t *testing.T) {
 		at(7, "temperature", -999, 0.06),
 		at(8, "temperature", -999, 0.07),
 	}
-	scored := Score(readings, NewHistory(12))
+	scored := testScorer().Score(readings, NewHistory(12))
 
 	if got := flagOf(t, scored, 1); got != FlagOK {
 		t.Errorf("healthy sensor flag = %v, want %v — the dead −999 majority polluted the reference population", got, FlagOK)
@@ -137,7 +160,7 @@ func TestScoreFlagsNonFiniteValuesOutOfRange(t *testing.T) {
 			at(3, "temperature", -10.5, 0.02),
 			at(4, "temperature", -9.5, 0.03),
 		}
-		scored := Score(readings, NewHistory(12))
+		scored := testScorer().Score(readings, NewHistory(12))
 		if got := flagOf(t, scored, 1); got != FlagOutOfRange {
 			t.Errorf("value %v: flag = %v, want %v", v, got, FlagOutOfRange)
 		}
@@ -153,7 +176,7 @@ func TestScoreFlagsNonFiniteValuesOutOfRange(t *testing.T) {
 func TestOutOfRangeReadingNeverEntersHistory(t *testing.T) {
 	for _, v := range []float64{-999, math.NaN(), math.Inf(1)} {
 		hist := NewHistory(12)
-		Score([]upstream.Reading{at(1, "temperature", v, 0)}, hist)
+		testScorer().Score([]upstream.Reading{at(1, "temperature", v, 0)}, hist)
 
 		if _, ok := hist.state[1]["temperature"]; ok {
 			t.Errorf("value %v: an out-of-range reading was recorded in History — scoreOne must return before Observe", v)
@@ -166,7 +189,7 @@ func TestScoreReturnsEveryReading(t *testing.T) {
 		at(1, "temperature", 22, 0),
 		at(2, "temperature", -10, 0.01),
 	}
-	scored := Score(readings, NewHistory(12))
+	scored := testScorer().Score(readings, NewHistory(12))
 	if len(scored) != len(readings) {
 		t.Fatalf("len(scored) = %d, want %d — readings must never be dropped", len(scored), len(readings))
 	}
@@ -184,7 +207,7 @@ func TestScoreIsolatesMetrics(t *testing.T) {
 		at(3, "humidity", 48, 0.02),
 		at(4, "humidity", 51, 0.03),
 	}
-	scored := Score(readings, NewHistory(12))
+	scored := testScorer().Score(readings, NewHistory(12))
 
 	var tempFlag, humFlag Flag
 	for _, s := range scored {
@@ -216,7 +239,7 @@ func TestScoreFlagsStuckSensor(t *testing.T) {
 	}
 	var scored []Scored
 	for i := 0; i < 3; i++ {
-		scored = Score(readings, hist)
+		scored = testScorer().Score(readings, hist)
 	}
 	if got := flagOf(t, scored, 1); got != FlagStuck {
 		t.Errorf("flag = %v, want %v", got, FlagStuck)
@@ -226,13 +249,14 @@ func TestScoreFlagsStuckSensor(t *testing.T) {
 func TestPropertyReadingEqualToNeighbourMedianIsNeverFlagged(t *testing.T) {
 	// Invariant: a reading identical to its neighbours' median is always OK,
 	// for any in-range value and any neighbour count above the minimum.
+	s := testScorer()
 	for _, base := range []float64{-30, -10, 0, 5, 20, 35, 55} {
-		for n := minNeighbours; n <= 12; n++ {
+		for n := s.cfg.MinNeighbours; n <= 12; n++ {
 			readings := []upstream.Reading{at(1, "temperature", base, 0)}
 			for i := 1; i <= n; i++ {
 				readings = append(readings, at(int64(i+1), "temperature", base, float64(i)*0.005))
 			}
-			scored := Score(readings, NewHistory(1000))
+			scored := s.Score(readings, NewHistory(1000))
 			if got := flagOf(t, scored, 1); got != FlagOK {
 				t.Fatalf("base=%v n=%d: flag = %v, want %v", base, n, got, FlagOK)
 			}
@@ -251,7 +275,7 @@ func TestScoreExcludesSelfFromNeighbours(t *testing.T) {
 		at(2, "temperature", -10, 0.01),
 		at(3, "temperature", -10.5, 0.02),
 	}
-	scored := Score(readings, NewHistory(12))
+	scored := testScorer().Score(readings, NewHistory(12))
 	if got := flagOf(t, scored, 1); got != FlagNoNeighbours {
 		t.Errorf("flag = %v, want %v — sensor 1 appears to be counting itself as a neighbour", got, FlagNoNeighbours)
 	}
@@ -271,7 +295,7 @@ func TestCoLocatedSensorsAreDistinctNeighbours(t *testing.T) {
 		at(3, "temperature", -10.5, 0.01),
 		at(4, "temperature", -9.5, 0.02),
 	}
-	scored := Score(readings, NewHistory(12))
+	scored := testScorer().Score(readings, NewHistory(12))
 	if got := flagOf(t, scored, 1); got != FlagOK {
 		t.Errorf("sensor 1 flag = %v, want %v — co-located sensor 2 must still count as a neighbour", got, FlagOK)
 	}
@@ -287,13 +311,14 @@ func TestHaversineDistanceMatchesIndependentFormula(t *testing.T) {
 	const lon1, lat1 = 22.0, 41.0
 	const lon2, lat2 = 29.0, 45.0
 
-	got := haversineMetres(lon1, lat1, lon2, lat2)
+	s := testScorer()
+	got := s.haversineMetres(lon1, lat1, lon2, lat2)
 
 	// Independent reference: the spherical law of cosines, hand-derived and
 	// computed here directly rather than reusing the haversine formula under
 	// test, so a mistake in haversineMetres isn't self-confirming.
 	toRad := func(d float64) float64 { return d * math.Pi / 180 }
-	want := earthRadiusMetres * math.Acos(
+	want := s.cfg.EarthRadiusMetres * math.Acos(
 		math.Sin(toRad(lat1))*math.Sin(toRad(lat2))+
 			math.Cos(toRad(lat1))*math.Cos(toRad(lat2))*math.Cos(toRad(lon2-lon1)),
 	)
@@ -306,7 +331,7 @@ func TestHaversineDistanceMatchesIndependentFormula(t *testing.T) {
 	// Swapping lon/lat order at these coordinates changes the answer by a
 	// large margin, confirming the function's result is sensitive to argument
 	// order rather than accidentally symmetric.
-	swapped := haversineMetres(lat1, lon1, lat2, lon2)
+	swapped := s.haversineMetres(lat1, lon1, lat2, lon2)
 	const minSwapDifference = 50000.0 // metres
 	if diff := math.Abs(got - swapped); diff < minSwapDifference {
 		t.Errorf("swapped coordinates gave a suspiciously similar distance: got=%v swapped=%v, want difference > %v", got, swapped, minSwapDifference)
@@ -322,12 +347,12 @@ func TestPropertyAddingMedianNeighbourNeverCausesAFlag(t *testing.T) {
 		at(3, "temperature", -10.5, 0.02),
 		at(4, "temperature", -9.5, 0.03),
 	}
-	if got := flagOf(t, Score(readings, NewHistory(1000)), 1); got != FlagOK {
+	if got := flagOf(t, testScorer().Score(readings, NewHistory(1000)), 1); got != FlagOK {
 		t.Fatalf("precondition failed: flag = %v", got)
 	}
 	for i := 0; i < 20; i++ {
 		readings = append(readings, at(int64(100+i), "temperature", -10.2, float64(i)*0.004))
-		if got := flagOf(t, Score(readings, NewHistory(1000)), 1); got != FlagOK {
+		if got := flagOf(t, testScorer().Score(readings, NewHistory(1000)), 1); got != FlagOK {
 			t.Fatalf("after adding %d median neighbours: flag = %v, want %v", i+1, got, FlagOK)
 		}
 	}

@@ -32,7 +32,7 @@ func TestInRange(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if got := InRange(c.metric, c.value); got != c.want {
+		if got := testScorer().InRange(c.metric, c.value); got != c.want {
 			t.Errorf("InRange(%q, %v) = %v, want %v", c.metric, c.value, got, c.want)
 		}
 	}
@@ -64,7 +64,7 @@ func TestInRangeRejectsNonFiniteValues(t *testing.T) {
 
 	for _, metric := range metrics {
 		for name, value := range nonFinite {
-			if InRange(metric, value) {
+			if testScorer().InRange(metric, value) {
 				t.Errorf("InRange(%q, %s) = true, want false — non-finite values must always fail closed", metric, name)
 			}
 		}
@@ -78,7 +78,7 @@ func TestInRangeRejectsNonFiniteValues(t *testing.T) {
 // assertion fails against the pre-change 800 hPa floor, demonstrating the bug
 // this widened range fixes.
 func TestPressureRangeAllowsBulgarianAltitude(t *testing.T) {
-	if !InRange("pressure", 690) {
+	if !testScorer().InRange("pressure", 690) {
 		t.Error("690 hPa must be InRange — this is exactly the case the pre-change 800 hPa floor wrongly rejected")
 	}
 }
@@ -87,7 +87,17 @@ func TestPressureRangeAllowsBulgarianAltitude(t *testing.T) {
 // disable the check: a value below the new 650 hPa floor must still be
 // rejected as out of range.
 func TestPressureRangeStillRejectsBelowFloor(t *testing.T) {
-	if InRange("pressure", 649.9) {
+	if testScorer().InRange("pressure", 649.9) {
 		t.Error("649.9 hPa must be out of range — below the new 650 hPa floor")
+	}
+}
+
+// TestInRangeRejectsUnknownMetric pins the branch the free function did not
+// have: a metric with no configured range must be rejected, not accepted. An
+// unknown metric flowing through unchecked is how bad data reaches an average.
+func TestInRangeRejectsUnknownMetric(t *testing.T) {
+	s := testScorer()
+	if s.InRange("PM9", 5) {
+		t.Error("InRange(\"PM9\", 5) = true, want false: an unconfigured metric must not pass unchecked")
 	}
 }
