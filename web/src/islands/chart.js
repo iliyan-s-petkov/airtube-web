@@ -15,6 +15,7 @@ export async function mount(el) {
     title: el.dataset.tTitle || '',
     empty: el.dataset.tEmpty || '',
     valueLabel: el.dataset.tValue || '',
+    unavailable: el.dataset.tUnavailable || '',
   }
   if (!cfg.slug) return // nothing to draw; leave the server-rendered aggregate
 
@@ -26,7 +27,15 @@ export async function mount(el) {
     body = await getJSON(url)
   } catch (err) {
     // The area page already shows the current aggregate value server-side, so a
-    // failed chart leaves a complete page rather than a hole.
+    // failed chart leaves a complete page rather than a hole — but an empty div
+    // is not a hole a reader can interpret. A 429 or a 5xx used to leave this
+    // container blank, which on an air-quality page is indistinguishable from
+    // "nothing to report", i.e. from clean air. Say the data is unavailable.
+    //
+    // textContent, never innerHTML: the string is server-rendered copy and the
+    // CSP has no 'unsafe-inline', so this is both the safe and the only working
+    // way to write it.
+    el.textContent = cfg.unavailable
     console.error('chart data:', err)
     return
   }

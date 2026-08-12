@@ -17,7 +17,12 @@
        data-period="24h"
        data-t-title="{{.T "chart.title"}}"
        data-t-empty="{{.T "chart.empty"}}"
-       data-t-value="{{.T "chart.axis.value"}}"></div>
+       data-t-value="{{.T "chart.axis.value"}}"
+       {{/* Reuses map.error.unavailable rather than adding a chart-specific
+            key: the sentence is generic ("data is unavailable right now") and
+            a second key would have to be translated, kept in parity across
+            both catalogues, and would say the same thing. */}}
+       data-t-unavailable="{{.T "map.error.unavailable"}}"></div>
 {{else}}
   <div class="notice">
     <p><strong>{{.T "area.no_coverage"}}</strong></p>

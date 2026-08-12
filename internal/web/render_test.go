@@ -398,6 +398,22 @@ func TestMapIslandCarriesItsConfiguration(t *testing.T) {
 	}
 }
 
+// TestChartIslandCarriesItsUnavailableString. The chart island writes this
+// string into its container when the series request fails; without the
+// attribute the island reads "" and a failed fetch leaves an empty div, which
+// on an air-quality page is indistinguishable from "nothing to report".
+func TestChartIslandCarriesItsUnavailableString(t *testing.T) {
+	body := fetch(t, renderer(t, fixture(t)), "/area/sofia").Body.String()
+	tag := islandTag(t, body, "chart")
+
+	// The value, not just the attribute name: an empty attribute would satisfy
+	// a name-only check and still leave the reader with a blank container.
+	want := `data-t-unavailable="Данните за картата в момента не са достъпни"`
+	if !strings.Contains(tag, want) {
+		t.Errorf("the chart island's tag is missing %s: %s", want, tag)
+	}
+}
+
 // islandTag returns the opening tag that carries data-island="<name>", so an
 // attribute assertion cannot be satisfied by a different island's identically
 // named attribute elsewhere on the page.

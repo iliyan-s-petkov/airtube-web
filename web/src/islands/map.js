@@ -55,9 +55,7 @@ export function mount(el) {
       },
     })
 
-    // Fetched once per page load and Cache-Control: public, so it costs nothing
-    // on a repeat visit.
-    state.scales = await getJSON('/api/v1/scales').catch(() => null)
+    state.scales = await loadScales(chrome, cfg)
 
     await refresh(map, state, cfg, chrome)
   })
@@ -72,6 +70,25 @@ export function mount(el) {
     state.slug = slug
     refresh(map, state, cfg, chrome)
   })
+}
+
+// loadScales fetches the band tables once per page load. Cache-Control: public,
+// so it costs nothing on a repeat visit.
+//
+// A null result is NOT silent. Without the band tables, bandsFor returns [] and
+// colourFor paints every marker NO_DATA_COLOUR — a uniformly grey map, which on
+// an air-quality site reads as "the whole country has insufficient data" rather
+// than "we could not load the colour scale". Showing the same hint refresh
+// already shows on a failed fetch explains the grey instead of merely
+// displaying it.
+//
+// Exported and given its dependencies as arguments so a test can drive both
+// branches with a stub chrome object — the call site lives inside a MapLibre
+// 'load' handler, which no pure-logic test can reach.
+export async function loadScales(chrome, cfg, fetchJSON = getJSON) {
+  const scales = await fetchJSON('/api/v1/scales').catch(() => null)
+  if (scales === null) chrome.showHint(cfg.t.unavailable)
+  return scales
 }
 
 // refresh fetches the tier the current zoom permits and repaints.

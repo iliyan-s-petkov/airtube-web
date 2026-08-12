@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce } from '../map.js'
+import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales } from '../map.js'
 
 // urlFor is the anti-enumeration seam: it is the ONLY place a tier turns into a
 // request URL, and it must never accept a bounding box or build one from a
@@ -169,5 +169,42 @@ describe('debounce', () => {
 
     expect(fn).toHaveBeenCalledWith('second')
     vi.useRealTimers()
+  })
+})
+
+// loadScales: without the band tables every marker is painted NO_DATA_COLOUR,
+// so a failed /api/v1/scales produces a uniformly grey map. On an air-quality
+// site that reads as "the whole country has insufficient data" — a confident
+// wrong answer — rather than as "the colour scale did not load". The hint is
+// what makes the two distinguishable.
+describe('loadScales', () => {
+  const cfg = { t: { unavailable: 'Map data is unavailable right now' } }
+
+  function stubChrome() {
+    const hints = []
+    return { hints, showHint: (text) => hints.push(text) }
+  }
+
+  it('explains an all-grey map when the scales request fails', async () => {
+    const chrome = stubChrome()
+    const scales = await loadScales(chrome, cfg, async () => { throw new Error('HTTP 500') })
+
+    expect(scales).toBe(null)
+    expect(chrome.hints).toContain(cfg.t.unavailable)
+  })
+
+  it('shows no hint when the scales load, so the banner keeps its meaning', async () => {
+    const chrome = stubChrome()
+    const tables = [{ metric: 'P2', bands: [{ upper: 10, colour: '#000000' }] }]
+    const scales = await loadScales(chrome, cfg, async () => tables)
+
+    expect(scales).toBe(tables)
+    expect(chrome.hints).toEqual([])
+  })
+
+  it('asks the scales endpoint and nothing else', async () => {
+    const urls = []
+    await loadScales(stubChrome(), cfg, async (url) => { urls.push(url); return [] })
+    expect(urls).toEqual(['/api/v1/scales'])
   })
 })
