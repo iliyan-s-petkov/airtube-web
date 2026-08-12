@@ -249,6 +249,39 @@ func assignScalar(dst reflect.Value, val string) error {
 	return nil
 }
 
+const (
+	// DatabaseURLEnv and BasemapKeyEnv are env-only by design: both are
+	// credentials, and airbg.yaml is committed.
+	DatabaseURLEnv = "AIRBG_DATABASE_URL"
+	BasemapKeyEnv  = "AIRBG_BASEMAP_KEY"
+)
+
+// Load reads the configuration named by AIRBG_CONFIG. There is no fallback
+// path: guessing one would be a default, and this project keeps none.
+func Load() (Config, error) {
+	path := os.Getenv(PathEnv)
+	if path == "" {
+		return Config{}, fmt.Errorf("config: %s is not set; it must name the airbg.yaml to load", PathEnv)
+	}
+	return LoadFile(path)
+}
+
+func LoadFile(path string) (Config, error) {
+	r, err := readRaw(path)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg := resolve(r)
+	cfg.Database.URL = os.Getenv(DatabaseURLEnv)
+	cfg.Basemap.Key = os.Getenv(BasemapKeyEnv)
+	// The style URL is templated so the key never appears in the committed file.
+	cfg.Basemap.StyleURL = strings.ReplaceAll(cfg.Basemap.StyleURL, "{key}", cfg.Basemap.Key)
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
 func readRaw(path string) (*raw, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
