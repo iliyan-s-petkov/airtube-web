@@ -39,6 +39,16 @@ type Options struct {
 	BaseURL           string
 	Logger            *slog.Logger
 
+	// BasemapStyleURL is the MapLibre style JSON URL, key already substituted,
+	// or empty when no basemap vendor is configured. See config.Config.BasemapStyleURL.
+	BasemapStyleURL string
+
+	// CSP is the policy the public chain's SecurityHeaders sets. Built by the
+	// caller (main, via httpx.CSP(cfg.BasemapHost)) rather than here, so this
+	// package does not need to know how a policy is assembled — that stays in
+	// one place, visible at the wiring.
+	CSP string
+
 	// MaxDBInflight bounds how many requests may be inside a database query at
 	// once, across every client. See internal/admit and config.MaxDBInflight.
 	MaxDBInflight int32
@@ -112,7 +122,7 @@ func New(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("server: trusted proxies: %w", err)
 	}
 
-	renderer, err := web.NewRenderer(opts.Catalogue, opts.Snapshots, opts.BaseURL)
+	renderer, err := web.NewRenderer(opts.Catalogue, opts.Snapshots, opts.BaseURL, opts.BasemapStyleURL)
 	if err != nil {
 		return nil, fmt.Errorf("server: renderer: %w", err)
 	}
@@ -172,6 +182,7 @@ func New(opts Options) (*Server, error) {
 		Resolver:     resolver,
 		Limiter:      limiter,
 		MaxBodyBytes: maxBodyBytes,
+		CSP:          opts.CSP,
 	}
 
 	s := &Server{

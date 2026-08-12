@@ -24,10 +24,20 @@ var templateFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
+// all:dist rather than dist — the plain form skips files beginning with "." or
+// "_", which would exclude both the committed .keep and Vite's
+// .vite/manifest.json, and the embed would then fail to compile on a clean
+// checkout for a reason with no obvious connection to either.
+//
+//go:embed all:dist
+var distFS embed.FS
+
 type Renderer struct {
-	cat     *i18n.Catalogue
-	holder  *snapshot.Holder
-	baseURL string
+	cat             *i18n.Catalogue
+	holder          *snapshot.Holder
+	baseURL         string
+	basemapStyleURL string
+	assets          Assets
 
 	// One parsed template set per page, each cloned from the base. A single
 	// set would not work: every page defines "main", and the last parse would
@@ -35,12 +45,23 @@ type Renderer struct {
 	pages map[string]*template.Template
 }
 
-func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, baseURL string) (*Renderer, error) {
+// NewRenderer builds the page renderer. basemapStyleURL is the MapLibre style
+// JSON URL with its {key} placeholder already substituted by config.Load —
+// empty means no basemap vendor is configured, and every page renders its
+// data markers over a plain background instead. It is carried straight
+// through to PageData rather than re-derived, so the one place a vendor
+// switch happens is the config load that also derived the CSP's basemap host.
+func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, baseURL, basemapStyleURL string) (*Renderer, error) {
 	rr := &Renderer{
 		cat: cat, holder: holder,
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		pages:   make(map[string]*template.Template),
+		baseURL:         strings.TrimSuffix(baseURL, "/"),
+		basemapStyleURL: basemapStyleURL,
+		pages:           make(map[string]*template.Template),
 	}
+	// Parsed once at construction, like the templates: with no manifest this
+	// resolves to the zero Assets, and every template call site degrades to
+	// no <script> tag rather than failing.
+	rr.assets, _ = LoadAssets()
 
 	for _, page := range []string{"index", "area", "error"} {
 		t, err := template.New("base.gohtml").ParseFS(templateFS,
@@ -70,6 +91,15 @@ type PageData struct {
 
 	TitleKey string
 	BodyKey  string
+
+	// Assets resolves to hashed script/style paths when a Vite build has been
+	// embedded, and to nothing when the dist tree holds only .keep — see
+	// assets.go and internal/web/dist/.keep.
+	Assets Assets
+
+	// BasemapStyleURL is the MapLibre style JSON URL, key already substituted,
+	// or empty when no basemap vendor is configured. See config.Config.BasemapStyleURL.
+	BasemapStyleURL string
 
 	cat *i18n.Catalogue
 }
@@ -122,7 +152,9 @@ func (p PageData) Alternates() []alternate {
 
 func (p PageData) GeneratedAtISO() string { return p.GeneratedAt.UTC().Format(time.RFC3339) }
 
-func (p PageData) GeneratedAtHuman() string { return p.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC") }
+func (p PageData) GeneratedAtHuman() string {
+	return p.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC")
+}
 
 // newPageData builds the common fields for one request.
 func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageData {
@@ -133,6 +165,8 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 	return PageData{
 		Lang: lang, OtherLang: other, RequestPath: path,
 		BaseURL: rr.baseURL, GeneratedAt: generatedAt, cat: rr.cat,
+		Assets:          rr.assets,
+		BasemapStyleURL: rr.basemapStyleURL,
 	}
 }
 

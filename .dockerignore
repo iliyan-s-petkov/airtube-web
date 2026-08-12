@@ -16,3 +16,11 @@ www-root
 *.md
 docker-compose.yml
 .gitignore
+
+# The image builds these itself (stage `web` builds the frontend, stage
+# `build` embeds its output). A developer's local, possibly-stale copy must
+# never reach the daemon: the whole point of the multi-stage build is that
+# the shipped dist/ matches the sources being built, not whatever happened
+# to be on disk when `docker build` ran.
+web/node_modules/
+internal/web/dist/

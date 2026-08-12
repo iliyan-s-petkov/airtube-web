@@ -87,6 +87,8 @@ There are no config files and no secrets in the repo.
 | `AIRBG_DB_COLLECTOR_CONNS` | no | `4` |
 | `AIRBG_MAX_DB_INFLIGHT` | no | `16` |
 | `AIRBG_MAX_CONNS` | no | `4096` |
+| `AIRBG_BASEMAP_STYLE_URL` | no | *(empty)* |
+| `AIRBG_BASEMAP_KEY` | no | *(empty)* |
 
 `AIRBG_POLL_INTERVAL` must be at least **30s**. Anything smaller is rejected at
 startup: `0s` and negative values would panic `time.NewTicker`, and a
@@ -151,6 +153,8 @@ Eight environment variables configure serving:
 | `AIRBG_DB_COLLECTOR_CONNS` | `4` | Connections available to the poller and the snapshot publisher — the side of the bulkhead allowed to be slow. |
 | `AIRBG_MAX_DB_INFLIGHT` | `16` | Caps how many requests may be inside a database query at once, **across every client** — a rate limiter only bounds one client, so a crowd of individually well-behaved clients could otherwise collectively queue more concurrent work than the pool can serve, piling up inside `pgxpool.Acquire` until `WriteTimeout` fires. Refusals on the two series routes answer `503` with `Retry-After: 2`, never `429` — the caller did nothing wrong, so it must not be told to back off as if it had. `/locate` instead degrades: it skips the lookup and returns the national default view with `200`, exactly as it does when the lookup fails, because a request that has a usable answer without any query must not be made less available by a capacity control. Either way the refusal is counted in `airbg_admission_rejected_total`. |
 | `AIRBG_MAX_CONNS` | `4096` | Caps how many connections the **public** listener holds open at once. This bounds sockets, not requests: nothing else in the process stops tens of thousands of mostly-idle connections from exhausting file descriptors and goroutines before a single request completes, so no rate limiter or admission cap ever sees them. Over-cap connections are accepted and closed immediately, never queued. Deliberately overlaps with Cloudflare's own protection — the origin being reachable only through Cloudflare is an unverified assumption, and a control that only works when that assumption holds is not a control. The private listener is never capped: a flood that also blinded `/metrics` would remove the one instrument an operator needs during the flood. |
+| `AIRBG_BASEMAP_STYLE_URL` | *(empty)* | MapLibre style JSON URL for the basemap tile vendor, with a `{key}` placeholder that `AIRBG_BASEMAP_KEY` is substituted into at startup. Must be an absolute `https://` URL with a plain host (or `host:port`, hostname up to 253 characters) — required because the hostname also widens the Content-Security-Policy's `connect-src` and `img-src` (see `httpx.CSP`), and a host containing a semicolon or quote could otherwise inject a new directive into that header. IPv6 literal hosts (e.g. `[::1]:8443`) are not supported and are rejected. The URL must not carry userinfo (`https://user:pass@host/...`) — it is rejected at startup rather than stripped, since this string reaches the browser verbatim and a silently-stripped credential would leave an authenticated basemap looking configured when it is not. Empty (the default) means no basemap: the map renders its data markers over a plain background, which is why local development needs no vendor account. **The key is public by nature** — it ships in a URL the browser fetches, so it is visible to anyone who opens the page's network tab. Domain restriction at the vendor (allow-listing `airbg.org`) is the only real control on it, and setting that up is a Phase 4 deployment step, not something this code enforces. Most tile vendors' free tiers are around 100k tile requests a month; a public map with any real traffic will exceed that, so budget for a paid tier before launch. Visitor IPs are sent to the tile vendor on every tile fetch — that belongs in the privacy note alongside Cloudflare's. |
+| `AIRBG_BASEMAP_KEY` | *(empty)* | The tile vendor API key substituted into `AIRBG_BASEMAP_STYLE_URL`'s `{key}` placeholder. See the public-key caveat above — this is not a secret in the usual sense, and must never be logged server-side even though it is expected to reach the browser. |
 
 Endpoints:
 
@@ -258,11 +262,34 @@ unless `AIRBG_LIVE_TEST=1` is set.
 ## Container image
 
 ```bash
-docker build -t airbg:dev .
+docker build -t airbg .
 ```
 
 Produces a distroless, non-root image with a single static binary as its
-entrypoint (default command `collect`). No shell, no package manager.
+entrypoint (default command `serve`; run the collector separately with
+`docker run ... airbg collect`). No shell, no package manager.
+
+The build is multi-stage: a `node:26-alpine` stage runs `npm ci
+--ignore-scripts` and `npm run build` inside `web/` to produce the Vite
+bundle, a `golang:1.26` stage embeds that bundle and compiles the binary, and
+the final stage is `gcr.io/distroless/static-debian13:nonroot` with nothing
+but the binary in it. Nothing from `node_modules` or the Node toolchain
+reaches the runtime image.
+
+For local development, build the frontend once and then run the server
+directly:
+
+```bash
+cd web && npm ci --ignore-scripts && npm run build
+cd ..
+go run ./cmd/airbg serve
+```
+
+Skipping the `npm run build` step is a supported, if degraded, mode: the
+server starts fine and serves the same pages without the map or chart
+islands (no JavaScript, no CSS from the bundle), and logs one line at
+startup — `assets state="no manifest — serving without islands (run 'npm
+run build' in web/)"` — so the gap is discoverable rather than silent.
 
 ## Known limitations
 

@@ -24,7 +24,7 @@ func renderer(t *testing.T, snap *snapshot.Snapshot) *web.Renderer {
 	if snap != nil {
 		h.Store(snap)
 	}
-	rr, err := web.NewRenderer(cat, h, "https://airbg.org")
+	rr, err := web.NewRenderer(cat, h, "https://airbg.org", "")
 	if err != nil {
 		t.Fatalf("NewRenderer: %v", err)
 	}
@@ -51,6 +51,24 @@ func fetch(t *testing.T, rr *web.Renderer, path string) *httptest.ResponseRecord
 	rec := httptest.NewRecorder()
 	rr.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	return rec
+}
+
+// newTestRendererWithBasemap is renderer(t, fixture(t)) with the basemap style
+// URL parameterised, for the two tests below that pin how BasemapStyleURL
+// reaches the index page's data-basemap attribute.
+func newTestRendererWithBasemap(t *testing.T, basemapStyleURL string) *web.Renderer {
+	t.Helper()
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+	h := snapshot.NewHolder()
+	h.Store(fixture(t))
+	rr, err := web.NewRenderer(cat, h, "https://airbg.org", basemapStyleURL)
+	if err != nil {
+		t.Fatalf("NewRenderer: %v", err)
+	}
+	return rr
 }
 
 func TestIndexRendersInBulgarianByDefault(t *testing.T) {
@@ -94,11 +112,32 @@ func TestAreaPageStatesInsufficientCoverage(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "Недостатъчно данни") {
-		t.Errorf("the uncovered area page does not state that coverage is insufficient:\n%s", body)
+
+	// The exact markup of area.gohtml's {{else}} branch, tags included — not a
+	// bare Contains("Недостатъчно данни"), which was satisfied by
+	// data-t-no-data="Недостатъчно данни" (map.legend.no_data) on every area
+	// page regardless of coverage, because that string is a strict PREFIX of
+	// area.no_coverage ("Недостатъчно данни за този район"). The reviewer proved
+	// the old form inert: replacing this whole <p> with MUTATED left the test
+	// passing. Same fix as the sibling assertion in internal/server/e2e_test.go.
+	//
+	// Fix 5 has since removed the colliding data-t-no-data attribute, but the
+	// exact-markup form stays: an assertion that only holds because a colliding
+	// string happens to be absent today is the fragility being eliminated, not
+	// a fix for it.
+	const wantNoCoverageMarkup = `<p><strong>Недостатъчно данни за този район</strong></p>`
+	if !strings.Contains(body, wantNoCoverageMarkup) {
+		t.Errorf("the uncovered area page does not state that coverage is insufficient (want %q):\n%s",
+			wantNoCoverageMarkup, body)
 	}
-	if strings.Contains(body, "µg/m³") {
-		t.Error("the uncovered area page shows a unit, implying a measurement it does not have")
+	// Anchored to the chart island's value-label attribute rather than to the
+	// bare unit string. chart.axis.value IS literally "µg/m³", so a bare
+	// Contains would fire on any future edit that moves the chart div out of
+	// {{if .Area.Covered}} even if no measurement were rendered — the assertion
+	// is about "no measurement is shown here", and this is the markup that
+	// would show one.
+	if strings.Contains(body, `data-t-value="µg/m³"`) {
+		t.Error("the uncovered area page renders the chart island's value label, implying a measurement it does not have")
 	}
 }
 
@@ -321,5 +360,111 @@ func TestRenderedErrorPagesAreNotCacheable(t *testing.T) {
 				"non-enumerable surface and must stay edge-cacheable", path, cc,
 				"public, max-age=150")
 		}
+	}
+}
+
+// TestMapIslandCarriesItsConfiguration. The island reads all of this from
+// data-* attributes because the CSP forbids an inline script; a missing
+// attribute is a map that silently falls back to a default nobody chose.
+//
+// Run over BOTH templates: area.gohtml carries an equivalent attribute block,
+// and this branch's one real regression came from editing exactly that block
+// (see TestAreaPageStatesInsufficientCoverage). Coverage of / alone would not
+// have caught it.
+func TestMapIslandCarriesItsConfiguration(t *testing.T) {
+	rr := newTestRendererWithBasemap(t, "https://tiles.example/style.json?key=k")
+
+	for _, path := range []string{"/", "/area/sofia"} {
+		t.Run(path, func(t *testing.T) {
+			body := fetch(t, rr, path).Body.String()
+			// Narrowed to the map island's own opening tag before asserting.
+			// On /area/sofia the chart island carries a data-metric="P2" of its
+			// own, so a whole-body Contains would be satisfied by the WRONG
+			// element — verified by mutation: deleting data-metric from
+			// area.gohtml's map div left the whole-body form green.
+			tag := islandTag(t, body, "map")
+			for _, want := range []string{
+				`data-metric="P2"`,
+				`data-basemap="https://tiles.example/style.json?key=k"`,
+				`data-t-legend="`,
+				`data-t-hint="`,
+				`data-t-unavailable="`,
+			} {
+				if !strings.Contains(tag, want) {
+					t.Errorf("%s: the map island's tag is missing %s: %s", path, want, tag)
+				}
+			}
+		})
+	}
+}
+
+// TestChartIslandCarriesItsUnavailableString. The chart island writes this
+// string into its container when the series request fails; without the
+// attribute the island reads "" and a failed fetch leaves an empty div, which
+// on an air-quality page is indistinguishable from "nothing to report".
+func TestChartIslandCarriesItsUnavailableString(t *testing.T) {
+	body := fetch(t, renderer(t, fixture(t)), "/area/sofia").Body.String()
+	tag := islandTag(t, body, "chart")
+
+	// The value, not just the attribute name: an empty attribute would satisfy
+	// a name-only check and still leave the reader with a blank container.
+	want := `data-t-unavailable="Данните за картата в момента не са достъпни"`
+	if !strings.Contains(tag, want) {
+		t.Errorf("the chart island's tag is missing %s: %s", want, tag)
+	}
+}
+
+// islandTag returns the opening tag that carries data-island="<name>", so an
+// attribute assertion cannot be satisfied by a different island's identically
+// named attribute elsewhere on the page.
+func islandTag(t *testing.T, body, name string) string {
+	t.Helper()
+	marker := `data-island="` + name + `"`
+	start := strings.Index(body, marker)
+	if start < 0 {
+		t.Fatalf("no %s island on the page:\n%s", name, body)
+	}
+	// Back up to the element's own "<", forward to the tag's closing ">".
+	open := strings.LastIndex(body[:start], "<")
+	end := strings.Index(body[start:], ">")
+	if open < 0 || end < 0 {
+		t.Fatalf("could not delimit the %s island's tag:\n%s", name, body)
+	}
+	return body[open : start+end+1]
+}
+
+// TestNoBasemapRendersAnEmptyAttribute. Empty rather than absent, so the island
+// reads "" and falls back to its blank style instead of reading undefined.
+func TestNoBasemapRendersAnEmptyAttribute(t *testing.T) {
+	rr := newTestRendererWithBasemap(t, "")
+	body := fetch(t, rr, "/").Body.String()
+	if !strings.Contains(body, `data-basemap=""`) {
+		t.Errorf("index page has no empty data-basemap attribute:\n%s", body)
+	}
+}
+
+// TestBasemapURLCannotBreakOutOfTheAttribute. BasemapStyleURL is
+// operator-supplied config (from AIRBG_BASEMAP_STYLE_URL), not user input, but
+// it still lands in an HTML attribute and html/template's attribute-context
+// escaping is what stands between a hostile config value and an injected
+// script — this pins that the template consumes the field as DATA in
+// attribute context, not as a pre-built HTML fragment.
+func TestBasemapURLCannotBreakOutOfTheAttribute(t *testing.T) {
+	hostile := `javascript:alert(1)"><script>alert(1)</script>`
+	rr := newTestRendererWithBasemap(t, hostile)
+	body := fetch(t, rr, "/").Body.String()
+
+	if strings.Contains(body, "<script>alert(1)</script>") {
+		t.Error("the hostile basemap URL reached the page as an unescaped <script> tag")
+	}
+	if strings.Contains(body, `"><script>`) {
+		t.Error("the hostile basemap URL broke out of the data-basemap attribute")
+	}
+	// The value must still be present, escaped, inside the attribute — proving
+	// this is contextual escaping (which lets the value through, transformed)
+	// rather than a filter that strips or blocks it outright.
+	if !strings.Contains(body, `data-basemap="javascript:alert(1)&#34;&gt;`) &&
+		!strings.Contains(body, `data-basemap="javascript:alert(1)&#34;&gt;&lt;script&gt;`) {
+		t.Errorf("the basemap value does not appear escaped inside the attribute:\n%s", body)
 	}
 }

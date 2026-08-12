@@ -7,11 +7,22 @@
 
 {{if .Area.Covered}}
   <p>{{.Area.SensorCount}} {{.T "area.sensors"}}</p>
-  {{/* Phase 3 mounts the chart island here; the data comes from
-       /api/v1/area/{slug}/series. Server-side we render the sensor count and
-       the coverage state only — the numbers themselves live behind the API so
-       there is exactly one place that applies the quality filter. */}}
-  <div id="chart" data-island="chart" data-slug="{{.Area.Slug}}"></div>
+  {{/* The chart island: one series, one metric (P2), one period (24h) — period
+       and metric selectors are Phase 3b. Server-side we render the sensor
+       count and the coverage state only — the numbers themselves live behind
+       the API so there is exactly one place that applies the quality filter. */}}
+  <div id="chart" data-island="chart"
+       data-slug="{{.Area.Slug}}"
+       data-metric="P2"
+       data-period="24h"
+       data-t-title="{{.T "chart.title"}}"
+       data-t-empty="{{.T "chart.empty"}}"
+       data-t-value="{{.T "chart.axis.value"}}"
+       {{/* Reuses map.error.unavailable rather than adding a chart-specific
+            key: the sentence is generic ("data is unavailable right now") and
+            a second key would have to be translated, kept in parity across
+            both catalogues, and would say the same thing. */}}
+       data-t-unavailable="{{.T "map.error.unavailable"}}"></div>
 {{else}}
   <div class="notice">
     <p><strong>{{.T "area.no_coverage"}}</strong></p>
@@ -23,5 +34,11 @@
      data-slug="{{.Area.Slug}}"
      data-zoom="{{.Area.Zoom}}"
      data-lon="{{.Area.Lon}}"
-     data-lat="{{.Area.Lat}}"></div>
+     data-lat="{{.Area.Lat}}"
+     data-metric="P2"
+     data-basemap="{{.BasemapStyleURL}}"
+     data-t-legend="{{.T "map.legend.title"}}"
+     data-t-hint="{{.T "map.hint.select_area"}}"
+     data-t-rate-limited="{{.T "map.error.rate_limited"}}"
+     data-t-unavailable="{{.T "map.error.unavailable"}}"></div>
 {{end}}

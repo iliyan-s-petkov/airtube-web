@@ -15,6 +15,7 @@ import (
 	"airbg.org/internal/backfill"
 	"airbg.org/internal/config"
 	"airbg.org/internal/db"
+	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
@@ -22,6 +23,7 @@ import (
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
+	"airbg.org/internal/web"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -213,6 +215,19 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		log.Error("initial snapshot build failed; starting with no data", "error", err)
 	}
 
+	// One line, so a developer who ran `go run ./cmd/airbg` without building the
+	// frontend discovers it in one second rather than wondering why the map is
+	// missing. The no-manifest path is a supported mode, not an error — hence
+	// Info, not Warn.
+	if assets, found := web.LoadAssets(); found {
+		log.Info("assets", "state", "loaded", "script", assets.Script("main"))
+	} else {
+		log.Info("assets", "state", "no manifest — serving without islands (run 'npm run build' in web/)")
+	}
+
+	// Built here, in main, rather than inside server.New: this is the one place
+	// the configured basemap host reaches the CSP, and it keeps the server
+	// package from needing to know how a policy is assembled.
 	srv, err := server.New(server.Options{
 		ListenAddr:        cfg.ListenAddr,
 		MetricsAddr:       cfg.MetricsAddr,
@@ -225,6 +240,8 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		Logger:            log,
 		MaxDBInflight:     cfg.MaxDBInflight,
 		MaxConns:          cfg.MaxConns,
+		BasemapStyleURL:   cfg.BasemapStyleURL,
+		CSP:               httpx.CSP(cfg.BasemapHost),
 	})
 	if err != nil {
 		return err

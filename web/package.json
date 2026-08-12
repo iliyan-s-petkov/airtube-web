@@ -1,0 +1,19 @@
+{
+  "name": "airbg-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm audit --audit-level=high && vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "maplibre-gl": "6.3.0",
+    "uplot": "1.6.32"
+  },
+  "devDependencies": {
+    "svelte": "5.56.8",
+    "vite": "8.2.1",
+    "vitest": "4.1.10",
+    "@sveltejs/vite-plugin-svelte": "7.3.0"
+  }
+}

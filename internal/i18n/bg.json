@@ -35,5 +35,13 @@
   "disclaimer": "Данните от нискобюджетни сензори са индикативни и не са измервания по референтен метод.",
   "footer.data": "Данни от сътрудниците на sensor.community, ODbL 1.0",
   "footer.boundaries": "Граници © сътрудниците на OpenStreetMap, ODbL 1.0",
-  "lang.switch": "English"
+  "lang.switch": "English",
+  "map.legend.title": "Качество на въздуха",
+  "map.legend.no_data": "Недостатъчно данни",
+  "map.hint.select_area": "Изберете район, за да видите отделните сензори",
+  "map.error.rate_limited": "Данните са ограничени, опитваме отново",
+  "map.error.unavailable": "Данните за картата в момента не са достъпни",
+  "chart.title": "ПМ2.5, последните 24 часа",
+  "chart.empty": "Няма данни за последните 24 часа",
+  "chart.axis.value": "µg/m³"
 }

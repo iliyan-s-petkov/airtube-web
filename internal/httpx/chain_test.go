@@ -61,7 +61,7 @@ func TestRecoverDoesNotWriteAfterHeaders(t *testing.T) {
 func TestSecurityHeaders(t *testing.T) {
 	h := httpx.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}))
+	}), httpx.CSPValue)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
