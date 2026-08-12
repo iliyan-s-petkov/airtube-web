@@ -6,7 +6,9 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -150,6 +152,103 @@ func missingKeys(v reflect.Value, prefix string) []string {
 	return missing
 }
 
+// applyEnv overlays AIRBG_* variables onto the decoded schema. The variable name
+// is derived from the same yaml tag the file uses, so the documented rule
+// ("AIRBG_" + key path, uppercased, dots to underscores") is true by
+// construction rather than by a hand-maintained table that can drift.
+//
+// series.periods is not overridable: there is no sane environment-variable name
+// for "the third list entry's window", and a table belongs in the file.
+func applyEnv(v reflect.Value, prefix string) error {
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		tag := t.Field(i).Tag.Get("yaml")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		name := strings.Split(tag, ",")[0]
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		f := v.Field(i)
+		if f.Kind() != reflect.Ptr {
+			continue
+		}
+		elem := f.Type().Elem()
+		if elem.Kind() == reflect.Struct && elem != reflect.TypeOf(Duration(0)) {
+			// A group. Allocate it if absent so an environment-only override of a
+			// leaf inside an omitted group still lands.
+			if f.IsNil() {
+				f.Set(reflect.New(elem))
+			}
+			if err := applyEnv(f.Elem(), path); err != nil {
+				return err
+			}
+			continue
+		}
+		val, ok := os.LookupEnv(envName(path))
+		if !ok {
+			continue
+		}
+		if f.IsNil() {
+			f.Set(reflect.New(elem))
+		}
+		if err := assignScalar(f.Elem(), val); err != nil {
+			return fmt.Errorf("config: %s=%q: %w", envName(path), val, err)
+		}
+	}
+	return nil
+}
+
+func assignScalar(dst reflect.Value, val string) error {
+	if dst.Type() == reflect.TypeOf(Duration(0)) {
+		d, err := time.ParseDuration(val)
+		if err != nil {
+			return fmt.Errorf("not a duration such as \"5m\": %w", err)
+		}
+		dst.SetInt(int64(d))
+		return nil
+	}
+	switch dst.Kind() {
+	case reflect.String:
+		dst.SetString(val)
+	case reflect.Bool:
+		b, err := strconv.ParseBool(val)
+		if err != nil {
+			return fmt.Errorf("not a boolean: %w", err)
+		}
+		dst.SetBool(b)
+	case reflect.Int, reflect.Int32, reflect.Int64:
+		n, err := strconv.ParseInt(val, 10, dst.Type().Bits())
+		if err != nil {
+			return fmt.Errorf("not an integer: %w", err)
+		}
+		dst.SetInt(n)
+	case reflect.Float64:
+		x, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			return fmt.Errorf("not a number: %w", err)
+		}
+		dst.SetFloat(x)
+	case reflect.Slice:
+		if dst.Type().Elem().Kind() != reflect.String {
+			return fmt.Errorf("cannot be set from the environment")
+		}
+		parts := strings.Split(val, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				out = append(out, p)
+			}
+		}
+		dst.Set(reflect.ValueOf(out))
+	default:
+		return fmt.Errorf("cannot be set from the environment")
+	}
+	return nil
+}
+
 func readRaw(path string) (*raw, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -160,6 +259,11 @@ func readRaw(path string) (*raw, error) {
 	}
 	var r raw
 	if err := decodeStrict(data, &r); err != nil {
+		return nil, err
+	}
+	// Environment second: the two layers are file then environment, and either
+	// may be the sole source of a value.
+	if err := applyEnv(reflect.ValueOf(&r).Elem(), ""); err != nil {
 		return nil, err
 	}
 	// Every missing key at once: an operator fixing a 40-key file one restart at

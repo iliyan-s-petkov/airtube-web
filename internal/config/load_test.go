@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeTemp puts a config body in a temp file and returns its path.
@@ -155,5 +156,87 @@ func TestReadRawRejectsSecretsViaSecretPaths(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "AIRBG_DATABASE_URL") {
 		t.Errorf("error %q does not mention AIRBG_DATABASE_URL", err)
+	}
+}
+
+// The mechanical rule must hold for every scalar kind, not just strings.
+func TestApplyEnvOverridesEveryScalarKind(t *testing.T) {
+	path := filepath.Join("..", "..", "airbg.yaml")
+
+	t.Setenv("AIRBG_LISTEN_ADDR", "0.0.0.0:9999")
+	t.Setenv("AIRBG_LISTEN_MAX_CONNS", "512")
+	t.Setenv("AIRBG_UPSTREAM_POLL_INTERVAL", "11m")
+	t.Setenv("AIRBG_QUALITY_MAD_SCALE", "2.5")
+	t.Setenv("AIRBG_STORE_COVERAGE_THRESHOLD", "7")
+	t.Setenv("AIRBG_UPSTREAM_MAX_PAYLOAD_BYTES", "1024")
+	t.Setenv("AIRBG_LISTEN_TRUSTED_PROXY_CIDRS", "10.0.0.0/8,192.168.0.0/16")
+
+	r, err := readRaw(path)
+	if err != nil {
+		t.Fatalf("readRaw error = %v, want nil", err)
+	}
+	if got, want := *r.Listen.Addr, "0.0.0.0:9999"; got != want {
+		t.Errorf("listen.addr = %q, want %q", got, want)
+	}
+	if got, want := *r.Listen.MaxConns, int32(512); got != want {
+		t.Errorf("listen.max_conns = %d, want %d", got, want)
+	}
+	if got, want := r.Upstream.PollInterval.Std(), 11*time.Minute; got != want {
+		t.Errorf("upstream.poll_interval = %v, want %v", got, want)
+	}
+	if got, want := *r.Quality.MADScale, 2.5; got != want {
+		t.Errorf("quality.mad_scale = %v, want %v", got, want)
+	}
+	if got, want := *r.Store.CoverageThreshold, 7; got != want {
+		t.Errorf("store.coverage_threshold = %d, want %d", got, want)
+	}
+	if got, want := *r.Upstream.MaxPayloadBytes, int64(1024); got != want {
+		t.Errorf("upstream.max_payload_bytes = %d, want %d", got, want)
+	}
+	if got, want := len(*r.Listen.TrustedProxyCIDRs), 2; got != want {
+		t.Fatalf("len(listen.trusted_proxy_cidrs) = %d, want %d", got, want)
+	}
+	if got, want := (*r.Listen.TrustedProxyCIDRs)[1], "192.168.0.0/16"; got != want {
+		t.Errorf("listen.trusted_proxy_cidrs[1] = %q, want %q", got, want)
+	}
+}
+
+// A nested leaf three levels down must follow the same rule.
+func TestApplyEnvOverridesNestedLeaf(t *testing.T) {
+	t.Setenv("AIRBG_QUALITY_RANGES_PRESSURE_MIN", "700")
+	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("readRaw error = %v, want nil", err)
+	}
+	if got, want := *r.Quality.Ranges.Pressure.Min, 700.0; got != want {
+		t.Errorf("quality.ranges.pressure.min = %v, want %v", got, want)
+	}
+}
+
+// An unparseable override must be a startup error naming the variable, never a
+// silently-ignored value that leaves the file's setting in place.
+func TestApplyEnvRejectsGarbage(t *testing.T) {
+	t.Setenv("AIRBG_LISTEN_MAX_CONNS", "many")
+	_, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
+	if err == nil {
+		t.Fatal("readRaw error = nil, want an error for AIRBG_LISTEN_MAX_CONNS=many")
+	}
+	if !strings.Contains(err.Error(), "AIRBG_LISTEN_MAX_CONNS") {
+		t.Errorf("error %q does not name the offending variable", err)
+	}
+}
+
+// The environment can supply a key the file omits entirely — the two layers are
+// file then environment, and either may be the source of a value.
+func TestApplyEnvSuppliesAbsentKey(t *testing.T) {
+	body := "listen:\n  metrics_addr: \"127.0.0.1:9090\"\n"
+	path := writeTemp(t, body)
+	t.Setenv("AIRBG_LISTEN_ADDR", "127.0.0.1:8080")
+	_, err := readRaw(path)
+	if err == nil {
+		t.Fatal("readRaw error = nil, want a missing-key error for the other keys")
+	}
+	if strings.Contains(err.Error(), "listen.addr") {
+		t.Errorf("listen.addr was supplied by the environment but still reported missing:\n%s", err)
 	}
 }
