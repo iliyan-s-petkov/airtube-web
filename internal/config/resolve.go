@@ -1,11 +1,6 @@
 package config
 
-import (
-	"fmt"
-	"os"
-	"strings"
-	"time"
-)
+import "time"
 
 // Config is the resolved configuration: value types, no pointers, no defaults.
 // Every field is guaranteed set, because readRaw refuses to return a schema with
@@ -153,22 +148,9 @@ type Basemap struct {
 
 // resolve dereferences every pointer in the raw schema. Safe to dereference
 // unconditionally because readRaw has already guaranteed no leaf is nil.
-func resolve(r *raw) (Config, error) {
-	// Database.URL comes from environment only.
-	dbURL := os.Getenv("AIRBG_DATABASE_URL")
-	if dbURL == "" {
-		return Config{}, fmt.Errorf("config: AIRBG_DATABASE_URL must be set in the environment")
-	}
-
-	// Basemap.Key comes from environment only.
-	basemapKey := os.Getenv("AIRBG_BASEMAP_KEY")
-	if basemapKey == "" {
-		return Config{}, fmt.Errorf("config: AIRBG_BASEMAP_KEY must be set in the environment")
-	}
-
-	// Substitute {key} in the style_url.
-	styleURL := strings.ReplaceAll(*r.Basemap.StyleURL, "{key}", basemapKey)
-
+// Database.URL and Basemap.Key are populated by Task 7 (LoadFile) from
+// environment variables; Basemap.StyleURL arrives with {key} already substituted.
+func resolve(r *raw) Config {
 	cfg := Config{
 		Listen: Listen{
 			Addr:              *r.Listen.Addr,
@@ -187,7 +169,6 @@ func resolve(r *raw) (Config, error) {
 			ShutdownGrace: r.Timeouts.ShutdownGrace.Std(),
 		},
 		Database: Database{
-			URL:            dbURL,
 			APIConns:       *r.Database.APIConns,
 			CollectorConns: *r.Database.CollectorConns,
 			MaxInflight:    *r.Database.MaxInflight,
@@ -258,8 +239,7 @@ func resolve(r *raw) (Config, error) {
 			ZoomSensor:         *r.Frontend.ZoomSensor,
 		},
 		Basemap: Basemap{
-			StyleURL: styleURL,
-			Key:      basemapKey,
+			StyleURL: *r.Basemap.StyleURL,
 		},
 	}
 
@@ -274,7 +254,7 @@ func resolve(r *raw) (Config, error) {
 		cfg.Series.PeriodNames = append(cfg.Series.PeriodNames, *p.Name)
 	}
 
-	return cfg, nil
+	return cfg
 }
 
 func resolveBucket(b *rawBucket) Bucket {

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,18 +10,11 @@ import (
 // are the anchor for the behaviour-unchanged requirement: each value here equals
 // the constant it replaces in the package named in the comment.
 func TestResolveCommittedConfig(t *testing.T) {
-	// Set required environment variables for resolve.
-	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("AIRBG_BASEMAP_KEY", "test-key")
-
 	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
 	if err != nil {
 		t.Fatalf("readRaw error = %v, want nil", err)
 	}
-	cfg, err := resolve(r)
-	if err != nil {
-		t.Fatalf("resolve error = %v, want nil", err)
-	}
+	cfg := resolve(r)
 
 	if got, want := cfg.Listen.MaxConns, int32(4096); got != want {
 		t.Errorf("Listen.MaxConns = %d, want %d", got, want) // server.defaultMaxConns
@@ -59,17 +51,11 @@ func TestResolveCommittedConfig(t *testing.T) {
 // All seven canonical metrics must have a range. A missing entry would mean a
 // metric whose readings are never plausibility-checked.
 func TestResolveHasEveryMetricRange(t *testing.T) {
-	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("AIRBG_BASEMAP_KEY", "test-key")
-
 	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
 	if err != nil {
 		t.Fatalf("readRaw error = %v, want nil", err)
 	}
-	cfg, err := resolve(r)
-	if err != nil {
-		t.Fatalf("resolve error = %v, want nil", err)
-	}
+	cfg := resolve(r)
 	for _, m := range []string{"P1", "P2", "temperature", "humidity", "pressure", "noise_LAeq", "noise_LA_max"} {
 		rng, ok := cfg.Quality.Ranges[m]
 		if !ok {
@@ -86,17 +72,11 @@ func TestResolveHasEveryMetricRange(t *testing.T) {
 // 1-year period must be hourly: raw readings are retained for 30 days, so a
 // 1-year window against the raw table returns 30 days under a "1 year" label.
 func TestResolvePeriods(t *testing.T) {
-	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("AIRBG_BASEMAP_KEY", "test-key")
-
 	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
 	if err != nil {
 		t.Fatalf("readRaw error = %v, want nil", err)
 	}
-	cfg, err := resolve(r)
-	if err != nil {
-		t.Fatalf("resolve error = %v, want nil", err)
-	}
+	cfg := resolve(r)
 	want := map[string]Period{
 		"24h": {24 * time.Hour, false, 150 * time.Second},
 		"7d":  {7 * 24 * time.Hour, false, 600 * time.Second},
@@ -121,99 +101,14 @@ func TestResolvePeriods(t *testing.T) {
 	}
 }
 
-// Basemap key substitution must work: the template {key} in the file must be
-// replaced with the actual key from the environment.
-func TestResolveBasemapKeySubstitution(t *testing.T) {
-	key := "test-basemap-key-12345"
-	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("AIRBG_BASEMAP_KEY", key)
-
-	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
-	if err != nil {
-		t.Fatalf("readRaw error = %v, want nil", err)
-	}
-	cfg, err := resolve(r)
-	if err != nil {
-		t.Fatalf("resolve error = %v, want nil", err)
-	}
-
-	if got := cfg.Basemap.Key; got != key {
-		t.Errorf("Basemap.Key = %q, want %q", got, key)
-	}
-
-	// StyleURL should have {key} replaced with the actual key.
-	if !contains(cfg.Basemap.StyleURL, key) {
-		t.Errorf("Basemap.StyleURL does not contain the key: %q", cfg.Basemap.StyleURL)
-	}
-	if contains(cfg.Basemap.StyleURL, "{key}") {
-		t.Errorf("Basemap.StyleURL still contains {{key}} placeholder: %q", cfg.Basemap.StyleURL)
-	}
-}
-
-// Database URL comes from environment only.
-func TestResolveDatabaseURL(t *testing.T) {
-	url := "postgres://user:pass@host:5432/dbname"
-	t.Setenv("AIRBG_DATABASE_URL", url)
-	t.Setenv("AIRBG_BASEMAP_KEY", "test-key")
-
-	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
-	if err != nil {
-		t.Fatalf("readRaw error = %v, want nil", err)
-	}
-	cfg, err := resolve(r)
-	if err != nil {
-		t.Fatalf("resolve error = %v, want nil", err)
-	}
-
-	if got := cfg.Database.URL; got != url {
-		t.Errorf("Database.URL = %q, want %q", got, url)
-	}
-}
-
-// Missing AIRBG_DATABASE_URL should cause resolve to error.
-func TestResolveMissingDatabaseURL(t *testing.T) {
-	os.Unsetenv("AIRBG_DATABASE_URL")
-	t.Setenv("AIRBG_BASEMAP_KEY", "test-key")
-
-	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
-	if err != nil {
-		t.Fatalf("readRaw error = %v, want nil", err)
-	}
-	_, err = resolve(r)
-	if err == nil {
-		t.Errorf("resolve error = nil, want error for missing AIRBG_DATABASE_URL")
-	}
-}
-
-// Missing AIRBG_BASEMAP_KEY should cause resolve to error.
-func TestResolveMissingBasemapKey(t *testing.T) {
-	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/test")
-	os.Unsetenv("AIRBG_BASEMAP_KEY")
-
-	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
-	if err != nil {
-		t.Fatalf("readRaw error = %v, want nil", err)
-	}
-	_, err = resolve(r)
-	if err == nil {
-		t.Errorf("resolve error = nil, want error for missing AIRBG_BASEMAP_KEY")
-	}
-}
-
 // Duration fields must be converted using .Std() to get time.Duration.
 // A mutation that swaps the .Std() call or removes it should break this test.
 func TestResolveDurationConversion(t *testing.T) {
-	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("AIRBG_BASEMAP_KEY", "test-key")
-
 	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
 	if err != nil {
 		t.Fatalf("readRaw error = %v, want nil", err)
 	}
-	cfg, err := resolve(r)
-	if err != nil {
-		t.Fatalf("resolve error = %v, want nil", err)
-	}
+	cfg := resolve(r)
 
 	// Check that duration fields are correct time.Duration values, not
 	// truncated to seconds or nanoseconds.
@@ -231,17 +126,11 @@ func TestResolveDurationConversion(t *testing.T) {
 // Series.PeriodNames preserves file order. A mutation that sorts or reverses
 // the slice should break this test.
 func TestResolvePeriodOrderPreservation(t *testing.T) {
-	t.Setenv("AIRBG_DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("AIRBG_BASEMAP_KEY", "test-key")
-
 	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
 	if err != nil {
 		t.Fatalf("readRaw error = %v, want nil", err)
 	}
-	cfg, err := resolve(r)
-	if err != nil {
-		t.Fatalf("resolve error = %v, want nil", err)
-	}
+	cfg := resolve(r)
 
 	// File order must be preserved: 24h, 7d, 30d, 1y.
 	want := []string{"24h", "7d", "30d", "1y"}
@@ -253,14 +142,4 @@ func TestResolvePeriodOrderPreservation(t *testing.T) {
 			t.Errorf("Series.PeriodNames[%d] = %q, want %q (file order violation)", i, got, name)
 		}
 	}
-}
-
-// Helper: check if string contains substring.
-func contains(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
