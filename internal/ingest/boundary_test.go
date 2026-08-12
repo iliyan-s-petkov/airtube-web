@@ -25,7 +25,7 @@ func noBoundaryIngester(t *testing.T, f ingest.Fetcher) (context.Context, *store
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	st := store.New(pool)
+	st := store.New(pool, testStoreConfig())
 	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer())
 }
 

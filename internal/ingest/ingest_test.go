@@ -43,6 +43,17 @@ func testScorer() *quality.Scorer {
 	})
 }
 
+// testStoreConfig mirrors airbg.yaml's store: block, the same way testScorer
+// above mirrors quality:. None of this package's tests call AreaAggregates or
+// LatestSensors — the two methods that consult CoverageThreshold and
+// FreshnessWindow — so RunOnce/Loop behaviour here is indifferent to the exact
+// numbers. The values are pinned to the live config anyway, rather than to an
+// arbitrary literal, so a reader never has to wonder whether a mismatch here
+// is deliberate.
+func testStoreConfig() config.Store {
+	return config.Store{CoverageThreshold: 3, FreshnessWindow: 2 * time.Hour}
+}
+
 type stubFetcher struct {
 	readings []upstream.Reading
 	// skipped mirrors upstream.Batch.Skipped, so a test can reproduce the
@@ -84,7 +95,7 @@ func newIngester(t *testing.T, f ingest.Fetcher) (context.Context, *store.Store,
 	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
 		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
-	st := store.New(pool)
+	st := store.New(pool, testStoreConfig())
 	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer())
 }
 
@@ -300,7 +311,7 @@ func TestLoopReusesHistoryAcrossCycles(t *testing.T) {
 	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
 		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
-	st := store.New(pool)
+	st := store.New(pool, testStoreConfig())
 	hist := quality.NewHistory(depth)
 
 	var calls atomic.Int64
