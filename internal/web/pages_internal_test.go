@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -13,6 +14,46 @@ import (
 var noopHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 })
+
+// TestNoDirListRefusesDotPrefixedSegments pins the dot-segment rule
+// build-independently: noopHandler answers 200 for anything that gets through,
+// so a 200 here means the path was ALLOWED and a 404 means it was refused,
+// regardless of what is embedded in dist/.
+//
+// The allowed half matters more than the refused half. Rejecting "any path
+// containing a dot" would refuse every content-hashed bundle name and take the
+// whole application offline, so the hashed cases below are the regression this
+// implementation's shape exists to prevent.
+func TestNoDirListRefusesDotPrefixedSegments(t *testing.T) {
+	h := noDirList(noopHandler)
+
+	// Paths are in the prefix-stripped form the /static/build/ chain sees, plus
+	// the unstripped form the /static/ chain sees.
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{".vite/manifest.json", http.StatusNotFound},
+		{".keep", http.StatusNotFound},
+		{"assets/.hidden.js", http.StatusNotFound},
+		{"/static/.env", http.StatusNotFound},
+		{"assets/main-BFfKsolS.js", http.StatusOK},
+		{"assets/map-CKRTiAqP.css", http.StatusOK},
+		{"assets/maplibre-gl-worker.mjs", http.StatusOK},
+		{"/static/app.css", http.StatusOK},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/"+strings.TrimPrefix(tc.path, "/"), nil)
+			req.URL.Path = tc.path // exactly what the wrapper receives, stripped or not
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != tc.want {
+				t.Errorf("%q: status = %d, want %d", tc.path, rec.Code, tc.want)
+			}
+		})
+	}
+}
 
 // TestBuildAssetCacheControlPicksTheUnhashedMapLibreFiles is mutation target 1
 // from the fix-round review: delete the special case in buildAssetCacheControl

@@ -189,8 +189,8 @@ func buildAssetCacheControl(next http.Handler) http.Handler {
 	})
 }
 
-// noDirList turns a request for a directory into a 404 before the FileServer
-// can render an index of it.
+// noDirList turns a request for a directory, or for any dot-prefixed path, into
+// a 404 before the FileServer can serve it.
 //
 // Checked by path shape rather than by stat-ing the filesystem: a trailing
 // slash is the only way http.FileServer serves a listing (it redirects
@@ -203,6 +203,39 @@ func noDirList(next http.Handler) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		if hasDotSegment(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// hasDotSegment reports whether any "/"-separated segment of p begins with a
+// dot.
+//
+// The embed directive for the build tree is `//go:embed all:dist`, and the
+// `all:` prefix is not incidental — it is what makes the committed
+// dist/.keep sentinel match the pattern, and an embed pattern that matches
+// nothing is a compile error. The side effect is that Vite's own
+// .vite/manifest.json is embedded and served too: a fixed URL, publishing the
+// entire chunk graph (including chunks no page references), whose content
+// changes on every build while the response carries a one-year immutable
+// Cache-Control. That is both an information leak and an incoherently cached
+// response, so the whole class is refused here rather than the two names that
+// exist today.
+//
+// Matched per SEGMENT, on a LEADING dot — not with strings.Contains(p, "/.")
+// (equivalent here, but it invites the sloppier Contains(p, ".") next to it)
+// and emphatically not on "contains a dot": every content-hashed asset name
+// (main-BFfKsolS.js, map-CKRTiAqP.css) contains dots, and rejecting those
+// would 404 the entire application bundle. No legitimate Vite output has a
+// dot-prefixed path segment.
+func hasDotSegment(p string) bool {
+	for _, segment := range strings.Split(p, "/") {
+		if strings.HasPrefix(segment, ".") {
+			return true
+		}
+	}
+	return false
 }

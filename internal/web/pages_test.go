@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"airbg.org/internal/web"
 )
 
 // TestBuildAssetsAreImmutablyCacheable. A content-hashed filename can be cached
@@ -11,17 +13,71 @@ import (
 // Without this header the hash buys nothing: the browser revalidates every
 // bundle on every navigation, which is the cost the whole manifest mechanism
 // exists to avoid.
+//
+// Asserted against the real hashed entry bundle, resolved through the manifest,
+// rather than against dist/.keep: .keep is now (correctly) a 404, because
+// noDirList refuses every dot-prefixed path segment. That makes this test
+// dependent on a build having been run, hence the skip — the header decision
+// itself is pinned build-independently in pages_internal_test.go.
 func TestBuildAssetsAreImmutablyCacheable(t *testing.T) {
-	rr := renderer(t, nil)
+	assets, found := web.LoadAssets()
+	if !found {
+		t.Skip("no manifest embedded; run `npm run build` in web/ to exercise this path")
+	}
+	script := assets.Script("main")
+	if script == "" {
+		t.Fatal(`Script("main") = "", want the hashed entry path`)
+	}
 
-	// Any real file under the embedded dist tree. .keep is always present, which
-	// is what makes this test runnable with no Node.
-	rec := fetch(t, rr, "/static/build/.keep")
+	rec := fetch(t, renderer(t, nil), script)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+		t.Fatalf("GET %s: status = %d, want 200", script, rec.Code)
 	}
 	if got, want := rec.Header().Get("Cache-Control"), "public, max-age=31536000, immutable"; got != want {
 		t.Errorf("Cache-Control = %q, want %q", got, want)
+	}
+}
+
+// TestDotPrefixedBuildPathsAre404. `//go:embed all:dist` embeds dotfiles by
+// design (that is what makes dist/.keep match, and a pattern matching nothing
+// is a compile error), which also embedded Vite's .vite/manifest.json — served
+// at a fixed URL, listing the entire chunk graph, under a one-year immutable
+// Cache-Control whose content changes on every build.
+//
+// The hashed-asset half of this test is the more important one: it is the
+// regression a broader match ("path contains a dot") would cause, and it would
+// 404 every bundle the app loads.
+func TestDotPrefixedBuildPathsAre404(t *testing.T) {
+	rr := renderer(t, nil)
+
+	for _, p := range []string{
+		"/static/build/.vite/manifest.json",
+		"/static/build/.keep",
+	} {
+		t.Run(p, func(t *testing.T) {
+			rec := fetch(t, rr, p)
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("status = %d, want 404; body:\n%s", rec.Code, rec.Body)
+			}
+			if strings.Contains(rec.Body.String(), `"file"`) {
+				t.Errorf("the build manifest was served:\n%s", rec.Body)
+			}
+		})
+	}
+
+	assets, found := web.LoadAssets()
+	if !found {
+		t.Skip("no manifest embedded; cannot check that a hashed asset still resolves")
+	}
+	script := assets.Script("main")
+	rec := fetch(t, rr, script)
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET %s: status = %d, want 200 — the dot-segment check must not "+
+			"catch hashed filenames, which contain dots but never at the start of a segment",
+			script, rec.Code)
+	}
+	if got, want := rec.Header().Get("Cache-Control"), "public, max-age=31536000, immutable"; got != want {
+		t.Errorf("GET %s: Cache-Control = %q, want %q", script, got, want)
 	}
 }
 
