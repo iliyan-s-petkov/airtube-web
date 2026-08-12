@@ -1,16 +1,30 @@
 package ratelimit_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/ratelimit"
 )
+
+// testEnumerate mirrors airbg.yaml's ratelimit.enumerate section (Task 11
+// brief), letting individual tests set their own area/sensor limits while
+// keeping the window and retry-after fixed.
+func testEnumerate(areaLimit, sensorLimit int) config.Enumerate {
+	return config.Enumerate{
+		AreasPerWindow:   areaLimit,
+		SensorsPerWindow: sensorLimit,
+		Window:           time.Hour,
+		RetryAfter:       900 * time.Second,
+	}
+}
 
 func breadth(t *testing.T, areaLimit, sensorLimit int) (*ratelimit.Breadth, *clock) {
 	t.Helper()
 	c := newClock()
-	b := ratelimit.NewBreadth(areaLimit, sensorLimit, time.Hour)
+	b := ratelimit.NewBreadth(testEnumerate(areaLimit, sensorLimit))
 	b.SetClockForTesting(c.now)
 	return b, c
 }
@@ -27,6 +41,30 @@ func TestRepeatedSameAreaIsNotEnumeration(t *testing.T) {
 		if !b.ObserveArea("client", "sofia") {
 			t.Fatalf("flagged at request %d for repeatedly viewing ONE area", i+1)
 		}
+	}
+}
+
+// TestEnumerationAreaLimitComesFromConfig pins the actual documented bound —
+// 12 distinct areas per hour (airbg.yaml's ratelimit.enumerate.areas_per_window,
+// see config's TestResolveCommittedConfig for the resolve-time half of this
+// chain) — rather than an arbitrary small number picked for test convenience,
+// the way every other test in this file does. NewBreadth taking a hardcoded 12
+// instead of cfg.AreasPerWindow would pass every other test here, since they
+// all supply their own limit.
+func TestEnumerationAreaLimitComesFromConfig(t *testing.T) {
+	cfg := config.Enumerate{AreasPerWindow: 12, SensorsPerWindow: 40, Window: time.Hour, RetryAfter: 900 * time.Second}
+	c := newClock()
+	b := ratelimit.NewBreadth(cfg)
+	b.SetClockForTesting(c.now)
+
+	for i := 0; i < 12; i++ {
+		slug := fmt.Sprintf("area-%d", i)
+		if !b.ObserveArea("client", slug) {
+			t.Fatalf("area %d of 12 (the configured limit) was refused", i+1)
+		}
+	}
+	if b.ObserveArea("client", "area-13") {
+		t.Error("the 13th distinct area was allowed; ratelimit.enumerate.areas_per_window = 12 was not enforced")
 	}
 }
 

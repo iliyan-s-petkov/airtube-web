@@ -10,9 +10,27 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/ratelimit"
 )
+
+// testBucket builds a config.Bucket for tests that only care about
+// PerSecond/Burst; TTL is the one field these tests vary directly, so it stays
+// a parameter rather than being folded into the literal below.
+func testBucket(perSecond, burst float64, ttl time.Duration) config.Bucket {
+	return config.Bucket{
+		PerSecond:     perSecond,
+		Burst:         burst,
+		TTL:           ttl,
+		EvictInterval: 5 * time.Minute,
+		RetryAfter:    2 * time.Second,
+	}
+}
+
+// testShardCount is a small, deterministic shard count for chain tests, which
+// never exercise sharding directly.
+const testShardCount = 8
 
 func TestRecoverTurnsPanicInto500(t *testing.T) {
 	h := httpx.Recover(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -119,7 +137,7 @@ func TestLimitBodyRejectsOversizeRequest(t *testing.T) {
 }
 
 func TestRateLimitReturns429WithRetryAfter(t *testing.T) {
-	l := ratelimit.New(ratelimit.Rate{PerSecond: 1, Burst: 1}, time.Hour)
+	l := ratelimit.New(testBucket(1, 1, time.Hour), testShardCount)
 	res := resolver(t)
 
 	h := httpx.WithClientIP(httpx.RateLimit(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -161,7 +179,7 @@ func TestChainRateLimitsBeforeReachingTheHandler(t *testing.T) {
 	reached := 0
 	chain := httpx.Chain{
 		Resolver:     resolver(t),
-		Limiter:      ratelimit.New(ratelimit.Rate{PerSecond: 0, Burst: 1}, time.Hour),
+		Limiter:      ratelimit.New(testBucket(0, 1, time.Hour), testShardCount),
 		MaxBodyBytes: 4096,
 	}
 	h := chain.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -186,7 +204,7 @@ func TestChainRateLimitsBeforeReachingTheHandler(t *testing.T) {
 func TestChainRecoversAndStillSetsHeaders(t *testing.T) {
 	chain := httpx.Chain{
 		Resolver:     resolver(t),
-		Limiter:      ratelimit.New(ratelimit.Rate{PerSecond: 100, Burst: 100}, time.Hour),
+		Limiter:      ratelimit.New(testBucket(100, 100, time.Hour), testShardCount),
 		MaxBodyBytes: 4096,
 	}
 	h := chain.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -212,7 +230,7 @@ func TestChainRecoversAndStillSetsHeaders(t *testing.T) {
 func TestChainProvidesClientIPToTheHandler(t *testing.T) {
 	chain := httpx.Chain{
 		Resolver:     resolver(t),
-		Limiter:      ratelimit.New(ratelimit.Rate{PerSecond: 100, Burst: 100}, time.Hour),
+		Limiter:      ratelimit.New(testBucket(100, 100, time.Hour), testShardCount),
 		MaxBodyBytes: 4096,
 	}
 
@@ -293,7 +311,7 @@ func TestChainWrapComposesInDocumentedOrder(t *testing.T) {
 
 	chain := httpx.Chain{
 		Resolver:     resolver(t),
-		Limiter:      ratelimit.New(ratelimit.Rate{PerSecond: 100, Burst: 100}, time.Hour),
+		Limiter:      ratelimit.New(testBucket(100, 100, time.Hour), testShardCount),
 		MaxBodyBytes: 4096,
 	}
 	h := chain.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

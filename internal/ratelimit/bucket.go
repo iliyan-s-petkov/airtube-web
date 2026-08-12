@@ -13,6 +13,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"airbg.org/internal/config"
 )
 
 // Rate is a refill rate and a maximum burst, both in tokens.
@@ -27,24 +29,25 @@ type bucket struct {
 	lastSeen time.Time
 }
 
-// shardCount is a power of two so the mask below is valid. 32 shards keeps
-// lock contention low without making Evict expensive.
-//
-// A single mutex would serialise every request in the process on one lock —
-// which turns the rate limiter into the throughput ceiling, the opposite of
-// what it is for.
-const shardCount = 32
-
+// shardCount used to be a fixed power of two here; it is now cfg.ShardCount
+// (config.RateLimit.ShardCount), shared by every bucket New creates. Shards
+// reduce lock contention only — a single mutex would serialise every request
+// in the process on one lock, which turns the rate limiter into the
+// throughput ceiling, the opposite of what it is for.
 type shard struct {
 	mu      sync.Mutex
 	buckets map[string]*bucket
+}
+
+func newShard() *shard {
+	return &shard{buckets: make(map[string]*bucket)}
 }
 
 type Limiter struct {
 	rate Rate
 	ttl  time.Duration
 
-	shards [shardCount]shard
+	shards []*shard
 	seed   maphash.Seed
 
 	// now is swappable so tests drive time explicitly. A rate limiter tested
@@ -53,12 +56,24 @@ type Limiter struct {
 	now   func() time.Time
 }
 
-func New(rate Rate, ttl time.Duration) *Limiter {
-	l := &Limiter{rate: rate, ttl: ttl, seed: maphash.MakeSeed(), now: time.Now}
-	for i := range l.shards {
-		l.shards[i].buckets = make(map[string]*bucket)
+// New builds a Limiter from cfg, sharded across shardCount shards.
+//
+// shardCount is a separate argument rather than a field on config.Bucket:
+// it is shared by both the API and series buckets and lives one level up, on
+// config.RateLimit.ShardCount. Copying it into config.Bucket would let the two
+// copies quietly diverge, which is exactly what this phase exists to remove.
+func New(cfg config.Bucket, shardCount int) *Limiter {
+	shards := make([]*shard, shardCount)
+	for i := range shards {
+		shards[i] = newShard()
 	}
-	return l
+	return &Limiter{
+		rate:   Rate{PerSecond: cfg.PerSecond, Burst: cfg.Burst},
+		ttl:    cfg.TTL,
+		shards: shards,
+		seed:   maphash.MakeSeed(),
+		now:    time.Now,
+	}
 }
 
 func (l *Limiter) SetClockForTesting(now func() time.Time) {
@@ -74,8 +89,12 @@ func (l *Limiter) clock() time.Time {
 }
 
 func (l *Limiter) shardFor(key string) *shard {
+	// A modulo, not a power-of-two mask: shardCount now comes from
+	// config.RateLimit.ShardCount (and can be overridden by AIRBG_RATE_LIMIT_SHARD_COUNT),
+	// so it is no longer guaranteed to be a power of two the way the old
+	// hardcoded 32 was.
 	h := maphash.String(l.seed, key)
-	return &l.shards[h&(shardCount-1)]
+	return l.shards[h%uint64(len(l.shards))]
 }
 
 // Allow spends one token for key.
@@ -129,8 +148,7 @@ func (l *Limiter) Allow(key string) (bool, time.Duration) {
 // Evict drops buckets untouched for longer than the TTL.
 func (l *Limiter) Evict() {
 	cutoff := l.clock().Add(-l.ttl)
-	for i := range l.shards {
-		sh := &l.shards[i]
+	for _, sh := range l.shards {
 		sh.mu.Lock()
 		for k, b := range sh.buckets {
 			if b.lastSeen.Before(cutoff) {
@@ -143,13 +161,26 @@ func (l *Limiter) Evict() {
 
 func (l *Limiter) Len() int {
 	n := 0
-	for i := range l.shards {
-		sh := &l.shards[i]
+	for _, sh := range l.shards {
 		sh.mu.Lock()
 		n += len(sh.buckets)
 		sh.mu.Unlock()
 	}
 	return n
+}
+
+// ShardLensForTesting exposes the bucket count of each shard so a test can
+// tell "cfg.ShardCount actually shards traffic" apart from "cfg.ShardCount is
+// stored but every key funnels into one shard" — both look identical through
+// Len(), which only ever reports the sum.
+func (l *Limiter) ShardLensForTesting() []int {
+	lens := make([]int, len(l.shards))
+	for i, sh := range l.shards {
+		sh.mu.Lock()
+		lens[i] = len(sh.buckets)
+		sh.mu.Unlock()
+	}
+	return lens
 }
 
 // StartEvicting runs Evict on a ticker until ctx is cancelled.

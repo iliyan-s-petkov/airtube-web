@@ -5,9 +5,14 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"airbg.org/internal/config"
 )
 
-// Limits from Phase 1 §8.3.
+// The area/sensor/window limits documented in Phase 1 §8.3 (12 distinct areas,
+// 40 distinct sensors, per hour) now live in config.RateLimit.Enumerate,
+// resolved from airbg.yaml's ratelimit.enumerate section — not as constants
+// here.
 //
 // 12 distinct areas per hour: Bulgaria has 28 oblasti and 28 cities. A curious
 // visitor compares their own city with a handful of others; nobody legitimately
@@ -17,11 +22,6 @@ import (
 //
 // Both are breadth, not volume, on purpose: volume limits punish enthusiasm and
 // miss a patient scraper pacing itself under the rate limit.
-const (
-	DistinctAreaLimit   = 12
-	DistinctSensorLimit = 40
-	EnumerationWindow   = time.Hour
-)
 
 type breadthEntry struct {
 	windowStart time.Time
@@ -48,10 +48,13 @@ type Breadth struct {
 	now   func() time.Time
 }
 
-func NewBreadth(areaLimit, sensorLimit int, window time.Duration) *Breadth {
+func NewBreadth(cfg config.Enumerate) *Breadth {
 	return &Breadth{
-		areaLimit: areaLimit, sensorLimit: sensorLimit, window: window,
-		entries: make(map[string]*breadthEntry), now: time.Now,
+		areaLimit:   cfg.AreasPerWindow,
+		sensorLimit: cfg.SensorsPerWindow,
+		window:      cfg.Window,
+		entries:     make(map[string]*breadthEntry),
+		now:         time.Now,
 	}
 }
 
