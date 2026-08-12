@@ -15,7 +15,6 @@ import (
 	"airbg.org/internal/backfill"
 	"airbg.org/internal/config"
 	"airbg.org/internal/db"
-	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
@@ -39,7 +38,9 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("configuration", "error", err)
+		// Fail closed and print the whole list: a config error is an operator
+		// error, and one problem per restart is a bad trade for them.
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
@@ -54,7 +55,7 @@ func main() {
 		return
 	}
 
-	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	pool, err := db.Open(ctx, cfg.Database)
 	if err != nil {
 		slog.Error("database", "error", err)
 		os.Exit(1)
@@ -70,9 +71,9 @@ func main() {
 		slog.Info("migrations applied")
 
 	case "collect":
-		client := upstream.New(cfg.UpstreamURL, 30*time.Second)
-		ing := ingest.New(client, store.New(pool), quality.NewHistory(12))
-		ing.Loop(ctx, cfg.PollInterval)
+		client := upstream.New(cfg.Upstream)
+		ing := ingest.New(client, store.New(pool, cfg.Store), quality.NewHistory(cfg.Quality.HistoryDepth))
+		ing.Loop(ctx, cfg.Upstream.PollInterval)
 
 	case "backfill":
 		if len(os.Args) < 4 {
@@ -169,7 +170,7 @@ func main() {
 // deferred Close calls actually run: main's error paths call os.Exit, which
 // skips defers.
 func serveCommand(ctx context.Context, cfg config.Config) error {
-	apiPool, collectorPool, err := db.OpenPair(ctx, cfg.DatabaseURL, cfg.DBAPIConns, cfg.DBCollectorConns)
+	apiPool, collectorPool, err := db.OpenPair(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}
@@ -197,10 +198,10 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	// publisher get the collector pool: building a snapshot is background work
 	// that queries every area, so it belongs on the side of the bulkhead that is
 	// allowed to be slow.
-	apiStore := store.New(apiPool)
-	collectorStore := store.New(collectorPool)
+	apiStore := store.New(apiPool, cfg.Store)
+	collectorStore := store.New(collectorPool, cfg.Store)
 
-	holder := snapshot.NewHolder()
+	holder := snapshot.NewHolder(cfg.Series)
 	pub := server.NewPublisher(collectorStore, holder, log)
 
 	cat, err := i18n.Load()
@@ -229,19 +230,12 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	// the configured basemap host reaches the CSP, and it keeps the server
 	// package from needing to know how a policy is assembled.
 	srv, err := server.New(server.Options{
-		ListenAddr:        cfg.ListenAddr,
-		MetricsAddr:       cfg.MetricsAddr,
-		Catalogue:         cat,
-		Snapshots:         holder,
-		Store:             apiStore,
-		Publisher:         pub,
-		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
-		BaseURL:           cfg.BaseURL,
-		Logger:            log,
-		MaxDBInflight:     cfg.MaxDBInflight,
-		MaxConns:          cfg.MaxConns,
-		BasemapStyleURL:   cfg.BasemapStyleURL,
-		CSP:               httpx.CSP(cfg.BasemapHost),
+		Config:    cfg,
+		Catalogue: cat,
+		Snapshots: holder,
+		Store:     apiStore,
+		Publisher: pub,
+		Logger:    log,
 	})
 	if err != nil {
 		return err
@@ -249,9 +243,9 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 
 	// Same construction as the existing "collect" case — one poller, not two.
 	ing := ingest.New(
-		upstream.New(cfg.UpstreamURL, 30*time.Second),
+		upstream.New(cfg.Upstream),
 		collectorStore,
-		quality.NewHistory(12),
+		quality.NewHistory(cfg.Quality.HistoryDepth),
 	)
 	ing.SetSnapshotPublisher(pub)
 
@@ -264,7 +258,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	polled := make(chan struct{})
 	go func() {
 		defer close(polled)
-		ing.Loop(pollCtx, cfg.PollInterval) // returns when pollCtx is cancelled
+		ing.Loop(pollCtx, cfg.Upstream.PollInterval) // returns when pollCtx is cancelled
 	}()
 
 	err = srv.Run(ctx)
