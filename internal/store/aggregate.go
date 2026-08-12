@@ -10,28 +10,11 @@ import (
 	"airbg.org/internal/db"
 )
 
-// CoverageThreshold is the minimum number of distinct sensors with usable
-// readings an area needs before it publishes an aggregate number (Phase 1
-// §5.7). Below it the area still appears — the map must be able to render an
-// insufficient-coverage state — but carries no value.
-//
-// Three, not one, because a "regional average" derived from a single sensor is
-// not an average. It is one sensor's reading with a region's name on it, and it
-// looks exactly as authoritative as a real one.
-const CoverageThreshold = 3
-
 // usableQuality is the quality filter every published aggregate applies.
 // 'no_neighbours' is usable: it records that the spatial-outlier check had
 // nothing to compare against, not that the reading failed it. Excluding it
 // would silently drop every rural sensor.
 var usableQuality = []string{"ok", "no_neighbours"}
-
-// freshnessWindow bounds how old a reading may be and still count toward a
-// "current" aggregate. Two hours tolerates a missed poll or two without
-// letting a sensor that died last week keep contributing to the number on the
-// map — which is the more dangerous failure, because a stale value looks
-// current.
-const freshnessWindow = 2 * time.Hour
 
 type AreaAggregate struct {
 	Slug        string
@@ -96,7 +79,7 @@ SELECT a.slug, a.kind, a.name_bg, a.name_en,
 // kinds is passed as a bound text[] parameter, never interpolated. A slug or
 // kind reaching SQL as text is the legacy application's injection bug.
 func (s *Store) AreaAggregates(ctx context.Context, kinds []string) ([]AreaAggregate, error) {
-	since := time.Now().UTC().Add(-freshnessWindow)
+	since := time.Now().UTC().Add(-s.cfg.FreshnessWindow)
 
 	rows, err := s.pool.Query(ctx, areaAggregateSQL, since, usableQuality, kinds)
 	if err != nil {
@@ -113,7 +96,7 @@ func (s *Store) AreaAggregates(ctx context.Context, kinds []string) ([]AreaAggre
 			&a.SensorCount, &values); err != nil {
 			return nil, fmt.Errorf("store: scan area aggregate: %w", err)
 		}
-		a.Covered = a.SensorCount >= CoverageThreshold
+		a.Covered = a.SensorCount >= s.cfg.CoverageThreshold
 		if a.Covered {
 			a.Values = values
 		} else {
@@ -171,7 +154,7 @@ SELECT s.sensor_id, s.sensor_type,
 // per sensor-metric pair, and a caller assembling those in Go is one forgotten
 // map lookup away from emitting seven markers where one belongs.
 func (s *Store) LatestSensors(ctx context.Context) ([]SensorReading, error) {
-	since := time.Now().UTC().Add(-freshnessWindow)
+	since := time.Now().UTC().Add(-s.cfg.FreshnessWindow)
 
 	rows, err := s.pool.Query(ctx, latestSensorsSQL, since, usableQuality)
 	if err != nil {

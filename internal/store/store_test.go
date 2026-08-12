@@ -7,12 +7,19 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/quality"
 	"airbg.org/internal/store"
 	"airbg.org/internal/testsupport"
 	"airbg.org/internal/upstream"
 )
+
+// testStoreConfig mirrors airbg.yaml so existing coverage assertions keep
+// asserting the same threshold.
+func testStoreConfig() config.Store {
+	return config.Store{CoverageThreshold: 3, FreshnessWindow: 2 * time.Hour}
+}
 
 func newStore(t *testing.T) (context.Context, *pgxpool.Pool, *store.Store) {
 	t.Helper()
@@ -21,7 +28,7 @@ func newStore(t *testing.T) (context.Context, *pgxpool.Pool, *store.Store) {
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	return ctx, pool, store.New(pool)
+	return ctx, pool, store.New(pool, testStoreConfig())
 }
 
 func sample(id int64, metric string, value float64, flag quality.Flag, ts time.Time) quality.Scored {

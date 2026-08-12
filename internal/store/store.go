@@ -8,14 +8,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/quality"
 )
 
 type Store struct {
 	pool *pgxpool.Pool
+	cfg  config.Store
 }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func New(pool *pgxpool.Pool, cfg config.Store) *Store { return &Store{pool: pool, cfg: cfg} }
 
 // UpsertSensors records every distinct sensor in the batch. Location is
 // refreshed on conflict because sensors are occasionally relocated upstream.

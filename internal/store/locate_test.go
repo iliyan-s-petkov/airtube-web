@@ -14,7 +14,7 @@ import (
 // into a country-scale view when a neighbourhood view was available.
 func TestAreaAtPointPrefersTheSmallestArea(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool)
+	s := store.New(pool, testStoreConfig())
 
 	// Concentric buffers around the same point: 40 km, 15 km, 2 km.
 	seedAreaWithRadius(t, ctx, pool, "sofia-oblast", "oblast", 23.3219, 42.6977, 40000)
@@ -35,7 +35,7 @@ func TestAreaAtPointPrefersTheSmallestArea(t *testing.T) {
 // view rather than a 500.
 func TestAreaAtPointOutsideBulgariaReturnsEmpty(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool)
+	s := store.New(pool, testStoreConfig())
 
 	seedAreaWithRadius(t, ctx, pool, "sofia-oblast", "oblast", 23.3219, 42.6977, 40000)
 
@@ -55,7 +55,7 @@ func TestAreaAtPointOutsideBulgariaReturnsEmpty(t *testing.T) {
 // Bulgarian visitor to the default view and nothing errors.
 func TestAreaAtPointRejectsSwappedCoordinates(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool)
+	s := store.New(pool, testStoreConfig())
 
 	seedAreaWithRadius(t, ctx, pool, "sofia-oblast", "oblast", 23.3219, 42.6977, 40000)
 
