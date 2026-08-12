@@ -53,6 +53,24 @@ func fetch(t *testing.T, rr *web.Renderer, path string) *httptest.ResponseRecord
 	return rec
 }
 
+// newTestRendererWithBasemap is renderer(t, fixture(t)) with the basemap style
+// URL parameterised, for the two tests below that pin how BasemapStyleURL
+// reaches the index page's data-basemap attribute.
+func newTestRendererWithBasemap(t *testing.T, basemapStyleURL string) *web.Renderer {
+	t.Helper()
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+	h := snapshot.NewHolder()
+	h.Store(fixture(t))
+	rr, err := web.NewRenderer(cat, h, "https://airbg.org", basemapStyleURL)
+	if err != nil {
+		t.Fatalf("NewRenderer: %v", err)
+	}
+	return rr
+}
+
 func TestIndexRendersInBulgarianByDefault(t *testing.T) {
 	rec := fetch(t, renderer(t, fixture(t)), "/")
 
@@ -321,5 +339,59 @@ func TestRenderedErrorPagesAreNotCacheable(t *testing.T) {
 				"non-enumerable surface and must stay edge-cacheable", path, cc,
 				"public, max-age=150")
 		}
+	}
+}
+
+// TestMapIslandCarriesItsConfiguration. The island reads all of this from
+// data-* attributes because the CSP forbids an inline script; a missing
+// attribute is a map that silently falls back to a default nobody chose.
+func TestMapIslandCarriesItsConfiguration(t *testing.T) {
+	rr := newTestRendererWithBasemap(t, "https://tiles.example/style.json?key=k")
+
+	body := fetch(t, rr, "/").Body.String()
+	for _, want := range []string{
+		`data-metric="P2"`,
+		`data-basemap="https://tiles.example/style.json?key=k"`,
+		`data-t-hint="`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("index page missing %s", want)
+		}
+	}
+}
+
+// TestNoBasemapRendersAnEmptyAttribute. Empty rather than absent, so the island
+// reads "" and falls back to its blank style instead of reading undefined.
+func TestNoBasemapRendersAnEmptyAttribute(t *testing.T) {
+	rr := newTestRendererWithBasemap(t, "")
+	body := fetch(t, rr, "/").Body.String()
+	if !strings.Contains(body, `data-basemap=""`) {
+		t.Errorf("index page has no empty data-basemap attribute:\n%s", body)
+	}
+}
+
+// TestBasemapURLCannotBreakOutOfTheAttribute. BasemapStyleURL is
+// operator-supplied config (from AIRBG_BASEMAP_STYLE_URL), not user input, but
+// it still lands in an HTML attribute and html/template's attribute-context
+// escaping is what stands between a hostile config value and an injected
+// script — this pins that the template consumes the field as DATA in
+// attribute context, not as a pre-built HTML fragment.
+func TestBasemapURLCannotBreakOutOfTheAttribute(t *testing.T) {
+	hostile := `javascript:alert(1)"><script>alert(1)</script>`
+	rr := newTestRendererWithBasemap(t, hostile)
+	body := fetch(t, rr, "/").Body.String()
+
+	if strings.Contains(body, "<script>alert(1)</script>") {
+		t.Error("the hostile basemap URL reached the page as an unescaped <script> tag")
+	}
+	if strings.Contains(body, `"><script>`) {
+		t.Error("the hostile basemap URL broke out of the data-basemap attribute")
+	}
+	// The value must still be present, escaped, inside the attribute — proving
+	// this is contextual escaping (which lets the value through, transformed)
+	// rather than a filter that strips or blocks it outright.
+	if !strings.Contains(body, `data-basemap="javascript:alert(1)&#34;&gt;`) &&
+		!strings.Contains(body, `data-basemap="javascript:alert(1)&#34;&gt;&lt;script&gt;`) {
+		t.Errorf("the basemap value does not appear escaped inside the attribute:\n%s", body)
 	}
 }

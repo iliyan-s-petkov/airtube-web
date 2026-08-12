@@ -2,11 +2,19 @@
 <h1>{{.T "site.title"}}</h1>
 <p>{{.T "site.tagline"}}</p>
 
-{{/* Phase 3 replaces this list with a MapLibre island mounted on #map.
-     The list stays underneath as the no-JavaScript fallback and as the
-     crawlable content — a map alone is invisible to a search engine and
-     unusable with a screen reader. */}}
-<div id="map" data-island="map" data-zoom="7" data-lon="25.4858" data-lat="42.7339"></div>
+{{/* The list below stays as the no-JavaScript fallback and as the crawlable
+     content — a map alone is invisible to a search engine and unusable with
+     a screen reader. The MapLibre island mounts on #map beside it, never
+     replacing it. */}}
+<div id="map" data-island="map"
+     data-zoom="7" data-lon="25.4858" data-lat="42.7339"
+     data-metric="P2"
+     data-basemap="{{.BasemapStyleURL}}"
+     data-t-legend="{{.T "map.legend.title"}}"
+     data-t-no-data="{{.T "map.legend.no_data"}}"
+     data-t-hint="{{.T "map.hint.select_area"}}"
+     data-t-rate-limited="{{.T "map.error.rate_limited"}}"
+     data-t-unavailable="{{.T "map.error.unavailable"}}"></div>
 
 <h2>{{.T "nav.areas"}}</h2>
 <ul class="areas">

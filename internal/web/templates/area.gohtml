@@ -23,5 +23,12 @@
      data-slug="{{.Area.Slug}}"
      data-zoom="{{.Area.Zoom}}"
      data-lon="{{.Area.Lon}}"
-     data-lat="{{.Area.Lat}}"></div>
+     data-lat="{{.Area.Lat}}"
+     data-metric="P2"
+     data-basemap="{{.BasemapStyleURL}}"
+     data-t-legend="{{.T "map.legend.title"}}"
+     data-t-no-data="{{.T "map.legend.no_data"}}"
+     data-t-hint="{{.T "map.hint.select_area"}}"
+     data-t-rate-limited="{{.T "map.error.rate_limited"}}"
+     data-t-unavailable="{{.T "map.error.unavailable"}}"></div>
 {{end}}

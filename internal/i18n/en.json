@@ -35,5 +35,13 @@
   "disclaimer": "Low-cost sensor readings are indicative and are not reference-method measurements.",
   "footer.data": "Data from sensor.community contributors, ODbL 1.0",
   "footer.boundaries": "Boundaries © OpenStreetMap contributors, ODbL 1.0",
-  "lang.switch": "Български"
+  "lang.switch": "Български",
+  "map.legend.title": "Air quality",
+  "map.legend.no_data": "Not enough data",
+  "map.hint.select_area": "Select an area to see individual sensors",
+  "map.error.rate_limited": "Data is rate limited, retrying",
+  "map.error.unavailable": "Map data is unavailable right now",
+  "chart.title": "PM2.5, last 24 hours",
+  "chart.empty": "No readings in the last 24 hours",
+  "chart.axis.value": "µg/m³"
 }
