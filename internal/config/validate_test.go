@@ -56,6 +56,40 @@ func TestValidateRejects(t *testing.T) {
 		{"malformed base_url", func(c *Config) { c.Listen.BaseURL = "not-a-url" }, "must use http or https"},
 		{"relative base_url", func(c *Config) { c.Listen.BaseURL = "/path/to/site" }, "must use http or https"},
 		{"empty basemap style_url", func(c *Config) { c.Basemap.StyleURL = "" }, "basemap.style_url is empty"},
+		// The rest of this batch is a second, more careful pass over the
+		// deleted internal/config/config_test.go (git show
+		// 23171e3:internal/config/config_test.go — 24 test functions, not the
+		// 12 an earlier, incorrect version of this report claimed). The first
+		// pass missed that TestRejectsNonPositivePoolSizes covered
+		// database.api_conns/collector_conns/max_inflight and that
+		// TestRejectsHostileBasemapHost, TestRejectsBasemapHostLongerThanDNSLimit
+		// and part of TestRejectsNonHTTPSBasemapURL had no equivalent at all —
+		// meaning validateFrontend's hostPattern/maxHostLength checks on
+		// Basemap.StyleURL's host were completely unwired from the test suite.
+		{"zero database api_conns", func(c *Config) { c.Database.APIConns = 0 }, "database.api_conns"},
+		{"zero database collector_conns", func(c *Config) { c.Database.CollectorConns = 0 }, "database.collector_conns"},
+		{"zero database max_inflight", func(c *Config) { c.Database.MaxInflight = 0 }, "database.max_inflight"},
+		// TestRejectsNonHTTPSBasemapURL, ported in part: plain http is no
+		// longer rejected under the new schema (validateFrontend accepts
+		// "http" or "https" — see the brief's validateFrontend verbatim), so
+		// only the no-scheme and no-host cases still apply.
+		{"basemap url with no scheme", func(c *Config) { c.Basemap.StyleURL = "tiles.example/style.json" }, "must use http or https"},
+		{"basemap url with no host", func(c *Config) { c.Basemap.StyleURL = "https:///style.json" }, "not a valid hostname"},
+		// TestRejectsHostileBasemapHost: httpx.CSP-style header concatenation
+		// means a host containing any of these characters could inject a new
+		// CSP directive (up to reintroducing 'unsafe-inline') the moment it
+		// reaches a response. hostPattern's charset is the only thing standing
+		// between an operator-supplied host and that outcome.
+		{"basemap host semicolon", func(c *Config) { c.Basemap.StyleURL = "https://tiles.example;object-src/style.json" }, "not a valid hostname"},
+		{"basemap host double quote", func(c *Config) { c.Basemap.StyleURL = "https://tiles.example\"evil/style.json" }, "not a valid hostname"},
+		{"basemap host single quote", func(c *Config) { c.Basemap.StyleURL = "https://tiles.example'evil/style.json" }, "not a valid hostname"},
+		{"basemap host comma", func(c *Config) { c.Basemap.StyleURL = "https://tiles.example,evil/style.json" }, "not a valid hostname"},
+		// TestRejectsBasemapHostLongerThanDNSLimit: httpx.CSP concatenates the
+		// host into the policy twice (img-src and connect-src), so an
+		// unbounded host doubles into an oversized header on every response.
+		{"basemap host longer than DNS limit", func(c *Config) {
+			c.Basemap.StyleURL = "https://" + strings.Repeat("a", 254) + ".example/style.json"
+		}, "must be at most"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -87,6 +121,33 @@ func TestValidateReportsAllProblemsAtOnce(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error does not mention %q:\n%s", want, err)
 		}
+	}
+}
+
+// Ported from the deleted config_test.go's TestAcceptsBasemapHostWithPort: a
+// self-hosted tile server on a non-standard port is a legitimate deployment,
+// and hostPattern must accept "host:port" rather than only a bare host.
+func TestValidateAcceptsBasemapHostWithPort(t *testing.T) {
+	cfg := good(t)
+	cfg.Basemap.StyleURL = "https://tiles.example:8443/style.json"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want a host:port basemap URL accepted", err)
+	}
+}
+
+// Ported from the deleted config_test.go's TestLoadAcceptsExactlyTheMinimum:
+// the poll-interval floor is inclusive, so a deployment configured at exactly
+// upstream.min_poll_interval must validate.
+func TestValidateAcceptsPollIntervalAtTheFloor(t *testing.T) {
+	cfg := good(t)
+	cfg.Upstream.PollInterval = cfg.Upstream.MinPollInterval
+	// cache.data_max_age must also stay within half of the (now much shorter)
+	// poll_interval — that is a separate rule (validateUpstreamAndCache) this
+	// test is not exercising, so satisfy it rather than let it mask the
+	// assertion this test exists for.
+	cfg.Cache.DataMaxAge = cfg.Upstream.PollInterval / 2
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want poll_interval == min_poll_interval accepted", err)
 	}
 }
 
