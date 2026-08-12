@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"airbg.org/internal/area"
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
@@ -17,6 +18,30 @@ import (
 	"airbg.org/internal/testsupport"
 	"airbg.org/internal/upstream"
 )
+
+// testScorer builds a Scorer with the same values airbg.yaml ships, so the
+// package's tests keep exercising the same thresholds the live scorer uses.
+// It is package-level (package ingest_test) so every _test.go file in this
+// package can share it.
+func testScorer() *quality.Scorer {
+	return quality.NewScorer(config.Quality{
+		MinNeighbours:         3,
+		MADScale:              1.4826,
+		MADThreshold:          3.5,
+		NeighbourRadiusMetres: 15000.0,
+		EarthRadiusMetres:     6371000.0,
+		HistoryDepth:          12,
+		Ranges: map[string]config.Range{
+			"P1":           {Min: 0, Max: 1000},
+			"P2":           {Min: 0, Max: 1000},
+			"temperature":  {Min: -40, Max: 60},
+			"humidity":     {Min: 0, Max: 100},
+			"pressure":     {Min: 650, Max: 1100},
+			"noise_LAeq":   {Min: 25, Max: 120},
+			"noise_LA_max": {Min: 25, Max: 120},
+		},
+	})
+}
 
 type stubFetcher struct {
 	readings []upstream.Reading
@@ -60,7 +85,7 @@ func newIngester(t *testing.T, f ingest.Fetcher) (context.Context, *store.Store,
 		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
 	st := store.New(pool)
-	return ctx, st, ingest.New(f, st, quality.NewHistory(12))
+	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer())
 }
 
 // newTestIngester builds an Ingester on a migrated database with an empty,
@@ -231,7 +256,7 @@ func TestLoopSurvivesFetchErrors(t *testing.T) {
 	var calls atomic.Int64
 	f := countingFetcher{calls: &calls, err: errors.New("upstream down")}
 	_, st, _ := newIngester(t, f)
-	ing := ingest.New(f, st, quality.NewHistory(12))
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer())
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -280,7 +305,7 @@ func TestLoopReusesHistoryAcrossCycles(t *testing.T) {
 
 	var calls atomic.Int64
 	f := countingFetcher{calls: &calls, readings: []upstream.Reading{same}}
-	ing := ingest.New(f, st, hist)
+	ing := ingest.New(f, st, hist, testScorer())
 
 	loopCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
@@ -426,7 +451,7 @@ func TestLoopStopsOnContextCancel(t *testing.T) {
 	// A real store is required: RunOnce always runs the rollup backlog step
 	// now, even for an empty fetch result, so a nil store would panic.
 	_, st, _ := newIngester(t, f)
-	ing := ingest.New(f, st, quality.NewHistory(12))
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer())
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

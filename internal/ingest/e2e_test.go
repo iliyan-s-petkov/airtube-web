@@ -71,7 +71,7 @@ func TestEndToEndFromRecordedPayload(t *testing.T) {
 	}
 
 	client := upstream.New(srv.URL, 10*time.Second)
-	ing := ingest.New(client, store.New(pool), quality.NewHistory(12))
+	ing := ingest.New(client, store.New(pool), quality.NewHistory(12), testScorer())
 
 	stats, err := ing.RunOnce(ctx)
 	if err != nil {

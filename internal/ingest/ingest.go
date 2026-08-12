@@ -74,12 +74,13 @@ type Ingester struct {
 	fetcher   Fetcher
 	store     *store.Store
 	history   *quality.History
+	scorer    *quality.Scorer
 	now       func() time.Time
 	publisher SnapshotPublisher
 }
 
-func New(f Fetcher, s *store.Store, hist *quality.History) *Ingester {
-	return &Ingester{fetcher: f, store: s, history: hist, now: time.Now}
+func New(f Fetcher, s *store.Store, hist *quality.History, scorer *quality.Scorer) *Ingester {
+	return &Ingester{fetcher: f, store: s, history: hist, scorer: scorer, now: time.Now}
 }
 
 // SetClockForTesting overrides RunOnce's notion of "now" and returns a
@@ -212,7 +213,7 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 					"sensors", rejected)
 			}
 
-			scored = quality.Score(accepted, i.history)
+			scored = i.scorer.Score(accepted, i.history)
 			for _, s := range scored {
 				stats.Flagged[s.Flag]++
 			}
