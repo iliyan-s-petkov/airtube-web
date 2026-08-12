@@ -1,0 +1,239 @@
+# airbg.org configuration.
+#
+# This file is mandatory and fully populated: this project keeps no defaults in
+# code, so every key below must be present or the server refuses to start. A
+# missing key is an error, never a zero value — for most of these, zero is the
+# dangerous setting.
+#
+# Any key can be overridden by an environment variable named AIRBG_ + the key
+# path, uppercased, with dots as underscores:
+#   listen.metrics_addr         -> AIRBG_LISTEN_METRICS_ADDR
+#   quality.ranges.pressure.min -> AIRBG_QUALITY_RANGES_PRESSURE_MIN
+#
+# Two settings are deliberately absent and env-only, because they are secrets
+# and this file is committed:
+#   AIRBG_DATABASE_URL  - the PostgreSQL connection string
+#   AIRBG_BASEMAP_KEY   - substituted into basemap.style_url's {key} placeholder
+# Writing either of them into this file is a startup error, not an ignore.
+
+listen:
+  # Loopback by default and on purpose. The origin must be unreachable except
+  # through the CDN: CF-Connecting-IP is the only rate-limit bucket key, so a
+  # scraper that reaches the origin directly bypasses every limiter in one hop.
+  # Do not "fix" a container that answers nothing by binding 0.0.0.0.
+  addr: "127.0.0.1:8080"
+  # The private listener carrying /metrics. Must differ from addr: sharing them
+  # publishes the counters that show an attacker whether their probing is being
+  # rate limited.
+  metrics_addr: "127.0.0.1:9090"
+  # Absolute origin used to build canonical and alternate-language URLs.
+  base_url: "http://localhost:8080"
+  # Hard ceiling on concurrent connections to the public listener. 0 would mean
+  # unlimited, which is why absent is an error rather than a default.
+  max_conns: 4096
+  # CIDRs whose X-Forwarded-For / CF-Connecting-IP headers are believed. Empty
+  # means trust nothing and bucket on the direct peer address.
+  trusted_proxy_cidrs: []
+  # No 'unsafe-inline' and no 'unsafe-eval', ever: the islands ship as external
+  # modules and the map styles as external JSON, so nothing needs them, and an
+  # inline-script allowance is the single most common way a CSP stops
+  # mitigating XSS. img-src allows data: for MapLibre's canvas sprites and
+  # blob: for its worker-produced tiles; worker-src blob: is required by
+  # MapLibre GL JS, which builds its workers from blobs. Validation rejects
+  # either unsafe directive, so this key cannot be used to disable the policy.
+  csp: >-
+    default-src 'self'; script-src 'self'; style-src 'self';
+    img-src 'self' data: blob:; font-src 'self'; connect-src 'self';
+    worker-src 'self' blob:; object-src 'none'; base-uri 'none';
+    form-action 'none'; frame-ancestors 'none'
+  # Denies every browser capability the site does not use. The threat is the
+  # frontend bundle itself: hundreds of transitive npm packages served
+  # same-origin under a CSP that trusts 'self'. geolocation stays denied until
+  # the "sensors near me" button exists (Phase 3c) — an allowance nobody uses
+  # is an allowance nobody chose.
+  permissions_policy: "geolocation=(), camera=(), microphone=(), payment=(), usb=()"
+
+timeouts:
+  read_header: "5s"
+  read: "10s"
+  write: "30s"
+  idle: "60s"
+  # How long in-flight requests get to finish after SIGTERM.
+  shutdown_grace: "15s"
+
+database:
+  # Two pools: the API pool must not be starved by the collector's writes.
+  api_conns: 8
+  collector_conns: 4
+  # Non-blocking admission semaphore in front of the database. Requests over
+  # this limit are shed immediately rather than queued.
+  max_inflight: 16
+  statement_timeouts:
+    # Applied to every connection as a RuntimeParam.
+    default: "15s"
+    # Area assignment walks the whole sensor table.
+    assign: "60s"
+    # Operator-triggered maintenance, run by hand, allowed to be slow.
+    operator: "10m"
+    # The tightest one, and the one that matters: /series is the most
+    # expensive public query, so it is scoped well below the default.
+    series: "5s"
+
+ratelimit:
+  api:
+    per_second: 10
+    burst: 60
+    ttl: "30m"
+    evict_interval: "5m"
+    retry_after: "2s"
+  # The series routes are the expensive ones and get their own, much tighter
+  # bucket. Worst case is one series request per page load.
+  series:
+    per_second: 1
+    burst: 10
+    ttl: "30m"
+    evict_interval: "5m"
+    retry_after: "2s"
+  # Breadth limiting: not about request rate but about how much of the dataset
+  # one client can enumerate. Anti-extraction here is tiering plus rate
+  # limiting, not authentication.
+  enumerate:
+    # Bulgaria has 28 oblasti and comparing them is the site's obvious use, so
+    # this is the knob most likely to need raising in production.
+    areas_per_window: 12
+    sensors_per_window: 40
+    window: "1h"
+    retry_after: "900s"
+  # Bucket shards. Reduces lock contention; purely a performance knob.
+  shard_count: 32
+
+cache:
+  # Deliberately half the poll interval: a client that caches for longer than
+  # one ingest cycle can show a reading that has already been superseded.
+  # Validation enforces data_max_age <= upstream.poll_interval / 2, so this
+  # coupling is checked rather than left as a comment for a human to maintain.
+  data_max_age: "150s"
+  # The band tables change when legislation changes, which is to say never.
+  scales_max_age: "86400s"
+
+upstream:
+  url: "https://data.sensor.community/airrohr/v1/filter/country=BG"
+  request_timeout: "30s"
+  poll_interval: "5m"
+  # Floor on poll_interval. Polling a volunteer-run public API faster than this
+  # is abusive, so the floor is enforced rather than advisory.
+  min_poll_interval: "30s"
+  # 64 MiB. A response larger than this is a bug or an attack, not data.
+  max_payload_bytes: 67108864
+
+store:
+  # Minimum sensors before an area gets a value at all. Below it the area is
+  # painted "no data" — one sensor must never be presented as an oblast.
+  coverage_threshold: 3
+  # A reading older than this does not count toward an area's current value.
+  freshness_window: "2h"
+
+series:
+  # Must match the first entry in periods below: the snapshot serves this
+  # window without touching the database, and api.parsePeriod must derive the
+  # same window from the default period name.
+  default_metric: "P2"
+  default_window: "24h"
+  # The hourly flag is not a performance hint, it is a correctness
+  # requirement. Raw readings are retained for 30 days, so a 1-year window
+  # against the raw table silently returns the last 30 days under a "1 year"
+  # label — a chart that is wrong without being empty.
+  #
+  # max_age is per period because each value needs its own justification: a
+  # 24h chart of raw readings is a live view whose right edge moves every few
+  # minutes, while a 1-year chart is hourly rollups where re-running the
+  # heaviest query in the service repaints a single pixel.
+  periods:
+    - name: "24h"
+      window: "24h"
+      hourly: false
+      max_age: "150s"
+    - name: "7d"
+      window: "168h"
+      hourly: false
+      max_age: "600s"
+    - name: "30d"
+      window: "720h"
+      hourly: false
+      max_age: "1800s"
+    - name: "1y"
+      window: "8760h"
+      hourly: true
+      max_age: "10800s"
+
+quality:
+  # Spatial outlier detection needs at least this many neighbours before its
+  # verdict means anything.
+  min_neighbours: 3
+  # 1.4826 makes the median absolute deviation a consistent estimator of the
+  # standard deviation for normally distributed data. This is a mathematical
+  # constant, not a tuning parameter — changing it changes what the threshold
+  # below means.
+  mad_scale: 1.4826
+  mad_threshold: 3.5
+  neighbour_radius_metres: 15000.0
+  # Mean Earth radius, used for the haversine distance. Also not a tunable.
+  earth_radius_metres: 6371000.0
+  # Readings kept per sensor for the rejection-rate history.
+  history_depth: 12
+  # Plausibility gates. A reading outside its range is rejected before it can
+  # reach an average. These are instrument ranges, not air-quality thresholds.
+  ranges:
+    P1:
+      min: 0.0
+      max: 1000.0
+    P2:
+      min: 0.0
+      max: 1000.0
+    temperature:
+      min: -40.0
+      max: 60.0
+    humidity:
+      min: 0.0
+      max: 100.0
+    # Bulgaria's inhabited altitudes run past 1600 m, where station pressure is
+    # genuinely near 650 hPa. Do not "tidy" this back toward sea level: doing
+    # so silently discards every reading from the mountain sensors.
+    pressure:
+      min: 650.0
+      max: 1100.0
+    noise_LAeq:
+      min: 25.0
+      max: 120.0
+    noise_LA_max:
+      min: 25.0
+      max: 120.0
+
+backfill:
+  # A backfill batch that rejects more than this fraction of its rows is
+  # reported as suspect rather than silently accepted.
+  high_rejection_fraction: 0.5
+
+frontend:
+  # These four are paint values handed to WebGL layers and a canvas, so no CSS
+  # rule can ever reach them — which is why they live here and not in
+  # theme.css. The boundary is mechanical: if CSS can style it, it belongs in
+  # internal/web/static/theme.css; if JS passes it to a canvas or a GL layer,
+  # it belongs here. Band colours are NOT here — they come from
+  # /api/v1/scales, so a legislative change stays a one-file server edit.
+  #
+  # Neutral grey, deliberately not a band colour: an area below the coverage
+  # threshold must not be paintable as clean air.
+  no_data_colour: "#9ca3af"
+  marker_stroke_colour: "#ffffff"
+  empty_basemap_colour: "#eef2f5"
+  chart_line_colour: "#2563eb"
+  # Zoom thresholds for the country -> city -> sensor tiering. Below zoom_city
+  # the map shows country-level aggregates; below zoom_sensor, city-level.
+  zoom_city: 9
+  zoom_sensor: 11
+
+basemap:
+  # {key} is substituted from AIRBG_BASEMAP_KEY at startup. Userinfo in this
+  # URL is rejected: it would put a credential in a value the browser fetches.
+  style_url: "https://tiles.example.org/styles/basic/style.json?key={key}"
