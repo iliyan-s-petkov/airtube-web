@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"airbg.org/internal/api"
+	"airbg.org/internal/config"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/ratelimit"
 )
@@ -167,16 +169,23 @@ func TestAreaSensorsServesTheColumnarBody(t *testing.T) {
 // wired into a real request path, not just the counter in isolation.
 func TestAreaSensorsEnumerationTrips(t *testing.T) {
 	fix := fixture(t)
+	cfg := testConfig(t)
+	limit := cfg.RateLimit.Enumerate.AreasPerWindow
 	// Populate enough known areas that the limit is reachable.
-	for i := 0; i < ratelimit.DistinctAreaLimit+2; i++ {
+	for i := 0; i < limit+2; i++ {
 		slug := "area-" + string(rune('a'+i))
 		fix.KnownSlugs[slug] = fix.KnownSlugs["sofia"]
 		fix.AreaSensors[slug] = fix.AreaSensors["sofia"]
 	}
 	d := deps(t, fix)
 
+	// wantRetry ties the assertion below to the resolved config value rather
+	// than a literal that would coincidentally match a hardcoded "900" even if
+	// the handler read the wrong bucket (e.g. the Series rate limit's 2s).
+	wantRetry := strconv.Itoa(int(cfg.RateLimit.Enumerate.RetryAfter.Seconds()))
+
 	allowed, refused := 0, 0
-	for i := 0; i < ratelimit.DistinctAreaLimit+2; i++ {
+	for i := 0; i < limit+2; i++ {
 		slug := "area-" + string(rune('a'+i))
 		rec := serve(t, d, get("/api/v1/area/"+slug+"/sensors", "203.0.113.10"))
 		switch rec.Code {
@@ -184,15 +193,15 @@ func TestAreaSensorsEnumerationTrips(t *testing.T) {
 			allowed++
 		case http.StatusTooManyRequests:
 			refused++
-			if rec.Header().Get("Retry-After") == "" {
-				t.Error("the enumeration 429 has no Retry-After")
+			if got := rec.Header().Get("Retry-After"); got != wantRetry {
+				t.Errorf("Retry-After = %q, want %q (config.RateLimit.Enumerate.RetryAfter)", got, wantRetry)
 			}
 		default:
 			t.Fatalf("%s: status = %d", slug, rec.Code)
 		}
 	}
-	if allowed != ratelimit.DistinctAreaLimit {
-		t.Errorf("allowed %d distinct areas, want %d", allowed, ratelimit.DistinctAreaLimit)
+	if allowed != limit {
+		t.Errorf("allowed %d distinct areas, want %d", allowed, limit)
 	}
 	if refused != 2 {
 		t.Errorf("refused %d requests, want 2", refused)
@@ -207,9 +216,11 @@ func TestEnumerationCheckRunsBeforeTheBodyIsWritten(t *testing.T) {
 	d := api.Deps{
 		Snapshots: deps(t, fix).Snapshots,
 		// A limit of zero trips on the very first request.
-		Breadth: ratelimit.NewBreadth(0, 0, time.Hour),
-		Store:   &stubSource{slug: "sofia"},
-		BaseURL: "https://airbg.org",
+		Breadth: ratelimit.NewBreadth(config.Enumerate{
+			AreasPerWindow: 0, SensorsPerWindow: 0, Window: time.Hour, RetryAfter: 900 * time.Second,
+		}),
+		Store:  &stubSource{slug: "sofia"},
+		Config: testConfig(t),
 	}
 
 	rec := serve(t, d, get("/api/v1/area/sofia/sensors", "203.0.113.11"))
@@ -230,10 +241,11 @@ func TestEnumerationCheckRunsBeforeTheBodyIsWritten(t *testing.T) {
 func TestUnknownSlugDoesNotConsumeAreaBudget(t *testing.T) {
 	fix := fixture(t)
 	d := deps(t, fix)
+	limit := testConfig(t).RateLimit.Enumerate.AreasPerWindow
 
 	// Fire more distinct UNKNOWN slugs than the area budget allows. If an
 	// unknown slug consumed budget, this alone would exhaust it.
-	for i := 0; i < ratelimit.DistinctAreaLimit+2; i++ {
+	for i := 0; i < limit+2; i++ {
 		slug := "unknown-" + string(rune('a'+i))
 		rec := serve(t, d, get("/api/v1/area/"+slug+"/sensors", "203.0.113.12"))
 		if rec.Code != http.StatusNotFound {

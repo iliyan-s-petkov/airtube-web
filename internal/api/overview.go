@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
 )
 
@@ -28,6 +27,7 @@ func (d Deps) handleOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dataMaxAge := int(d.Config.Cache.DataMaxAge.Seconds())
 	switch r.URL.Query().Get("tier") {
 	case "", "country":
 		serveBody(w, r, snap.Overview, cachePublic, dataMaxAge)
@@ -48,7 +48,7 @@ func (d Deps) handleAreas(w http.ResponseWriter, r *http.Request) {
 		writeUnavailable(w)
 		return
 	}
-	serveBody(w, r, snap.Areas, cachePublic, dataMaxAge)
+	serveBody(w, r, snap.Areas, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
 }
 
 type metaBody struct {
@@ -84,7 +84,7 @@ func (d Deps) handleMeta(w http.ResponseWriter, r *http.Request) {
 
 	body, err := json.Marshal(metaBody{
 		GeneratedAt:         snap.GeneratedAt,
-		CoverageThreshold:   store.CoverageThreshold,
+		CoverageThreshold:   d.Config.Store.CoverageThreshold,
 		Metrics:             upstream.CanonicalMetrics(),
 		AreaCount:           len(snap.KnownSlugs),
 		CoveredAreaCount:    covered,
@@ -101,7 +101,7 @@ func (d Deps) handleMeta(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	setCacheControl(w.Header(), cachePublic, dataMaxAge)
+	setCacheControl(w.Header(), cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
 	_, _ = w.Write(body)
 }
 
@@ -112,6 +112,6 @@ func (d Deps) handleScales(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	setCacheControl(w.Header(), cachePublic, scalesMaxAge)
+	setCacheControl(w.Header(), cachePublic, int(d.Config.Cache.ScalesMaxAge.Seconds()))
 	_, _ = w.Write(body)
 }

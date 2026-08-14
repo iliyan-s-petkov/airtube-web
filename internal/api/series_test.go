@@ -14,6 +14,7 @@ import (
 
 	"airbg.org/internal/admit"
 	"airbg.org/internal/api"
+	"airbg.org/internal/config"
 	"airbg.org/internal/ratelimit"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
@@ -107,9 +108,10 @@ func TestSeriesRejectsNonNumericSensorID(t *testing.T) {
 // window against `reading` would return the last 30 days and label it a year —
 // a chart that is wrong without being empty, which is the hardest kind to catch.
 func TestLongPeriodsUseTheRollup(t *testing.T) {
+	cfg := testConfig(t).Series
 	cases := map[string]bool{"24h": false, "7d": false, "30d": false, "1y": true}
 	for period, wantHourly := range cases {
-		_, hourly, ok := api.ParsePeriodForTesting(period)
+		_, hourly, ok := api.ParsePeriodForTesting(cfg, period)
 		if !ok {
 			t.Errorf("period %q was rejected", period)
 			continue
@@ -144,17 +146,33 @@ func TestEmptySeriesIsTwoEmptyArraysNotNull(t *testing.T) {
 // TestSensorSeriesEnumerationTrips: the sensor dimension of the breadth check.
 func TestSensorSeriesEnumerationTrips(t *testing.T) {
 	d := withPoints(t, samplePoints())
-	d.Breadth = ratelimit.NewBreadth(100, 3, time.Hour)
+	d.Breadth = ratelimit.NewBreadth(config.Enumerate{
+		AreasPerWindow: 100, SensorsPerWindow: 3, Window: time.Hour, RetryAfter: 900 * time.Second,
+	})
 
 	allowed := 0
+	var lastRejected *httptest.ResponseRecorder
 	for id := 1; id <= 5; id++ {
 		rec := serve(t, d, get("/api/v1/sensor/"+itoa(id)+"/series?metric=P2&period=24h", "203.0.113.25"))
 		if rec.Code == http.StatusOK {
 			allowed++
+		} else {
+			lastRejected = rec
 		}
 	}
 	if allowed != 3 {
 		t.Errorf("allowed %d distinct sensors, want 3", allowed)
+	}
+	// The Retry-After on a breadth rejection must come from the Enumerate bucket
+	// that rejected it (900s in this test's config), not the unrelated Series
+	// rate-limit bucket (2s) — asserting the literal proves nothing on its own,
+	// but this test's bucket is built with RetryAfter: 900*time.Second above, so
+	// a wiring bug that reads the wrong bucket changes this value.
+	if lastRejected == nil {
+		t.Fatal("no request was rejected; cannot check Retry-After")
+	}
+	if got, want := lastRejected.Header().Get("Retry-After"), "900"; got != want {
+		t.Errorf("Retry-After = %q, want %q (config.Enumerate.RetryAfter)", got, want)
 	}
 }
 
@@ -204,7 +222,9 @@ func TestSensorSeriesRejectsNegativeAndZeroID(t *testing.T) {
 // that runs before ObserveSensor, so it is what this test pins.
 func TestUnknownSensorSeriesDoesNotConsumeBudget(t *testing.T) {
 	d := withPoints(t, samplePoints())
-	d.Breadth = ratelimit.NewBreadth(100, 2, time.Hour)
+	d.Breadth = ratelimit.NewBreadth(config.Enumerate{
+		AreasPerWindow: 100, SensorsPerWindow: 2, Window: time.Hour, RetryAfter: 900 * time.Second,
+	})
 
 	for i := 0; i < 10; i++ {
 		rec := serve(t, d, get("/api/v1/sensor/abc/series?metric=P2&period=24h", "203.0.113.29"))
@@ -447,11 +467,12 @@ func manySlugs(t *testing.T, n int) []string {
 }
 
 // breadthAreaLimitForTesting exposes the breadth area limit under the name
-// this file's tests expect. ratelimit.DistinctAreaLimit is already exported
-// for exactly this purpose (see TestAreaSensorsEnumerationTrips in
-// handlers_test.go), so this is a thin alias rather than a new production
-// accessor.
-func breadthAreaLimitForTesting() int { return ratelimit.DistinctAreaLimit }
+// this file's tests expect, read from the committed configuration so it
+// cannot drift from what deps(t, ...) actually wires into the router.
+func breadthAreaLimitForTesting(t *testing.T) int {
+	t.Helper()
+	return testConfig(t).RateLimit.Enumerate.AreasPerWindow
+}
 
 // TestDefaultAreaSeriesIsServedFromTheSnapshot is the whole point of the change:
 // the combination the frontend requests on every area page view must cost zero
@@ -531,7 +552,7 @@ func TestSnapshotSeriesSpendsNoSeriesToken(t *testing.T) {
 // which is precisely the extraction the tiering design exists to prevent.
 func TestSnapshotSeriesIsStillCountedForBreadth(t *testing.T) {
 	stub := &stubSource{}
-	slugs := manySlugs(t, breadthAreaLimitForTesting()+5) // more distinct slugs than the limit allows
+	slugs := manySlugs(t, breadthAreaLimitForTesting(t)+5) // more distinct slugs than the limit allows
 	srv := newTestRouter(t, stub, snapshotWithAreaSeries(t, slugs...))
 
 	var refused bool
@@ -554,7 +575,7 @@ func TestSnapshotSeriesIsStillCountedForBreadth(t *testing.T) {
 // disagree, the snapshot serves a window that is not the one the label claims,
 // and nothing else in the suite would notice.
 func TestDefaultSeriesPeriodMatchesParsePeriod(t *testing.T) {
-	window, hourly, ok := api.ParsePeriodForTesting(snapshot.DefaultSeriesPeriod)
+	window, hourly, ok := api.ParsePeriodForTesting(testConfig(t).Series, snapshot.DefaultSeriesPeriod)
 	if !ok {
 		t.Fatalf("parsePeriod(%q) rejected the snapshot's default period", snapshot.DefaultSeriesPeriod)
 	}
@@ -595,8 +616,12 @@ func TestSeriesRefusesWhenAdmissionIsFull(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", rec.Code)
 	}
-	if got := rec.Header().Get("Retry-After"); got != "2" {
-		t.Errorf("Retry-After = %q, want \"2\"", got)
+	// Pinned to the configured value, not a literal, so this fails if the
+	// admission-full Retry-After is ever wired to a different bucket's config
+	// (e.g. RateLimit.Enumerate instead of RateLimit.Series).
+	wantRetry := strconv.Itoa(int(testConfig(t).RateLimit.Series.RetryAfter.Seconds()))
+	if got := rec.Header().Get("Retry-After"); got != wantRetry {
+		t.Errorf("Retry-After = %q, want %q (config.RateLimit.Series.RetryAfter)", got, wantRetry)
 	}
 	if stub.areaSeriesCalls != 0 {
 		t.Errorf("AreaSeries called %d times, want 0 — a refused request must cost no database work", stub.areaSeriesCalls)

@@ -5,15 +5,30 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"airbg.org/internal/api"
+	"airbg.org/internal/config"
 	"airbg.org/internal/ratelimit"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 )
+
+// testConfig is the committed configuration, loaded once, so API tests assert
+// against the values the service actually ships with rather than a second copy
+// that can drift.
+func testConfig(t *testing.T) config.Config {
+	t.Helper()
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile error = %v, want nil", err)
+	}
+	return cfg
+}
 
 // stubSource satisfies api.DataSource without a database. The api package's
 // tests must not need a container: they are about HTTP semantics, and a
@@ -59,17 +74,18 @@ func deps(t *testing.T, snap *snapshot.Snapshot) api.Deps {
 	if snap != nil {
 		h.Store(snap)
 	}
+	cfg := testConfig(t)
 	return api.Deps{
 		Snapshots: h,
-		Breadth:   ratelimit.NewBreadth(ratelimit.DistinctAreaLimit, ratelimit.DistinctSensorLimit, time.Hour),
+		Breadth:   ratelimit.NewBreadth(cfg.RateLimit.Enumerate),
 		Store:     &stubSource{slug: "sofia"},
-		BaseURL:   "https://airbg.org",
+		Config:    cfg,
 		// An explicit per-test series bucket. Left nil, NewRouter substitutes the
 		// process-wide default, and every test in the binary would then share one
 		// bucket — so a test that spends its burst would 429 an unrelated test
 		// using the same client IP. The nil path is covered deliberately by
 		// TestNilSeriesLimiterStillFailsClosed.
-		SeriesLimiter: api.NewSeriesLimiter(),
+		SeriesLimiter: api.NewSeriesLimiter(cfg),
 	}
 }
 
