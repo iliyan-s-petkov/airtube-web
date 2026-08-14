@@ -8,15 +8,13 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"airbg.org/internal/config"
 )
 
 // upstreamTimeLayout is sensor.community's timestamp format. It carries no zone
 // and is documented as UTC.
 const upstreamTimeLayout = "2006-01-02 15:04:05"
-
-// maxPayloadBytes bounds what we will read from upstream, so a malformed or
-// hostile response cannot exhaust memory.
-const maxPayloadBytes = 64 << 20
 
 type apiEntry struct {
 	Timestamp string `json:"timestamp"`
@@ -155,14 +153,18 @@ type Batch struct {
 func (b Batch) Total() int { return len(b.Readings) + b.Skipped }
 
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL    string
+	maxPayload int64
+	http       *http.Client
 }
 
-func New(baseURL string, timeout time.Duration) *Client {
+// New builds a Client from configuration. maxPayload bounds what will be read
+// from upstream, so a malformed or hostile response cannot exhaust memory.
+func New(cfg config.Upstream) *Client {
 	return &Client{
-		baseURL: baseURL,
-		http:    &http.Client{Timeout: timeout},
+		baseURL:    cfg.URL,
+		maxPayload: cfg.MaxPayloadBytes,
+		http:       &http.Client{Timeout: cfg.RequestTimeout},
 	}
 }
 
@@ -183,7 +185,7 @@ func (c *Client) Fetch(ctx context.Context) (Batch, error) {
 		return Batch{}, fmt.Errorf("upstream: status %d", resp.StatusCode)
 	}
 
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, maxPayloadBytes))
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, c.maxPayload))
 	if err != nil {
 		return Batch{}, fmt.Errorf("upstream: read body: %w", err)
 	}

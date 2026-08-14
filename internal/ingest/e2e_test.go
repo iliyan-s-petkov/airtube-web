@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"airbg.org/internal/area"
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
@@ -18,6 +19,18 @@ import (
 	"airbg.org/internal/testsupport"
 	"airbg.org/internal/upstream"
 )
+
+// testUpstreamConfig builds a config.Upstream for the given base URL, mirroring
+// airbg.yaml's shape (see internal/upstream/client_test.go's testUpstreamConfig).
+func testUpstreamConfig(url string, timeout time.Duration) config.Upstream {
+	return config.Upstream{
+		URL:             url,
+		RequestTimeout:  timeout,
+		PollInterval:    5 * time.Minute,
+		MinPollInterval: 30 * time.Second,
+		MaxPayloadBytes: 64 << 20,
+	}
+}
 
 // TestEndToEndFromRecordedPayload runs the whole pipeline against the recorded
 // upstream fixture served over HTTP: fetch, normalise, score, persist, roll up.
@@ -70,7 +83,7 @@ func TestEndToEndFromRecordedPayload(t *testing.T) {
 		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
 
-	client := upstream.New(srv.URL, 10*time.Second)
+	client := upstream.New(testUpstreamConfig(srv.URL, 10*time.Second))
 	ing := ingest.New(client, store.New(pool, testStoreConfig(), testSeriesTimeout), quality.NewHistory(12), testScorer(), testAssignTimeout)
 
 	stats, err := ing.RunOnce(ctx)
@@ -182,9 +195,9 @@ func TestUpstreamContractLive(t *testing.T) {
 		t.Skip("set AIRBG_LIVE_TEST=1 to run against the live upstream API")
 	}
 
-	client := upstream.New(
+	client := upstream.New(testUpstreamConfig(
 		"https://data.sensor.community/airrohr/v1/filter/country=BG",
-		30*time.Second)
+		30*time.Second))
 
 	batch, err := client.Fetch(context.Background())
 	if err != nil {

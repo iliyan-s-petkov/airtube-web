@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"airbg.org/internal/area"
+	"airbg.org/internal/config"
 	"airbg.org/internal/quality"
 	"airbg.org/internal/upstream"
 )
@@ -88,17 +89,15 @@ func (r ParseReport) RejectedFraction() float64 {
 	return float64(r.Rejected()) / float64(r.Values)
 }
 
-// HighRejectionFraction is the share of rejected values above which an import
-// is reported at ERROR rather than WARN. Half the file being unusable is not a
-// dead channel on an otherwise healthy sensor; it means either the sensor was
-// broken for that day or the archive format has moved, and in both cases the
-// buckets that *did* import are built from a minority of the data and should
-// not pass for a normal import.
-const HighRejectionFraction = 0.5
-
 // Level is the slog level an import of this report should be logged at, so the
 // severity rule lives next to the counters it reads and can be asserted
-// directly rather than re-derived at each call site.
+// directly rather than re-derived at each call site. cfg.HighRejectionFraction
+// is the share of rejected values above which an import is reported at ERROR
+// rather than WARN — half the file being unusable is not a dead channel on an
+// otherwise healthy sensor; it means either the sensor was broken for that day
+// or the archive format has moved, and in both cases the buckets that *did*
+// import are built from a minority of the data and should not pass for a
+// normal import.
 //
 // Accepting nothing is deliberately ERROR even when the file parsed cleanly: an
 // archive file from which nothing at all survived filtering stored nothing, and
@@ -113,11 +112,11 @@ const HighRejectionFraction = 0.5
 // reported zero of everything and so fell through to INFO. A report that says
 // "nothing was rejected" because nothing was ever examined is not a clean
 // import.
-func (r ParseReport) Level() slog.Level {
+func (r ParseReport) Level(cfg config.Backfill) slog.Level {
 	switch {
 	case r.Accepted == 0:
 		return slog.LevelError
-	case r.RejectedFraction() >= HighRejectionFraction:
+	case r.RejectedFraction() >= cfg.HighRejectionFraction:
 		return slog.LevelError
 	case r.Rejected() > 0:
 		return slog.LevelWarn
@@ -171,8 +170,13 @@ func (r ParseReport) LogAttrs() []any {
 //
 // Filtering happens per value, not per row: a row whose humidity channel reads
 // −999 still contributes its good P1 and P2 cells.
-func ParseCSV(r io.Reader, sensorID int64) ([]HourlyBucket, ParseReport, error) {
+//
+// qcfg supplies the plausibility ranges — the same config.Quality.Ranges the
+// live ingest path scores against — so a range edited in airbg.yaml applies to
+// both paths without a second, drifting copy of the bounds.
+func ParseCSV(r io.Reader, sensorID int64, qcfg config.Quality) ([]HourlyBucket, ParseReport, error) {
 	report := ParseReport{RejectedByMetric: map[string]int{}}
+	scorer := quality.NewScorer(qcfg)
 
 	reader := csv.NewReader(r)
 	reader.Comma = ';'
@@ -253,7 +257,7 @@ func ParseCSV(r io.Reader, sensorID int64) ([]HourlyBucket, ParseReport, error) 
 				report.RejectedNonFinite++
 				report.RejectedByMetric[metric]++
 				continue
-			case !quality.InRange(metric, value):
+			case !scorer.InRange(metric, value):
 				report.RejectedOutOfRange++
 				report.RejectedByMetric[metric]++
 				continue

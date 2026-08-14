@@ -11,7 +11,21 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"airbg.org/internal/config"
 )
+
+// testUpstreamConfig builds a config.Upstream with the same shape airbg.yaml
+// ships, so tests exercise the same wiring as production.
+func testUpstreamConfig(url string) config.Upstream {
+	return config.Upstream{
+		URL:             url,
+		RequestTimeout:  5 * time.Second,
+		PollInterval:    5 * time.Minute,
+		MinPollInterval: 30 * time.Second,
+		MaxPayloadBytes: 64 << 20,
+	}
+}
 
 func TestNormaliseSelectsCanonicalMetrics(t *testing.T) {
 	payload, err := os.ReadFile("testdata/bg_sample.json")
@@ -109,7 +123,7 @@ func TestFetchHappyPath(t *testing.T) {
 		t.Fatalf("Normalise: %v", err)
 	}
 
-	c := New(srv.URL, 5*time.Second)
+	c := New(testUpstreamConfig(srv.URL))
 	batch, err := c.Fetch(context.Background())
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
@@ -133,7 +147,7 @@ func TestFetchNon200(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, 5*time.Second)
+	c := New(testUpstreamConfig(srv.URL))
 	_, err := c.Fetch(context.Background())
 	if err == nil {
 		t.Fatal("expected error on non-200 status, got nil")
@@ -155,7 +169,9 @@ func TestFetchTimeout(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, 20*time.Millisecond)
+	cfg := testUpstreamConfig(srv.URL)
+	cfg.RequestTimeout = 20 * time.Millisecond
+	c := New(cfg)
 	_, err := c.Fetch(context.Background())
 	if err == nil {
 		t.Fatal("expected error on client timeout, got nil")
@@ -178,7 +194,7 @@ func TestFetchMalformedBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, 5*time.Second)
+	c := New(testUpstreamConfig(srv.URL))
 	_, err := c.Fetch(context.Background())
 	if err == nil {
 		t.Fatal("expected error on malformed body, got nil")
@@ -398,5 +414,41 @@ func TestParseValueRejectsNull(t *testing.T) {
 	_, err := parseValue(json.RawMessage("null"))
 	if err == nil {
 		t.Fatal("parseValue(null) = nil error, want an error — null is not a valid reading")
+	}
+}
+
+// TestFetchRejectsOversizedPayload pins cfg.MaxPayloadBytes as a real cap, not
+// a value that is merely threaded through and never enforced. The server
+// writes a well-formed JSON array far bigger than the client's configured
+// limit; the client must truncate the read at c.maxPayload, which breaks the
+// JSON syntax and makes Normalise fail — the same failure mode an operator
+// would see from a hostile or runaway upstream response.
+func TestFetchRejectsOversizedPayload(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteByte('[')
+	for i := 0; i < 10000; i++ {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"padding":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+	}
+	sb.WriteByte(']')
+	payload := []byte(sb.String())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(payload)
+	}))
+	defer srv.Close()
+
+	cfg := testUpstreamConfig(srv.URL)
+	// Deliberately tiny, and deliberately not the production default — this
+	// test must not depend on the payload happening to exceed 64 MiB.
+	cfg.MaxPayloadBytes = 1024
+	c := New(cfg)
+
+	_, err := c.Fetch(context.Background())
+	if err == nil {
+		t.Fatal("Fetch succeeded on a payload far larger than MaxPayloadBytes; the cap was not enforced")
 	}
 }
