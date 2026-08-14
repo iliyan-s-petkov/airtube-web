@@ -4,11 +4,13 @@ package db
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/db/migrations"
 )
 
@@ -17,8 +19,8 @@ import (
 // subcommands, which run a single workload and then exit.
 //
 // The serve command must use OpenPair instead.
-func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	return open(ctx, url, 0)
+func Open(ctx context.Context, dbCfg config.Database) (*pgxpool.Pool, error) {
+	return open(ctx, dbCfg, 0)
 }
 
 // OpenPair opens the two pools the serve command needs: one for request
@@ -37,19 +39,19 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 // Sizes are required and must be positive: pgxpool reads MaxConns <= 0 as "use
 // the default", so accepting a zero here would quietly restore the host's core
 // count as the deployed capacity, which is the thing this is fixing.
-func OpenPair(ctx context.Context, url string, apiConns, collectorConns int32) (api, collector *pgxpool.Pool, err error) {
-	if apiConns < 1 {
-		return nil, nil, fmt.Errorf("db: api pool size must be at least 1, got %d", apiConns)
+func OpenPair(ctx context.Context, dbCfg config.Database) (api, collector *pgxpool.Pool, err error) {
+	if dbCfg.APIConns < 1 {
+		return nil, nil, fmt.Errorf("db: api pool size must be at least 1, got %d", dbCfg.APIConns)
 	}
-	if collectorConns < 1 {
-		return nil, nil, fmt.Errorf("db: collector pool size must be at least 1, got %d", collectorConns)
+	if dbCfg.CollectorConns < 1 {
+		return nil, nil, fmt.Errorf("db: collector pool size must be at least 1, got %d", dbCfg.CollectorConns)
 	}
 
-	api, err = open(ctx, url, apiConns)
+	api, err = open(ctx, dbCfg, dbCfg.APIConns)
 	if err != nil {
 		return nil, nil, fmt.Errorf("db: open api pool: %w", err)
 	}
-	collector, err = open(ctx, url, collectorConns)
+	collector, err = open(ctx, dbCfg, dbCfg.CollectorConns)
 	if err != nil {
 		// Never hand back a half-built pair: a caller that ignored the error
 		// would proceed with one live pool and one nil, which is the shared-pool
@@ -63,18 +65,23 @@ func OpenPair(ctx context.Context, url string, apiConns, collectorConns int32) (
 // open builds one pool. maxConns of 0 means "leave the configured size alone";
 // any positive value overrides pool_max_conns from the connection string,
 // because one shared string cannot express two different per-pool sizes.
-func open(ctx context.Context, url string, maxConns int32) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(url)
+func open(ctx context.Context, dbCfg config.Database, maxConns int32) (*pgxpool.Pool, error) {
+	poolCfg, err := pgxpool.ParseConfig(dbCfg.URL)
 	if err != nil {
 		return nil, err
 	}
 	// A statement timeout bounds every query, so a pathological plan cannot
 	// pin a connection indefinitely (spec §10).
-	cfg.ConnConfig.RuntimeParams["statement_timeout"] = "15000"
+	//
+	// PostgreSQL reads a bare statement_timeout as milliseconds. Formatting the
+	// duration instead ("15s") also works, but an explicit millisecond
+	// conversion is the one that cannot be broken by a unit-suffix change.
+	poolCfg.ConnConfig.RuntimeParams["statement_timeout"] =
+		strconv.FormatInt(dbCfg.StatementTimeouts.Default.Milliseconds(), 10)
 	if maxConns > 0 {
-		cfg.MaxConns = maxConns
+		poolCfg.MaxConns = maxConns
 	}
-	return pgxpool.NewWithConfig(ctx, cfg)
+	return pgxpool.NewWithConfig(ctx, poolCfg)
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

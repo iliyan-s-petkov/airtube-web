@@ -72,7 +72,7 @@ func main() {
 
 	case "collect":
 		client := upstream.New(cfg.Upstream)
-		ing := ingest.New(client, store.New(pool, cfg.Store), quality.NewHistory(cfg.Quality.HistoryDepth), quality.NewScorer(cfg.Quality))
+		ing := ingest.New(client, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series), quality.NewHistory(cfg.Quality.HistoryDepth), quality.NewScorer(cfg.Quality), cfg.Database.StatementTimeouts.Assign)
 		ing.Loop(ctx, cfg.Upstream.PollInterval)
 
 	case "backfill":
@@ -129,7 +129,7 @@ func main() {
 			slog.Error("import areas", "error", err)
 			os.Exit(1)
 		}
-		assigned, revoked, err := area.AssignSensors(ctx, pool)
+		assigned, revoked, err := area.AssignSensors(ctx, pool, cfg.Database.StatementTimeouts.Assign)
 		if err != nil {
 			slog.Error("assign sensors", "error", err)
 			os.Exit(1)
@@ -145,7 +145,7 @@ func main() {
 		// finding 4) — never run automatically from import-areas or collect.
 		// Deleting stored sensors must always be a decision a human makes on
 		// purpose.
-		result, err := area.PurgeOutsideBoundary(ctx, pool)
+		result, err := area.PurgeOutsideBoundary(ctx, pool, cfg.Database.StatementTimeouts.Operator)
 		if err != nil {
 			slog.Error("purge outside boundary", "error", err)
 			os.Exit(1)
@@ -188,7 +188,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	// with traffic.
 	if apiPool == collectorPool {
 		return errors.New("serve: the request and collector pools are the same pool; " +
-			"the collector holds connections for up to " + db.AssignStatementTimeout +
+			"the collector holds connections for up to " + cfg.Database.StatementTimeouts.Assign.String() +
 			" per cycle and would starve request handlers (see db.OpenPair)")
 	}
 
@@ -198,8 +198,8 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	// publisher get the collector pool: building a snapshot is background work
 	// that queries every area, so it belongs on the side of the bulkhead that is
 	// allowed to be slow.
-	apiStore := store.New(apiPool, cfg.Store)
-	collectorStore := store.New(collectorPool, cfg.Store)
+	apiStore := store.New(apiPool, cfg.Store, cfg.Database.StatementTimeouts.Series)
+	collectorStore := store.New(collectorPool, cfg.Store, cfg.Database.StatementTimeouts.Series)
 
 	holder := snapshot.NewHolder(cfg.Series)
 	pub := server.NewPublisher(collectorStore, holder, log)

@@ -14,8 +14,24 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 )
+
+// testDatabaseConfig mirrors airbg.yaml's database.statement_timeouts. URL is
+// filled in by the caller; it is a credential and never belongs in a
+// committed fixture.
+func testDatabaseConfig(url string) config.Database {
+	return config.Database{
+		URL: url,
+		StatementTimeouts: config.StatementTimeouts{
+			Default:  15 * time.Second,
+			Assign:   60 * time.Second,
+			Operator: 10 * time.Minute,
+			Series:   5 * time.Second,
+		},
+	}
+}
 
 // NewPostgres returns a pool opened exactly the way production opens one —
 // through db.Open, so the pool-wide statement_timeout is in force. It used to
@@ -27,7 +43,7 @@ import (
 func NewPostgres(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
-	pool, err := db.Open(ctx, NewPostgresURL(t))
+	pool, err := db.Open(ctx, testDatabaseConfig(NewPostgresURL(t)))
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}

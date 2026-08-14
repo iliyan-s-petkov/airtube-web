@@ -2,57 +2,30 @@ package db
 
 import (
 	"context"
+	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
-// StatementTimeout values, as Postgres accepts them.
+// StatementTimeoutValue renders a duration for SET LOCAL statement_timeout.
 //
-// The pool-wide default (see Open) is the right bound for the collector's
-// ordinary read/write path and for every Phase 2 request handler: it stops a
-// pathological plan pinning a connection indefinitely, which is a DoS control
-// the API will need. It is the wrong bound for two specific workloads, and the
-// answer is to scope the exception rather than raise the default — raising the
-// default would remove the protection everywhere to accommodate two callers.
-const (
-	// AssignStatementTimeout bounds AssignSensors' full area x sensor ST_Covers join, which
-	// runs on every poll cycle. Generous relative to 15s but still bounded, so
-	// a runaway plan cannot hold a transaction open indefinitely across
-	// successive cycles.
-	AssignStatementTimeout = "60s"
-
-	// OperatorStatementTimeout bounds the bulk deletes in
-	// PurgeOutsideBoundary, and nothing else. At production volume (~900
-	// sensors x 7 metrics x 30 days of 5-minute samples, spread over 30 daily
-	// chunks) a bulk delete plausibly exceeds 15s; because it runs inside a
-	// transaction, a timeout aborts the whole purge, so the documented cleanup
-	// could never complete. An operator watching a command they typed is the
-	// one caller for whom a long wait is preferable to a failure.
-	//
-	// It deliberately does not cover backfill's write. An earlier version of
-	// this comment claimed it did, which was never true — backfill.WriteBuckets
-	// batches on the pool rather than in a transaction, so it never reaches
-	// SetLocalStatementTimeout. Nor does it need to: one archive day is at most
-	// 24 buckets x 7 metrics of single-row upserts, and statement_timeout bounds
-	// each statement individually, so the pool default is ample. Extending the
-	// exception there would mean opening a transaction solely to relax a limit
-	// nothing was hitting.
-	OperatorStatementTimeout = "10min"
-
-	// SeriesStatementTimeout bounds the two database-backed series queries.
-	//
-	// Shorter than the pool default of 15s, and deliberately so. These queries
-	// run while holding one of a small number of admission slots
-	// (internal/admit), so the time each one may hold a slot while Postgres is
-	// unwell is the thing being bounded — not the query's own reasonable
-	// duration. A healthy 1-year rollup query returns in well under a second;
-	// anything approaching five is a symptom, and failing fast frees the slot
-	// for a request that can be served.
-	//
-	// This is the alternative to a circuit breaker (spec §13.5): the same
-	// fail-fast effect, with no breaker state to get wrong.
-	SeriesStatementTimeout = "5s"
-)
+// Milliseconds, explicitly: a duration's default String() (e.g. "10m0s") is
+// not PostgreSQL syntax, and "10min" is valid PostgreSQL but only by accident
+// of its parser — there is no "min" unit in time.ParseDuration, so it cannot
+// round-trip through configuration. Milliseconds is the one representation
+// both sides agree on.
+//
+// The scoped timeouts this renders — AssignSensors' area x sensor join,
+// PurgeOutsideBoundary's bulk deletes, and the series-scoped queries in
+// internal/store — exist because the pool-wide default (see Open) is the
+// right bound for the collector's ordinary read/write path and for every
+// request handler, but the wrong bound for those three specific workloads.
+// Scoping the exception per transaction, rather than raising the default,
+// keeps the DoS protection in force everywhere else.
+func StatementTimeoutValue(d time.Duration) string {
+	return strconv.FormatInt(d.Milliseconds(), 10)
+}
 
 // SetLocalStatementTimeout raises statement_timeout for the duration of tx
 // only. Postgres resets a local setting at transaction end, so no connection

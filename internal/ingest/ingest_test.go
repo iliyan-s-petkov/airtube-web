@@ -54,6 +54,13 @@ func testStoreConfig() config.Store {
 	return config.Store{CoverageThreshold: 3, FreshnessWindow: 2 * time.Hour}
 }
 
+// testSeriesTimeout and testAssignTimeout mirror airbg.yaml's
+// database.statement_timeouts.series and .assign.
+const (
+	testSeriesTimeout = 5 * time.Second
+	testAssignTimeout = 60 * time.Second
+)
+
 type stubFetcher struct {
 	readings []upstream.Reading
 	// skipped mirrors upstream.Batch.Skipped, so a test can reproduce the
@@ -95,8 +102,8 @@ func newIngester(t *testing.T, f ingest.Fetcher) (context.Context, *store.Store,
 	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
 		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
-	st := store.New(pool, testStoreConfig())
-	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer())
+	st := store.New(pool, testStoreConfig(), testSeriesTimeout)
+	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 }
 
 // newTestIngester builds an Ingester on a migrated database with an empty,
@@ -267,7 +274,7 @@ func TestLoopSurvivesFetchErrors(t *testing.T) {
 	var calls atomic.Int64
 	f := countingFetcher{calls: &calls, err: errors.New("upstream down")}
 	_, st, _ := newIngester(t, f)
-	ing := ingest.New(f, st, quality.NewHistory(12), testScorer())
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -311,12 +318,12 @@ func TestLoopReusesHistoryAcrossCycles(t *testing.T) {
 	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
 		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
-	st := store.New(pool, testStoreConfig())
+	st := store.New(pool, testStoreConfig(), testSeriesTimeout)
 	hist := quality.NewHistory(depth)
 
 	var calls atomic.Int64
 	f := countingFetcher{calls: &calls, readings: []upstream.Reading{same}}
-	ing := ingest.New(f, st, hist, testScorer())
+	ing := ingest.New(f, st, hist, testScorer(), testAssignTimeout)
 
 	loopCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
@@ -462,7 +469,7 @@ func TestLoopStopsOnContextCancel(t *testing.T) {
 	// A real store is required: RunOnce always runs the rollup backlog step
 	// now, even for an empty fetch result, so a nil store would panic.
 	_, st, _ := newIngester(t, f)
-	ing := ingest.New(f, st, quality.NewHistory(12), testScorer())
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

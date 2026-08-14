@@ -3,6 +3,7 @@ package area
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -69,7 +70,7 @@ type PurgeResult struct {
 // separately from sensors, because an orphan is not evidence of a foreign
 // sensor; it is evidence that something wrote readings for a sensor that was
 // never ingested, which is a different thing for an operator to know.
-func PurgeOutsideBoundary(ctx context.Context, pool *pgxpool.Pool) (PurgeResult, error) {
+func PurgeOutsideBoundary(ctx context.Context, pool *pgxpool.Pool, operatorTimeout time.Duration) (PurgeResult, error) {
 	var result PurgeResult
 
 	tx, err := pool.Begin(ctx)
@@ -107,7 +108,7 @@ func PurgeOutsideBoundary(ctx context.Context, pool *pgxpool.Pool) (PurgeResult,
 	// complete however many times the operator retried. Raised for this
 	// transaction only — the pool default is unchanged and still protects the
 	// collector's and Phase 2's query paths.
-	if err := db.SetLocalStatementTimeout(ctx, tx, db.OperatorStatementTimeout); err != nil {
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.StatementTimeoutValue(operatorTimeout)); err != nil {
 		return result, err
 	}
 

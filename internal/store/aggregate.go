@@ -216,7 +216,7 @@ func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string,
 	}
 	defer tx.Rollback(ctx)
 
-	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.StatementTimeoutValue(s.seriesTimeout)); err != nil {
 		return nil, fmt.Errorf("store: sensor series timeout: %w", err)
 	}
 
@@ -369,7 +369,7 @@ func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.
 	}
 	defer tx.Rollback(ctx)
 
-	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.StatementTimeoutValue(s.seriesTimeout)); err != nil {
 		return nil, fmt.Errorf("store: area series timeout: %w", err)
 	}
 

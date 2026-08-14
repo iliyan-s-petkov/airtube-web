@@ -4,12 +4,21 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"airbg.org/internal/area"
 	"airbg.org/internal/db"
 	"airbg.org/internal/testsupport"
+)
+
+// testAssignTimeout and testOperatorTimeout mirror airbg.yaml's
+// database.statement_timeouts.assign and .operator, used by every test in
+// this package that calls AssignSensors or PurgeOutsideBoundary.
+const (
+	testAssignTimeout   = 60 * time.Second
+	testOperatorTimeout = 10 * time.Minute
 )
 
 func migrated(t *testing.T) (context.Context, *pgxpool.Pool) {
@@ -77,7 +86,7 @@ func TestAssignSensorsPlacesSofiaSensorInSofia(t *testing.T) {
 		t.Fatalf("insert sensor: %v", err)
 	}
 
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors: %v", err)
 	}
 
@@ -105,7 +114,7 @@ func TestAssignSensorsSkipsSensorsOutsideEveryArea(t *testing.T) {
 		t.Fatalf("insert sensor: %v", err)
 	}
 
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors: %v", err)
 	}
 
@@ -141,7 +150,7 @@ func TestAssignSensorsExcludesCountryBoundary(t *testing.T) {
 		t.Fatalf("insert sensor: %v", err)
 	}
 
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors: %v", err)
 	}
 
@@ -189,7 +198,7 @@ func TestAssignSensorsRevokesMembershipAfterSensorMoves(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert sensor: %v", err)
 	}
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors (before move): %v", err)
 	}
 
@@ -204,7 +213,7 @@ func TestAssignSensorsRevokesMembershipAfterSensorMoves(t *testing.T) {
 		t.Fatalf("move sensor: %v", err)
 	}
 
-	_, revoked, err := area.AssignSensors(ctx, pool)
+	_, revoked, err := area.AssignSensors(ctx, pool, testAssignTimeout)
 	if err != nil {
 		t.Fatalf("AssignSensors (after move): %v", err)
 	}
@@ -234,7 +243,7 @@ func TestAssignSensorsRevokesMembershipWhenSensorLeavesEveryArea(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert sensor: %v", err)
 	}
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors (before move): %v", err)
 	}
 
@@ -247,7 +256,7 @@ func TestAssignSensorsRevokesMembershipWhenSensorLeavesEveryArea(t *testing.T) {
 		t.Fatalf("move sensor: %v", err)
 	}
 
-	assigned, revoked, err := area.AssignSensors(ctx, pool)
+	assigned, revoked, err := area.AssignSensors(ctx, pool, testAssignTimeout)
 	if err != nil {
 		t.Fatalf("AssignSensors (after move): %v", err)
 	}
@@ -279,7 +288,7 @@ func TestAssignSensorsRevokesMembershipWhenBoundaryShrinks(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert sensor: %v", err)
 	}
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors: %v", err)
 	}
 
@@ -295,7 +304,7 @@ func TestAssignSensorsRevokesMembershipWhenBoundaryShrinks(t *testing.T) {
 		t.Fatalf("shrink area: %v", err)
 	}
 
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors (after shrink): %v", err)
 	}
 	if slugs := memberships(ctx, t, pool, 1); len(slugs) != 0 {
@@ -481,7 +490,7 @@ func TestAssignSensorsIsIdempotent(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+		if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 			t.Fatalf("AssignSensors run %d: %v", i, err)
 		}
 	}

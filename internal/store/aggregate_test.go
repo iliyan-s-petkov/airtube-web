@@ -64,7 +64,7 @@ func seedSensorReading(t *testing.T, ctx contextT, pool poolT, id int64, lon, la
 
 func assignAreas(t *testing.T, ctx contextT, pool poolT) {
 	t.Helper()
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors: %v", err)
 	}
 }
@@ -85,7 +85,7 @@ func migrated(t *testing.T) (context.Context, *pgxpool.Pool) {
 // single sensors.
 func TestAreaAggregatesRespectsCoverageThreshold(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	seedArea(t, ctx, pool, "two-sensors", "oblast", 23.0, 42.0)
 	seedArea(t, ctx, pool, "three-sensors", "oblast", 25.0, 43.0)
@@ -161,7 +161,7 @@ func assertInBulgaria(t *testing.T, label string, lon, lat float64) {
 // area would wrongly cross CoverageThreshold on a single sensor.
 func TestAreaAggregatesCountsDistinctSensorsNotRows(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	seedArea(t, ctx, pool, "one-sensor-many-readings", "oblast", 23.0, 42.0)
 
@@ -200,7 +200,7 @@ func TestAreaAggregatesCountsDistinctSensorsNotRows(t *testing.T) {
 // Values, even though the sensor otherwise looks perfectly healthy.
 func TestAreaAggregatesExcludesStaleReadings(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	seedArea(t, ctx, pool, "stale-mix", "oblast", 23.0, 42.0)
 
@@ -234,7 +234,7 @@ func TestAreaAggregatesExcludesStaleReadings(t *testing.T) {
 // all in the result.
 func TestLatestSensorsExcludesStaleReadings(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	seedSensorReading(t, ctx, pool, 60, 23.0, 42.0, "P2", 15, "ok", now.Add(-3*time.Hour))
@@ -255,7 +255,7 @@ func TestLatestSensorsExcludesStaleReadings(t *testing.T) {
 // the good ones that including it moves the mean well outside tolerance.
 func TestAreaAggregatesExcludesFlaggedReadings(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	seedArea(t, ctx, pool, "flagged", "oblast", 23.0, 42.0)
 
@@ -291,7 +291,7 @@ func TestAreaAggregatesExcludesFlaggedReadings(t *testing.T) {
 // tables answer the query, one just returns nothing useful.
 func TestSensorSeriesUsesRawBelowThirtyDays(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	now := time.Now().UTC().Truncate(time.Hour)
 	seedSensorReading(t, ctx, pool, 20, 23.0, 42.0, "P2", 12, "ok", now.Add(-2*time.Hour))
@@ -320,7 +320,7 @@ func TestSensorSeriesUsesRawBelowThirtyDays(t *testing.T) {
 
 func TestSensorSeriesUsesHourlyAboveThirtyDays(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	now := time.Now().UTC().Truncate(time.Hour)
 	bucket := now.Add(-60 * 24 * time.Hour)
@@ -351,7 +351,7 @@ func TestSensorSeriesUsesHourlyAboveThirtyDays(t *testing.T) {
 // seven values, not seven SensorReadings.
 func TestLatestSensorsReturnsOneRowPerSensor(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	for _, m := range []struct {
@@ -386,7 +386,7 @@ func TestLatestSensorsReturnsOneRowPerSensor(t *testing.T) {
 // chart to publish under a public-health banner.
 func TestAreaSeriesAveragesAcrossSensors(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
 	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
@@ -414,7 +414,7 @@ func TestAreaSeriesAveragesAcrossSensors(t *testing.T) {
 // use must apply here, or a chart shows values the map refuses to.
 func TestAreaSeriesExcludesFlaggedReadings(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
 	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
@@ -481,7 +481,7 @@ func seedTwoSensorsOneInstant(t *testing.T, ctx contextT, pool poolT, v1, v2 flo
 // silently shipping a chart that disagrees with the database-backed fall-through.
 func TestAllAreaSeriesMatchesThePerAreaQuery(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	// Two sensors in one area, one in another, and two readings at the SAME
 	// timestamp so the grouping is exercised rather than assumed.
@@ -521,7 +521,7 @@ func TestAllAreaSeriesMatchesThePerAreaQuery(t *testing.T) {
 // rapid air-quality swings rather than as two sensors disagreeing.
 func TestAllAreaSeriesGroupsSensorsAtTheSameInstant(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20) // one area, one timestamp, values 10 and 20
 
@@ -547,7 +547,7 @@ func TestAllAreaSeriesGroupsSensorsAtTheSameInstant(t *testing.T) {
 // re-deriving its own numeric check that a NaN could slip past.
 func TestAreaSeriesExcludesOutOfRangeNaN(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	seedArea(t, ctx, pool, "nan-area", "oblast", 23.5, 42.5)
 	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
@@ -581,7 +581,7 @@ func TestAreaSeriesExcludesOutOfRangeNaN(t *testing.T) {
 // that wait at 5s.
 func TestAreaSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	// Two live connections are required: one held open by the blocker's
 	// transaction, one for AreaSeries' own Begin. Asserted, not assumed — the
@@ -623,7 +623,7 @@ func TestAreaSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
 // series query that got the same scoped-timeout treatment.
 func TestSensorSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	if pool.Config().MaxConns < 2 {
 		t.Fatalf("pool MaxConns = %d, want >= 2 so the blocker and SensorSeries use distinct connections", pool.Config().MaxConns)
@@ -660,7 +660,7 @@ func TestSensorSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
 // wrong, which is harder to notice in review than a failure.
 func TestAreaSeriesStillReturnsDataInsideItsTransaction(t *testing.T) {
 	ctx, pool := migrated(t)
-	s := store.New(pool, testStoreConfig())
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
 
 	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20)
 

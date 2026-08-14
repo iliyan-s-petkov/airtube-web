@@ -19,6 +19,11 @@ import (
 	"airbg.org/internal/testsupport"
 )
 
+// testAssignTimeout mirrors airbg.yaml's database.statement_timeouts.assign
+// default; see internal/area/area_test.go's testAssignTimeout for the same
+// convention.
+const testAssignTimeout = 60 * time.Second
+
 func migrated(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -73,7 +78,7 @@ func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 			t.Fatalf("seed reading: %v", err)
 		}
 	}
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors: %v", err)
 	}
 }
