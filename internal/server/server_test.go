@@ -3,12 +3,14 @@ package server_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/server"
 	"airbg.org/internal/snapshot"
+	"airbg.org/internal/store"
 )
 
 // testConfig is the committed configuration, loaded once, so these tests
@@ -227,6 +230,135 @@ func TestHealthzOnPrivateListener(t *testing.T) {
 
 	if got := get(t, private, "/healthz").StatusCode; got != http.StatusOK {
 		t.Errorf("GET /healthz = %d, want 200", got)
+	}
+}
+
+// blockingSeriesStore is an api.DataSource whose AreaSeries call reports it
+// has started (so the test knows the request is holding the admission slot),
+// then blocks until the test releases it. AreaAtPoint and SensorSeries are
+// unused by the request this test drives and are not expected to be called.
+type blockingSeriesStore struct {
+	startOnce sync.Once
+	started   chan struct{}
+	release   chan struct{}
+}
+
+func (b *blockingSeriesStore) AreaAtPoint(ctx context.Context, lon, lat float64) (string, error) {
+	return "", errors.New("blockingSeriesStore: AreaAtPoint unexpectedly called")
+}
+
+func (b *blockingSeriesStore) SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool) ([]store.Point, error) {
+	return nil, errors.New("blockingSeriesStore: SensorSeries unexpectedly called")
+}
+
+func (b *blockingSeriesStore) AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool) ([]store.Point, error) {
+	b.startOnce.Do(func() { close(b.started) })
+	<-b.release
+	return []store.Point{}, nil
+}
+
+// TestSeriesAdmissionCapComesFromConfiguredMaxInflight proves
+// Config.Database.MaxInflight — not a package constant — is the size of the
+// admission semaphore server.New builds in front of the database-backed
+// series routes. With MaxInflight set to 1, one in-flight /series request
+// must occupy the only slot and force a concurrent second request to 503,
+// exactly the shape internal/api/series_test.go's
+// TestSeriesRefusesWhenAdmissionIsFull already pins at the Deps level — this
+// is the same property proven through the real server.New wiring, which is
+// what actually reads Config.Database.MaxInflight.
+func TestSeriesAdmissionCapComesFromConfiguredMaxInflight(t *testing.T) {
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+
+	cfg := testConfig(t)
+	cfg.Database.MaxInflight = 1
+
+	holder := snapshot.NewHolder(cfg.Series)
+	holder.Store(&snapshot.Snapshot{
+		GeneratedAt: time.Now().UTC(),
+		KnownSlugs:  map[string]snapshot.AreaMeta{"sofia": {Slug: "sofia"}},
+		AreaSeries:  map[string]snapshot.Body{},
+	})
+
+	public, private := free(t), free(t)
+	cfg.Listen.Addr = public
+	cfg.Listen.MetricsAddr = private
+	cfg.Listen.BaseURL = "http://" + public
+
+	st := &blockingSeriesStore{started: make(chan struct{}), release: make(chan struct{})}
+
+	srv, err := server.New(server.Options{
+		Config: cfg, Catalogue: cat, Snapshots: holder, Store: st,
+	})
+	if err != nil {
+		t.Fatalf("server.New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				t.Errorf("Run: %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("Run did not return within 10s of cancellation")
+		}
+	})
+	waitReady(t, private)
+
+	// period=7d is not the default combination ("24h"), and AreaSeries is
+	// empty for "sofia", so this request cannot be served from the snapshot
+	// and must reach d.Store.AreaSeries through the admission semaphore.
+	const path = "/api/v1/area/sofia/series?metric=P2&period=7d"
+
+	firstErr := make(chan error, 1)
+	go func() {
+		resp, err := http.Get("http://" + public + path)
+		if err != nil {
+			firstErr <- err
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			firstErr <- fmt.Errorf("first (blocking) request status = %d, want 200", resp.StatusCode)
+			return
+		}
+		firstErr <- nil
+	}()
+
+	select {
+	case <-st.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first request never reached AreaSeries; it never occupied the admission slot")
+	}
+
+	// A bounded client, not the get(t, ...) helper: if the admission cap were
+	// ever wider than 1, this second request would also reach the blocking
+	// store and hang until the test's own release below — a plain http.Get
+	// would then block for the test binary's full timeout instead of failing
+	// with a message that names what went wrong.
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://" + public + path)
+	if err != nil {
+		t.Errorf("second concurrent request: %v (admission did not reject it within 3s; "+
+			"Database.MaxInflight = 1 means the one slot was already held)", err)
+	} else {
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("second concurrent request status = %d, want 503 "+
+				"(Database.MaxInflight = 1 means the one slot was already held)", resp.StatusCode)
+		}
+	}
+
+	close(st.release)
+	if err := <-firstErr; err != nil {
+		t.Errorf("first (blocking) request: %v", err)
 	}
 }
 

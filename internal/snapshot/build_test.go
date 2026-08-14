@@ -293,6 +293,45 @@ func TestAreaSeriesPayloadUsesEmptyArraysNotNull(t *testing.T) {
 	}
 }
 
+// TestBuildAreaSeriesRespectsConfiguredWindow pins Holder.window (taken from
+// config.Series.DefaultWindow by NewHolder) to the actual query bound Build
+// uses: since := now.Add(-h.window). A reading placed just inside the
+// committed 24h default window, but outside a plausible smaller one (e.g. a
+// hardcoded 1h), must appear in the series Build produces — and disappear if
+// the window used were narrower than configured. This is the direct proof
+// that DefaultWindow (not just DefaultMetric) flows from config through the
+// holder into the query, catching e.g. NewHolder hardcoding window instead of
+// reading cfg.DefaultWindow.
+func TestBuildAreaSeriesRespectsConfiguredWindow(t *testing.T) {
+	ctx, pool := migrated(t)
+	seed(t, ctx, pool)
+
+	now := time.Now().UTC()
+	// 2h old: inside the committed 24h default window, outside any window an
+	// hour or less. A distinctive value makes the assertion unambiguous.
+	const marker = 777.0
+	_, err := pool.Exec(ctx,
+		`INSERT INTO reading (time, sensor_id, metric, value, quality)
+		 VALUES ($1, 100, 'P2', $2, 'ok')`,
+		now.Add(-2*time.Hour), marker)
+	if err != nil {
+		t.Fatalf("seed old reading: %v", err)
+	}
+
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), now)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	body, ok := snap.AreaSeries["sofia"]
+	if !ok {
+		t.Fatal("no AreaSeries entry for sofia")
+	}
+	if !strings.Contains(string(body.JSON), "777") {
+		t.Errorf("AreaSeries[\"sofia\"] does not contain the 2h-old reading (value %v); "+
+			"want it included under the committed 24h default window: %s", marker, body.JSON)
+	}
+}
+
 // TestBuildSensorPayloadIsColumnar pins the wire format from Phase 1 §7.3.
 // Phase 3's MapLibre layer consumes typed arrays; a silent switch to
 // row-per-sensor would break it at runtime, not at compile time.
