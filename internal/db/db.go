@@ -27,14 +27,14 @@ func Open(ctx context.Context, dbCfg config.Database) (*pgxpool.Pool, error) {
 // handlers and one for the collector.
 //
 // Two pools rather than one is a bulkhead, not a tuning knob, and the failure
-// it prevents needs no traffic and no attacker. AssignSensors runs under
-// AssignStatementTimeout (60s) on every poll cycle, so the collector may
-// legitimately hold a connection for a minute. While both workloads shared one
-// pool of max(4, numCPU), request handlers blocked inside Acquire behind the
-// poll cycle on a schedule — and every control in place saw a healthy system,
-// because it was one. Rate limiting bounds one client and admission control
-// bounds the crowd; neither can bound one workload's effect on another's
-// capacity. Only separate pools can.
+// it prevents needs no traffic and no attacker. AssignSensors runs under the
+// configured assign statement timeout on every poll cycle, so the collector may
+// legitimately hold a connection for as long as that allows. While both
+// workloads shared one pool of max(4, numCPU), request handlers blocked inside
+// Acquire behind the poll cycle on a schedule — and every control in place saw
+// a healthy system, because it was one. Rate limiting bounds one client and
+// admission control bounds the crowd; neither can bound one workload's effect
+// on another's capacity. Only separate pools can.
 //
 // Sizes are required and must be positive: pgxpool reads MaxConns <= 0 as "use
 // the default", so accepting a zero here would quietly restore the host's core
