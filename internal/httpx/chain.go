@@ -92,6 +92,10 @@ type Chain struct {
 	// because it is widened by the configured basemap host. Empty falls back to
 	// CSPValue.
 	CSP string
+
+	// PermissionsPolicy is the policy SecurityHeaders sets via the
+	// Permissions-Policy header. Empty falls back to PermissionsPolicyValue.
+	PermissionsPolicy string
 }
 
 // Wrap builds the handler. Order, outermost first:
@@ -114,7 +118,7 @@ func (c Chain) Wrap(h http.Handler) http.Handler {
 	h = LimitBody(h, c.MaxBodyBytes)
 	h = RateLimit(h, c.Limiter)
 	h = WithClientIP(h, c.Resolver)
-	h = SecurityHeaders(h, c.CSP)
+	h = SecurityHeaders(h, c.CSP, c.PermissionsPolicy)
 	h = Recover(h)
 	return h
 }

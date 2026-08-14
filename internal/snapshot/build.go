@@ -89,7 +89,13 @@ func (c sensorColumns) MarshalJSON() ([]byte, error) {
 //
 // now is passed in rather than read from the clock so a test can build twice
 // with different timestamps and assert the ETag did not move.
-func Build(ctx context.Context, s *store.Store, now time.Time) (*Snapshot, error) {
+//
+// h supplies the default series combination (metric and window) rather than a
+// separate config.Series argument, because the holder that will store this
+// snapshot already carries it — Build and the snapshot it produces must agree
+// on the same combination the holder was constructed with, and passing the
+// holder itself is the only way that agreement cannot drift apart.
+func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snapshot, error) {
 	countryAggs, err := s.AreaAggregates(ctx, countryKinds)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: country tier: %w", err)
@@ -106,7 +112,7 @@ func Build(ctx context.Context, s *store.Store, now time.Time) (*Snapshot, error
 	// One query for every area, not one per area: Build runs on the collector
 	// pool (4 connections) and the neighbourhood import multiplies the area
 	// count by an order of magnitude.
-	seriesBySlug, err := s.AllAreaSeries(ctx, DefaultSeriesMetric, now.Add(-DefaultSeriesWindow), false)
+	seriesBySlug, err := s.AllAreaSeries(ctx, h.metric, now.Add(-h.window), false)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: area series: %w", err)
 	}
@@ -157,7 +163,7 @@ func Build(ctx context.Context, s *store.Store, now time.Time) (*Snapshot, error
 		}
 		snap.AreaSensors[slug] = body
 
-		seriesBody, err := encode(seriesPayloadFrom(slug, seriesBySlug[slug]))
+		seriesBody, err := encode(seriesPayloadFrom(slug, h.metric, seriesBySlug[slug]))
 		if err != nil {
 			return nil, fmt.Errorf("snapshot: encode series for %q: %w", slug, err)
 		}
@@ -224,10 +230,10 @@ func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPaylo
 // The slices are allocated with make even when there are no points: a nil slice
 // marshals to `null`, and a charting library handed null throws instead of
 // drawing an empty axis.
-func seriesPayloadFrom(slug string, points []store.Point) SeriesPayload {
+func seriesPayloadFrom(slug, metric string, points []store.Point) SeriesPayload {
 	p := SeriesPayload{
 		Slug:   slug,
-		Metric: DefaultSeriesMetric,
+		Metric: metric,
 		Period: DefaultSeriesPeriod,
 		Hourly: false,
 		Times:  make([]time.Time, 0, len(points)),

@@ -16,7 +16,7 @@ import (
 // for the camera, the microphone or the user's location.
 func TestSecurityHeadersDenyDeviceCapabilities(t *testing.T) {
 	rec := httptest.NewRecorder()
-	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "").
+	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "", "").
 		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	got := rec.Header().Get("Permissions-Policy")
@@ -38,7 +38,7 @@ func TestSecurityHeadersDenyDeviceCapabilities(t *testing.T) {
 // is not an anti-extraction control and must not be presented as one.
 func TestSecurityHeadersSetCORP(t *testing.T) {
 	rec := httptest.NewRecorder()
-	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "").
+	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "", "").
 		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	if got := rec.Header().Get("Cross-Origin-Resource-Policy"); got != "same-origin" {
@@ -54,7 +54,7 @@ func TestSecurityHeadersSetCORP(t *testing.T) {
 // that would have been forgotten from a fixed list.
 func TestNoCORSHeaders(t *testing.T) {
 	rec := httptest.NewRecorder()
-	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "").
+	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "", "").
 		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	const prefix = "access-control-"
@@ -128,7 +128,7 @@ func TestCSPWidensExactlyTwoDirectives(t *testing.T) {
 func TestSecurityHeadersUsesTheSuppliedPolicy(t *testing.T) {
 	const custom = "default-src 'none'"
 	rec := httptest.NewRecorder()
-	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), custom).
+	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), custom, "").
 		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	if got := rec.Header().Get("Content-Security-Policy"); got != custom {
@@ -141,11 +141,37 @@ func TestSecurityHeadersUsesTheSuppliedPolicy(t *testing.T) {
 // most likely cause is a new call site that forgot the argument.
 func TestSecurityHeadersFallsBackWhenGivenNoPolicy(t *testing.T) {
 	rec := httptest.NewRecorder()
-	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "").
+	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "", "").
 		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	if got := rec.Header().Get("Content-Security-Policy"); got != httpx.CSPValue {
 		t.Errorf("Content-Security-Policy = %q, want the CSPValue baseline", got)
+	}
+}
+
+// TestSecurityHeadersUsesTheSuppliedPermissionsPolicy. Without this the
+// parameter could be ignored and PermissionsPolicyValue would still show up on
+// every request, since every other test here passes "" and gets the fallback.
+func TestSecurityHeadersUsesTheSuppliedPermissionsPolicy(t *testing.T) {
+	const custom = "geolocation=(self)"
+	rec := httptest.NewRecorder()
+	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "", custom).
+		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if got := rec.Header().Get("Permissions-Policy"); got != custom {
+		t.Errorf("Permissions-Policy = %q, want %q", got, custom)
+	}
+}
+
+// TestSecurityHeadersFallsBackWhenGivenNoPermissionsPolicy fails closed for the
+// same reason TestSecurityHeadersFallsBackWhenGivenNoPolicy does for the CSP.
+func TestSecurityHeadersFallsBackWhenGivenNoPermissionsPolicy(t *testing.T) {
+	rec := httptest.NewRecorder()
+	httpx.SecurityHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "", "").
+		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if got := rec.Header().Get("Permissions-Policy"); got != httpx.PermissionsPolicyValue {
+		t.Errorf("Permissions-Policy = %q, want the PermissionsPolicyValue baseline", got)
 	}
 }
 

@@ -93,9 +93,17 @@ func CSP(basemapHost string) string {
 // an empty policy means a caller forgot the argument, and a response with no
 // CSP at all is a worse outcome than one with a policy that does not know
 // about the basemap.
-func SecurityHeaders(next http.Handler, csp string) http.Handler {
+//
+// permissionsPolicy is config.Listen.PermissionsPolicy, passed through rather
+// than hardcoded so an operator can open a capability (see the geolocation
+// comment on PermissionsPolicyValue) without a code change. Empty falls back
+// to PermissionsPolicyValue for the same fail-closed reason as csp above.
+func SecurityHeaders(next http.Handler, csp, permissionsPolicy string) http.Handler {
 	if csp == "" {
 		csp = CSPValue
+	}
+	if permissionsPolicy == "" {
+		permissionsPolicy = PermissionsPolicyValue
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probe("securityHeaders")
@@ -107,7 +115,7 @@ func SecurityHeaders(next http.Handler, csp string) http.Handler {
 		// both are understood; the CSP directive wins there.
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
-		h.Set("Permissions-Policy", PermissionsPolicyValue)
+		h.Set("Permissions-Policy", permissionsPolicy)
 		// same-origin, so the per-entity JSON payloads cannot be pulled into
 		// a third-party document context. This is the header that does the
 		// job CORS is commonly mistaken for; see the deliberate absence of

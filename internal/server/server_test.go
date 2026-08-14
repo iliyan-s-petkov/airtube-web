@@ -6,15 +6,32 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/server"
 	"airbg.org/internal/snapshot"
 )
+
+// testConfig is the committed configuration, loaded once, so these tests
+// exercise the values the service actually ships with (timeouts, rate limits,
+// CSP, ...) rather than a second copy that can drift. Same shape as
+// internal/api/router_test.go's testConfig — each package that needs one keeps
+// its own copy.
+func testConfig(t *testing.T) config.Config {
+	t.Helper()
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile error = %v, want nil", err)
+	}
+	return cfg
+}
 
 func free(t *testing.T) string {
 	t.Helper()
@@ -34,7 +51,8 @@ func running(t *testing.T) (public, private string) {
 	if err != nil {
 		t.Fatalf("i18n.Load: %v", err)
 	}
-	holder := snapshot.NewHolder()
+	cfg := testConfig(t)
+	holder := snapshot.NewHolder(cfg.Series)
 	holder.Store(&snapshot.Snapshot{
 		GeneratedAt: time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
 		KnownSlugs:  map[string]snapshot.AreaMeta{},
@@ -42,9 +60,14 @@ func running(t *testing.T) (public, private string) {
 	})
 
 	public, private = free(t), free(t)
+	cfg.Listen.Addr = public
+	cfg.Listen.MetricsAddr = private
+	cfg.Listen.BaseURL = "http://" + public
+
 	srv, err := server.New(server.Options{
-		ListenAddr: public, MetricsAddr: private,
-		Catalogue: cat, Snapshots: holder, BaseURL: "http://" + public,
+		Config:    cfg,
+		Catalogue: cat,
+		Snapshots: holder,
 	})
 	if err != nil {
 		t.Fatalf("server.New: %v", err)

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/ratelimit"
 )
@@ -34,7 +35,7 @@ func TestMaxBodyBytesConstantIsEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIPResolver: %v", err)
 	}
-	limiter := ratelimit.New(ratelimit.Rate{PerSecond: 1000, Burst: 1000}, time.Minute)
+	limiter := ratelimit.New(config.Bucket{PerSecond: 1000, Burst: 1000, TTL: time.Minute}, 1)
 
 	var readErr error
 	chain := httpx.Chain{Resolver: resolver, Limiter: limiter, MaxBodyBytes: maxBodyBytes}

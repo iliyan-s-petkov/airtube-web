@@ -347,7 +347,7 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 	//     series bucket exists to protect Postgres, and spending its tokens on
 	//     requests that never reach Postgres would starve the path it is
 	//     actually guarding.
-	if metric == snapshot.DefaultSeriesMetric && period == snapshot.DefaultSeriesPeriod {
+	if metric == d.Snapshots.DefaultMetric() && period == snapshot.DefaultSeriesPeriod {
 		if body, ok := snap.AreaSeries[slug]; ok {
 			serveBody(w, r, body, cachePrivate, maxAgeFor(d.Config, period))
 			return

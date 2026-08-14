@@ -11,6 +11,8 @@ package snapshot
 import (
 	"sync/atomic"
 	"time"
+
+	"airbg.org/internal/config"
 )
 
 // Body is one fully prepared HTTP response body: the JSON, its gzip encoding,
@@ -26,20 +28,21 @@ type Body struct {
 	ETag string
 }
 
-// The one series the frontend draws by default. Exported because two packages
-// must agree on it: snapshot.Build precomputes exactly this combination, and
-// api.handleAreaSeries serves from the snapshot for exactly this combination.
-// A literal in each package would let them drift, and the symptom would be a
-// silent fall-through to the database on every page view — which is the thing
-// this whole change exists to prevent.
+// DefaultSeriesPeriod is the period name of the series the frontend draws by
+// default. Exported because two packages must agree on it: snapshot.Build
+// precomputes exactly this combination, and api.handleAreaSeries serves from
+// the snapshot for exactly this combination. A literal in each package would
+// let them drift, and the symptom would be a silent fall-through to the
+// database on every page view — which is the thing this whole change exists
+// to prevent.
 //
-// DefaultSeriesWindow must equal the window api.parsePeriod derives from
-// DefaultSeriesPeriod. TestDefaultSeriesPeriodMatchesParsePeriod pins that.
-const (
-	DefaultSeriesMetric = "P2"
-	DefaultSeriesPeriod = "24h"
-	DefaultSeriesWindow = 24 * time.Hour
-)
+// The metric and the window that DefaultSeriesPeriod resolves to are no
+// longer package constants: they come from config.Series (see NewHolder and
+// Build), because config.Validate is what now enforces that the window
+// matches the one api.parsePeriod derives from this period name —
+// TestDefaultSeriesPeriodMatchesParsePeriod pins that against the config, not
+// against a literal here.
+const DefaultSeriesPeriod = "24h"
 
 // SeriesPayload is the wire shape of both series endpoints.
 //
@@ -107,9 +110,31 @@ type Snapshot struct {
 // Holder publishes snapshots to concurrent readers.
 type Holder struct {
 	ptr atomic.Pointer[Snapshot]
+
+	// metric and window are the default series combination, fixed at
+	// construction from config.Series. Build reads them to precompute
+	// AreaSeries; api compares a request's metric against DefaultMetric to
+	// decide whether it can be served from the snapshot instead of the
+	// database. Fixed at construction, not read from config on every call,
+	// because config.Validate has already checked window against
+	// api.parsePeriod's table once, at startup — reading a mutable config on
+	// every request would reopen the question this holder exists to close.
+	metric string
+	window time.Duration
 }
 
-func NewHolder() *Holder { return &Holder{} }
+// NewHolder takes the series configuration because the snapshot serves the
+// default window without touching the database. That window must equal the one
+// api.parsePeriod derives from the configured periods — config.Validate
+// enforces it, which is why this constructor can simply trust it.
+func NewHolder(cfg config.Series) *Holder {
+	return &Holder{metric: cfg.DefaultMetric, window: cfg.DefaultWindow}
+}
+
+// DefaultMetric is the metric of the one series combination Build precomputes.
+// Exported so api.handleAreaSeries can decide, without importing config
+// itself, whether a request's metric matches the precomputed one.
+func (h *Holder) DefaultMetric() string { return h.metric }
 
 // Load returns the current snapshot, or nil if none has been built yet.
 // Callers must treat nil as "not ready" and answer 503 — never as an empty

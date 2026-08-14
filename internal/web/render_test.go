@@ -9,10 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/web"
 )
+
+// testSeries is airbg.yaml's series.default_metric and series.default_window,
+// restated as a literal because this file's tests are about page rendering,
+// not about the series default combination.
+var testSeries = config.Series{DefaultMetric: "P2", DefaultWindow: 24 * time.Hour}
 
 func renderer(t *testing.T, snap *snapshot.Snapshot) *web.Renderer {
 	t.Helper()
@@ -20,7 +26,7 @@ func renderer(t *testing.T, snap *snapshot.Snapshot) *web.Renderer {
 	if err != nil {
 		t.Fatalf("i18n.Load: %v", err)
 	}
-	h := snapshot.NewHolder()
+	h := snapshot.NewHolder(testSeries)
 	if snap != nil {
 		h.Store(snap)
 	}
@@ -62,7 +68,7 @@ func newTestRendererWithBasemap(t *testing.T, basemapStyleURL string) *web.Rende
 	if err != nil {
 		t.Fatalf("i18n.Load: %v", err)
 	}
-	h := snapshot.NewHolder()
+	h := snapshot.NewHolder(testSeries)
 	h.Store(fixture(t))
 	rr, err := web.NewRenderer(cat, h, "https://airbg.org", basemapStyleURL)
 	if err != nil {

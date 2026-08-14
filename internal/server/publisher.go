@@ -29,7 +29,7 @@ func NewPublisher(st *store.Store, h *snapshot.Holder, log *slog.Logger) *Publis
 }
 
 func (p *Publisher) Publish(ctx context.Context, now time.Time) error {
-	snap, err := snapshot.Build(ctx, p.store, now)
+	snap, err := snapshot.Build(ctx, p.store, p.holder, now)
 	if err != nil {
 		snapshotFailures.Inc()
 		return err

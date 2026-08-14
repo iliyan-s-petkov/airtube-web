@@ -247,6 +247,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		collectorStore,
 		quality.NewHistory(cfg.Quality.HistoryDepth),
 		quality.NewScorer(cfg.Quality),
+		cfg.Database.StatementTimeouts.Assign,
 	)
 	ing.SetSnapshotPublisher(pub)
 

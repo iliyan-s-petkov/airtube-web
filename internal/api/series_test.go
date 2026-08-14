@@ -569,18 +569,22 @@ func TestSnapshotSeriesIsStillCountedForBreadth(t *testing.T) {
 	}
 }
 
-// TestDefaultSeriesPeriodMatchesParsePeriod ties the snapshot's hardcoded window
-// to the api package's period vocabulary. Build derives `since` from
-// DefaultSeriesWindow; the handler derives it from parsePeriod. If those two ever
-// disagree, the snapshot serves a window that is not the one the label claims,
-// and nothing else in the suite would notice.
+// TestDefaultSeriesPeriodMatchesParsePeriod ties config.Series.DefaultWindow —
+// the window Build derives its `since` from — to the api package's period
+// vocabulary, which the handler derives its own window from via parsePeriod.
+// If those two ever disagree, the snapshot serves a window that is not the one
+// the label claims, and nothing else in the suite would notice. Both sides now
+// come from the same config.Config, so config.Validate is what actually
+// enforces this — this test pins that enforcement rather than a hardcoded
+// literal.
 func TestDefaultSeriesPeriodMatchesParsePeriod(t *testing.T) {
-	window, hourly, ok := api.ParsePeriodForTesting(testConfig(t).Series, snapshot.DefaultSeriesPeriod)
+	cfg := testConfig(t)
+	window, hourly, ok := api.ParsePeriodForTesting(cfg.Series, snapshot.DefaultSeriesPeriod)
 	if !ok {
 		t.Fatalf("parsePeriod(%q) rejected the snapshot's default period", snapshot.DefaultSeriesPeriod)
 	}
-	if window != snapshot.DefaultSeriesWindow {
-		t.Errorf("window = %v, want %v", window, snapshot.DefaultSeriesWindow)
+	if window != cfg.Series.DefaultWindow {
+		t.Errorf("window = %v, want config.Series.DefaultWindow = %v", window, cfg.Series.DefaultWindow)
 	}
 	if hourly {
 		t.Error("hourly = true, but Build precomputes the raw series (hourly=false)")

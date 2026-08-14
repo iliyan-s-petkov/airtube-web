@@ -70,11 +70,11 @@ func (s *stubSource) AreaSeries(_ context.Context, _, _ string, _ time.Time, _ b
 
 func deps(t *testing.T, snap *snapshot.Snapshot) api.Deps {
 	t.Helper()
-	h := snapshot.NewHolder()
+	cfg := testConfig(t)
+	h := snapshot.NewHolder(cfg.Series)
 	if snap != nil {
 		h.Store(snap)
 	}
-	cfg := testConfig(t)
 	return api.Deps{
 		Snapshots: h,
 		Breadth:   ratelimit.NewBreadth(cfg.RateLimit.Enumerate),

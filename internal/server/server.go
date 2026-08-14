@@ -18,6 +18,7 @@ import (
 
 	"airbg.org/internal/admit"
 	"airbg.org/internal/api"
+	"airbg.org/internal/config"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/metrics"
@@ -26,36 +27,16 @@ import (
 	"airbg.org/internal/web"
 )
 
+// Options carries the collaborators plus the whole validated configuration.
+// One Config field rather than fifteen scalars: adding a knob then changes no
+// signature, and there is no second place for a value to be forgotten.
 type Options struct {
-	ListenAddr  string
-	MetricsAddr string
-
+	Config    config.Config
 	Catalogue *i18n.Catalogue
 	Snapshots *snapshot.Holder
 	Store     api.DataSource
 	Publisher *Publisher
-
-	TrustedProxyCIDRs []string
-	BaseURL           string
-	Logger            *slog.Logger
-
-	// BasemapStyleURL is the MapLibre style JSON URL, key already substituted,
-	// or empty when no basemap vendor is configured. See config.Config.BasemapStyleURL.
-	BasemapStyleURL string
-
-	// CSP is the policy the public chain's SecurityHeaders sets. Built by the
-	// caller (main, via httpx.CSP(cfg.BasemapHost)) rather than here, so this
-	// package does not need to know how a policy is assembled — that stays in
-	// one place, visible at the wiring.
-	CSP string
-
-	// MaxDBInflight bounds how many requests may be inside a database query at
-	// once, across every client. See internal/admit and config.MaxDBInflight.
-	MaxDBInflight int32
-
-	// MaxConns bounds how many connections the public listener holds open at
-	// once. See internal/httpx.LimitListener and config.MaxConns.
-	MaxConns int32
+	Logger    *slog.Logger
 }
 
 type Server struct {
@@ -66,48 +47,15 @@ type Server struct {
 	seriesLimiter *ratelimit.Limiter
 	log           *slog.Logger
 	maxConns      int32
+	evictInterval time.Duration
+	shutdownGrace time.Duration
 }
 
-// Timeouts. Every one of these is a bound on what a single connection can cost.
-const (
-	// readHeaderTimeout is the slowloris bound: a connection that has not sent
-	// a complete request line and headers by then is closed.
-	readHeaderTimeout = 5 * time.Second
-	readTimeout       = 10 * time.Second
-	writeTimeout      = 30 * time.Second
-	idleTimeout       = 60 * time.Second
-	shutdownGrace     = 15 * time.Second
-
-	// evictInterval sweeps the rate-limit and breadth maps.
-	evictInterval = 5 * time.Minute
-
-	// maxBodyBytes: this service answers GETs. Anything larger than a
-	// generously sized header block is not a request we serve.
-	maxBodyBytes = 64 << 10
-
-	// defaultMaxDBInflight is admit.DefaultSize, the one definition shared with
-	// config and api. Used only when Options.MaxDBInflight is zero — see the
-	// comment at its one call site.
-	defaultMaxDBInflight int32 = admit.DefaultSize
-
-	// defaultMaxConns matches config.defaultMaxConns. Used only when
-	// Options.MaxConns is zero — see the comment at its one call site.
-	defaultMaxConns int32 = 4096
-)
-
-// The rate limit. Deliberately generous for a human reading the map — a page
-// load fans out to several API calls — and tight enough that a scraper walking
-// every area hits it long before it finishes.
-//
-// One limit for the whole public surface, not one per route: separate buckets
-// would let a client spend its full budget on every route in turn, so the real
-// ceiling would be the sum, which is not the number anyone reasoned about.
-var apiRate = ratelimit.Rate{PerSecond: 10, Burst: 60}
-
-// bucketTTL is how long an idle client's bucket is kept. Long enough that a
-// reader who steps away and comes back is still throttled on their old bucket
-// rather than handed a fresh burst; short enough that the map stays bounded.
-const bucketTTL = 30 * time.Minute
+// maxBodyBytes: this service answers GETs. Anything larger than a generously
+// sized header block is not a request we serve. Not configurable: it is not an
+// operational knob an operator would ever need to move, unlike the timeouts and
+// limits below, which airbg.yaml controls.
+const maxBodyBytes = 64 << 10
 
 func New(opts Options) (*Server, error) {
 	if opts.Logger == nil {
@@ -117,56 +65,32 @@ func New(opts Options) (*Server, error) {
 		return nil, errors.New("server: Catalogue and Snapshots are required")
 	}
 
-	resolver, err := httpx.NewIPResolver(opts.TrustedProxyCIDRs)
+	resolver, err := httpx.NewIPResolver(opts.Config.Listen.TrustedProxyCIDRs)
 	if err != nil {
 		return nil, fmt.Errorf("server: trusted proxies: %w", err)
 	}
 
-	renderer, err := web.NewRenderer(opts.Catalogue, opts.Snapshots, opts.BaseURL, opts.BasemapStyleURL)
+	renderer, err := web.NewRenderer(opts.Catalogue, opts.Snapshots, opts.Config.Listen.BaseURL, opts.Config.Basemap.StyleURL)
 	if err != nil {
 		return nil, fmt.Errorf("server: renderer: %w", err)
 	}
 
-	limiter := ratelimit.New(apiRate, bucketTTL)
-	seriesLimiter := api.NewSeriesLimiter()
-	breadth := ratelimit.NewBreadth(
-		ratelimit.DistinctAreaLimit,
-		ratelimit.DistinctSensorLimit,
-		ratelimit.EnumerationWindow,
-	)
+	limiter := ratelimit.New(opts.Config.RateLimit.API, opts.Config.RateLimit.ShardCount)
+	seriesLimiter := api.NewSeriesLimiter(opts.Config)
+	breadth := ratelimit.NewBreadth(opts.Config.RateLimit.Enumerate)
 
 	// Built here, not left for api.NewRouter's fail-closed default, so its size
 	// is the operator's configured value rather than the package-level fallback.
-	//
-	// A zero Options.MaxDBInflight means "not set" rather than "admit nothing":
-	// config.Load always supplies a positive value in production, but tests
-	// (and any other caller that builds Options by hand) commonly omit it, and
-	// silently refusing every database-backed request would be a surprising way
-	// to find that out.
-	maxInflight := opts.MaxDBInflight
-	if maxInflight <= 0 {
-		maxInflight = defaultMaxDBInflight
-	}
-	admission, err := admit.New(int(maxInflight))
+	admission, err := admit.New(int(opts.Config.Database.MaxInflight))
 	if err != nil {
 		return nil, fmt.Errorf("server: admission: %w", err)
 	}
 
-	// Zero means "not set" — the same convention as maxInflight above — but
-	// == 0 rather than <= 0: a negative value is a configuration mistake, and
-	// falling through to the error path is the honest response. config.Load
-	// never lets a negative value reach here in production; == 0 keeps that
-	// error path alive for any other caller that builds Options by hand.
-	maxConns := opts.MaxConns
-	if maxConns == 0 {
-		maxConns = defaultMaxConns
-	}
-
 	apiMux := api.NewRouter(api.Deps{
+		Config:        opts.Config,
 		Snapshots:     opts.Snapshots,
 		Breadth:       breadth,
 		Store:         opts.Store,
-		BaseURL:       opts.BaseURL,
 		SeriesLimiter: seriesLimiter,
 		Admission:     admission,
 	})
@@ -179,35 +103,38 @@ func New(opts Options) (*Server, error) {
 	root.Handle("/", renderer.Routes())
 
 	chain := httpx.Chain{
-		Resolver:     resolver,
-		Limiter:      limiter,
-		MaxBodyBytes: maxBodyBytes,
-		CSP:          opts.CSP,
+		Resolver:          resolver,
+		Limiter:           limiter,
+		MaxBodyBytes:      maxBodyBytes,
+		CSP:               opts.Config.Listen.CSP,
+		PermissionsPolicy: opts.Config.Listen.PermissionsPolicy,
 	}
 
 	s := &Server{
 		public: &http.Server{
-			Addr:              opts.ListenAddr,
+			Addr:              opts.Config.Listen.Addr,
 			Handler:           chain.Wrap(metrics.Instrument(root)),
-			ReadHeaderTimeout: readHeaderTimeout,
-			ReadTimeout:       readTimeout,
-			WriteTimeout:      writeTimeout,
-			IdleTimeout:       idleTimeout,
+			ReadHeaderTimeout: opts.Config.Timeouts.ReadHeader,
+			ReadTimeout:       opts.Config.Timeouts.Read,
+			WriteTimeout:      opts.Config.Timeouts.Write,
+			IdleTimeout:       opts.Config.Timeouts.Idle,
 			ErrorLog:          slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
 		},
 		private: &http.Server{
-			Addr:              opts.MetricsAddr,
+			Addr:              opts.Config.Listen.MetricsAddr,
 			Handler:           privateMux(opts),
-			ReadHeaderTimeout: readHeaderTimeout,
-			ReadTimeout:       readTimeout,
-			WriteTimeout:      writeTimeout,
-			IdleTimeout:       idleTimeout,
+			ReadHeaderTimeout: opts.Config.Timeouts.ReadHeader,
+			ReadTimeout:       opts.Config.Timeouts.Read,
+			WriteTimeout:      opts.Config.Timeouts.Write,
+			IdleTimeout:       opts.Config.Timeouts.Idle,
 		},
 		limiter:       limiter,
 		breadth:       breadth,
 		seriesLimiter: seriesLimiter,
 		log:           opts.Logger,
-		maxConns:      maxConns,
+		maxConns:      opts.Config.Listen.MaxConns,
+		evictInterval: opts.Config.RateLimit.API.EvictInterval,
+		shutdownGrace: opts.Config.Timeouts.ShutdownGrace,
 	}
 	return s, nil
 }
@@ -244,9 +171,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// Sweeping the limiter and breadth maps is what keeps them bounded. Without
 	// it the defence against memory exhaustion is itself the leak. Both
 	// StartEvicting calls stop when ctx is cancelled.
-	s.limiter.StartEvicting(ctx, evictInterval)
-	s.breadth.StartEvicting(ctx, evictInterval)
-	s.seriesLimiter.StartEvicting(ctx, evictInterval)
+	s.limiter.StartEvicting(ctx, s.evictInterval)
+	s.breadth.StartEvicting(ctx, s.evictInterval)
+	s.seriesLimiter.StartEvicting(ctx, s.evictInterval)
 
 	select {
 	case <-ctx.Done():
@@ -291,7 +218,7 @@ func (s *Server) shutdown() error {
 	// A fresh context: ctx is already cancelled, and passing it would make
 	// Shutdown return immediately and kill in-flight requests — the opposite of
 	// graceful.
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+	ctx, cancel := context.WithTimeout(context.Background(), s.shutdownGrace)
 	defer cancel()
 
 	s.log.Info("shutting down")

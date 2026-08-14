@@ -42,7 +42,8 @@ func newIntegrationStore(t *testing.T) (*store.Store, func()) {
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	return store.New(pool), func() {}
+	cfg := testConfig(t)
+	return store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series), func() {}
 }
 
 // seedArea inserts one area whose polygon comfortably contains every sensor an
@@ -120,12 +121,13 @@ func runningWith(t *testing.T, st *store.Store, configure ...func(*server.Option
 	t.Helper()
 	ctx := context.Background()
 
-	if _, _, err := area.AssignSensors(ctx, st.Pool()); err != nil {
+	cfg := testConfig(t)
+	if _, _, err := area.AssignSensors(ctx, st.Pool(), cfg.Database.StatementTimeouts.Assign); err != nil {
 		t.Fatalf("AssignSensors: %v", err)
 	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	holder := snapshot.NewHolder()
+	holder := snapshot.NewHolder(cfg.Series)
 	pub := server.NewPublisher(st, holder, log)
 	if err := pub.Publish(ctx, time.Now().UTC()); err != nil {
 		t.Fatalf("Publish: %v", err)
@@ -137,10 +139,14 @@ func runningWith(t *testing.T, st *store.Store, configure ...func(*server.Option
 	}
 
 	public, private = free(t), free(t)
+	cfg.Listen.Addr = public
+	cfg.Listen.MetricsAddr = private
+	cfg.Listen.BaseURL = "http://" + public
+
 	opts := server.Options{
-		ListenAddr: public, MetricsAddr: private,
+		Config:    cfg,
 		Catalogue: cat, Snapshots: holder, Store: st, Publisher: pub,
-		BaseURL: "http://" + public, Logger: log,
+		Logger: log,
 	}
 	for _, fn := range configure {
 		fn(&opts)
@@ -353,7 +359,7 @@ func TestConfiguredBasemapReachesTheResponsePolicy(t *testing.T) {
 	seedArea(t, st, "sofia", "oblast", 23.32, 42.69)
 
 	public, _ := runningWith(t, st, func(o *server.Options) {
-		o.CSP = httpx.CSP("tiles.example")
+		o.Config.Listen.CSP = httpx.CSP("tiles.example")
 	})
 
 	resp := get(t, public, "/")
