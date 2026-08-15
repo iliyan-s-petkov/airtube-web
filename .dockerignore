@@ -12,10 +12,24 @@
 # Legacy PHP app — the Go image has no use for it.
 www-root
 
+# Local secrets. .env.example tells the operator to `cp .env.example .env`, and
+# .env then holds a real AIRBG_DATABASE_URL. The build stage is `COPY . .`, so
+# without this the credential lands in that layer: the shipped distroless image
+# stays clean (it copies only the binary and airbg.yaml), but an exported or
+# pushed build cache carries it. .env is not a build input under any
+# circumstances — configuration reaches the container at run time.
+.env
+.env.*
+
 # Docs, planning artifacts, and local-only files.
 *.md
 docker-compose.yml
 .gitignore
+
+# A locally built binary (.gitignore's /airbg). Never a build input: the image
+# builds its own inside the golang stage, and shipping a host-built one would
+# make the image's contents depend on the developer's machine.
+/airbg
 
 # The image builds these itself (stage `web` builds the frontend, stage
 # `build` embeds its output). A developer's local, possibly-stale copy must

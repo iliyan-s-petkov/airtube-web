@@ -63,15 +63,19 @@ func (d Deps) tryAdmitQuery(route string) (release func(), ok bool) {
 // usable default view and calls tryAdmitQuery directly.
 //
 // 503 rather than 429 on purpose: the client is within its own limit and did
-// nothing wrong. Retry-After is 2 seconds — long enough for the in-flight
-// queries to drain, short enough that a legitimate reader's chart appears late
-// rather than never.
+// nothing wrong. The 503's Retry-After hint is ratelimit.series.retry_after —
+// chosen to be long enough for the in-flight queries to drain, short enough
+// that a legitimate reader's chart appears late rather than never. It is a
+// configured value because nothing here can compute one: this is admission
+// pressure from every client at once, not one client's token deficit (which is
+// what the 429 path in httpx.Chain derives its own Retry-After from).
 func (d Deps) admitQuery(w http.ResponseWriter, route string) (release func(), ok bool) {
 	release, ok = d.tryAdmitQuery(route)
 	if ok {
 		return release, true
 	}
-	// Retry-After in seconds, from the bucket that rejected the request.
+	// Retry-After in seconds. No bucket rejected this request — the admission
+	// semaphore did — so the value is the configured series hint.
 	w.Header().Set("Retry-After", strconv.Itoa(int(d.Config.RateLimit.Series.RetryAfter.Seconds())))
 	writeError(w, http.StatusServiceUnavailable, "unavailable",
 		"The service is busy. Please try again shortly.")
