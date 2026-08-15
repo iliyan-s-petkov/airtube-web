@@ -10,8 +10,12 @@ import { getJSON } from '../lib/api.js'
 export async function mount(el) {
   const cfg = {
     slug: el.dataset.slug,
-    metric: el.dataset.metric || 'P2',
-    period: el.dataset.period || '24h',
+    // No fallback: the server always renders both attributes now, so a
+    // missing one must surface as a visible failure, not a quiet
+    // substitution for a config value that lives in airbg.yaml.
+    metric: el.dataset.metric,
+    period: el.dataset.period,
+    lineColour: el.dataset.lineColour,
     title: el.dataset.tTitle || '',
     empty: el.dataset.tEmpty || '',
     valueLabel: el.dataset.tValue || '',
@@ -56,7 +60,7 @@ export async function mount(el) {
     // handing it milliseconds plots every point in 1970 with no error.
     series: [
       {},
-      { label: cfg.valueLabel, stroke: '#2563eb', width: 2 },
+      { label: cfg.valueLabel, stroke: cfg.lineColour, width: 2 },
     ],
     scales: { x: { time: true } },
   }, data, el)

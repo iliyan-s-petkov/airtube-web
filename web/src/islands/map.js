@@ -6,7 +6,7 @@
 import { Map as MapLibreMap } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { tierFor } from '../lib/tier.js'
-import { colourFor, NO_DATA_COLOUR } from '../lib/colour.js'
+import { colourFor } from '../lib/colour.js'
 import { getJSON } from '../lib/api.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
@@ -25,7 +25,7 @@ export function mount(el) {
     container: el,
     // An unset style URL is not fatal: the map renders data markers over a
     // plain background, so local development needs no vendor account.
-    style: cfg.basemap ? cfg.basemap : blankStyle(),
+    style: cfg.basemap ? cfg.basemap : blankStyle(cfg.emptyBasemapColour),
     center: [cfg.lon, cfg.lat],
     zoom: cfg.zoom,
     attributionControl: { compact: true },
@@ -51,7 +51,7 @@ export function mount(el) {
         'circle-color': ['get', 'colour'],
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 5, 12, 9],
         'circle-stroke-width': 1,
-        'circle-stroke-color': '#ffffff',
+        'circle-stroke-color': cfg.markerStrokeColour,
       },
     })
 
@@ -108,7 +108,7 @@ export async function loadScales(chrome, cfg, fetchJSON = getJSON) {
 
 // refresh fetches the tier the current zoom permits and repaints.
 async function refresh(map, state, cfg, chrome) {
-  const tier = tierFor(map.getZoom())
+  const tier = tierFor(map.getZoom(), cfg.zoomCity, cfg.zoomSensor)
 
   // The sensor tier needs a slug and must not invent one. With none selected,
   // fall back to the city aggregate and show the hint — a real friction cost,
@@ -134,8 +134,8 @@ async function refresh(map, state, cfg, chrome) {
   state.tier = key
 
   const features = effective === 'sensors'
-    ? sensorFeatures(body, cfg.metric, state.scales)
-    : areaFeatures(body, cfg.metric, state.scales)
+    ? sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
+    : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
   map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
 }
 
@@ -150,14 +150,14 @@ export function urlFor(tier, slug) {
 // covered === false renders in the neutral no-data grey with no value label.
 // Fewer than three distinct sensors is not data, and drawing it in a band colour
 // would imply a confidence the pipeline explicitly refuses.
-export function areaFeatures(body, metric, scales) {
+export function areaFeatures(body, metric, scales, noDataColour) {
   const bands = bandsFor(scales, metric)
   return (body?.areas ?? []).map((a) => ({
     type: 'Feature',
     geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
     properties: {
       slug: a.slug,
-      colour: a.covered ? colourFor(a.values?.[metric], bands) : NO_DATA_COLOUR,
+      colour: a.covered ? colourFor(a.values?.[metric], bands, noDataColour) : noDataColour,
       value: a.covered ? a.values?.[metric] ?? null : null,
       sensor_count: a.sensor_count,
     },
@@ -170,7 +170,7 @@ export function areaFeatures(body, metric, scales) {
 //
 // A null in a metric column means the sensor does not report that metric, which
 // is distinct from reporting zero and must stay distinct.
-export function sensorFeatures(body, metric, scales) {
+export function sensorFeatures(body, metric, scales, noDataColour) {
   const bands = bandsFor(scales, metric)
   const s = body?.sensors ?? {}
   const ids = s.id ?? []
@@ -183,7 +183,7 @@ export function sensorFeatures(body, metric, scales) {
       geometry: { type: 'Point', coordinates: [s.lon[i], s.lat[i]] },
       properties: {
         id: ids[i],
-        colour: colourFor(value, bands),
+        colour: colourFor(value, bands, noDataColour),
         value,
         quality: s.quality?.[i] ?? '',
       },
@@ -209,6 +209,15 @@ export function readConfig(el) {
     lat: Number(d.lat ?? 42.7339),
     metric: d.metric || 'P2',
     basemap: d.basemap || '',
+    // Paint values and zoom thresholds: configuration, arriving as data-*
+    // attributes, no fallback here — a hardcoded fallback that numerically
+    // agrees with today's airbg.yaml is exactly the duplicated constant this
+    // phase removes.
+    noDataColour: d.noDataColour,
+    markerStrokeColour: d.markerStrokeColour,
+    emptyBasemapColour: d.emptyBasemapColour,
+    zoomCity: Number(d.zoomCity),
+    zoomSensor: Number(d.zoomSensor),
     // Strings come from the server, not from a JS catalogue: Go owns the
     // catalogue, and a second copy here would drift on the first edit.
     t: {
@@ -225,9 +234,10 @@ function emptyCollection() {
 }
 
 // blankStyle is a valid MapLibre style with no tile sources, used when no
-// basemap is configured. Data markers still render, over a plain background.
-function blankStyle() {
-  return { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#eef2f5' } }] }
+// basemap is configured. Data markers still render, over a plain background
+// painted the server-configured emptyBasemapColour.
+function blankStyle(emptyBasemapColour) {
+  return { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': emptyBasemapColour } }] }
 }
 
 // hintController owns the ONE rule about the hint banner: an error outranks the

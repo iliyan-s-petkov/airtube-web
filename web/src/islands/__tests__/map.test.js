@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData } from '../map.js'
 import { clearCache } from '../../lib/api.js'
-import { NO_DATA_COLOUR } from '../../lib/colour.js'
+
+// The no-data colour is configuration now (arrives as a data-* attribute), not
+// a module constant — restated here as a literal because these tests are about
+// feature-mapping logic, not about the specific grey.
+const NO_DATA_COLOUR = '#9ca3af'
 
 // urlFor is the anti-enumeration seam: it is the ONLY place a tier turns into a
 // request URL, and it must never accept a bounding box or build one from a
@@ -51,7 +55,7 @@ describe('areaFeatures', () => {
 
   it('colours a covered area from its value through the metric\'s band table', () => {
     const body = { areas: [{ slug: 'sofia', lon: 23.3, lat: 42.7, covered: true, values: { P2: 5 }, sensor_count: 12 }] }
-    const [feature] = areaFeatures(body, 'P2', scales)
+    const [feature] = areaFeatures(body, 'P2', scales, NO_DATA_COLOUR)
     expect(feature.properties.colour).toBe('#111111')
     expect(feature.properties.value).toBe(5)
     expect(feature.geometry.coordinates).toEqual([23.3, 42.7])
@@ -59,14 +63,14 @@ describe('areaFeatures', () => {
 
   it('renders an uncovered area in no-data grey with no value, even if it carries a stray value', () => {
     const body = { areas: [{ slug: 'vidin', lon: 22.9, lat: 44.0, covered: false, values: { P2: 999 }, sensor_count: 1 }] }
-    const [feature] = areaFeatures(body, 'P2', scales)
+    const [feature] = areaFeatures(body, 'P2', scales, NO_DATA_COLOUR)
     expect(feature.properties.colour).toBe('#9ca3af')
     expect(feature.properties.value).toBeNull()
   })
 
   it('returns no features for a missing or empty areas array', () => {
-    expect(areaFeatures({}, 'P2', scales)).toEqual([])
-    expect(areaFeatures(null, 'P2', scales)).toEqual([])
+    expect(areaFeatures({}, 'P2', scales, NO_DATA_COLOUR)).toEqual([])
+    expect(areaFeatures(null, 'P2', scales, NO_DATA_COLOUR)).toEqual([])
   })
 })
 
@@ -86,19 +90,19 @@ describe('sensorFeatures', () => {
   }
 
   it('maps each column entry onto one feature, by index', () => {
-    const features = sensorFeatures(body, 'P2', scales)
+    const features = sensorFeatures(body, 'P2', scales, NO_DATA_COLOUR)
     expect(features).toHaveLength(2)
     expect(features[0].properties).toMatchObject({ id: 1, value: 5, quality: 'ok' })
     expect(features[1].properties).toMatchObject({ id: 2, value: null, quality: 'stuck' })
   })
 
   it('colours a null metric value as no-data, not as zero', () => {
-    const features = sensorFeatures(body, 'P2', scales)
+    const features = sensorFeatures(body, 'P2', scales, NO_DATA_COLOUR)
     expect(features[1].properties.colour).toBe('#9ca3af')
   })
 
   it('returns no features for a missing sensors object', () => {
-    expect(sensorFeatures({}, 'P2', scales)).toEqual([])
+    expect(sensorFeatures({}, 'P2', scales, NO_DATA_COLOUR)).toEqual([])
   })
 })
 
@@ -140,6 +144,26 @@ describe('readConfig', () => {
     expect(cfg.zoom).toBe(12)
     expect(cfg.lon).toBe(25.1)
     expect(cfg.lat).toBe(42.2)
+  })
+
+  // The paint values and zoom thresholds are configuration, not a JS default:
+  // readConfig must read the exact server-rendered attribute, not a name that
+  // happens to look similar.
+  it('reads the frontend paint values and zoom thresholds from their data-* attributes', () => {
+    const cfg = readConfig({
+      dataset: {
+        noDataColour: '#9ca3af',
+        markerStrokeColour: '#ffffff',
+        emptyBasemapColour: '#eef2f5',
+        zoomCity: '9',
+        zoomSensor: '11',
+      },
+    })
+    expect(cfg.noDataColour).toBe('#9ca3af')
+    expect(cfg.markerStrokeColour).toBe('#ffffff')
+    expect(cfg.emptyBasemapColour).toBe('#eef2f5')
+    expect(cfg.zoomCity).toBe(9)
+    expect(cfg.zoomSensor).toBe(11)
   })
 })
 
@@ -262,6 +286,12 @@ describe('loadScales', () => {
 describe('initData ordering', () => {
   const cfg = {
     metric: 'P2',
+    // The zoom thresholds tierFor needs — previously hardcoded 9/11 inside
+    // tier.js, now configuration threaded through cfg, same as the server
+    // would render them from airbg.yaml's frontend.zoom_city/zoom_sensor.
+    zoomCity: 9,
+    zoomSensor: 11,
+    noDataColour: '#9ca3af',
     t: { hint: 'Select an area', unavailable: 'Map data is unavailable right now' },
   }
 

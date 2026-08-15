@@ -3,6 +3,7 @@ package web
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -114,5 +115,23 @@ func TestNonEntryChunkIsNotExposed(t *testing.T) {
 	}
 	if got := a.Script("shared"); got != "" {
 		t.Errorf("Script(\"shared\") = %q, want \"\" — non-entry chunks must not be exposed", got)
+	}
+}
+
+// cssColour matches colour syntax only — three or six (or more) hex digits
+// after a '#', or an rgb()/rgba() function call — so it does not also flag
+// app.css's ID selectors (#map, #chart) or its comments.
+var cssColour = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b|rgba?\(`)
+
+// app.css must hold no literal colours: they belong in theme.css, which is the
+// one file a retheme touches. A hex literal here is a colour that silently
+// escapes the palette.
+func TestAppCSSHasNoLiteralColours(t *testing.T) {
+	data, err := staticFS.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatalf("ReadFile error = %v", err)
+	}
+	if found := cssColour.FindAllString(string(data), -1); len(found) != 0 {
+		t.Errorf("app.css contains literal colours %v; they belong in theme.css as custom properties", found)
 	}
 }

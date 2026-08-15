@@ -1,0 +1,15 @@
+/* The site palette, and nothing else. No selectors, no layout: this file exists
+   so a retheme is one file, and so the CSP never needs a style-src allowance
+   for an inline <style> block or a style= attribute. */
+:root {
+  --fg: #1a1a1a;
+  --muted: #666;
+  --bg: #fff;
+  --accent: #0b6;
+  --warn: #a40;
+  --border: #ddd;
+  --border-faint: #eee;
+  --notice-bg: #fff8f0;
+  --map-placeholder-bg: #f2f2f2;
+  --overlay-bg: rgba(255, 255, 255, .9);
+}

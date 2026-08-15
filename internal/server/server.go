@@ -70,7 +70,7 @@ func New(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("server: trusted proxies: %w", err)
 	}
 
-	renderer, err := web.NewRenderer(opts.Catalogue, opts.Snapshots, opts.Config.Listen.BaseURL, opts.Config.Basemap.StyleURL)
+	renderer, err := web.NewRenderer(opts.Catalogue, opts.Snapshots, opts.Config)
 	if err != nil {
 		return nil, fmt.Errorf("server: renderer: %w", err)
 	}
