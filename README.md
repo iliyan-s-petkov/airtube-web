@@ -20,10 +20,14 @@ development-only fallback, so `docker compose up` works with no setup. Copy
 ```bash
 docker compose up -d db
 export AIRBG_DATABASE_URL='postgres://airbg:airbg@localhost:5432/airbg?sslmode=disable'
+export AIRBG_CONFIG="$PWD/airbg.yaml"
 go run ./cmd/airbg migrate
 go run ./cmd/airbg import-areas data/boundaries/bulgaria.geojson country
 go run ./cmd/airbg collect
 ```
+
+`AIRBG_CONFIG` must name the path to `airbg.yaml`; there is no fallback path.
+See `docs/configuration.md` for the full configuration reference.
 
 The `import-areas` step is not optional — see the prerequisite note below.
 
@@ -71,32 +75,23 @@ something different (readings written for a sensor that was never ingested).
 
 ## Configuration
 
-All configuration comes from environment variables (`internal/config/config.go`).
-There are no config files and no secrets in the repo.
+Configuration comes from `airbg.yaml` (committed, no secrets) plus `AIRBG_*`
+environment variables that override individual keys and the two secrets that
+are environment-only. There are no defaults compiled into the binary — a
+missing key is a startup error.
 
-| Variable | Required | Default |
-|---|---|---|
-| `AIRBG_DATABASE_URL` | yes | — |
-| `AIRBG_UPSTREAM_URL` | no | `https://data.sensor.community/airrohr/v1/filter/country=BG` |
-| `AIRBG_POLL_INTERVAL` | no | `5m` |
-| `AIRBG_LISTEN_ADDR` | no | `127.0.0.1:8080` |
-| `AIRBG_METRICS_ADDR` | no | `127.0.0.1:9090` |
-| `AIRBG_TRUSTED_PROXY_CIDRS` | no | *(empty)* |
-| `AIRBG_BASE_URL` | no | `http://localhost:8080` |
-| `AIRBG_DB_API_CONNS` | no | `8` |
-| `AIRBG_DB_COLLECTOR_CONNS` | no | `4` |
-| `AIRBG_MAX_DB_INFLIGHT` | no | `16` |
-| `AIRBG_MAX_CONNS` | no | `4096` |
-| `AIRBG_BASEMAP_STYLE_URL` | no | *(empty)* |
-| `AIRBG_BASEMAP_KEY` | no | *(empty)* |
+See **[`docs/configuration.md`](docs/configuration.md)** for the full
+reference: the two layers, the `AIRBG_CONFIG` path variable, the mechanical
+override rule, the renamed variables (a breaking change from earlier
+versions), `airbg validate-config`, the two colour homes, and the checked
+cross-field couplings.
 
-`AIRBG_POLL_INTERVAL` must be at least **30s**. Anything smaller is rejected at
-startup: `0s` and negative values would panic `time.NewTicker`, and a
-sub-minimum positive value silently polls the public, volunteer-run
-data.sensor.community API hundreds of times more often than intended — a good
-way to get the collector's IP banned.
+The two secrets, both environment-only and never written to `airbg.yaml`:
 
-No secret is ever committed. Configuration is environment-only.
+| Variable | Holds |
+|---|---|
+| `AIRBG_DATABASE_URL` | PostgreSQL connection string |
+| `AIRBG_BASEMAP_KEY` | Tile-vendor API key substituted into `basemap.style_url` |
 
 ## Serving
 
@@ -110,10 +105,10 @@ rebuild for no benefit.
 
 `serve` opens **two listeners**, not one:
 
-- The **public listener** (`AIRBG_LISTEN_ADDR`) carries the middleware chain —
+- The **public listener** (`listen.addr`) carries the middleware chain —
   rate limiting, the enumeration-breadth check, security headers — and the
   actual pages and JSON API.
-- The **private listener** (`AIRBG_METRICS_ADDR`) carries only `/metrics` and
+- The **private listener** (`listen.metrics_addr`) carries only `/metrics` and
   `/healthz`.
 
 They are separate listeners rather than a path prefix on one mux, because a
@@ -141,20 +136,22 @@ values are rejected at startup: pgxpool reads `MaxConns <= 0` as "use the
 default", so a `0` waved through would look like an explicit choice and silently
 become the host's core count instead.
 
-Eight environment variables configure serving:
+These `airbg.yaml` keys (or their `AIRBG_*` environment override — see
+`docs/configuration.md` for the naming rule and the table of names renamed by
+Phase 3b) configure serving:
 
-| Variable | Default | Notes |
+| Key | Shipped value | Notes |
 |---|---|---|
-| `AIRBG_LISTEN_ADDR` | `127.0.0.1:8080` | Public HTTP listener. Keep this on loopback and reach it through a Cloudflare tunnel — binding `0.0.0.0` exposes the origin directly, and a client that reaches the origin directly is covered by no Cloudflare protection, only by the in-process token buckets. |
-| `AIRBG_METRICS_ADDR` | `127.0.0.1:9090` | Private listener for `/metrics` and `/healthz`. Never route this publicly. |
-| `AIRBG_TRUSTED_PROXY_CIDRS` | *(empty)* | Peer ranges whose `CF-Connecting-IP` header is believed. **Empty means trust nobody** — the correct value for local development and for any origin not behind Cloudflare. Setting this while the origin is also directly reachable lets anyone who can reach it spoof their client IP and bypass every rate limit; restrict the origin first, then set this. |
-| `AIRBG_BASE_URL` | `http://localhost:8080` | Public origin, used for canonical and hreflang links. Must be absolute. |
-| `AIRBG_DB_API_CONNS` | `8` | Connections available to request handlers. This is the API's real concurrency ceiling for anything that touches the database. |
-| `AIRBG_DB_COLLECTOR_CONNS` | `4` | Connections available to the poller and the snapshot publisher — the side of the bulkhead allowed to be slow. |
-| `AIRBG_MAX_DB_INFLIGHT` | `16` | Caps how many requests may be inside a database query at once, **across every client** — a rate limiter only bounds one client, so a crowd of individually well-behaved clients could otherwise collectively queue more concurrent work than the pool can serve, piling up inside `pgxpool.Acquire` until `WriteTimeout` fires. Refusals on the two series routes answer `503` with `Retry-After: 2`, never `429` — the caller did nothing wrong, so it must not be told to back off as if it had. `/locate` instead degrades: it skips the lookup and returns the national default view with `200`, exactly as it does when the lookup fails, because a request that has a usable answer without any query must not be made less available by a capacity control. Either way the refusal is counted in `airbg_admission_rejected_total`. |
-| `AIRBG_MAX_CONNS` | `4096` | Caps how many connections the **public** listener holds open at once. This bounds sockets, not requests: nothing else in the process stops tens of thousands of mostly-idle connections from exhausting file descriptors and goroutines before a single request completes, so no rate limiter or admission cap ever sees them. Over-cap connections are accepted and closed immediately, never queued. Deliberately overlaps with Cloudflare's own protection — the origin being reachable only through Cloudflare is an unverified assumption, and a control that only works when that assumption holds is not a control. The private listener is never capped: a flood that also blinded `/metrics` would remove the one instrument an operator needs during the flood. |
-| `AIRBG_BASEMAP_STYLE_URL` | *(empty)* | MapLibre style JSON URL for the basemap tile vendor, with a `{key}` placeholder that `AIRBG_BASEMAP_KEY` is substituted into at startup. Must be an absolute `https://` URL with a plain host (or `host:port`, hostname up to 253 characters) — required because the hostname also widens the Content-Security-Policy's `connect-src` and `img-src` (see `httpx.CSP`), and a host containing a semicolon or quote could otherwise inject a new directive into that header. IPv6 literal hosts (e.g. `[::1]:8443`) are not supported and are rejected. The URL must not carry userinfo (`https://user:pass@host/...`) — it is rejected at startup rather than stripped, since this string reaches the browser verbatim and a silently-stripped credential would leave an authenticated basemap looking configured when it is not. Empty (the default) means no basemap: the map renders its data markers over a plain background, which is why local development needs no vendor account. **The key is public by nature** — it ships in a URL the browser fetches, so it is visible to anyone who opens the page's network tab. Domain restriction at the vendor (allow-listing `airbg.org`) is the only real control on it, and setting that up is a Phase 4 deployment step, not something this code enforces. Most tile vendors' free tiers are around 100k tile requests a month; a public map with any real traffic will exceed that, so budget for a paid tier before launch. Visitor IPs are sent to the tile vendor on every tile fetch — that belongs in the privacy note alongside Cloudflare's. |
-| `AIRBG_BASEMAP_KEY` | *(empty)* | The tile vendor API key substituted into `AIRBG_BASEMAP_STYLE_URL`'s `{key}` placeholder. See the public-key caveat above — this is not a secret in the usual sense, and must never be logged server-side even though it is expected to reach the browser. |
+| `listen.addr` | `127.0.0.1:8080` | Public HTTP listener. Keep this on loopback and reach it through a Cloudflare tunnel — binding `0.0.0.0` exposes the origin directly, and a client that reaches the origin directly is covered by no Cloudflare protection, only by the in-process token buckets. |
+| `listen.metrics_addr` | `127.0.0.1:9090` | Private listener for `/metrics` and `/healthz`. Never route this publicly. |
+| `listen.trusted_proxy_cidrs` | *(empty)* | Peer ranges whose `CF-Connecting-IP` header is believed. **Empty means trust nobody** — the correct value for local development and for any origin not behind Cloudflare. Setting this while the origin is also directly reachable lets anyone who can reach it spoof their client IP and bypass every rate limit; restrict the origin first, then set this. |
+| `listen.base_url` | `http://localhost:8080` | Public origin, used for canonical and hreflang links. Must be absolute. |
+| `database.api_conns` | `8` | Connections available to request handlers. This is the API's real concurrency ceiling for anything that touches the database. |
+| `database.collector_conns` | `4` | Connections available to the poller and the snapshot publisher — the side of the bulkhead allowed to be slow. |
+| `database.max_inflight` | `16` | Caps how many requests may be inside a database query at once, **across every client** — a rate limiter only bounds one client, so a crowd of individually well-behaved clients could otherwise collectively queue more concurrent work than the pool can serve, piling up inside `pgxpool.Acquire` until `WriteTimeout` fires. Refusals on the two series routes answer `503` with `Retry-After: 2`, never `429` — the caller did nothing wrong, so it must not be told to back off as if it had. `/locate` instead degrades: it skips the lookup and returns the national default view with `200`, exactly as it does when the lookup fails, because a request that has a usable answer without any query must not be made less available by a capacity control. Either way the refusal is counted in `airbg_admission_rejected_total`. |
+| `listen.max_conns` | `4096` | Caps how many connections the **public** listener holds open at once. This bounds sockets, not requests: nothing else in the process stops tens of thousands of mostly-idle connections from exhausting file descriptors and goroutines before a single request completes, so no rate limiter or admission cap ever sees them. Over-cap connections are accepted and closed immediately, never queued. Deliberately overlaps with Cloudflare's own protection — the origin being reachable only through Cloudflare is an unverified assumption, and a control that only works when that assumption holds is not a control. The private listener is never capped: a flood that also blinded `/metrics` would remove the one instrument an operator needs during the flood. |
+| `basemap.style_url` | *(placeholder in the shipped file)* | MapLibre style JSON URL for the basemap tile vendor, with a `{key}` placeholder that `AIRBG_BASEMAP_KEY` is substituted into at startup. Must be an absolute `https://` URL with a plain host (or `host:port`, hostname up to 253 characters) — required because the hostname also widens the Content-Security-Policy's `connect-src` and `img-src` (see `httpx.CSP`), and a host containing a semicolon or quote could otherwise inject a new directive into that header. IPv6 literal hosts (e.g. `[::1]:8443`) are not supported and are rejected. The URL must not carry userinfo (`https://user:pass@host/...`) — it is rejected at startup rather than stripped, since this string reaches the browser verbatim and a silently-stripped credential would leave an authenticated basemap looking configured when it is not. **The key is public by nature** — it ships in a URL the browser fetches, so it is visible to anyone who opens the page's network tab. Domain restriction at the vendor (allow-listing `airbg.org`) is the only real control on it, and setting that up is a Phase 4 deployment step, not something this code enforces. Most tile vendors' free tiers are around 100k tile requests a month; a public map with any real traffic will exceed that, so budget for a paid tier before launch. Visitor IPs are sent to the tile vendor on every tile fetch — that belongs in the privacy note alongside Cloudflare's. |
+| `AIRBG_BASEMAP_KEY` (env-only, §4 of `docs/configuration.md`) | *(unset)* | The tile vendor API key substituted into `basemap.style_url`'s `{key}` placeholder. See the public-key caveat above — this is not a secret in the usual sense, and must never be logged server-side even though it is expected to reach the browser. |
 
 Endpoints:
 
@@ -212,8 +209,8 @@ requested period (150 s for `24h` up to 3 h for `1y`), and why those two routes
 carry a **second, tighter token bucket** (1 rps, burst 10) on top of the global
 one. They are the only endpoints that reach PostgreSQL, and the breadth counter
 cannot bound them: it counts *distinct* slugs and sensor IDs, so replaying one
-`?period=1y` request costs it nothing. Both values are code constants
-(`internal/api/series.go`), not environment variables. Refusals by that bucket are
+`?period=1y` request costs it nothing. Both values come from `ratelimit.series`
+in `airbg.yaml`. Refusals by that bucket are
 counted separately as `airbg_series_rate_limited_total`, labelled by dimension
 (`sensor`/`area`) — the global `airbg_http_rate_limited_total` cannot show them,
 because it is incremented outside the mux by a different bucket.
@@ -320,7 +317,7 @@ What remains, that an operator should be aware of:
   failure in `internal/store` has been observed during a full `-race` run,
   self-resolving on rerun. Suspected testcontainers resource contention
   rather than a code defect; worth watching if it recurs in CI.
-- The origin must be unreachable except through Cloudflare. `AIRBG_TRUSTED_PROXY_CIDRS`
+- The origin must be unreachable except through Cloudflare. `listen.trusted_proxy_cidrs`
   makes the origin believe `CF-Connecting-IP` from those ranges; it cannot stop a
   client that reaches the origin some other way from being rate-limited as itself.
   A directly reachable origin with no network restriction means one attacker with
