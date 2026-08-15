@@ -208,12 +208,27 @@ func TestTilesHostMustBeInConnectSrc(t *testing.T) {
 		t.Fatal("Validate returned nil, want an error: connect-src omits tiles.airbg.org")
 	}
 
+	// A connect-src token that merely contains the host as a substring must not
+	// satisfy the check: "not-tiles.airbg.org" contains "tiles.airbg.org", but
+	// it names a different origin and the browser will still block the fetch.
+	cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://not-tiles.airbg.org"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate returned nil, want an error: connect-src only allows a different origin that happens to contain the host as a substring")
+	}
+
 	cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.airbg.org"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate with the host in connect-src = %v, want nil", err)
 	}
 	if got, want := cfg.Tiles.StyleURL(), "https://tiles.airbg.org/style.json"; got != want {
 		t.Errorf("StyleURL() = %q, want %q", got, want)
+	}
+
+	// The bare-host form (no scheme) is also a valid CSP source expression;
+	// an operator may reasonably write either form.
+	cfg.Listen.CSP = "default-src 'self'; connect-src 'self' tiles.airbg.org"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate with the bare host in connect-src = %v, want nil", err)
 	}
 }
 
