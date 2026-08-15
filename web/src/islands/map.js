@@ -33,16 +33,7 @@ export function mount(el) {
     attributionControl: { compact: true },
   })
 
-  // A style-load failure must not take the sensor markers down with it: tiles
-  // unavailable degrades to a blank background, it never fails the page. Logged
-  // once rather than per failed tile, because a missing archive produces one
-  // error per range request.
-  let errorLogged = false
-  map.on('error', (e) => {
-    if (errorLogged) return
-    errorLogged = true
-    console.warn('basemap unavailable, rendering markers only', e?.error?.message ?? e)
-  })
+  installErrorHandler(map)
 
   // On /area/{slug} the slug is fixed, one area, ever. On / it starts empty and
   // is only ever set by a deliberate click — never derived from the viewport,
@@ -283,6 +274,23 @@ export function registerProtocols(add = addProtocol) {
   if (protocolsRegistered) return
   protocolsRegistered = true
   add('pmtiles', new Protocol().tile)
+}
+
+// installErrorHandler wires the 'error' event so a style-load failure cannot
+// take the sensor markers down with it: tiles unavailable degrades to a blank
+// background, it never fails the page. Logged once rather than per failed
+// tile, because a missing archive produces one error per range request.
+//
+// Takes `map` (needs only `.on`, not a real MapLibre instance) and `warn` as
+// parameters, same idiom as registerProtocols's injected `add`, so a test can
+// drive it with a fake and assert the log-once behaviour without a real map.
+export function installErrorHandler(map, warn = console.warn) {
+  let errorLogged = false
+  map.on('error', (e) => {
+    if (errorLogged) return
+    errorLogged = true
+    warn('basemap unavailable, rendering markers only', e?.error?.message ?? e)
+  })
 }
 
 // markerPaint is the circle layer's paint object. Pulled out of mount()'s

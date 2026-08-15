@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, markerPaint, blankStyle, mapStyle, registerProtocols } from '../map.js'
+import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, markerPaint, blankStyle, mapStyle, registerProtocols, installErrorHandler } from '../map.js'
 import { clearCache } from '../../lib/api.js'
 
 // The no-data colour is configuration now (arrives as a data-* attribute), not
@@ -462,6 +462,50 @@ describe('registerProtocols', () => {
     registerProtocols(add)
     registerProtocols(add)
     expect(seen).toEqual([['pmtiles', 'function']])
+  })
+})
+
+// installErrorHandler is what keeps a style-load failure (missing archive,
+// unreachable tiles host, a CSP that blocks the fetch) from taking the sensor
+// markers down with it: it must log and must never let the error propagate
+// out of the 'error' callback. Driven with a fake map exposing only `.on` —
+// installErrorHandler needs nothing heavier, unlike the 'load' handler which
+// genuinely needs a real MapLibre instance for addSource/addLayer.
+describe('installErrorHandler', () => {
+  function fakeMap() {
+    let handler
+    return {
+      on: (event, cb) => { if (event === 'error') handler = cb },
+      trigger: (e) => handler(e),
+    }
+  }
+
+  it('logs a warning when the style fails to load', () => {
+    const warnings = []
+    const map = fakeMap()
+    installErrorHandler(map, (...args) => warnings.push(args))
+
+    map.trigger({ error: { message: 'style fetch failed' } })
+
+    expect(warnings).toHaveLength(1)
+  })
+
+  it('logs once, not once per error event', () => {
+    const warnings = []
+    const map = fakeMap()
+    installErrorHandler(map, (...args) => warnings.push(args))
+
+    map.trigger({ error: { message: 'first' } })
+    map.trigger({ error: { message: 'second' } })
+
+    expect(warnings).toHaveLength(1)
+  })
+
+  it('does not let the error propagate out of the callback', () => {
+    const map = fakeMap()
+    installErrorHandler(map, () => {})
+
+    expect(() => map.trigger({ error: { message: 'boom' } })).not.toThrow()
   })
 })
 
