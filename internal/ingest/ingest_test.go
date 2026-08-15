@@ -10,12 +10,62 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"airbg.org/internal/area"
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
 	"airbg.org/internal/store"
 	"airbg.org/internal/testsupport"
 	"airbg.org/internal/upstream"
+)
+
+// testScorer builds a Scorer with the same values airbg.yaml ships, so the
+// package's tests keep exercising the same thresholds the live scorer uses.
+// It is package-level (package ingest_test) so every _test.go file in this
+// package can share it.
+func testScorer() *quality.Scorer {
+	return quality.NewScorer(config.Quality{
+		MinNeighbours:         3,
+		MADScale:              1.4826,
+		MADThreshold:          3.5,
+		NeighbourRadiusMetres: 15000.0,
+		EarthRadiusMetres:     6371000.0,
+		HistoryDepth:          12,
+		PMRatioThreshold:      5.0,
+		PMAbsoluteThreshold:   150.0,
+		SmoothFieldFloors: map[string]float64{
+			"temperature": 1.5,
+			"humidity":    8,
+			"pressure":    3,
+		},
+		Ranges: map[string]config.Range{
+			"P1":           {Min: 0, Max: 1000},
+			"P2":           {Min: 0, Max: 1000},
+			"temperature":  {Min: -40, Max: 60},
+			"humidity":     {Min: 0, Max: 100},
+			"pressure":     {Min: 650, Max: 1100},
+			"noise_LAeq":   {Min: 25, Max: 120},
+			"noise_LA_max": {Min: 25, Max: 120},
+		},
+	})
+}
+
+// testStoreConfig mirrors airbg.yaml's store: block, the same way testScorer
+// above mirrors quality:. None of this package's tests call AreaAggregates or
+// LatestSensors — the two methods that consult CoverageThreshold and
+// FreshnessWindow — so RunOnce/Loop behaviour here is indifferent to the exact
+// numbers. The values are pinned to the live config anyway, rather than to an
+// arbitrary literal, so a reader never has to wonder whether a mismatch here
+// is deliberate.
+func testStoreConfig() config.Store {
+	return config.Store{CoverageThreshold: 3, FreshnessWindow: 2 * time.Hour}
+}
+
+// testSeriesTimeout and testAssignTimeout mirror airbg.yaml's
+// database.statement_timeouts.series and .assign.
+const (
+	testSeriesTimeout = 5 * time.Second
+	testAssignTimeout = 60 * time.Second
 )
 
 type stubFetcher struct {
@@ -59,8 +109,8 @@ func newIngester(t *testing.T, f ingest.Fetcher) (context.Context, *store.Store,
 	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
 		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
-	st := store.New(pool)
-	return ctx, st, ingest.New(f, st, quality.NewHistory(12))
+	st := store.New(pool, testStoreConfig(), testSeriesTimeout)
+	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 }
 
 // newTestIngester builds an Ingester on a migrated database with an empty,
@@ -231,7 +281,7 @@ func TestLoopSurvivesFetchErrors(t *testing.T) {
 	var calls atomic.Int64
 	f := countingFetcher{calls: &calls, err: errors.New("upstream down")}
 	_, st, _ := newIngester(t, f)
-	ing := ingest.New(f, st, quality.NewHistory(12))
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -275,12 +325,12 @@ func TestLoopReusesHistoryAcrossCycles(t *testing.T) {
 	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
 		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
-	st := store.New(pool)
+	st := store.New(pool, testStoreConfig(), testSeriesTimeout)
 	hist := quality.NewHistory(depth)
 
 	var calls atomic.Int64
 	f := countingFetcher{calls: &calls, readings: []upstream.Reading{same}}
-	ing := ingest.New(f, st, hist)
+	ing := ingest.New(f, st, hist, testScorer(), testAssignTimeout)
 
 	loopCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
@@ -426,7 +476,7 @@ func TestLoopStopsOnContextCancel(t *testing.T) {
 	// A real store is required: RunOnce always runs the rollup backlog step
 	// now, even for an empty fetch result, so a nil store would panic.
 	_, st, _ := newIngester(t, f)
-	ing := ingest.New(f, st, quality.NewHistory(12))
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

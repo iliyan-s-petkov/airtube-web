@@ -3,18 +3,28 @@ package quality
 import (
 	"math"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/upstream"
 )
 
-// NeighbourRadiusMetres is the search radius for the spatial check (spec §6.3).
-const NeighbourRadiusMetres = 15000.0
-
-const earthRadiusMetres = 6371000.0
+// NeighbourRadiusMetres (the search radius for the spatial check, spec §6.3)
+// and the Earth radius used for the haversine distance now live in
+// config.Quality (airbg.yaml quality.neighbour_radius_metres /
+// earth_radius_metres).
 
 type Scored struct {
 	Reading upstream.Reading
 	Flag    Flag
 }
+
+// Scorer holds the quality thresholds. They were package constants; they are
+// now configuration, so the checks that use them need an owner rather than
+// reading a global.
+type Scorer struct {
+	cfg config.Quality
+}
+
+func NewScorer(cfg config.Quality) *Scorer { return &Scorer{cfg: cfg} }
 
 // Score evaluates a whole poll batch. Neighbour comparison runs in memory over
 // the batch rather than against the database: one poll returns every Bulgarian
@@ -23,7 +33,7 @@ type Scored struct {
 // Checks run in order and the first failure wins: range, then stuck, then
 // spatial. Every input reading appears in the output — readings are flagged,
 // never dropped.
-func Score(readings []upstream.Reading, hist *History) []Scored {
+func (s *Scorer) Score(readings []upstream.Reading, hist *History) []Scored {
 	// Group by metric so a sensor is only ever compared against the same
 	// quantity, and so one bad metric cannot influence another.
 	byMetric := make(map[string][]upstream.Reading)
@@ -37,7 +47,7 @@ func Score(readings []upstream.Reading, hist *History) []Scored {
 	for metric, group := range byMetric {
 		valid := make([]upstream.Reading, 0, len(group))
 		for _, r := range group {
-			if InRange(metric, r.Value) {
+			if s.InRange(metric, r.Value) {
 				valid = append(valid, r)
 			}
 		}
@@ -46,13 +56,13 @@ func Score(readings []upstream.Reading, hist *History) []Scored {
 
 	out := make([]Scored, 0, len(readings))
 	for _, r := range readings {
-		out = append(out, Scored{Reading: r, Flag: scoreOne(r, reference[r.Metric], hist)})
+		out = append(out, Scored{Reading: r, Flag: s.scoreOne(r, reference[r.Metric], hist)})
 	}
 	return out
 }
 
-func scoreOne(r upstream.Reading, population []upstream.Reading, hist *History) Flag {
-	if !InRange(r.Metric, r.Value) {
+func (s *Scorer) scoreOne(r upstream.Reading, population []upstream.Reading, hist *History) Flag {
+	if !s.InRange(r.Metric, r.Value) {
 		return FlagOutOfRange
 	}
 
@@ -66,17 +76,17 @@ func scoreOne(r upstream.Reading, population []upstream.Reading, hist *History) 
 		if other.SensorID == r.SensorID {
 			continue
 		}
-		if haversineMetres(r.Lon, r.Lat, other.Lon, other.Lat) > NeighbourRadiusMetres {
+		if s.haversineMetres(r.Lon, r.Lat, other.Lon, other.Lat) > s.cfg.NeighbourRadiusMetres {
 			continue
 		}
 		neighbours = append(neighbours, Neighbour{Lon: other.Lon, Lat: other.Lat, Value: other.Value})
 	}
-	return SpatialCheck(r.Metric, r.Value, neighbours)
+	return s.SpatialCheck(r.Metric, r.Value, neighbours)
 }
 
 // haversineMetres returns great-circle distance. Accurate enough at the 15 km
 // scale this is used for, and avoids a database round-trip per reading.
-func haversineMetres(lon1, lat1, lon2, lat2 float64) float64 {
+func (s *Scorer) haversineMetres(lon1, lat1, lon2, lat2 float64) float64 {
 	φ1 := lat1 * math.Pi / 180
 	φ2 := lat2 * math.Pi / 180
 	Δφ := (lat2 - lat1) * math.Pi / 180
@@ -84,5 +94,5 @@ func haversineMetres(lon1, lat1, lon2, lat2 float64) float64 {
 
 	a := math.Sin(Δφ/2)*math.Sin(Δφ/2) +
 		math.Cos(φ1)*math.Cos(φ2)*math.Sin(Δλ/2)*math.Sin(Δλ/2)
-	return 2 * earthRadiusMetres * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return 2 * s.cfg.EarthRadiusMetres * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 }

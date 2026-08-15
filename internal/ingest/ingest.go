@@ -74,12 +74,16 @@ type Ingester struct {
 	fetcher   Fetcher
 	store     *store.Store
 	history   *quality.History
+	scorer    *quality.Scorer
 	now       func() time.Time
 	publisher SnapshotPublisher
+	// assignTimeout scopes statement_timeout for AssignSensors' area x sensor
+	// join — see internal/db.StatementTimeoutValue.
+	assignTimeout time.Duration
 }
 
-func New(f Fetcher, s *store.Store, hist *quality.History) *Ingester {
-	return &Ingester{fetcher: f, store: s, history: hist, now: time.Now}
+func New(f Fetcher, s *store.Store, hist *quality.History, scorer *quality.Scorer, assignTimeout time.Duration) *Ingester {
+	return &Ingester{fetcher: f, store: s, history: hist, scorer: scorer, now: time.Now, assignTimeout: assignTimeout}
 }
 
 // SetClockForTesting overrides RunOnce's notion of "now" and returns a
@@ -212,7 +216,7 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 					"sensors", rejected)
 			}
 
-			scored = quality.Score(accepted, i.history)
+			scored = i.scorer.Score(accepted, i.history)
 			for _, s := range scored {
 				stats.Flagged[s.Flag]++
 			}
@@ -247,7 +251,7 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 	var assigned, revoked int64
 	if len(scored) > 0 {
 		var err error
-		assigned, revoked, err = area.AssignSensors(ctx, i.store.Pool())
+		assigned, revoked, err = area.AssignSensors(ctx, i.store.Pool(), i.assignTimeout)
 		if err != nil {
 			return stats, fmt.Errorf("ingest: assign sensors: %w", err)
 		}

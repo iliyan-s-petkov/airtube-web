@@ -4,10 +4,14 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"airbg.org/internal/db"
 	"airbg.org/internal/testsupport"
 )
+
+// testOperatorTimeout mirrors airbg.yaml's database.statement_timeouts.operator.
+const testOperatorTimeout = 10 * time.Minute
 
 // TestOpenSetsPoolStatementTimeout pins the default that the scoped exceptions
 // are exceptions to. If this ever became empty or 0, the two SetLocalStatement-
@@ -56,11 +60,11 @@ func TestSetLocalStatementTimeoutAllowsLongerWorkInTransaction(t *testing.T) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback-only test
 
-	if err := db.SetLocalStatementTimeout(ctx, tx, db.OperatorStatementTimeout); err != nil {
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.StatementTimeoutValue(testOperatorTimeout)); err != nil {
 		t.Fatalf("SetLocalStatementTimeout: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `SELECT pg_sleep(20)`); err != nil {
-		t.Fatalf("a 20s statement failed inside a transaction raised to %s: %v", db.OperatorStatementTimeout, err)
+		t.Fatalf("a 20s statement failed inside a transaction raised to %s: %v", testOperatorTimeout, err)
 	}
 }
 
@@ -77,7 +81,7 @@ func TestSetLocalStatementTimeoutAllowsLongerWorkInTransaction(t *testing.T) {
 // different connection and would prove nothing.
 func TestSetLocalStatementTimeoutDoesNotLeakToTheConnection(t *testing.T) {
 	ctx := context.Background()
-	pool, err := db.Open(ctx, testsupport.NewPostgresURL(t)+"&pool_max_conns=1")
+	pool, err := db.Open(ctx, testDBConfig(testsupport.NewPostgresURL(t)+"&pool_max_conns=1", 0, 0))
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
@@ -87,7 +91,7 @@ func TestSetLocalStatementTimeoutDoesNotLeakToTheConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	if err := db.SetLocalStatementTimeout(ctx, tx, db.OperatorStatementTimeout); err != nil {
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.StatementTimeoutValue(testOperatorTimeout)); err != nil {
 		t.Fatalf("SetLocalStatementTimeout: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

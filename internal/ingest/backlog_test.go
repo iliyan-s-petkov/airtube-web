@@ -67,7 +67,7 @@ func TestRunOnceDrainsRollupBacklog(t *testing.T) {
 
 	// A new cycle's data lands in the pinned current hour.
 	f := stubFetcher{readings: []upstream.Reading{reading(2, "P1", 99, 0.05, now)}}
-	ing := ingest.New(f, st, quality.NewHistory(12))
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 	restore := ing.SetClockForTesting(func() time.Time { return now })
 	defer restore()
 
@@ -131,7 +131,7 @@ func TestRunOnceDrainsBacklogEvenWhenFetchFails(t *testing.T) {
 
 	wantErr := errors.New("upstream down")
 	f := stubFetcher{err: wantErr}
-	ing := ingest.New(f, st, quality.NewHistory(12))
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
 	defer restoreClock()
 
@@ -203,7 +203,7 @@ func TestBacklogAlertFiresDespiteRollupError(t *testing.T) {
 	defer slog.SetDefault(prev)
 
 	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, now)}}
-	ing := ingest.New(f, st, quality.NewHistory(12))
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
 	defer restoreClock()
 
@@ -301,7 +301,7 @@ func TestBacklogAlertFiresWhenGapCrossesThreshold(t *testing.T) {
 	defer slog.SetDefault(prev)
 
 	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, now)}}
-	ing := ingest.New(f, st, quality.NewHistory(12))
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
 	defer restoreClock()
 	if _, err := ing.RunOnce(ctx); err != nil {
@@ -363,7 +363,7 @@ func TestBacklogAlertDoesNotFireBelowThreshold(t *testing.T) {
 	defer slog.SetDefault(prev)
 
 	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, now)}}
-	ing := ingest.New(f, st, quality.NewHistory(12))
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
 	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
 	defer restoreClock()
 	if _, err := ing.RunOnce(ctx); err != nil {

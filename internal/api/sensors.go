@@ -2,7 +2,9 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/metrics"
 )
@@ -39,11 +41,11 @@ func (d Deps) handleAreaSensors(w http.ResponseWriter, r *http.Request) {
 	// sent the payload has leaked precisely what it was withholding.
 	if !d.Breadth.ObserveArea(httpx.BucketKeyFrom(r.Context()), slug) {
 		enumerationTrips.With("area").Inc()
-		writeTooManyAreas(w)
+		writeTooManyAreas(w, d.Config.RateLimit.Enumerate)
 		return
 	}
 
-	serveBody(w, r, body, cachePrivate, dataMaxAge)
+	serveBody(w, r, body, cachePrivate, int(d.Config.Cache.DataMaxAge.Seconds()))
 }
 
 // writeTooManyAreas answers an enumeration trip.
@@ -52,14 +54,14 @@ func (d Deps) handleAreaSensors(w http.ResponseWriter, r *http.Request) {
 // exact limit tells a scraper precisely how to pace itself just under it.
 // Retry-After is generous because the window is an hour and the alternative —
 // a tight retry — invites a client to hammer the refusal.
-func writeTooManyAreas(w http.ResponseWriter) {
-	w.Header().Set("Retry-After", "900")
+func writeTooManyAreas(w http.ResponseWriter, cfg config.Enumerate) {
+	w.Header().Set("Retry-After", strconv.Itoa(int(cfg.RetryAfter.Seconds())))
 	writeError(w, http.StatusTooManyRequests, "rate_limited",
 		"Too many different areas requested. Please slow down.")
 }
 
-func writeTooManySensors(w http.ResponseWriter) {
-	w.Header().Set("Retry-After", "900")
+func writeTooManySensors(w http.ResponseWriter, cfg config.Enumerate) {
+	w.Header().Set("Retry-After", strconv.Itoa(int(cfg.RetryAfter.Seconds())))
 	writeError(w, http.StatusTooManyRequests, "rate_limited",
 		"Too many different sensors requested. Please slow down.")
 }

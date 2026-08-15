@@ -15,7 +15,6 @@ import (
 	"airbg.org/internal/backfill"
 	"airbg.org/internal/config"
 	"airbg.org/internal/db"
-	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
@@ -30,8 +29,15 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|import-areas|purge-outside-boundary>")
+		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|import-areas|purge-outside-boundary|validate-config>")
 		os.Exit(2)
+	}
+
+	// validate-config is checked before any database or listener setup: it
+	// exists so an operator can catch a bad airbg.yaml before deploying
+	// rather than at server start.
+	if os.Args[1] == "validate-config" {
+		os.Exit(runValidateConfig(os.Stdout, os.Stderr))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -39,7 +45,9 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("configuration", "error", err)
+		// Fail closed and print the whole list: a config error is an operator
+		// error, and one problem per restart is a bad trade for them.
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
@@ -54,7 +62,7 @@ func main() {
 		return
 	}
 
-	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	pool, err := db.Open(ctx, cfg.Database)
 	if err != nil {
 		slog.Error("database", "error", err)
 		os.Exit(1)
@@ -70,9 +78,9 @@ func main() {
 		slog.Info("migrations applied")
 
 	case "collect":
-		client := upstream.New(cfg.UpstreamURL, 30*time.Second)
-		ing := ingest.New(client, store.New(pool), quality.NewHistory(12))
-		ing.Loop(ctx, cfg.PollInterval)
+		client := upstream.New(cfg.Upstream)
+		ing := ingest.New(client, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series), quality.NewHistory(cfg.Quality.HistoryDepth), quality.NewScorer(cfg.Quality), cfg.Database.StatementTimeouts.Assign)
+		ing.Loop(ctx, cfg.Upstream.PollInterval)
 
 	case "backfill":
 		if len(os.Args) < 4 {
@@ -96,7 +104,7 @@ func main() {
 			slog.Error("backfill", "error", err)
 			os.Exit(1)
 		}
-		buckets, report, err := backfill.ParseCSV(f, sensorID)
+		buckets, report, err := backfill.ParseCSV(f, sensorID, cfg.Quality)
 		f.Close()
 		if err != nil {
 			slog.Error("backfill", "error", err)
@@ -108,7 +116,7 @@ func main() {
 		// import — once the surviving buckets are in reading_hourly there is
 		// no column recording how much of the day they were derived from, and
 		// nothing ever rewrites a historical bucket.
-		slog.Log(ctx, report.Level(), "backfill parsed archive file",
+		slog.Log(ctx, report.Level(cfg.Backfill), "backfill parsed archive file",
 			append([]any{"sensor_id", sensorID, "path", os.Args[3]}, report.LogAttrs()...)...)
 
 		n, err := backfill.WriteBuckets(ctx, pool, buckets)
@@ -128,7 +136,7 @@ func main() {
 			slog.Error("import areas", "error", err)
 			os.Exit(1)
 		}
-		assigned, revoked, err := area.AssignSensors(ctx, pool)
+		assigned, revoked, err := area.AssignSensors(ctx, pool, cfg.Database.StatementTimeouts.Assign)
 		if err != nil {
 			slog.Error("assign sensors", "error", err)
 			os.Exit(1)
@@ -144,7 +152,7 @@ func main() {
 		// finding 4) — never run automatically from import-areas or collect.
 		// Deleting stored sensors must always be a decision a human makes on
 		// purpose.
-		result, err := area.PurgeOutsideBoundary(ctx, pool)
+		result, err := area.PurgeOutsideBoundary(ctx, pool, cfg.Database.StatementTimeouts.Operator)
 		if err != nil {
 			slog.Error("purge outside boundary", "error", err)
 			os.Exit(1)
@@ -169,7 +177,7 @@ func main() {
 // deferred Close calls actually run: main's error paths call os.Exit, which
 // skips defers.
 func serveCommand(ctx context.Context, cfg config.Config) error {
-	apiPool, collectorPool, err := db.OpenPair(ctx, cfg.DatabaseURL, cfg.DBAPIConns, cfg.DBCollectorConns)
+	apiPool, collectorPool, err := db.OpenPair(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}
@@ -187,7 +195,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	// with traffic.
 	if apiPool == collectorPool {
 		return errors.New("serve: the request and collector pools are the same pool; " +
-			"the collector holds connections for up to " + db.AssignStatementTimeout +
+			"the collector holds connections for up to " + cfg.Database.StatementTimeouts.Assign.String() +
 			" per cycle and would starve request handlers (see db.OpenPair)")
 	}
 
@@ -197,10 +205,10 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	// publisher get the collector pool: building a snapshot is background work
 	// that queries every area, so it belongs on the side of the bulkhead that is
 	// allowed to be slow.
-	apiStore := store.New(apiPool)
-	collectorStore := store.New(collectorPool)
+	apiStore := store.New(apiPool, cfg.Store, cfg.Database.StatementTimeouts.Series)
+	collectorStore := store.New(collectorPool, cfg.Store, cfg.Database.StatementTimeouts.Series)
 
-	holder := snapshot.NewHolder()
+	holder := snapshot.NewHolder(cfg.Series)
 	pub := server.NewPublisher(collectorStore, holder, log)
 
 	cat, err := i18n.Load()
@@ -229,19 +237,12 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	// the configured basemap host reaches the CSP, and it keeps the server
 	// package from needing to know how a policy is assembled.
 	srv, err := server.New(server.Options{
-		ListenAddr:        cfg.ListenAddr,
-		MetricsAddr:       cfg.MetricsAddr,
-		Catalogue:         cat,
-		Snapshots:         holder,
-		Store:             apiStore,
-		Publisher:         pub,
-		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
-		BaseURL:           cfg.BaseURL,
-		Logger:            log,
-		MaxDBInflight:     cfg.MaxDBInflight,
-		MaxConns:          cfg.MaxConns,
-		BasemapStyleURL:   cfg.BasemapStyleURL,
-		CSP:               httpx.CSP(cfg.BasemapHost),
+		Config:    cfg,
+		Catalogue: cat,
+		Snapshots: holder,
+		Store:     apiStore,
+		Publisher: pub,
+		Logger:    log,
 	})
 	if err != nil {
 		return err
@@ -249,9 +250,11 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 
 	// Same construction as the existing "collect" case — one poller, not two.
 	ing := ingest.New(
-		upstream.New(cfg.UpstreamURL, 30*time.Second),
+		upstream.New(cfg.Upstream),
 		collectorStore,
-		quality.NewHistory(12),
+		quality.NewHistory(cfg.Quality.HistoryDepth),
+		quality.NewScorer(cfg.Quality),
+		cfg.Database.StatementTimeouts.Assign,
 	)
 	ing.SetSnapshotPublisher(pub)
 
@@ -264,7 +267,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	polled := make(chan struct{})
 	go func() {
 		defer close(polled)
-		ing.Loop(pollCtx, cfg.PollInterval) // returns when pollCtx is cancelled
+		ing.Loop(pollCtx, cfg.Upstream.PollInterval) // returns when pollCtx is cancelled
 	}()
 
 	err = srv.Run(ctx)

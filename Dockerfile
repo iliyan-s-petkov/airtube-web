@@ -40,6 +40,10 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/airbg ./cmd/airbg
 # this was written.
 FROM gcr.io/distroless/static-debian13:nonroot
 COPY --from=build /out/airbg /airbg
+# airbg.yaml is mandatory: there is no defaults layer in code, so the image
+# must carry a config file and AIRBG_CONFIG must name it.
+COPY airbg.yaml /etc/airbg/airbg.yaml
+ENV AIRBG_CONFIG=/etc/airbg/airbg.yaml
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/airbg"]

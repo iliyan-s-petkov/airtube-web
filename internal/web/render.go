@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
 )
@@ -37,6 +38,9 @@ type Renderer struct {
 	holder          *snapshot.Holder
 	baseURL         string
 	basemapStyleURL string
+	frontend        config.Frontend
+	defaultMetric   string
+	defaultPeriod   string
 	assets          Assets
 
 	// One parsed template set per page, each cloned from the base. A single
@@ -51,11 +55,30 @@ type Renderer struct {
 // data markers over a plain background instead. It is carried straight
 // through to PageData rather than re-derived, so the one place a vendor
 // switch happens is the config load that also derived the CSP's basemap host.
-func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, baseURL, basemapStyleURL string) (*Renderer, error) {
+//
+// cfg supplies the frontend paint values and zoom thresholds (config.Frontend)
+// and the default metric/period (config.Series) that reach the browser as
+// data-* attributes — see PageData. Taking the whole resolved config.Config
+// rather than a growing list of scalars matches server.Options: adding a knob
+// changes no signature here either.
+func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, cfg config.Config) (*Renderer, error) {
+	// config.Config.Validate rejects an empty series.periods list before
+	// LoadFile ever returns one, so this cannot happen with the config this
+	// package actually gets called with today. Guarded anyway: this function
+	// already returns an error, and relying on a guarantee enforced by a
+	// different package for an indexing operation is exactly the kind of
+	// invariant that survives a refactor of validate.go silently until this
+	// panics in production.
+	if len(cfg.Series.PeriodNames) == 0 {
+		return nil, fmt.Errorf("web: config.Series.PeriodNames is empty")
+	}
 	rr := &Renderer{
 		cat: cat, holder: holder,
-		baseURL:         strings.TrimSuffix(baseURL, "/"),
-		basemapStyleURL: basemapStyleURL,
+		baseURL:         strings.TrimSuffix(cfg.Listen.BaseURL, "/"),
+		basemapStyleURL: cfg.Basemap.StyleURL,
+		frontend:        cfg.Frontend,
+		defaultMetric:   cfg.Series.DefaultMetric,
+		defaultPeriod:   cfg.Series.PeriodNames[0],
 		pages:           make(map[string]*template.Template),
 	}
 	// Parsed once at construction, like the templates: with no manifest this
@@ -100,6 +123,25 @@ type PageData struct {
 	// BasemapStyleURL is the MapLibre style JSON URL, key already substituted,
 	// or empty when no basemap vendor is configured. See config.Config.BasemapStyleURL.
 	BasemapStyleURL string
+
+	// Frontend paint values and zoom thresholds. They reach the browser as
+	// data-* attributes because the CSP has no 'unsafe-inline' — there is no
+	// inline <script> to put a config object in, and there never will be.
+	NoDataColour       string
+	MarkerStrokeColour string
+	EmptyBasemapColour string
+	ChartLineColour    string
+	ZoomCity           int
+	ZoomSensor         int
+	DefaultMetric      string
+	DefaultPeriod      string
+	// The national fallback view the home page's map opens on. Templated, not
+	// written into index.gohtml: the same three numbers are what
+	// /api/v1/locate returns, and a template literal is a second home for
+	// them that no test compares against the first.
+	DefaultZoom int
+	DefaultLon  float64
+	DefaultLat  float64
 
 	cat *i18n.Catalogue
 }
@@ -167,6 +209,18 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		BaseURL: rr.baseURL, GeneratedAt: generatedAt, cat: rr.cat,
 		Assets:          rr.assets,
 		BasemapStyleURL: rr.basemapStyleURL,
+
+		NoDataColour:       rr.frontend.NoDataColour,
+		MarkerStrokeColour: rr.frontend.MarkerStrokeColour,
+		EmptyBasemapColour: rr.frontend.EmptyBasemapColour,
+		ChartLineColour:    rr.frontend.ChartLineColour,
+		ZoomCity:           rr.frontend.ZoomCity,
+		ZoomSensor:         rr.frontend.ZoomSensor,
+		DefaultMetric:      rr.defaultMetric,
+		DefaultPeriod:      rr.defaultPeriod,
+		DefaultZoom:        rr.frontend.DefaultZoom,
+		DefaultLon:         rr.frontend.DefaultLon,
+		DefaultLat:         rr.frontend.DefaultLat,
 	}
 }
 

@@ -21,9 +21,30 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
 )
+
+// testSeries is airbg.yaml's series.default_metric and series.default_window,
+// restated as a literal because this file's tests are about asset rendering,
+// not about the series default combination — a full config.LoadFile just to
+// get two scalars would be a heavier fixture than the thing under test.
+var testSeries = config.Series{DefaultMetric: "P2", DefaultWindow: 24 * time.Hour, PeriodNames: []string{"24h"}}
+
+// testFrontendConfig restates airbg.yaml's frontend.* block as a literal
+// config.Config for the same reason testSeries does: this file's tests are
+// about the manifest-to-<script> seam, not about the frontend paint values,
+// so loading the real file would be a heavier fixture than the thing under
+// test — but NewRenderer now requires a full config.Config to build a page,
+// so the struct has to exist here regardless.
+func testFrontendConfig() config.Config {
+	return config.Config{
+		Listen:   config.Listen{BaseURL: "https://airbg.org"},
+		Series:   testSeries,
+		Frontend: config.Frontend{NoDataColour: "#9ca3af", MarkerStrokeColour: "#ffffff", EmptyBasemapColour: "#eef2f5", ChartLineColour: "#2563eb", ZoomCity: 9, ZoomSensor: 11},
+	}
+}
 
 // assetsFixtureManifest is the Step 6 fixture, restated here because a JSON
 // literal typed twice in two files is what makes a manifest-shape drift show
@@ -57,7 +78,7 @@ func rendererForAssetsTest(t *testing.T) *Renderer {
 	if err != nil {
 		t.Fatalf("i18n.Load: %v", err)
 	}
-	h := snapshot.NewHolder()
+	h := snapshot.NewHolder(testSeries)
 	h.Store(&snapshot.Snapshot{
 		GeneratedAt: time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
 		KnownSlugs: map[string]snapshot.AreaMeta{
@@ -66,7 +87,7 @@ func rendererForAssetsTest(t *testing.T) *Renderer {
 				Covered: true, SensorCount: 12},
 		},
 	})
-	rr, err := NewRenderer(cat, h, "https://airbg.org", "")
+	rr, err := NewRenderer(cat, h, testFrontendConfig())
 	if err != nil {
 		t.Fatalf("NewRenderer: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,11 +14,47 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"airbg.org/internal/area"
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 	"airbg.org/internal/testsupport"
 )
+
+// testAssignTimeout mirrors airbg.yaml's database.statement_timeouts.assign
+// default; see internal/area/area_test.go's testAssignTimeout for the same
+// convention.
+const testAssignTimeout = 60 * time.Second
+
+// testConfig is the committed configuration, loaded once, so these tests
+// exercise the values the service actually ships with (Series.DefaultMetric,
+// Series.DefaultWindow, Store.CoverageThreshold, ...) rather than a second copy
+// that can drift. Same shape as internal/api/router_test.go's testConfig — each
+// package that needs one keeps its own copy rather than sharing a test helper
+// package.
+func testConfig(t *testing.T) config.Config {
+	t.Helper()
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile error = %v, want nil", err)
+	}
+	return cfg
+}
+
+// testStore builds a *store.Store against pool using the committed config.
+func testStore(t *testing.T, pool *pgxpool.Pool) *store.Store {
+	t.Helper()
+	cfg := testConfig(t)
+	return store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series)
+}
+
+// testHolder builds a *snapshot.Holder carrying the committed default series
+// combination, for the h argument Build takes.
+func testHolder(t *testing.T) *snapshot.Holder {
+	t.Helper()
+	return snapshot.NewHolder(testConfig(t).Series)
+}
 
 func migrated(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
@@ -73,7 +110,7 @@ func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 			t.Fatalf("seed reading: %v", err)
 		}
 	}
-	if _, _, err := area.AssignSensors(ctx, pool); err != nil {
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
 		t.Fatalf("AssignSensors: %v", err)
 	}
 }
@@ -82,7 +119,7 @@ func TestBuildProducesValidJSONAndMatchingGzip(t *testing.T) {
 	ctx, pool := migrated(t)
 	seed(t, ctx, pool)
 
-	snap, err := snapshot.Build(ctx, store.New(pool), time.Unix(1_800_000_000, 0).UTC())
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), time.Unix(1_800_000_000, 0).UTC())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -124,7 +161,7 @@ func TestBuildETagsDifferPerBody(t *testing.T) {
 	ctx, pool := migrated(t)
 	seed(t, ctx, pool)
 
-	snap, err := snapshot.Build(ctx, store.New(pool), time.Unix(1_800_000_000, 0).UTC())
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), time.Unix(1_800_000_000, 0).UTC())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -143,14 +180,15 @@ func TestBuildETagIsStableForIdenticalData(t *testing.T) {
 	ctx, pool := migrated(t)
 	seed(t, ctx, pool)
 
-	s := store.New(pool)
-	a, err := snapshot.Build(ctx, s, time.Unix(1_800_000_000, 0).UTC())
+	s := testStore(t, pool)
+	h := testHolder(t)
+	a, err := snapshot.Build(ctx, s, h, time.Unix(1_800_000_000, 0).UTC())
 	if err != nil {
 		t.Fatalf("Build a: %v", err)
 	}
 	// A DIFFERENT build time, same data. GeneratedAt is excluded from the hash
 	// for exactly this reason.
-	b, err := snapshot.Build(ctx, s, time.Unix(1_800_000_300, 0).UTC())
+	b, err := snapshot.Build(ctx, s, h, time.Unix(1_800_000_300, 0).UTC())
 	if err != nil {
 		t.Fatalf("Build b: %v", err)
 	}
@@ -184,7 +222,7 @@ func TestBuildIncludesEmptyAreasInAreaSensors(t *testing.T) {
 	ctx, pool := migrated(t)
 	seedAreasWithOneEmptyArea(t, ctx, pool)
 
-	snap, err := snapshot.Build(ctx, store.New(pool), time.Unix(1_800_000_000, 0).UTC())
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), time.Unix(1_800_000_000, 0).UTC())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -207,7 +245,7 @@ func TestBuildIncludesAreaSeriesForEveryKnownSlug(t *testing.T) {
 	ctx, pool := migrated(t)
 	seedAreasWithOneEmptyArea(t, ctx, pool)
 
-	snap, err := snapshot.Build(ctx, store.New(pool), time.Now().UTC())
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -235,7 +273,7 @@ func TestAreaSeriesPayloadUsesEmptyArraysNotNull(t *testing.T) {
 	ctx, pool := migrated(t)
 	seedAreasWithOneEmptyArea(t, ctx, pool)
 
-	snap, err := snapshot.Build(ctx, store.New(pool), time.Now().UTC())
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), time.Now().UTC())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -255,6 +293,45 @@ func TestAreaSeriesPayloadUsesEmptyArraysNotNull(t *testing.T) {
 	}
 }
 
+// TestBuildAreaSeriesRespectsConfiguredWindow pins Holder.window (taken from
+// config.Series.DefaultWindow by NewHolder) to the actual query bound Build
+// uses: since := now.Add(-h.window). A reading placed just inside the
+// committed 24h default window, but outside a plausible smaller one (e.g. a
+// hardcoded 1h), must appear in the series Build produces — and disappear if
+// the window used were narrower than configured. This is the direct proof
+// that DefaultWindow (not just DefaultMetric) flows from config through the
+// holder into the query, catching e.g. NewHolder hardcoding window instead of
+// reading cfg.DefaultWindow.
+func TestBuildAreaSeriesRespectsConfiguredWindow(t *testing.T) {
+	ctx, pool := migrated(t)
+	seed(t, ctx, pool)
+
+	now := time.Now().UTC()
+	// 2h old: inside the committed 24h default window, outside any window an
+	// hour or less. A distinctive value makes the assertion unambiguous.
+	const marker = 777.0
+	_, err := pool.Exec(ctx,
+		`INSERT INTO reading (time, sensor_id, metric, value, quality)
+		 VALUES ($1, 100, 'P2', $2, 'ok')`,
+		now.Add(-2*time.Hour), marker)
+	if err != nil {
+		t.Fatalf("seed old reading: %v", err)
+	}
+
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), now)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	body, ok := snap.AreaSeries["sofia"]
+	if !ok {
+		t.Fatal("no AreaSeries entry for sofia")
+	}
+	if !strings.Contains(string(body.JSON), "777") {
+		t.Errorf("AreaSeries[\"sofia\"] does not contain the 2h-old reading (value %v); "+
+			"want it included under the committed 24h default window: %s", marker, body.JSON)
+	}
+}
+
 // TestBuildSensorPayloadIsColumnar pins the wire format from Phase 1 §7.3.
 // Phase 3's MapLibre layer consumes typed arrays; a silent switch to
 // row-per-sensor would break it at runtime, not at compile time.
@@ -262,7 +339,7 @@ func TestBuildSensorPayloadIsColumnar(t *testing.T) {
 	ctx, pool := migrated(t)
 	seed(t, ctx, pool)
 
-	snap, err := snapshot.Build(ctx, store.New(pool), time.Unix(1_800_000_000, 0).UTC())
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), time.Unix(1_800_000_000, 0).UTC())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

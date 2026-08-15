@@ -7,7 +7,8 @@
 <meta name="description" content="{{.T "site.tagline"}}">
 <link rel="canonical" href="{{.CanonicalURL}}">
 {{range .Alternates}}<link rel="alternate" hreflang="{{.Lang}}" href="{{.URL}}">
-{{end}}<link rel="stylesheet" href="/static/app.css">
+{{end}}<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/app.css">
 {{with .Assets.Style "main"}}<link rel="stylesheet" href="{{.}}">
 {{end}}</head>
 <body>

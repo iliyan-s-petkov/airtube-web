@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"airbg.org/internal/admit"
+	"airbg.org/internal/config"
 	"airbg.org/internal/ratelimit"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
@@ -34,7 +35,11 @@ type Deps struct {
 	Snapshots *snapshot.Holder
 	Breadth   *ratelimit.Breadth
 	Store     DataSource
-	BaseURL   string
+
+	// Config is the resolved configuration. It carries the cache lifetimes, the
+	// series period vocabulary and the Retry-After hints — the values that used
+	// to be package constants and are now operator tunables.
+	Config config.Config
 
 	// SeriesLimiter is a second, much tighter token bucket scoped to the two
 	// DB-backed series routes. The global bucket (10 rps) is sized for a page
@@ -53,19 +58,6 @@ type Deps struct {
 	// admitted without a cap.
 	Admission *admit.Semaphore
 }
-
-// Cache lifetimes, in seconds.
-//
-// 150 s — half the 300 s poll interval — is deliberate. A max-age equal to the
-// poll interval means a copy cached one second after a rebuild is served until
-// one second after the NEXT rebuild: nearly two full cycles of staleness. Half
-// the interval bounds worst-case staleness at one cycle.
-//
-// scalesMaxAge is long because the EAQI bands are legislation, not measurements.
-const (
-	dataMaxAge   = 150
-	scalesMaxAge = 86400
-)
 
 // Cache visibility. This is a security control, not a performance knob.
 //
@@ -106,7 +98,7 @@ func NewRouter(d Deps) *http.ServeMux {
 	// to tie one to — so its map would grow for as long as the router lived,
 	// making the fail-closed default a quiet leak.
 	if d.SeriesLimiter == nil {
-		d.SeriesLimiter = defaultSeriesLimiter()
+		d.SeriesLimiter = defaultSeriesLimiter(d.Config)
 	}
 
 	// Fail closed, exactly as with SeriesLimiter: a nil semaphore would leave

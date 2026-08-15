@@ -8,14 +8,22 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/quality"
 )
 
 type Store struct {
 	pool *pgxpool.Pool
+	cfg  config.Store
+	// seriesTimeout scopes statement_timeout for the series-shaped reads
+	// (SensorSeries, AreaSeries, AreaAtPoint) below the pool-wide default —
+	// see internal/db.StatementTimeoutValue.
+	seriesTimeout time.Duration
 }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func New(pool *pgxpool.Pool, cfg config.Store, seriesTimeout time.Duration) *Store {
+	return &Store{pool: pool, cfg: cfg, seriesTimeout: seriesTimeout}
+}
 
 // UpsertSensors records every distinct sensor in the batch. Location is
 // refreshed on conflict because sensors are occasionally relocated upstream.

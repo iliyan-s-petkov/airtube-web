@@ -4,15 +4,35 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/web"
 )
+
+// testConfig is the committed configuration, loaded once, so these tests
+// exercise the frontend paint values and zoom thresholds the service actually
+// ships with (airbg.yaml's frontend.* and series.*) rather than a second copy
+// that can drift — see internal/server/server_test.go's testConfig for the
+// same shape. BaseURL is overridden because every assertion in this file pins
+// it to "https://airbg.org", not to whatever the committed file's
+// listen.base_url happens to be.
+func testConfig(t *testing.T) config.Config {
+	t.Helper()
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile error = %v, want nil", err)
+	}
+	cfg.Listen.BaseURL = "https://airbg.org"
+	return cfg
+}
 
 func renderer(t *testing.T, snap *snapshot.Snapshot) *web.Renderer {
 	t.Helper()
@@ -20,11 +40,12 @@ func renderer(t *testing.T, snap *snapshot.Snapshot) *web.Renderer {
 	if err != nil {
 		t.Fatalf("i18n.Load: %v", err)
 	}
-	h := snapshot.NewHolder()
+	cfg := testConfig(t)
+	h := snapshot.NewHolder(cfg.Series)
 	if snap != nil {
 		h.Store(snap)
 	}
-	rr, err := web.NewRenderer(cat, h, "https://airbg.org", "")
+	rr, err := web.NewRenderer(cat, h, cfg)
 	if err != nil {
 		t.Fatalf("NewRenderer: %v", err)
 	}
@@ -62,13 +83,59 @@ func newTestRendererWithBasemap(t *testing.T, basemapStyleURL string) *web.Rende
 	if err != nil {
 		t.Fatalf("i18n.Load: %v", err)
 	}
-	h := snapshot.NewHolder()
+	cfg := testConfig(t)
+	cfg.Basemap.StyleURL = basemapStyleURL
+	h := snapshot.NewHolder(cfg.Series)
 	h.Store(fixture(t))
-	rr, err := web.NewRenderer(cat, h, "https://airbg.org", basemapStyleURL)
+	rr, err := web.NewRenderer(cat, h, cfg)
 	if err != nil {
 		t.Fatalf("NewRenderer: %v", err)
 	}
 	return rr
+}
+
+// TestNewRendererFailsClosedOnEmptyPeriodNames. cfg.Series.PeriodNames[0] is
+// how NewRenderer picks the default period; config.Config.Validate rejects an
+// empty series.periods list before LoadFile ever returns one, so this cannot
+// happen via the normal startup path — but NewRenderer already returns an
+// error, and indexing [0] unguarded would panic the process on a slice a
+// different package's validation happens to keep non-empty today. Proves it
+// fails closed instead.
+func TestNewRendererFailsClosedOnEmptyPeriodNames(t *testing.T) {
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+	cfg := testConfig(t)
+	cfg.Series.PeriodNames = nil
+	h := snapshot.NewHolder(cfg.Series)
+
+	_, err = web.NewRenderer(cat, h, cfg)
+	if err == nil {
+		t.Fatal("NewRenderer error = nil, want an error for empty PeriodNames")
+	}
+}
+
+// TestThemeCSSLoadsBeforeAppCSS. app.css consumes theme.css's custom
+// properties (var(--border) and friends), so the <link> order in the rendered
+// <head> is load-bearing: a browser that requested app.css first would apply
+// it before the custom properties it references exist, which is silently
+// wrong rather than a visible error.
+func TestThemeCSSLoadsBeforeAppCSS(t *testing.T) {
+	body := fetch(t, renderer(t, fixture(t)), "/").Body.String()
+
+	theme := strings.Index(body, `<link rel="stylesheet" href="/static/theme.css">`)
+	app := strings.Index(body, `<link rel="stylesheet" href="/static/app.css">`)
+	if theme < 0 {
+		t.Fatal("the page does not link /static/theme.css")
+	}
+	if app < 0 {
+		t.Fatal("the page does not link /static/app.css")
+	}
+	if theme > app {
+		t.Errorf("theme.css (offset %d) is linked after app.css (offset %d); app.css's var(--border) "+
+			"and friends would resolve against nothing", theme, app)
+	}
 }
 
 func TestIndexRendersInBulgarianByDefault(t *testing.T) {
@@ -395,6 +462,76 @@ func TestMapIslandCarriesItsConfiguration(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestMapIslandRendersFrontendConfiguration pins the map island's paint values
+// and zoom thresholds against the LITERAL values committed in airbg.yaml's
+// frontend block, not against cfg.Frontend.* re-read from the same Renderer —
+// re-deriving the expectation from the value under test would only prove Go
+// can compare a value to itself. A mutation to airbg.yaml's
+// frontend.no_data_colour must fail exactly this assertion.
+func TestMapIslandRendersFrontendConfiguration(t *testing.T) {
+	rr := renderer(t, fixture(t))
+
+	for _, path := range []string{"/", "/area/sofia"} {
+		t.Run(path, func(t *testing.T) {
+			body := fetch(t, rr, path).Body.String()
+			tag := islandTag(t, body, "map")
+			for _, want := range []string{
+				`data-no-data-colour="#9ca3af"`,
+				`data-marker-stroke-colour="#ffffff"`,
+				`data-empty-basemap-colour="#eef2f5"`,
+				`data-zoom-city="9"`,
+				`data-zoom-sensor="11"`,
+			} {
+				if !strings.Contains(tag, want) {
+					t.Errorf("%s: the map island's tag is missing %s: %s", path, want, tag)
+				}
+			}
+		})
+	}
+}
+
+// TestHomeMapIslandRendersTheConfiguredDefaultView pins the home page's opening
+// view against airbg.yaml's frontend.default_* literals.
+//
+// index.gohtml carried these three as attribute literals while area.gohtml
+// templated its own — so the home page silently ignored configuration, and the
+// same numbers lived a second time in api/locate.go. Only the home page is
+// asserted here: /area/sofia's view comes from the area row, not from
+// frontend.default_*.
+func TestHomeMapIslandRendersTheConfiguredDefaultView(t *testing.T) {
+	rr := renderer(t, fixture(t))
+	tag := islandTag(t, fetch(t, rr, "/").Body.String(), "map")
+	for _, want := range []string{
+		`data-zoom="7"`,
+		`data-lon="25.4858"`,
+		`data-lat="42.7339"`,
+	} {
+		if !strings.Contains(tag, want) {
+			t.Errorf("the home map island's tag is missing %s: %s", want, tag)
+		}
+	}
+}
+
+// TestChartIslandRendersLineColourAndDefaults pins the chart island's stroke
+// colour and its default metric/period against airbg.yaml's committed
+// literals — frontend.chart_line_colour, series.default_metric, and the first
+// entry of series.periods. Deleting the || 'P2' / || '24h' fallbacks in
+// chart.js only matters if something on the server side actually asserts
+// these attributes are rendered; this is that assertion.
+func TestChartIslandRendersLineColourAndDefaults(t *testing.T) {
+	body := fetch(t, renderer(t, fixture(t)), "/area/sofia").Body.String()
+	tag := islandTag(t, body, "chart")
+	for _, want := range []string{
+		`data-metric="P2"`,
+		`data-period="24h"`,
+		`data-line-colour="#2563eb"`,
+	} {
+		if !strings.Contains(tag, want) {
+			t.Errorf("the chart island's tag is missing %s: %s", want, tag)
+		}
 	}
 }
 

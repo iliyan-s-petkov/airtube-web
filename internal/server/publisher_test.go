@@ -9,9 +9,20 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 )
+
+// testSeries and testStoreConfig restate the two scalar groups this file's
+// tests need from airbg.yaml as literals, the same way
+// internal/web/assets_render_test.go does — these tests are about the
+// publish/store failure path, not about the configured defaults themselves,
+// so a full config.LoadFile would be a heavier fixture than the thing under
+// test.
+var testSeries = config.Series{DefaultMetric: "P2", DefaultWindow: 24 * time.Hour}
+
+var testStoreConfig = config.Store{CoverageThreshold: 1, FreshnessWindow: time.Hour}
 
 // brokenPool builds a pool that never successfully connects: the address is
 // unroutable and lazily-established, so pgxpool.NewWithConfig itself succeeds
@@ -38,7 +49,7 @@ func brokenPool(t *testing.T) *pgxpool.Pool {
 // user-visible outage across every subsequent request, instead of the
 // intended "keep serving the last good snapshot" behaviour.
 func TestPublishNeverStoresOnBuildFailure(t *testing.T) {
-	holder := snapshot.NewHolder()
+	holder := snapshot.NewHolder(testSeries)
 	good := &snapshot.Snapshot{
 		GeneratedAt: time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
 		KnownSlugs:  map[string]snapshot.AreaMeta{},
@@ -46,7 +57,7 @@ func TestPublishNeverStoresOnBuildFailure(t *testing.T) {
 	}
 	holder.Store(good)
 
-	st := store.New(brokenPool(t))
+	st := store.New(brokenPool(t), testStoreConfig, 5*time.Second)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	pub := NewPublisher(st, holder, log)
 

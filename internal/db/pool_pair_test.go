@@ -5,9 +5,27 @@ import (
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/testsupport"
 )
+
+// testDBConfig mirrors airbg.yaml's database.statement_timeouts, with the
+// pool sizes supplied per test so OpenPair's size-related behaviour stays
+// observable.
+func testDBConfig(url string, apiConns, collectorConns int32) config.Database {
+	return config.Database{
+		URL:            url,
+		APIConns:       apiConns,
+		CollectorConns: collectorConns,
+		StatementTimeouts: config.StatementTimeouts{
+			Default:  15 * time.Second,
+			Assign:   60 * time.Second,
+			Operator: 10 * time.Minute,
+			Series:   5 * time.Second,
+		},
+	}
+}
 
 // TestOpenPairIsolatesTheCollectorFromRequestHandlers is the bulkhead.
 //
@@ -26,7 +44,7 @@ func TestOpenPairIsolatesTheCollectorFromRequestHandlers(t *testing.T) {
 	ctx := context.Background()
 	url := testsupport.NewPostgresURL(t)
 
-	api, collector, err := db.OpenPair(ctx, url, 1, 1)
+	api, collector, err := db.OpenPair(ctx, testDBConfig(url, 1, 1))
 	if err != nil {
 		t.Fatalf("db.OpenPair: %v", err)
 	}
@@ -71,7 +89,7 @@ func TestOpenPairIsolatesTheCollectorFromRequestHandlers(t *testing.T) {
 func TestOpenPairAppliesTheRequestedSizes(t *testing.T) {
 	ctx := context.Background()
 
-	api, collector, err := db.OpenPair(ctx, testsupport.NewPostgresURL(t), 7, 3)
+	api, collector, err := db.OpenPair(ctx, testDBConfig(testsupport.NewPostgresURL(t), 7, 3))
 	if err != nil {
 		t.Fatalf("db.OpenPair: %v", err)
 	}
@@ -93,7 +111,7 @@ func TestOpenPairAppliesTheRequestedSizes(t *testing.T) {
 func TestOpenPairOverridesPoolMaxConnsInTheURL(t *testing.T) {
 	ctx := context.Background()
 
-	api, collector, err := db.OpenPair(ctx, testsupport.NewPostgresURL(t)+"&pool_max_conns=17", 7, 3)
+	api, collector, err := db.OpenPair(ctx, testDBConfig(testsupport.NewPostgresURL(t)+"&pool_max_conns=17", 7, 3))
 	if err != nil {
 		t.Fatalf("db.OpenPair: %v", err)
 	}
@@ -126,7 +144,7 @@ func TestOpenPairRejectsNonPositiveSizes(t *testing.T) {
 		{"negative collector", 8, -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			api, collector, err := db.OpenPair(ctx, url, tc.apiConns, tc.collConns)
+			api, collector, err := db.OpenPair(ctx, testDBConfig(url, tc.apiConns, tc.collConns))
 			if err == nil {
 				api.Close()
 				collector.Close()
@@ -149,7 +167,7 @@ func TestOpenPairRejectsNonPositiveSizes(t *testing.T) {
 func TestOpenPairReturnsNoPoolsAlongsideAnError(t *testing.T) {
 	ctx := context.Background()
 
-	api, collector, err := db.OpenPair(ctx, testsupport.NewPostgresURL(t), 1, -1)
+	api, collector, err := db.OpenPair(ctx, testDBConfig(testsupport.NewPostgresURL(t), 1, -1))
 	if err == nil {
 		if api != nil {
 			api.Close()

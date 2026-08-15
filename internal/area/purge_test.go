@@ -41,7 +41,7 @@ func TestPurgeOutsideBoundaryDeletesSensorsOutsideBoundary(t *testing.T) {
 		t.Fatalf("insert reading_hourly: %v", err)
 	}
 
-	result, err := area.PurgeOutsideBoundary(ctx, pool)
+	result, err := area.PurgeOutsideBoundary(ctx, pool, testOperatorTimeout)
 	if err != nil {
 		t.Fatalf("PurgeOutsideBoundary: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestPurgeOutsideBoundaryReachesOrphanedReadings(t *testing.T) {
 		t.Fatalf("insert orphan reading_hourly: %v", err)
 	}
 
-	result, err := area.PurgeOutsideBoundary(ctx, pool)
+	result, err := area.PurgeOutsideBoundary(ctx, pool, testOperatorTimeout)
 	if err != nil {
 		t.Fatalf("PurgeOutsideBoundary: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestPurgeOutsideBoundaryRefusesWhenBoundaryAbsent(t *testing.T) {
 		t.Fatalf("insert sensor: %v", err)
 	}
 
-	result, err := area.PurgeOutsideBoundary(ctx, pool)
+	result, err := area.PurgeOutsideBoundary(ctx, pool, testOperatorTimeout)
 	if err == nil {
 		t.Fatalf("PurgeOutsideBoundary returned no error with no country boundary imported (%+v) — it must refuse to run, not treat absence as \"nothing qualifies\"", result)
 	}

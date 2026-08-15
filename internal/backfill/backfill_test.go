@@ -13,10 +13,33 @@ import (
 
 	"airbg.org/internal/area"
 	"airbg.org/internal/backfill"
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/quality"
 	"airbg.org/internal/testsupport"
 )
+
+// testQualityConfig mirrors the ranges airbg.yaml ships (see
+// internal/quality/score_test.go's testScorer), so ParseCSV's filtering in
+// these tests exercises the same bounds as production.
+func testQualityConfig() config.Quality {
+	return config.Quality{
+		Ranges: map[string]config.Range{
+			"P1":           {Min: 0, Max: 1000},
+			"P2":           {Min: 0, Max: 1000},
+			"temperature":  {Min: -40, Max: 60},
+			"humidity":     {Min: 0, Max: 100},
+			"pressure":     {Min: 650, Max: 1100},
+			"noise_LAeq":   {Min: 25, Max: 120},
+			"noise_LA_max": {Min: 25, Max: 120},
+		},
+	}
+}
+
+// testBackfillConfig mirrors airbg.yaml's backfill.high_rejection_fraction.
+func testBackfillConfig() config.Backfill {
+	return config.Backfill{HighRejectionFraction: 0.5}
+}
 
 func TestParseCSVGroupsIntoHourlyBuckets(t *testing.T) {
 	f, err := os.Open("testdata/sample.csv")
@@ -25,7 +48,7 @@ func TestParseCSVGroupsIntoHourlyBuckets(t *testing.T) {
 	}
 	defer f.Close()
 
-	buckets, _, err := backfill.ParseCSV(f, 12345)
+	buckets, _, err := backfill.ParseCSV(f, 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
@@ -64,7 +87,7 @@ func TestParseCSVSkipsNonCanonicalColumns(t *testing.T) {
 	}
 	defer f.Close()
 
-	buckets, _, err := backfill.ParseCSV(f, 12345)
+	buckets, _, err := backfill.ParseCSV(f, 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
@@ -82,7 +105,7 @@ func TestParseCSVBucketsExactHourBoundary(t *testing.T) {
 	const csvData = "sensor_id;sensor_type;location;lat;lon;timestamp;P1;durP1;ratioP1;P2;durP2;ratioP2\n" +
 		"12345;SDS011;500;42.696;23.333;2025-08-07T11:00:00;40.00;;;20.00;;\n"
 
-	buckets, _, err := backfill.ParseCSV(strings.NewReader(csvData), 12345)
+	buckets, _, err := backfill.ParseCSV(strings.NewReader(csvData), 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
@@ -106,7 +129,7 @@ func TestParseCSVConvertsPressurePascalsToHPa(t *testing.T) {
 	}
 	defer f.Close()
 
-	buckets, _, err := backfill.ParseCSV(f, 12345)
+	buckets, _, err := backfill.ParseCSV(f, 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
@@ -162,7 +185,7 @@ func TestParseCSVSkipsMalformedRowsButKeepsGoodOnes(t *testing.T) {
 	}
 	defer f.Close()
 
-	buckets, _, err := backfill.ParseCSV(f, 12345)
+	buckets, _, err := backfill.ParseCSV(f, 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
@@ -238,7 +261,7 @@ func TestParseCSVRejectsNonFiniteAndOutOfRangeValues(t *testing.T) {
 	}
 	defer f.Close()
 
-	buckets, report, err := backfill.ParseCSV(f, 12345)
+	buckets, report, err := backfill.ParseCSV(f, 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
@@ -317,8 +340,8 @@ func TestParseCSVRejectsNonFiniteAndOutOfRangeValues(t *testing.T) {
 	}
 	// A third of this file was dropped: loud enough to notice, not so bad that
 	// the surviving buckets are meaningless.
-	if got := report.Level(); got != slog.LevelWarn {
-		t.Errorf("report.Level() = %v, want WARN for a partially rejected file", got)
+	if got := report.Level(testBackfillConfig()); got != slog.LevelWarn {
+		t.Errorf("report.Level(testBackfillConfig()) = %v, want WARN for a partially rejected file", got)
 	}
 }
 
@@ -335,15 +358,15 @@ func TestParseCSVAppliesTheSameRangesAsLiveIngest(t *testing.T) {
 	}
 	defer f.Close()
 
-	buckets, report, err := backfill.ParseCSV(f, 12345)
+	buckets, report, err := backfill.ParseCSV(f, 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
 	if report.Rejected() != 0 {
 		t.Errorf("report.Rejected() = %d, want 0 — every value in pressure.csv is plausible once converted to hPa; a non-zero count means the range check ran against Pascals", report.Rejected())
 	}
-	if report.Level() != slog.LevelInfo {
-		t.Errorf("report.Level() = %v, want INFO for a clean file", report.Level())
+	if report.Level(testBackfillConfig()) != slog.LevelInfo {
+		t.Errorf("report.Level(testBackfillConfig()) = %v, want INFO for a clean file", report.Level(testBackfillConfig()))
 	}
 
 	var found bool
@@ -352,7 +375,7 @@ func TestParseCSVAppliesTheSameRangesAsLiveIngest(t *testing.T) {
 			continue
 		}
 		found = true
-		if !quality.InRange("pressure", b.Avg) {
+		if !quality.NewScorer(testQualityConfig()).InRange("pressure", b.Avg) {
 			t.Errorf("pressure avg %v is not InRange — the stored aggregate must satisfy the same bounds as the values it came from", b.Avg)
 		}
 	}
@@ -370,7 +393,7 @@ func TestParseCSVReportsTotalRejectionAtError(t *testing.T) {
 		"12345;SDS011;500;42.696;23.333;2025-08-07T10:05:00;-999.00;nan\n" +
 		"12345;SDS011;500;42.696;23.333;2025-08-07T10:35:00;-999.00;-999.00\n"
 
-	buckets, report, err := backfill.ParseCSV(strings.NewReader(allJunk), 12345)
+	buckets, report, err := backfill.ParseCSV(strings.NewReader(allJunk), 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
@@ -383,8 +406,8 @@ func TestParseCSVReportsTotalRejectionAtError(t *testing.T) {
 	if report.RejectedFraction() != 1 {
 		t.Errorf("report.RejectedFraction() = %v, want 1", report.RejectedFraction())
 	}
-	if got := report.Level(); got != slog.LevelError {
-		t.Errorf("report.Level() = %v, want ERROR — an import that salvaged nothing must be as loud as a failure, not indistinguishable from a clean run", got)
+	if got := report.Level(testBackfillConfig()); got != slog.LevelError {
+		t.Errorf("report.Level(testBackfillConfig()) = %v, want ERROR — an import that salvaged nothing must be as loud as a failure, not indistinguishable from a clean run", got)
 	}
 }
 
@@ -398,18 +421,18 @@ func TestParseCSVReportsMajorityRejectionAtError(t *testing.T) {
 		"12345;SDS011;500;42.696;23.333;2025-08-07T10:25:00;-999.00\n" +
 		"12345;SDS011;500;42.696;23.333;2025-08-07T10:35:00;-999.00\n"
 
-	buckets, report, err := backfill.ParseCSV(strings.NewReader(mostlyJunk), 12345)
+	buckets, report, err := backfill.ParseCSV(strings.NewReader(mostlyJunk), 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
 	if len(buckets) != 1 {
 		t.Fatalf("len(buckets) = %d, want 1 — the one good value must still import", len(buckets))
 	}
-	if report.RejectedFraction() < backfill.HighRejectionFraction {
-		t.Fatalf("precondition: RejectedFraction() = %v, want >= %v", report.RejectedFraction(), backfill.HighRejectionFraction)
+	if report.RejectedFraction() < testBackfillConfig().HighRejectionFraction {
+		t.Fatalf("precondition: RejectedFraction() = %v, want >= %v", report.RejectedFraction(), testBackfillConfig().HighRejectionFraction)
 	}
-	if got := report.Level(); got != slog.LevelError {
-		t.Errorf("report.Level() = %v, want ERROR when most of the file was dropped", got)
+	if got := report.Level(testBackfillConfig()); got != slog.LevelError {
+		t.Errorf("report.Level(testBackfillConfig()) = %v, want ERROR when most of the file was dropped", got)
 	}
 }
 
@@ -418,7 +441,7 @@ func TestParseCSVReportsMajorityRejectionAtError(t *testing.T) {
 func TestParseReportFractionOfEmptyFileIsNotNaN(t *testing.T) {
 	const headerOnly = "sensor_id;sensor_type;location;lat;lon;timestamp;P1\n"
 
-	_, report, err := backfill.ParseCSV(strings.NewReader(headerOnly), 12345)
+	_, report, err := backfill.ParseCSV(strings.NewReader(headerOnly), 12345, testQualityConfig())
 	if err != nil {
 		t.Fatalf("ParseCSV: %v", err)
 	}
@@ -429,7 +452,7 @@ func TestParseReportFractionOfEmptyFileIsNotNaN(t *testing.T) {
 	// dropped. Nothing was stored either, and that is the fact an operator needs:
 	// "nothing was rejected" is vacuously true of a file nothing was read from.
 	// Level() is ERROR whenever Accepted == 0, however the zero arose.
-	if got := report.Level(); got != slog.LevelError {
+	if got := report.Level(testBackfillConfig()); got != slog.LevelError {
 		t.Errorf("Level() = %v, want ERROR for a file that stored nothing", got)
 	}
 }
@@ -447,7 +470,7 @@ func TestParseCSVRejectsHeaderWithNoMetricColumns(t *testing.T) {
 		"12345;SDS011;5678;42.6977;23.3219;2026-08-01T00:00:00;42.0;21.0\n" +
 		"12345;SDS011;5678;42.6977;23.3219;2026-08-01T00:10:00;44.0;22.0\n"
 
-	buckets, _, err := backfill.ParseCSV(strings.NewReader(renamed), 12345)
+	buckets, _, err := backfill.ParseCSV(strings.NewReader(renamed), 12345, testQualityConfig())
 	if err == nil {
 		t.Fatal("ParseCSV accepted a header with no recognised metric column; it must refuse rather than parse every row into nothing")
 	}

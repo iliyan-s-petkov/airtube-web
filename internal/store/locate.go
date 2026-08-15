@@ -48,7 +48,7 @@ func (s *Store) AreaAtPoint(ctx context.Context, lon, lat float64) (string, erro
 	}
 	defer tx.Rollback(ctx)
 
-	if err := db.SetLocalStatementTimeout(ctx, tx, db.SeriesStatementTimeout); err != nil {
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.StatementTimeoutValue(s.seriesTimeout)); err != nil {
 		return "", fmt.Errorf("store: area at point timeout: %w", err)
 	}
 

@@ -2,6 +2,7 @@ package area
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -48,7 +49,7 @@ import (
 // confusion NationalBoundaryKind's own doc comment says a distinct kind
 // exists to prevent. The delete below also removes any such row an earlier
 // (pre-task-17) version of this code may already have written.
-func AssignSensors(ctx context.Context, pool *pgxpool.Pool) (assigned, revoked int64, err error) {
+func AssignSensors(ctx context.Context, pool *pgxpool.Pool, assignTimeout time.Duration) (assigned, revoked int64, err error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return 0, 0, err
@@ -56,12 +57,12 @@ func AssignSensors(ctx context.Context, pool *pgxpool.Pool) (assigned, revoked i
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after a successful Commit
 
 	// The full area x sensor ST_Covers join below is the most expensive query
-	// the collector runs, and it runs on every poll cycle. The pool-wide 15s
+	// the collector runs, and it runs on every poll cycle. The pool-wide default
 	// statement_timeout is the right bound for an ordinary read or write but
 	// too tight for this one at neighbourhood-level area granularity, where
 	// exceeding it would fail every cycle rather than degrade. Raised for this
 	// transaction only, so the protection stays in place everywhere else.
-	if err := db.SetLocalStatementTimeout(ctx, tx, db.AssignStatementTimeout); err != nil {
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.StatementTimeoutValue(assignTimeout)); err != nil {
 		return 0, 0, err
 	}
 

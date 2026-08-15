@@ -7,9 +7,14 @@
      a screen reader. The MapLibre island mounts on #map beside it, never
      replacing it. */}}
 <div id="map" data-island="map"
-     data-zoom="7" data-lon="25.4858" data-lat="42.7339"
-     data-metric="P2"
+     data-zoom="{{.DefaultZoom}}" data-lon="{{.DefaultLon}}" data-lat="{{.DefaultLat}}"
+     data-metric="{{.DefaultMetric}}"
      data-basemap="{{.BasemapStyleURL}}"
+     data-no-data-colour="{{.NoDataColour}}"
+     data-marker-stroke-colour="{{.MarkerStrokeColour}}"
+     data-empty-basemap-colour="{{.EmptyBasemapColour}}"
+     data-zoom-city="{{.ZoomCity}}"
+     data-zoom-sensor="{{.ZoomSensor}}"
      data-t-legend="{{.T "map.legend.title"}}"
      data-t-hint="{{.T "map.hint.select_area"}}"
      data-t-rate-limited="{{.T "map.error.rate_limited"}}"
