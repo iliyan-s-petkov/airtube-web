@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, markerPaint, blankStyle, mapStyle } from '../map.js'
+import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, markerPaint, blankStyle, mapStyle, registerProtocols } from '../map.js'
 import { clearCache } from '../../lib/api.js'
 
 // The no-data colour is configuration now (arrives as a data-* attribute), not
@@ -449,5 +449,30 @@ describe('mapStyle', () => {
     const cfg = { basemap: '', emptyBasemapColour: '#eef2f5', noDataColour: '#9ca3af' }
     const style = mapStyle(cfg)
     expect(style.layers[0].paint['background-color']).toBe('#eef2f5')
+  })
+})
+
+// The pmtiles:// protocol must be registered before any style referencing it
+// loads, and exactly once — MapLibre's addProtocol is global, and a second
+// registration for the same scheme replaces the first silently.
+describe('registerProtocols', () => {
+  it('registers pmtiles exactly once across repeated calls', () => {
+    const seen = []
+    const add = (scheme, fn) => seen.push([scheme, typeof fn])
+    registerProtocols(add)
+    registerProtocols(add)
+    expect(seen).toEqual([['pmtiles', 'function']])
+  })
+})
+
+describe('mapStyle with a self-hosted basemap', () => {
+  it('passes the style URL through untouched', () => {
+    const url = 'https://tiles.airbg.org/style.json'
+    expect(mapStyle({ basemap: url, emptyBasemapColour: '#eef2f5' })).toBe(url)
+  })
+
+  it('falls back to a flat colour when no basemap is configured', () => {
+    expect(mapStyle({ basemap: '', emptyBasemapColour: '#eef2f5' }))
+      .toEqual(blankStyle('#eef2f5'))
   })
 })

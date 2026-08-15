@@ -3,8 +3,9 @@
 // under Vitest (which does not check the export list) but fails a real Rollup
 // build with MISSING_EXPORT. Importing the one class actually used avoids the
 // mismatch entirely.
-import { Map as MapLibreMap } from 'maplibre-gl'
+import { Map as MapLibreMap, addProtocol } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { Protocol } from 'pmtiles'
 import { tierFor } from '../lib/tier.js'
 import { colourFor } from '../lib/colour.js'
 import { getJSON } from '../lib/api.js'
@@ -19,16 +20,28 @@ const LAYER_ID = 'airbg-markers'
 
 export function mount(el) {
   const cfg = readConfig(el)
+  registerProtocols()
   const chrome = mountChrome(el, cfg)
 
   const map = new MapLibreMap({
     container: el,
     // An unset style URL is not fatal: the map renders data markers over a
-    // plain background, so local development needs no vendor account.
+    // plain background, so local development needs no tile artefacts.
     style: mapStyle(cfg),
     center: [cfg.lon, cfg.lat],
     zoom: cfg.zoom,
     attributionControl: { compact: true },
+  })
+
+  // A style-load failure must not take the sensor markers down with it: tiles
+  // unavailable degrades to a blank background, it never fails the page. Logged
+  // once rather than per failed tile, because a missing archive produces one
+  // error per range request.
+  let errorLogged = false
+  map.on('error', (e) => {
+    if (errorLogged) return
+    errorLogged = true
+    console.warn('basemap unavailable, rendering markers only', e?.error?.message ?? e)
   })
 
   // On /area/{slug} the slug is fixed, one area, ever. On / it starts empty and
@@ -255,6 +268,21 @@ export function blankStyle(emptyBasemapColour) {
 // picked.
 export function mapStyle(cfg) {
   return cfg.basemap ? cfg.basemap : blankStyle(cfg.emptyBasemapColour)
+}
+
+// registerProtocols teaches MapLibre to read pmtiles:// URLs, which is how
+// style.json references the single 300 MB archive: the protocol turns each tile
+// read into an HTTP range request, so a visitor transfers only the ranges their
+// viewport needs.
+//
+// Idempotent, and takes `add` as a parameter, because MapLibre's addProtocol is
+// global module state: registering twice would silently replace the first
+// handler, and a test cannot observe a global it cannot inject into.
+let protocolsRegistered = false
+export function registerProtocols(add = addProtocol) {
+  if (protocolsRegistered) return
+  protocolsRegistered = true
+  add('pmtiles', new Protocol().tile)
 }
 
 // markerPaint is the circle layer's paint object. Pulled out of mount()'s
