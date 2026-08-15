@@ -1,10 +1,39 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+// clearAmbientEnv unsets every AIRBG_* variable for the duration of the test.
+//
+// Without it this test reads the developer's or CI runner's shell: an ambient
+// AIRBG_STORE_COVERAGE_THRESHOLD=99 makes it report
+// "store.coverage_threshold = 99, want 3" while airbg.yaml is untouched — a
+// failure that blames the wrong file. The proof this test exists to give is
+// about the committed file, so the environment layer must be out of the way.
+//
+// os.Setenv/os.Unsetenv with an explicit restore rather than t.Setenv: t.Setenv
+// cannot unset a variable, only assign one.
+func clearAmbientEnv(t *testing.T) {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		name, _, ok := strings.Cut(kv, "=")
+		if !ok || !strings.HasPrefix(name, "AIRBG_") {
+			continue
+		}
+		saved, had := os.LookupEnv(name)
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("Unsetenv(%s): %v", name, err)
+		}
+		if had {
+			t.Cleanup(func() { _ = os.Setenv(name, saved) })
+		}
+	}
+}
 
 // TestShippedValuesMatchPhase2Behaviour pins every value that Phase 3b moved out
 // of code. The want column is the constant as it existed before the sweep,
@@ -14,6 +43,9 @@ import (
 // Retuning any of these later is legitimate. Changing this test without saying
 // why in the commit message is not.
 func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
+	// Order matters: clear the ambient environment first, then set the one
+	// variable this test does need.
+	clearAmbientEnv(t)
 	t.Setenv(DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
 	cfg, err := LoadFile(filepath.Join("..", "..", "airbg.yaml"))
 	if err != nil {
