@@ -83,6 +83,12 @@ ratelimit:
   # No retry_after here, and none is possible: the Retry-After on a 429 is
   # computed from the refusing client's own token deficit, so it names the
   # moment a token actually exists rather than a fixed guess.
+  #
+  # evict_interval is how often a limiter's map is swept for idle entries.
+  # Bounding that map is a memory-exhaustion defence, so each limiter sweeps on
+  # its OWN interval (internal/server/server.go's startEvicting). The one
+  # exception is the enumerate/breadth limiter below, which has no
+  # evict_interval key of its own and is swept on ratelimit.api's.
   api:
     per_second: 0
     burst: 60

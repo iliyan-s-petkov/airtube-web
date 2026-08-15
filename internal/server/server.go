@@ -47,8 +47,13 @@ type Server struct {
 	seriesLimiter *ratelimit.Limiter
 	log           *slog.Logger
 	maxConns      int32
-	evictInterval time.Duration
-	shutdownGrace time.Duration
+	// One eviction interval per limiter, because each limiter has its own key
+	// (see startEvicting). A single shared interval silently ignored
+	// ratelimit.series.evict_interval for as long as both values happened to be
+	// equal in airbg.yaml.
+	apiEvictInterval    time.Duration
+	seriesEvictInterval time.Duration
+	shutdownGrace       time.Duration
 }
 
 // maxBodyBytes: this service answers GETs. Anything larger than a generously
@@ -128,13 +133,14 @@ func New(opts Options) (*Server, error) {
 			WriteTimeout:      opts.Config.Timeouts.Write,
 			IdleTimeout:       opts.Config.Timeouts.Idle,
 		},
-		limiter:       limiter,
-		breadth:       breadth,
-		seriesLimiter: seriesLimiter,
-		log:           opts.Logger,
-		maxConns:      opts.Config.Listen.MaxConns,
-		evictInterval: opts.Config.RateLimit.API.EvictInterval,
-		shutdownGrace: opts.Config.Timeouts.ShutdownGrace,
+		limiter:             limiter,
+		breadth:             breadth,
+		seriesLimiter:       seriesLimiter,
+		log:                 opts.Logger,
+		maxConns:            opts.Config.Listen.MaxConns,
+		apiEvictInterval:    opts.Config.RateLimit.API.EvictInterval,
+		seriesEvictInterval: opts.Config.RateLimit.Series.EvictInterval,
+		shutdownGrace:       opts.Config.Timeouts.ShutdownGrace,
 	}
 	return s, nil
 }
@@ -168,12 +174,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go func() { errCh <- s.servePublic() }()
 	go func() { errCh <- listen(s.private) }()
 
-	// Sweeping the limiter and breadth maps is what keeps them bounded. Without
-	// it the defence against memory exhaustion is itself the leak. Both
-	// StartEvicting calls stop when ctx is cancelled.
-	s.limiter.StartEvicting(ctx, s.evictInterval)
-	s.breadth.StartEvicting(ctx, s.evictInterval)
-	s.seriesLimiter.StartEvicting(ctx, s.evictInterval)
+	s.startEvicting(ctx)
 
 	select {
 	case <-ctx.Done():
@@ -189,6 +190,27 @@ func (s *Server) Run(ctx context.Context) error {
 		// happens once shutdown is already under way.
 		return s.shutdown()
 	}
+}
+
+// startEvicting starts each limiter's sweep goroutine. Sweeping the limiter and
+// breadth maps is what keeps them bounded: without it, the defence against
+// memory exhaustion is itself the leak. Every StartEvicting call stops when ctx
+// is cancelled.
+//
+// Each limiter sweeps on ITS OWN configured interval. They were once all driven
+// by ratelimit.api.evict_interval, which made ratelimit.series.evict_interval
+// dead — invisible for as long as the two values happened to be equal in
+// airbg.yaml, and silence for an operator who tightened the series one.
+//
+// The breadth limiter is the exception, and deliberately: ratelimit.enumerate
+// has no evict_interval key of its own, so it shares the API interval. If a
+// key is ever added there, this call must use it. Documented in
+// docs/configuration.md §10 as well — an undocumented shared value is how the
+// series bug happened in the first place.
+func (s *Server) startEvicting(ctx context.Context) {
+	s.limiter.StartEvicting(ctx, s.apiEvictInterval)
+	s.breadth.StartEvicting(ctx, s.apiEvictInterval)
+	s.seriesLimiter.StartEvicting(ctx, s.seriesEvictInterval)
 }
 
 // servePublic listens and serves the public server under the connection cap.
