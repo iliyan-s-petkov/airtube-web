@@ -94,6 +94,28 @@ func newTestRendererWithBasemap(t *testing.T, basemapStyleURL string) *web.Rende
 	return rr
 }
 
+// TestNewRendererFailsClosedOnEmptyPeriodNames. cfg.Series.PeriodNames[0] is
+// how NewRenderer picks the default period; config.Config.Validate rejects an
+// empty series.periods list before LoadFile ever returns one, so this cannot
+// happen via the normal startup path — but NewRenderer already returns an
+// error, and indexing [0] unguarded would panic the process on a slice a
+// different package's validation happens to keep non-empty today. Proves it
+// fails closed instead.
+func TestNewRendererFailsClosedOnEmptyPeriodNames(t *testing.T) {
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+	cfg := testConfig(t)
+	cfg.Series.PeriodNames = nil
+	h := snapshot.NewHolder(cfg.Series)
+
+	_, err = web.NewRenderer(cat, h, cfg)
+	if err == nil {
+		t.Fatal("NewRenderer error = nil, want an error for empty PeriodNames")
+	}
+}
+
 // TestThemeCSSLoadsBeforeAppCSS. app.css consumes theme.css's custom
 // properties (var(--border) and friends), so the <link> order in the rendered
 // <head> is load-bearing: a browser that requested app.css first would apply

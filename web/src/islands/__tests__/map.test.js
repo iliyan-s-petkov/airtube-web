@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData } from '../map.js'
+import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, markerPaint, blankStyle, mapStyle } from '../map.js'
 import { clearCache } from '../../lib/api.js'
 
 // The no-data colour is configuration now (arrives as a data-* attribute), not
@@ -113,7 +113,18 @@ describe('sensorFeatures', () => {
 describe('readConfig', () => {
   it('applies the documented defaults when an attribute is absent', () => {
     const cfg = readConfig({ dataset: {} })
-    expect(cfg).toMatchObject({ slug: null, zoom: 7, lon: 25.4858, lat: 42.7339, metric: 'P2', basemap: '' })
+    expect(cfg).toMatchObject({ slug: null, zoom: 7, lon: 25.4858, lat: 42.7339, basemap: '' })
+  })
+
+  // series.default_metric is configuration, not a JS default: a missing
+  // data-metric attribute must surface as undefined, never as a silent 'P2'.
+  // A hardcoded fallback here would (a) mask a server bug that stops
+  // rendering the attribute and (b) be exactly the duplicated constant this
+  // phase exists to delete — 'P2' would keep working today by coincidence
+  // even if airbg.yaml's series.default_metric changed to something else.
+  it('reads metric from data-metric with no JS-side default', () => {
+    expect(readConfig({ dataset: {} }).metric).toBeUndefined()
+    expect(readConfig({ dataset: { metric: 'P1' } }).metric).toBe('P1')
   })
 
   it('treats a blank data-basemap as "no basemap configured", not as a broken URL', () => {
@@ -354,5 +365,78 @@ describe('initData ordering', () => {
 
     expect(rendered.at(-1)).toBe('')
     expect(map.painted[0].features[0].properties.colour).toBe('#00ff00')
+  })
+
+  // J3 (review round 2): refresh must call tierFor with cfg.zoomCity and
+  // cfg.zoomSensor, not the old hardcoded 9/11 that used to live in tier.js.
+  // The fixture above cannot catch a `tierFor(zoom, 9, 11)` mutation because
+  // it happens to use zoomCity: 9, zoomSensor: 11 too — a hardcoded call and
+  // a config-reading call produce IDENTICAL behaviour at those thresholds.
+  // This test uses DIFFERENT thresholds (3 and 20, borrowed from tier.test.js's
+  // own "honours whatever thresholds the caller passes" case) so the two
+  // implementations diverge: at zoom 7, cfg.zoomCity=3/zoomSensor=20 selects
+  // the CITY tier, while a hardcoded 9/11 would still select COUNTRY. The
+  // aggregate request URL is the observable difference.
+  it('threads cfg.zoomCity and cfg.zoomSensor into the tier decision, not fixed thresholds', async () => {
+    const requestedURLs = []
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      requestedURLs.push(url)
+      if (url === '/api/v1/scales') {
+        return {
+          ok: true, status: 200, headers: new Headers(),
+          json: async () => [{ metric: 'P2', bands: [{ upper: 10, colour: '#00ff00' }] }],
+        }
+      }
+      return {
+        ok: true, status: 200, headers: new Headers(),
+        json: async () => ({ areas: [] }),
+      }
+    }))
+    const offThresholdCfg = { ...cfg, zoomCity: 3, zoomSensor: 20 }
+    const chrome = hintController(() => {})
+    const map = fakeMap(7) // country under the old 9/11; city under 3/20
+
+    await initData(map, { slug: null, tier: null, scales: null }, offThresholdCfg, chrome)
+
+    const aggregateURL = requestedURLs.find((u) => u !== '/api/v1/scales')
+    expect(aggregateURL).toBe('/api/v1/overview?tier=city')
+    expect(aggregateURL).not.toBe('/api/v1/overview')
+  })
+})
+
+// J1 (review round 2): the circle layer's stroke colour must come from
+// cfg.markerStrokeColour, not from any other config field. This is built by
+// markerPaint(cfg), extracted out of mount()'s map.on('load', ...) callback
+// specifically so it can be tested without a real MapLibre map.
+describe('markerPaint', () => {
+  it('reads circle-stroke-color from cfg.markerStrokeColour', () => {
+    const cfg = { markerStrokeColour: '#ffffff', noDataColour: '#9ca3af' }
+    const paint = markerPaint(cfg)
+    expect(paint['circle-stroke-color']).toBe('#ffffff')
+  })
+})
+
+describe('blankStyle', () => {
+  it('paints the background layer with the colour passed in', () => {
+    const style = blankStyle('#eef2f5')
+    expect(style.layers[0].paint['background-color']).toBe('#eef2f5')
+  })
+})
+
+// J2 (review round 2): mount() must call blankStyle(cfg.emptyBasemapColour),
+// not blankStyle(cfg.noDataColour) or any other config field. blankStyle's
+// own test above cannot see this — it only ever gets the value its caller
+// already picked. mapStyle is the call site itself, extracted so this
+// argument-selection bug is directly testable without a real MapLibre map.
+describe('mapStyle', () => {
+  it('uses the configured basemap URL when one is set', () => {
+    const cfg = { basemap: 'https://tiles.example/style.json', emptyBasemapColour: '#eef2f5' }
+    expect(mapStyle(cfg)).toBe('https://tiles.example/style.json')
+  })
+
+  it('falls back to a flat background painted with cfg.emptyBasemapColour, not a different field', () => {
+    const cfg = { basemap: '', emptyBasemapColour: '#eef2f5', noDataColour: '#9ca3af' }
+    const style = mapStyle(cfg)
+    expect(style.layers[0].paint['background-color']).toBe('#eef2f5')
   })
 })
