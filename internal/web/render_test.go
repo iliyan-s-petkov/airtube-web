@@ -74,21 +74,21 @@ func fetch(t *testing.T, rr *web.Renderer, path string) *httptest.ResponseRecord
 	return rec
 }
 
-// newTestRendererWithBasemap is renderer(t, fixture(t)) with the basemap style
-// URL parameterised, for the two tests below that pin how BasemapStyleURL
-// reaches the index page's data-basemap attribute.
-func newTestRendererWithBasemap(t *testing.T, basemapStyleURL string) *web.Renderer {
+// newTestRendererWithTiles builds a renderer whose basemap is the given
+// public URL, or none when it is empty — the two states the templates must
+// render differently.
+func newTestRendererWithTiles(t *testing.T, publicURL string) *web.Renderer {
 	t.Helper()
 	cat, err := i18n.Load()
 	if err != nil {
 		t.Fatalf("i18n.Load: %v", err)
 	}
 	cfg := testConfig(t)
-	if basemapStyleURL != "" {
+	if publicURL != "" {
 		cfg.Tiles = config.Tiles{
 			Addr:      "127.0.0.1:8082",
 			Dir:       "/var/lib/airbg/tiles",
-			PublicURL: strings.TrimSuffix(basemapStyleURL, "/style.json"),
+			PublicURL: publicURL,
 		}
 	}
 	h := snapshot.NewHolder(cfg.Series)
@@ -445,7 +445,7 @@ func TestRenderedErrorPagesAreNotCacheable(t *testing.T) {
 // (see TestAreaPageStatesInsufficientCoverage). Coverage of / alone would not
 // have caught it.
 func TestMapIslandCarriesItsConfiguration(t *testing.T) {
-	rr := newTestRendererWithBasemap(t, "https://tiles.example/style.json")
+	rr := newTestRendererWithTiles(t, "https://tiles.example")
 
 	for _, path := range []string{"/", "/area/sofia"} {
 		t.Run(path, func(t *testing.T) {
@@ -579,7 +579,7 @@ func islandTag(t *testing.T, body, name string) string {
 // TestNoBasemapRendersAnEmptyAttribute. Empty rather than absent, so the island
 // reads "" and falls back to its blank style instead of reading undefined.
 func TestNoBasemapRendersAnEmptyAttribute(t *testing.T) {
-	rr := newTestRendererWithBasemap(t, "")
+	rr := newTestRendererWithTiles(t, "")
 	body := fetch(t, rr, "/").Body.String()
 	if !strings.Contains(body, `data-basemap=""`) {
 		t.Errorf("index page has no empty data-basemap attribute:\n%s", body)
@@ -587,14 +587,14 @@ func TestNoBasemapRendersAnEmptyAttribute(t *testing.T) {
 }
 
 // TestBasemapURLCannotBreakOutOfTheAttribute. BasemapStyleURL is
-// operator-supplied config (from AIRBG_BASEMAP_STYLE_URL), not user input, but
+// operator-supplied config (from tiles.public_url), not user input, but
 // it still lands in an HTML attribute and html/template's attribute-context
 // escaping is what stands between a hostile config value and an injected
 // script — this pins that the template consumes the field as DATA in
 // attribute context, not as a pre-built HTML fragment.
 func TestBasemapURLCannotBreakOutOfTheAttribute(t *testing.T) {
 	hostile := `javascript:alert(1)"><script>alert(1)</script>`
-	rr := newTestRendererWithBasemap(t, hostile)
+	rr := newTestRendererWithTiles(t, hostile)
 	body := fetch(t, rr, "/").Body.String()
 
 	if strings.Contains(body, "<script>alert(1)</script>") {
@@ -609,5 +609,41 @@ func TestBasemapURLCannotBreakOutOfTheAttribute(t *testing.T) {
 	if !strings.Contains(body, `data-basemap="javascript:alert(1)&#34;&gt;`) &&
 		!strings.Contains(body, `data-basemap="javascript:alert(1)&#34;&gt;&lt;script&gt;`) {
 		t.Errorf("the basemap value does not appear escaped inside the attribute:\n%s", body)
+	}
+}
+
+// TestBasemapStyleURLIsDerivedFromTilesPublicURL. The style URL is not a
+// separate configuration value: writing it twice is how the CSP host and the
+// URL the browser fetches drift apart.
+func TestBasemapStyleURLIsDerivedFromTilesPublicURL(t *testing.T) {
+	rr := newTestRendererWithTiles(t, "https://tiles.airbg.org")
+	body := fetch(t, rr, "/").Body.String()
+	if !strings.Contains(body, `data-basemap="https://tiles.airbg.org/style.json"`) {
+		t.Errorf("rendered page does not carry the derived style URL:\n%s", body)
+	}
+}
+
+// TestNoTilesRendersAnEmptyBasemapAttribute. Empty is the map island's signal
+// to fall back to a flat colour — a fallback that was live, tested and
+// unreachable for as long as validation rejected an empty style URL.
+func TestNoTilesRendersAnEmptyBasemapAttribute(t *testing.T) {
+	rr := newTestRendererWithTiles(t, "")
+	body := fetch(t, rr, "/").Body.String()
+	if !strings.Contains(body, `data-basemap=""`) {
+		t.Errorf("rendered page does not carry an empty basemap attribute:\n%s", body)
+	}
+}
+
+// TestBasemapAttribution. ODbL requires the credit wherever the tiles are
+// shown — and requires it nowhere when no tiles are shown, so the footer does
+// not claim a basemap the page does not render.
+func TestBasemapAttribution(t *testing.T) {
+	with := fetch(t, newTestRendererWithTiles(t, "https://tiles.airbg.org"), "/").Body.String()
+	if !strings.Contains(with, "Protomaps") {
+		t.Errorf("page with a basemap does not credit Protomaps:\n%s", with)
+	}
+	without := fetch(t, newTestRendererWithTiles(t, ""), "/").Body.String()
+	if strings.Contains(without, "Protomaps") {
+		t.Error("page with no basemap credits Protomaps anyway")
 	}
 }

@@ -49,12 +49,13 @@ type Renderer struct {
 	pages map[string]*template.Template
 }
 
-// NewRenderer builds the page renderer. basemapStyleURL is the MapLibre style
-// JSON URL with its {key} placeholder already substituted by config.Load —
-// empty means no basemap vendor is configured, and every page renders its
-// data markers over a plain background instead. It is carried straight
-// through to PageData rather than re-derived, so the one place a vendor
-// switch happens is the config load that also derived the CSP's basemap host.
+// NewRenderer builds the page renderer.
+//
+// The basemap style URL is derived from config.Tiles, which is empty when no
+// basemap is configured — the map then renders data markers over a plain
+// background instead. Derived once, here, because the same tiles.public_url
+// also produces the CSP origin the browser must be allowed to fetch from, and
+// two copies is how those two drift apart.
 //
 // cfg supplies the frontend paint values and zoom thresholds (config.Frontend)
 // and the default metric/period (config.Series) that reach the browser as
@@ -120,8 +121,8 @@ type PageData struct {
 	// assets.go and internal/web/dist/.keep.
 	Assets Assets
 
-	// BasemapStyleURL is the MapLibre style JSON URL, key already substituted,
-	// or empty when no basemap vendor is configured. See config.Config.BasemapStyleURL.
+	// BasemapStyleURL is the self-hosted MapLibre style document's URL, or
+	// empty when no basemap is configured. See config.Tiles.StyleURL.
 	BasemapStyleURL string
 
 	// Frontend paint values and zoom thresholds. They reach the browser as
@@ -162,6 +163,10 @@ type alternate struct {
 }
 
 func (p PageData) T(key string) string { return p.cat.T(p.Lang, key) }
+
+// HasBasemap reports whether the page renders basemap tiles, which is what
+// makes the footer's ODbL credit required — and, when false, wrong.
+func (p PageData) HasBasemap() bool { return p.BasemapStyleURL != "" }
 
 // Path prefixes an in-site path with the current language, so every link in a
 // template stays in the language the reader chose. A template that hardcoded

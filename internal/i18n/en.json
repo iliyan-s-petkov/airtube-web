@@ -35,6 +35,7 @@
   "disclaimer": "Low-cost sensor readings are indicative and are not reference-method measurements.",
   "footer.data": "Data from sensor.community contributors, ODbL 1.0",
   "footer.boundaries": "Boundaries © OpenStreetMap contributors, ODbL 1.0",
+  "footer.basemap": "Basemap © OpenStreetMap contributors, ODbL 1.0, tiles by Protomaps",
   "lang.switch": "Български",
   "map.legend.title": "Air quality",
   "map.legend.no_data": "Not enough data",
