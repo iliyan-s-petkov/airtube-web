@@ -53,10 +53,38 @@ new file, updating `style.json`'s source URL, and only then removing the old one
 
 ## 3. The glyphs
 
-    font-maker Noto_Sans/NotoSans-Regular.ttf glyphs/NotoSans-Regular
-    font-maker Noto_Sans/NotoSans-Medium.ttf  glyphs/NotoSans-Medium
+    font-maker --name "NotoSans-Regular" glyph-out-regular Noto_Sans/NotoSans-Regular.ttf
+    font-maker --name "NotoSans-Medium"  glyph-out-medium  Noto_Sans/NotoSans-Medium.ttf
+    mkdir -p glyphs
+    mv glyph-out-regular/NotoSans-Regular glyphs/
+    mv glyph-out-medium/NotoSans-Medium   glyphs/
+    rm -rf glyph-out-regular glyph-out-medium
+
+`font-maker`'s real signature, verified against `main.cpp` in the pinned
+checkout (`CONTRIBUTING.md` only shows one example line, so the source is the
+authority here) is:
+
+    font-maker [--name FONTSTACK] <OUTPUT_DIR> <FONT.ttf> [FONT2.ttf ...]
+
+`OUTPUT_DIR` must **not** already exist — the tool exits with an error
+("output directory X exists") rather than merging into it — and it writes
+`OUTPUT_DIR/<FONTSTACK>/<start>-<end>.pbf` for every 256-codepoint range the
+input font(s) cover. `<FONTSTACK>` is the `--name` value copied verbatim, with
+no sanitising (no space-to-dash, no case change) — it is exactly the on-disk
+directory name and exactly what `style.json`'s `text-font` must name,
+character for character. Passing several font files to one invocation merges
+them into a **single** fontstack as fallback faces, which is not what two
+separate weights need, so Regular and Medium are two separate invocations.
+Because `OUTPUT_DIR` can't already exist, the two runs can't both target
+`glyphs` directly; each goes to its own throwaway staging directory and is
+then moved into the shared `glyphs/` tree that `internal/tiles` serves —
+`glyphs/{fontstack}/{range}.pbf`, exactly that depth, or the handler's
+allowlist 404s it.
 
 Generate a fontstack for every `text-font` the style references, and no more.
+If a style layer's `text-font` doesn't match one of these `--name` values
+exactly, the glyph fetch 404s and the label silently disappears rather than
+erroring — there is no visible failure to debug from.
 
 ## 4. The style
 
