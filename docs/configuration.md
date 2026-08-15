@@ -124,7 +124,11 @@ not deploy."
 - **Exit 0**: configuration loaded and passed every check in
   `Config.Validate()`. Stdout is a tab-aligned table of the operationally
   significant values (listener addresses, pool sizes, poll interval, cache
-  age, rate limits, coverage threshold) plus a `configuration is valid` line.
+  age, rate limits, coverage threshold, and the three `tiles.*` keys) plus a
+  `configuration is valid` line. `tiles.*` rows are printed even when
+  empty — that is the shipped, supported state, not an absent key, and an
+  operator debugging a blank map should not have to guess whether the basemap
+  is unconfigured or unsupported.
 - **Exit 1**: either the file could not be read/parsed, a required key was
   missing, or a semantic check failed (see §9). The problem is printed to
   stderr.

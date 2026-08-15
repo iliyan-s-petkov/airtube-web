@@ -86,12 +86,14 @@ override rule, the renamed variables (a breaking change from earlier
 versions), `airbg validate-config`, the two colour homes, and the checked
 cross-field couplings.
 
-The two secrets, both environment-only and never written to `airbg.yaml`:
+The one secret, environment-only and never written to `airbg.yaml`:
 
 | Variable | Holds |
 |---|---|
 | `AIRBG_DATABASE_URL` | PostgreSQL connection string |
-| `AIRBG_BASEMAP_KEY` | Tile-vendor API key substituted into `basemap.style_url` |
+
+The basemap is self-hosted (no vendor, no key) — see the `tiles.*` keys below
+and **[`docs/tiles.md`](docs/tiles.md)** for how the artefacts are generated.
 
 ## Serving
 
@@ -103,13 +105,20 @@ answers requests from it have to share an address space. Splitting them into
 separate processes would mean shipping the snapshot over the network on every
 rebuild for no benefit.
 
-`serve` opens **two listeners**, not one:
+`serve` opens **two listeners always, and a third when the basemap is
+configured**:
 
 - The **public listener** (`listen.addr`) carries the middleware chain —
   rate limiting, the enumeration-breadth check, security headers — and the
   actual pages and JSON API.
 - The **private listener** (`listen.metrics_addr`) carries only `/metrics` and
   `/healthz`.
+- The **tiles listener** (`tiles.addr`), only when `tiles.*` is configured,
+  serves the self-hosted basemap artefacts. It holds no database pool, no
+  snapshot, no rate limiter and no admission semaphore — that bulkhead is what
+  makes it safe to expose directly, on a DNS-only hostname, while the public
+  listener accepts connections only from Cloudflare's published ranges. See
+  **[`docs/tiles.md`](docs/tiles.md)**.
 
 They are separate listeners rather than a path prefix on one mux, because a
 prefix is one routing mistake away from exposing the counters that tell a
@@ -150,8 +159,17 @@ Phase 3b) configure serving:
 | `database.collector_conns` | `4` | Connections available to the poller and the snapshot publisher — the side of the bulkhead allowed to be slow. |
 | `database.max_inflight` | `16` | Caps how many requests may be inside a database query at once, **across every client** — a rate limiter only bounds one client, so a crowd of individually well-behaved clients could otherwise collectively queue more concurrent work than the pool can serve, piling up inside `pgxpool.Acquire` until `WriteTimeout` fires. Refusals on the two series routes answer `503` with `Retry-After: 2`, never `429` — the caller did nothing wrong, so it must not be told to back off as if it had. `/locate` instead degrades: it skips the lookup and returns the national default view with `200`, exactly as it does when the lookup fails, because a request that has a usable answer without any query must not be made less available by a capacity control. Either way the refusal is counted in `airbg_admission_rejected_total`. |
 | `listen.max_conns` | `4096` | Caps how many connections the **public** listener holds open at once. This bounds sockets, not requests: nothing else in the process stops tens of thousands of mostly-idle connections from exhausting file descriptors and goroutines before a single request completes, so no rate limiter or admission cap ever sees them. Over-cap connections are accepted and closed immediately, never queued. Deliberately overlaps with Cloudflare's own protection — the origin being reachable only through Cloudflare is an unverified assumption, and a control that only works when that assumption holds is not a control. The private listener is never capped: a flood that also blinded `/metrics` would remove the one instrument an operator needs during the flood. |
-| `basemap.style_url` | *(placeholder in the shipped file)* | MapLibre style JSON URL for the basemap tile vendor, with a `{key}` placeholder that `AIRBG_BASEMAP_KEY` is substituted into at startup. Must be an absolute `https://` URL with a plain host (or `host:port`, hostname up to 253 characters) — required because the hostname also widens the Content-Security-Policy's `connect-src` and `img-src` (see `httpx.CSP`), and a host containing a semicolon or quote could otherwise inject a new directive into that header. IPv6 literal hosts (e.g. `[::1]:8443`) are not supported and are rejected. The URL must not carry userinfo (`https://user:pass@host/...`) — it is rejected at startup rather than stripped, since this string reaches the browser verbatim and a silently-stripped credential would leave an authenticated basemap looking configured when it is not. **The key is public by nature** — it ships in a URL the browser fetches, so it is visible to anyone who opens the page's network tab. Domain restriction at the vendor (allow-listing `airbg.org`) is the only real control on it, and setting that up is a Phase 4 deployment step, not something this code enforces. Most tile vendors' free tiers are around 100k tile requests a month; a public map with any real traffic will exceed that, so budget for a paid tier before launch. Visitor IPs are sent to the tile vendor on every tile fetch — that belongs in the privacy note alongside Cloudflare's. |
-| `AIRBG_BASEMAP_KEY` (env-only, §4 of `docs/configuration.md`) | *(unset)* | The tile vendor API key substituted into `basemap.style_url`'s `{key}` placeholder. See the public-key caveat above — this is not a secret in the usual sense, and must never be logged server-side even though it is expected to reach the browser. |
+| `tiles.addr` | *(empty)* | The tiles listener's bind address, e.g. `127.0.0.1:8082`. Must differ from `listen.addr` and `listen.metrics_addr`. |
+| `tiles.dir` | *(empty)* | Directory holding the self-hosted basemap artefacts: `style.json`, `bulgaria.pmtiles`, `glyphs/`. The handler refuses to start if any is missing, so a mis-set path is a startup failure, not a blank map in production. |
+| `tiles.public_url` | *(empty)* | The origin the browser fetches tiles from, e.g. `https://tiles.airbg.org`. Its host must also appear in `listen.csp`'s `connect-src`, checked at load time — see `docs/configuration.md`. |
+
+`tiles.*` ships **empty**: no vendor, no key, and this is a supported
+configuration — two listeners, a map that still renders sensor markers over
+`frontend.empty_basemap_colour`. Setting all three (never fewer) starts the
+third listener and serves the basemap generated per **[`docs/tiles.md`](docs/tiles.md)**.
+Self-hosting tiles from the origin only stays safe because the public listener
+is firewalled to Cloudflare's ranges — see `docs/tiles.md`'s firewall-rule
+section.
 
 Endpoints:
 

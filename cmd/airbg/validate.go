@@ -31,6 +31,14 @@ func runValidateConfig(stdout, stderr io.Writer) int {
 	fmt.Fprintf(w, "ratelimit.enumerate\t%d areas, %d sensors per %v\n",
 		cfg.RateLimit.Enumerate.AreasPerWindow, cfg.RateLimit.Enumerate.SensorsPerWindow, cfg.RateLimit.Enumerate.Window)
 	fmt.Fprintf(w, "store.coverage_threshold\t%d\n", cfg.Store.CoverageThreshold)
+	// Not secrets, and empty is a supported, shipped value (no basemap, two
+	// listeners) — print them like every other operational key, so an operator
+	// debugging a blank map sees at a glance whether the basemap is configured
+	// at all, rather than concluding tiles are unsupported because these three
+	// keys are silently absent from the table.
+	fmt.Fprintln(w, "tiles.addr\t"+cfg.Tiles.Addr)
+	fmt.Fprintln(w, "tiles.dir\t"+cfg.Tiles.Dir)
+	fmt.Fprintln(w, "tiles.public_url\t"+cfg.Tiles.PublicURL)
 	// Secrets are reported as present/absent, never printed. A validate command
 	// that echoes a connection string is a credential in every CI log that runs
 	// it.

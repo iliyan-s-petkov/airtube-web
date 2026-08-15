@@ -64,6 +64,26 @@ func TestValidateConfigRejectsSemanticallyInvalidFile(t *testing.T) {
 	}
 }
 
+// The committed airbg.yaml ships tiles.* empty, which is a supported
+// configuration (no basemap, two listeners) — not an absence of the keys.
+// An operator debugging a blank map runs validate-config first; if these
+// three rows were silently missing from the table, that operator would
+// reasonably conclude tiles are unsupported rather than merely unconfigured.
+func TestValidateConfigShowsEmptyTilesKeys(t *testing.T) {
+	t.Setenv(config.PathEnv, filepath.Join("..", "..", "airbg.yaml"))
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	var out, errOut bytes.Buffer
+	if code := runValidateConfig(&out, &errOut); code != 0 {
+		t.Fatalf("runValidateConfig = %d, want 0; stderr:\n%s", code, errOut.String())
+	}
+	got := out.String()
+	for _, key := range []string{"tiles.addr", "tiles.dir", "tiles.public_url"} {
+		if !strings.Contains(got, key) {
+			t.Errorf("stdout does not mention %s:\n%s", key, got)
+		}
+	}
+}
+
 func TestValidateConfigRejectsUnsetPath(t *testing.T) {
 	t.Setenv(config.PathEnv, "")
 	var out, errOut bytes.Buffer
