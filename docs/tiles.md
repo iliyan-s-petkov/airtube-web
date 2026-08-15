@@ -18,11 +18,21 @@ this design exists to remove.
 
 - `planetiler` 0.8.3 (`planetiler.jar`, from the GitHub release)
 - Java 21 or newer
-- `font-maker` (or `build-glyphs` from `fontnik`) for the glyph PBFs
-- Noto Sans Regular and Noto Sans Medium, from the Google Fonts release
+- `font-maker` git tag `v0.0.1` (commit `46fac6c`, `maplibre/font-maker`) — this
+  is the tool's only tagged release; it has no npm package or semver line, so
+  the pin is the git tag, built from a `git clone --recursive` checkout via
+  `cmake . && make` per the repository's `CONTRIBUTING.md`
+- Noto Sans, release tag `NotoSans-v2.015` from `notofonts/latin-greek-cyrillic`
+  — the Latin/Greek/Cyrillic split covers both the interface's English and the
+  Cyrillic `name:bg` labels; a plain "Google Fonts" download is not a pin,
+  because Google Fonts does not expose a version history to point at
 
 Pin these. A basemap regenerated with a different planetiler produces different
-layer names, and `style.json` references layer names.
+layer names, and `style.json` references layer names. The same logic applies to
+the glyph half of the procedure: a different `font-maker` build or a different
+Noto Sans release can shift which codepoints exist or how they're shaped,
+which surfaces as labels rendering wrong or not at all — silently, the same
+failure class the startup couplings exist to prevent.
 
 ## 1. The extract
 
