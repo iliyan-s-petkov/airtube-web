@@ -69,13 +69,6 @@ func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, cfg config.Config
 	// different package for an indexing operation is exactly the kind of
 	// invariant that survives a refactor of validate.go silently until this
 	// panics in production.
-	// config.Config.Validate rejects an empty series.periods list before
-	// LoadFile ever returns one, so this cannot happen with the config this
-	// package actually gets called with today. Guarded anyway: this function
-	// already returns an error, and relying on a guarantee enforced by a
-	// different package for an indexing operation is exactly the kind of
-	// invariant that survives a refactor of validate.go silently until this
-	// panics in production.
 	if len(cfg.Series.PeriodNames) == 0 {
 		return nil, fmt.Errorf("web: config.Series.PeriodNames is empty")
 	}
