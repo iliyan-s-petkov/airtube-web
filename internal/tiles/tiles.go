@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 )
 
@@ -109,12 +110,17 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // an escape from the directory structurally impossible, and this makes anything
 // else that happens to sit inside it — a build log, a half-written temp file —
 // unreachable.
-//
-// The comparison is literal: nothing here cleans or normalises the path, so a
-// probe carrying "." or ".." segments fails to match an allowlisted name and is
-// refused on that basis alone. Adding a separate unclean-path check would be a
-// line that can never fire.
 func allowed(p string) bool {
+	// A path with "." or ".." segments is never one style.json generates; it is
+	// only ever a probe. Refusing it outright is cheaper than reasoning about
+	// where each one resolves to: "/glyphs/../0-255.pbf" has three segments and
+	// a .pbf suffix, so the glyphs pattern below accepts it, and net/http cleans
+	// it to a top-level file outside glyphs/ before opening. os.DirFS still bounds
+	// it to dir, so this is not an escape — but it is a wider allowlist than the
+	// one this function claims to be.
+	if p != path.Clean(p) {
+		return false
+	}
 	p = strings.TrimPrefix(p, "/")
 	for _, name := range required {
 		if p == name {

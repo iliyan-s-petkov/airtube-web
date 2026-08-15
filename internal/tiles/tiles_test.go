@@ -75,6 +75,8 @@ func TestPathTraversal(t *testing.T) {
 		"/..%2f..%2fetc%2fpasswd",
 		"/glyphs/../../style.json",
 		"//etc/passwd",
+		"/glyphs/../0-255.pbf",
+		"/glyphs/./0-255.pbf",
 	} {
 		resp := do(t, h, http.MethodGet, target, nil)
 		if resp.StatusCode == http.StatusOK {
