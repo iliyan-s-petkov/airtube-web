@@ -31,6 +31,13 @@ func testScorer() *quality.Scorer {
 		NeighbourRadiusMetres: 15000.0,
 		EarthRadiusMetres:     6371000.0,
 		HistoryDepth:          12,
+		PMRatioThreshold:      5.0,
+		PMAbsoluteThreshold:   150.0,
+		SmoothFieldFloors: map[string]float64{
+			"temperature": 1.5,
+			"humidity":    8,
+			"pressure":    3,
+		},
 		Ranges: map[string]config.Range{
 			"P1":           {Min: 0, Max: 1000},
 			"P2":           {Min: 0, Max: 1000},

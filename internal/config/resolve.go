@@ -127,6 +127,15 @@ type Quality struct {
 	NeighbourRadiusMetres float64
 	EarthRadiusMetres     float64
 	HistoryDepth          int
+	// PMRatioThreshold and PMAbsoluteThreshold are the PM guard: a reading must
+	// exceed BOTH — many times the neighbourhood median AND high in absolute
+	// terms — before it is called an outlier.
+	PMRatioThreshold    float64
+	PMAbsoluteThreshold float64
+	// SmoothFieldFloors is keyed by canonical metric name and holds only the
+	// metrics that vary smoothly across space. Membership is meaningful: a
+	// metric absent from this map has no spatial expectation at all.
+	SmoothFieldFloors map[string]float64
 	// Ranges is keyed by canonical metric name.
 	Ranges map[string]Range
 }
@@ -227,6 +236,13 @@ func resolve(r *raw) Config {
 			NeighbourRadiusMetres: *r.Quality.NeighbourRadiusMetres,
 			EarthRadiusMetres:     *r.Quality.EarthRadiusMetres,
 			HistoryDepth:          *r.Quality.HistoryDepth,
+			PMRatioThreshold:      *r.Quality.PMRatioThreshold,
+			PMAbsoluteThreshold:   *r.Quality.PMAbsoluteThreshold,
+			SmoothFieldFloors: map[string]float64{
+				"temperature": *r.Quality.SmoothFieldFloors.Temperature,
+				"humidity":    *r.Quality.SmoothFieldFloors.Humidity,
+				"pressure":    *r.Quality.SmoothFieldFloors.Pressure,
+			},
 			Ranges: map[string]Range{
 				"P1":           resolveRange(r.Quality.Ranges.P1),
 				"P2":           resolveRange(r.Quality.Ranges.P2),

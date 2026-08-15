@@ -11,14 +11,25 @@ import (
 
 // testScorer builds a Scorer with the same values airbg.yaml ships, so the
 // existing assertions keep asserting the same thresholds.
-func testScorer() *Scorer {
-	return NewScorer(config.Quality{
+func testScorer() *Scorer { return NewScorer(testQuality()) }
+
+// testQuality is testScorer's configuration, exposed separately so a test can
+// vary ONE threshold and leave the rest as shipped.
+func testQuality() config.Quality {
+	return config.Quality{
 		MinNeighbours:         3,
 		MADScale:              1.4826,
 		MADThreshold:          3.5,
 		NeighbourRadiusMetres: 15000.0,
 		EarthRadiusMetres:     6371000.0,
 		HistoryDepth:          12,
+		PMRatioThreshold:      5.0,
+		PMAbsoluteThreshold:   150.0,
+		SmoothFieldFloors: map[string]float64{
+			"temperature": 1.5,
+			"humidity":    8,
+			"pressure":    3,
+		},
 		Ranges: map[string]config.Range{
 			"P1":           {Min: 0, Max: 1000},
 			"P2":           {Min: 0, Max: 1000},
@@ -28,7 +39,7 @@ func testScorer() *Scorer {
 			"noise_LAeq":   {Min: 25, Max: 120},
 			"noise_LA_max": {Min: 25, Max: 120},
 		},
-	})
+	}
 }
 
 // Sofia, and points roughly 1 km apart from it.

@@ -275,6 +275,17 @@ func (c Config) validateQuality(p *problems) {
 	if q.HistoryDepth < 1 {
 		p.addf("quality.history_depth = %d, must be at least 1", q.HistoryDepth)
 	}
+	// Both PM guards must be positive: a zero ratio or a zero absolute floor
+	// turns "flag only what is both relatively and absolutely extreme" into
+	// "flag every reading above the median", which discards the point-source
+	// spikes that are the signal PM monitoring exists for.
+	p.positiveFloat("quality.pm_ratio_threshold", q.PMRatioThreshold)
+	p.positiveFloat("quality.pm_absolute_threshold", q.PMAbsoluteThreshold)
+	// A zero or negative floor lets an unusually tight neighbourhood (MAD near
+	// zero) flag ordinary variation as an outlier.
+	for _, metric := range []string{"temperature", "humidity", "pressure"} {
+		p.positiveFloat("quality.smooth_field_floors."+metric, q.SmoothFieldFloors[metric])
+	}
 	for metric := range canonicalMetrics {
 		rng, ok := q.Ranges[metric]
 		if !ok {

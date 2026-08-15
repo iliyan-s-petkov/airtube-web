@@ -193,6 +193,26 @@ quality:
   earth_radius_metres: 6371000.0
   # Readings kept per sensor for the rejection-rate history.
   history_depth: 12
+  # The PM guard. A PM reading must exceed BOTH of these to be flagged: many
+  # times the neighbourhood median AND high in absolute terms. That catches a
+  # sensor stuck at 900 on a street reading 30 while leaving a genuine
+  # 200 µg/m³ inversion episode untouched — PM is dominated by point sources,
+  # so an extreme local reading is usually the signal, not noise (spec §6.3).
+  pm_ratio_threshold: 5.0
+  pm_absolute_threshold: 150.0
+  # The metrics that vary smoothly across space, so neighbouring sensors
+  # genuinely should agree. The floor is the smallest deviation that may ever
+  # be called an outlier; it stops an unusually tight neighbourhood (MAD near
+  # zero) from flagging normal variation.
+  #
+  # PM is deliberately not here — see the guard above. Noise is not here
+  # either: it is genuinely local and has no spatial expectation at all, so it
+  # is never spatially checked. Adding a key for either is a strict-decode
+  # error, because which metrics are smooth is a code fact, not a setting.
+  smooth_field_floors:
+    temperature: 1.5
+    humidity: 8.0
+    pressure: 3.0
   # Plausibility gates. A reading outside its range is rejected before it can
   # reach an average. These are instrument ranges, not air-quality thresholds.
   ranges:

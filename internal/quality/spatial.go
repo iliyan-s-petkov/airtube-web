@@ -11,27 +11,15 @@ import (
 // that converts MAD to a standard-deviation-equivalent, and how many scaled
 // MADs constitutes an outlier, respectively.
 
-// smoothFieldFloors lists the metrics whose values vary smoothly across space,
-// so neighbouring sensors genuinely should agree. The floor is the smallest
-// deviation that may ever be called an outlier, which prevents an unusually
-// tight neighbourhood (MAD near zero) from flagging normal variation.
+// The smooth-field floors and the two PM guard thresholds now live in
+// config.Quality too (airbg.yaml quality.smooth_field_floors,
+// quality.pm_ratio_threshold, quality.pm_absolute_threshold): the smallest
+// deviation that may ever be called an outlier for each metric that varies
+// smoothly across space, and the ratio-plus-absolute pair that a PM reading
+// must exceed BOTH of before it is flagged.
 //
-// PM is deliberately absent: it is dominated by point sources, so genuine
-// extreme local readings are the signal, not noise. See pmSpatialCheck.
-var smoothFieldFloors = map[string]float64{
-	"temperature": 1.5,
-	"humidity":    8,
-	"pressure":    3,
-}
-
-// PM guard thresholds. A reading must exceed BOTH to be flagged: many times the
-// neighbourhood median AND high in absolute terms. This catches a sensor stuck
-// at 900 on a street reading 30, while leaving a genuine 200 µg/m³ inversion
-// episode untouched (spec §6.3).
-const (
-	pmRatioThreshold    = 5.0
-	pmAbsoluteThreshold = 150.0
-)
+// Membership of the floors map is itself meaningful, not just its values: a
+// metric absent from it (PM, noise) has no smooth spatial expectation.
 
 type Neighbour struct {
 	Lon, Lat float64
@@ -80,10 +68,10 @@ func (s *Scorer) SpatialCheck(metric string, value float64, neighbours []Neighbo
 	}
 
 	if metric == "P1" || metric == "P2" {
-		return pmSpatialCheck(value, values)
+		return s.pmSpatialCheck(value, values)
 	}
 
-	floor, isSmooth := smoothFieldFloors[metric]
+	floor, isSmooth := s.cfg.SmoothFieldFloors[metric]
 	if !isSmooth {
 		// Noise is neither smooth nor guarded: it is genuinely local and has no
 		// meaningful spatial expectation.
@@ -99,12 +87,12 @@ func (s *Scorer) SpatialCheck(metric string, value float64, neighbours []Neighbo
 	return FlagOK
 }
 
-func pmSpatialCheck(value float64, values []float64) Flag {
+func (s *Scorer) pmSpatialCheck(value float64, values []float64) Flag {
 	median, _ := MedianAbsoluteDeviation(values)
 	if median <= 0 {
 		return FlagOK
 	}
-	if value > pmRatioThreshold*median && value > pmAbsoluteThreshold {
+	if value > s.cfg.PMRatioThreshold*median && value > s.cfg.PMAbsoluteThreshold {
 		return FlagSpatialOutlier
 	}
 	return FlagOK

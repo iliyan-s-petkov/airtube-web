@@ -139,7 +139,20 @@ type rawQuality struct {
 	NeighbourRadiusMetres *float64   `yaml:"neighbour_radius_metres"`
 	EarthRadiusMetres     *float64   `yaml:"earth_radius_metres"`
 	HistoryDepth          *int       `yaml:"history_depth"`
+	PMRatioThreshold      *float64   `yaml:"pm_ratio_threshold"`
+	PMAbsoluteThreshold   *float64   `yaml:"pm_absolute_threshold"`
+	SmoothFieldFloors     *rawFloors `yaml:"smooth_field_floors"`
 	Ranges                *rawRanges `yaml:"ranges"`
+}
+
+// rawFloors is a fixed struct rather than a map[string]float64 for the same
+// reason rawRanges is: the set of smooth fields is a code fact (each one has a
+// spatial check written for it), so an operator adding a fourth key must get a
+// strict-decode error, not a silently ignored entry.
+type rawFloors struct {
+	Temperature *float64 `yaml:"temperature"`
+	Humidity    *float64 `yaml:"humidity"`
+	Pressure    *float64 `yaml:"pressure"`
 }
 
 type rawRanges struct {

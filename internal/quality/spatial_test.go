@@ -87,6 +87,71 @@ func TestBrokenPMSensorIsFlagged(t *testing.T) {
 	}
 }
 
+// TestPMGuardThresholdsAreTheConfiguredOnes pins each half of the PM guard
+// separately, against a case the OTHER half does not already decide.
+//
+// The existing PM tests cannot do this: with the shipped values every one of
+// them still passes when either threshold alone is mutated, because whichever
+// guard is left intact keeps deciding the verdict (a 120 against a median of 29
+// is under 5x AND under 150). So the two constants were pinned by nothing
+// before they moved into airbg.yaml, and inert_test.go only pins the file →
+// Config half. This is the Config → SpatialCheck half.
+func TestPMGuardThresholdsAreTheConfiguredOnes(t *testing.T) {
+	// Median 40. 5 x 40 = 200, so the ratio guard alone decides anything
+	// between 150 and 200, and the absolute guard alone decides anything above
+	// 200 that is under the absolute floor.
+	neighbours := []Neighbour{{Value: 38}, {Value: 42}, {Value: 40}, {Value: 40}}
+
+	// 180: over the absolute floor (150) but only 4.5x the median, so the ratio
+	// guard is what spares it.
+	if got := testScorer().SpatialCheck("P1", 180, neighbours); got != FlagOK {
+		t.Fatalf("shipped values: SpatialCheck(180) = %v, want %v", got, FlagOK)
+	}
+	tighter := testQuality()
+	tighter.PMRatioThreshold = 4.0
+	if got := NewScorer(tighter).SpatialCheck("P1", 180, neighbours); got != FlagSpatialOutlier {
+		t.Errorf("with pm_ratio_threshold = 4: SpatialCheck(180) = %v, want %v; "+
+			"the ratio guard is not reading quality.pm_ratio_threshold", got, FlagSpatialOutlier)
+	}
+
+	// 210: 5.25x the median AND over 150, so both guards agree. Raising the
+	// absolute floor above it must spare it, which only the absolute guard can
+	// do.
+	if got := testScorer().SpatialCheck("P1", 210, neighbours); got != FlagSpatialOutlier {
+		t.Fatalf("shipped values: SpatialCheck(210) = %v, want %v", got, FlagSpatialOutlier)
+	}
+	looser := testQuality()
+	looser.PMAbsoluteThreshold = 250.0
+	if got := NewScorer(looser).SpatialCheck("P1", 210, neighbours); got != FlagOK {
+		t.Errorf("with pm_absolute_threshold = 250: SpatialCheck(210) = %v, want %v; "+
+			"the absolute guard is not reading quality.pm_absolute_threshold", got, FlagOK)
+	}
+}
+
+// TestSmoothFieldFloorIsTheConfiguredOne pins that the per-metric floor comes
+// from quality.smooth_field_floors, and that a metric's ABSENCE from that map
+// still means "no spatial expectation at all" rather than "floor of zero".
+func TestSmoothFieldFloorIsTheConfiguredOne(t *testing.T) {
+	// MAD is zero, so the floor is the whole decision.
+	neighbours := []Neighbour{{Value: 20}, {Value: 20}, {Value: 20}, {Value: 20}}
+
+	if got := testScorer().SpatialCheck("temperature", 21, neighbours); got != FlagOK {
+		t.Fatalf("shipped floor 1.5: SpatialCheck(21) = %v, want %v", got, FlagOK)
+	}
+	tighter := testQuality()
+	tighter.SmoothFieldFloors["temperature"] = 0.5
+	if got := NewScorer(tighter).SpatialCheck("temperature", 21, neighbours); got != FlagSpatialOutlier {
+		t.Errorf("with smooth_field_floors.temperature = 0.5: SpatialCheck(21) = %v, want %v",
+			got, FlagSpatialOutlier)
+	}
+
+	// Noise is not in the map and must stay unchecked: a wildly deviating
+	// value is FlagOK, not an outlier.
+	if got := testScorer().SpatialCheck("noise_LAeq", 119, neighbours); got != FlagOK {
+		t.Errorf("noise_LAeq is absent from smooth_field_floors: SpatialCheck = %v, want %v", got, FlagOK)
+	}
+}
+
 func TestTooFewNeighbours(t *testing.T) {
 	neighbours := []Neighbour{{Value: -10}, {Value: -9}}
 	if got := testScorer().SpatialCheck("temperature", 22, neighbours); got != FlagNoNeighbours {

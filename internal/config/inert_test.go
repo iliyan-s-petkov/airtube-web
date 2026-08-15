@@ -113,6 +113,17 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			{"quality.neighbour_radius_metres", cfg.Quality.NeighbourRadiusMetres, 15000},
 			{"quality.earth_radius_metres", cfg.Quality.EarthRadiusMetres, 6371000},
 			{"quality.history_depth", float64(cfg.Quality.HistoryDepth), 12},
+			// quality/spatial.go's pmRatioThreshold and pmAbsoluteThreshold.
+			{"quality.pm_ratio_threshold", cfg.Quality.PMRatioThreshold, 5.0},
+			{"quality.pm_absolute_threshold", cfg.Quality.PMAbsoluteThreshold, 150.0},
+			// quality/spatial.go's smoothFieldFloors, entry by entry.
+			{"quality.smooth_field_floors.temperature", cfg.Quality.SmoothFieldFloors["temperature"], 1.5},
+			{"quality.smooth_field_floors.humidity", cfg.Quality.SmoothFieldFloors["humidity"], 8},
+			{"quality.smooth_field_floors.pressure", cfg.Quality.SmoothFieldFloors["pressure"], 3},
+			// Membership is behaviour, not just the values: PM and noise were
+			// absent from the map this replaced, and a fourth entry would start
+			// spatially checking a metric that was never checked before.
+			{"len(quality.smooth_field_floors)", float64(len(cfg.Quality.SmoothFieldFloors)), 3},
 			{"backfill.high_rejection_fraction", cfg.Backfill.HighRejectionFraction, 0.5},
 			{"frontend.zoom_city", float64(cfg.Frontend.ZoomCity), 9},
 			{"frontend.zoom_sensor", float64(cfg.Frontend.ZoomSensor), 11},
