@@ -29,8 +29,15 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|import-areas|purge-outside-boundary>")
+		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|import-areas|purge-outside-boundary|validate-config>")
 		os.Exit(2)
+	}
+
+	// validate-config is checked before any database or listener setup: it
+	// exists so an operator can catch a bad airbg.yaml before deploying
+	// rather than at server start.
+	if os.Args[1] == "validate-config" {
+		os.Exit(runValidateConfig(os.Stdout, os.Stderr))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
