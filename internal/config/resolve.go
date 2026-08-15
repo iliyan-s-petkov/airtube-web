@@ -58,17 +58,27 @@ type StatementTimeouts struct {
 
 type RateLimit struct {
 	API        Bucket
-	Series     Bucket
+	Series     SeriesBucket
 	Enumerate  Enumerate
 	ShardCount int
 }
 
+// Bucket carries no RetryAfter: a rate-limited client's Retry-After is computed
+// from its own token deficit, never configured. See rawBucket.
 type Bucket struct {
 	PerSecond     float64
 	Burst         float64
 	TTL           time.Duration
 	EvictInterval time.Duration
-	RetryAfter    time.Duration
+}
+
+// SeriesBucket is the series bucket plus the admission-pressure hint. RetryAfter
+// here is the 503 Retry-After of internal/api/series.go's admitQuery, not a
+// rate-limit value; embedding Bucket keeps ratelimit.New's argument the plain
+// bucket, so the two cannot be confused at a call site.
+type SeriesBucket struct {
+	Bucket
+	RetryAfter time.Duration
 }
 
 type Enumerate struct {
@@ -181,7 +191,7 @@ func resolve(r *raw) Config {
 		},
 		RateLimit: RateLimit{
 			API:        resolveBucket(r.RateLimit.API),
-			Series:     resolveBucket(r.RateLimit.Series),
+			Series:     resolveSeriesBucket(r.RateLimit.Series),
 			ShardCount: *r.RateLimit.ShardCount,
 			Enumerate: Enumerate{
 				AreasPerWindow:   *r.RateLimit.Enumerate.AreasPerWindow,
@@ -263,7 +273,18 @@ func resolveBucket(b *rawBucket) Bucket {
 		Burst:         *b.Burst,
 		TTL:           b.TTL.Std(),
 		EvictInterval: b.EvictInterval.Std(),
-		RetryAfter:    b.RetryAfter.Std(),
+	}
+}
+
+func resolveSeriesBucket(b *rawSeriesBucket) SeriesBucket {
+	return SeriesBucket{
+		Bucket: Bucket{
+			PerSecond:     *b.PerSecond,
+			Burst:         *b.Burst,
+			TTL:           b.TTL.Std(),
+			EvictInterval: b.EvictInterval.Std(),
+		},
+		RetryAfter: b.RetryAfter.Std(),
 	}
 }
 

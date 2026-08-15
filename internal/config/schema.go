@@ -56,13 +56,33 @@ type rawStatementTimeouts struct {
 }
 
 type rawRateLimit struct {
-	API        *rawBucket    `yaml:"api"`
-	Series     *rawBucket    `yaml:"series"`
-	Enumerate  *rawEnumerate `yaml:"enumerate"`
-	ShardCount *int          `yaml:"shard_count"`
+	API        *rawBucket       `yaml:"api"`
+	Series     *rawSeriesBucket `yaml:"series"`
+	Enumerate  *rawEnumerate    `yaml:"enumerate"`
+	ShardCount *int             `yaml:"shard_count"`
 }
 
+// rawBucket deliberately has no retry_after. The 429 a token bucket produces
+// carries a Retry-After computed from that client's own token deficit
+// (internal/ratelimit/bucket.go, internal/httpx/chain.go), which tells the
+// caller when tokens will actually be available; a static key would only ever
+// be a less accurate second answer, and was verified to be read by nothing.
 type rawBucket struct {
+	PerSecond     *float64  `yaml:"per_second"`
+	Burst         *float64  `yaml:"burst"`
+	TTL           *Duration `yaml:"ttl"`
+	EvictInterval *Duration `yaml:"evict_interval"`
+}
+
+// rawSeriesBucket is rawBucket plus retry_after, which is live: it is the hint
+// on the 503 the series routes return when the database admission pool is full
+// (internal/api/series.go's admitQuery) — an admission decision, not a
+// rate-limit one, so it is not computable from any bucket's token deficit.
+//
+// Written out flat rather than embedding rawBucket: missingKeys and applyEnv
+// walk yaml tags by reflection, and a `,inline` embedded struct has no key name
+// for them to build a dotted path from.
+type rawSeriesBucket struct {
 	PerSecond     *float64  `yaml:"per_second"`
 	Burst         *float64  `yaml:"burst"`
 	TTL           *Duration `yaml:"ttl"`

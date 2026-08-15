@@ -170,13 +170,12 @@ func (c Config) validateDatabase(p *problems) {
 func (c Config) validateRateLimit(p *problems) {
 	for path, b := range map[string]Bucket{
 		"ratelimit.api":    c.RateLimit.API,
-		"ratelimit.series": c.RateLimit.Series,
+		"ratelimit.series": c.RateLimit.Series.Bucket,
 	} {
 		p.positiveFloat(path+".per_second", b.PerSecond)
 		p.positiveFloat(path+".burst", b.Burst)
 		p.positive(path+".ttl", b.TTL)
 		p.positive(path+".evict_interval", b.EvictInterval)
-		p.positive(path+".retry_after", b.RetryAfter)
 		if b.Burst < b.PerSecond {
 			p.addf("%s.burst (%v) is below .per_second (%v); the bucket could never fill for one second of traffic", path, b.Burst, b.PerSecond)
 		}
@@ -184,6 +183,9 @@ func (c Config) validateRateLimit(p *problems) {
 			p.addf("%s.evict_interval (%v) exceeds .ttl (%v); entries would outlive their bucket", path, b.EvictInterval, b.TTL)
 		}
 	}
+	// Only the series bucket carries a retry_after: it is the 503 admission hint,
+	// not a rate-limit value. The API bucket's 429 Retry-After is computed.
+	p.positive("ratelimit.series.retry_after", c.RateLimit.Series.RetryAfter)
 	e := c.RateLimit.Enumerate
 	p.positiveInt("ratelimit.enumerate.areas_per_window", e.AreasPerWindow)
 	p.positiveInt("ratelimit.enumerate.sensors_per_window", e.SensorsPerWindow)

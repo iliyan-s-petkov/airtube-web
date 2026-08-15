@@ -171,7 +171,7 @@ func joinComma(items []string) string {
 // Deliberately keyed on the same client key as the global bucket, so the two
 // limits compose rather than each granting a separate allowance.
 func NewSeriesLimiter(cfg config.Config) *ratelimit.Limiter {
-	return ratelimit.New(cfg.RateLimit.Series, cfg.RateLimit.ShardCount)
+	return ratelimit.New(cfg.RateLimit.Series.Bucket, cfg.RateLimit.ShardCount)
 }
 
 // defaultSeriesLimiterOnce and defaultSeriesLimiterVal back defaultSeriesLimiter.

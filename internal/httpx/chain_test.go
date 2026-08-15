@@ -24,7 +24,6 @@ func testBucket(perSecond, burst float64, ttl time.Duration) config.Bucket {
 		Burst:         burst,
 		TTL:           ttl,
 		EvictInterval: 5 * time.Minute,
-		RetryAfter:    2 * time.Second,
 	}
 }
 

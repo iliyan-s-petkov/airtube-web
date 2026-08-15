@@ -80,12 +80,14 @@ database:
     series: "5s"
 
 ratelimit:
+  # No retry_after here, and none is possible: the Retry-After on a 429 is
+  # computed from the refusing client's own token deficit, so it names the
+  # moment a token actually exists rather than a fixed guess.
   api:
     per_second: 10
     burst: 60
     ttl: "30m"
     evict_interval: "5m"
-    retry_after: "2s"
   # The series routes are the expensive ones and get their own, much tighter
   # bucket. Worst case is one series request per page load.
   series:
@@ -93,6 +95,10 @@ ratelimit:
     burst: 10
     ttl: "30m"
     evict_interval: "5m"
+    # NOT the 429 hint: this is the Retry-After on the 503 the series routes
+    # return when the database admission pool is full (api.admitQuery). Long
+    # enough for in-flight queries to drain, short enough that a legitimate
+    # reader's chart appears late rather than never.
     retry_after: "2s"
   # Breadth limiting: not about request rate but about how much of the dataset
   # one client can enumerate. Anti-extraction here is tiering plus rate
