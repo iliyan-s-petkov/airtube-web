@@ -493,6 +493,28 @@ func TestMapIslandRendersFrontendConfiguration(t *testing.T) {
 	}
 }
 
+// TestHomeMapIslandRendersTheConfiguredDefaultView pins the home page's opening
+// view against airbg.yaml's frontend.default_* literals.
+//
+// index.gohtml carried these three as attribute literals while area.gohtml
+// templated its own — so the home page silently ignored configuration, and the
+// same numbers lived a second time in api/locate.go. Only the home page is
+// asserted here: /area/sofia's view comes from the area row, not from
+// frontend.default_*.
+func TestHomeMapIslandRendersTheConfiguredDefaultView(t *testing.T) {
+	rr := renderer(t, fixture(t))
+	tag := islandTag(t, fetch(t, rr, "/").Body.String(), "map")
+	for _, want := range []string{
+		`data-zoom="7"`,
+		`data-lon="25.4858"`,
+		`data-lat="42.7339"`,
+	} {
+		if !strings.Contains(tag, want) {
+			t.Errorf("the home map island's tag is missing %s: %s", want, tag)
+		}
+	}
+}
+
 // TestChartIslandRendersLineColourAndDefaults pins the chart island's stroke
 // colour and its default metric/period against airbg.yaml's committed
 // literals — frontend.chart_line_colour, series.default_metric, and the first

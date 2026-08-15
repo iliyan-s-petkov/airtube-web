@@ -314,12 +314,21 @@ func (c Config) validateFrontend(p *problems) {
 		}
 	}
 	for path, zoom := range map[string]int{
-		"frontend.zoom_city":   c.Frontend.ZoomCity,
-		"frontend.zoom_sensor": c.Frontend.ZoomSensor,
+		"frontend.zoom_city":    c.Frontend.ZoomCity,
+		"frontend.zoom_sensor":  c.Frontend.ZoomSensor,
+		"frontend.default_zoom": c.Frontend.DefaultZoom,
 	} {
 		if zoom < 0 || zoom > 24 {
 			p.addf("%s = %d, must be between 0 and 24", path, zoom)
 		}
+	}
+	// The fallback view is shown to a visitor the service knows nothing about,
+	// so an off-globe coordinate would be a blank map with no error anywhere.
+	if lon := c.Frontend.DefaultLon; lon < -180 || lon > 180 {
+		p.addf("frontend.default_lon = %v, must be between -180 and 180", lon)
+	}
+	if lat := c.Frontend.DefaultLat; lat < -90 || lat > 90 {
+		p.addf("frontend.default_lat = %v, must be between -90 and 90", lat)
 	}
 	if c.Frontend.ZoomCity >= c.Frontend.ZoomSensor {
 		p.addf("frontend.zoom_city (%d) must be below frontend.zoom_sensor (%d); the tiers are country, then city, then sensor", c.Frontend.ZoomCity, c.Frontend.ZoomSensor)

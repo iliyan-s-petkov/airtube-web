@@ -195,9 +195,14 @@ export function readConfig(el) {
   const d = el.dataset
   return {
     slug: d.slug || null,
-    zoom: Number(d.zoom ?? 7),
-    lon: Number(d.lon ?? 25.4858),
-    lat: Number(d.lat ?? 42.7339),
+    // No fallbacks: the opening view is configuration
+    // (frontend.default_zoom/default_lon/default_lat, or the area's own
+    // centre), and the server renders all three on every map island. A
+    // hardcoded 7/25.4858/42.7339 here would numerically agree with today's
+    // airbg.yaml while masking a server that stopped rendering them.
+    zoom: Number(d.zoom),
+    lon: Number(d.lon),
+    lat: Number(d.lat),
     // No fallback: series.default_metric is configuration. A hardcoded 'P2'
     // here would silently mask a missing data-metric attribute AND would be
     // the exact duplicated constant this phase removes — the server always

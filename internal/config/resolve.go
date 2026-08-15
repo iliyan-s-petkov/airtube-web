@@ -156,6 +156,12 @@ type Frontend struct {
 	ChartLineColour    string
 	ZoomCity           int
 	ZoomSensor         int
+	// The national fallback view: roughly Bulgaria's centre, at a zoom that
+	// fits the country. Used for the home page's map and for a visitor whose
+	// location cannot be determined (internal/api/locate.go).
+	DefaultZoom int
+	DefaultLon  float64
+	DefaultLat  float64
 }
 
 type Basemap struct {
@@ -263,6 +269,9 @@ func resolve(r *raw) Config {
 			ChartLineColour:    *r.Frontend.ChartLineColour,
 			ZoomCity:           *r.Frontend.ZoomCity,
 			ZoomSensor:         *r.Frontend.ZoomSensor,
+			DefaultZoom:        *r.Frontend.DefaultZoom,
+			DefaultLon:         *r.Frontend.DefaultLon,
+			DefaultLat:         *r.Frontend.DefaultLat,
 		},
 		Basemap: Basemap{
 			StyleURL: *r.Basemap.StyleURL,

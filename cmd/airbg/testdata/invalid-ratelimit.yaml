@@ -264,6 +264,15 @@ frontend:
   # the map shows country-level aggregates; below zoom_sensor, city-level.
   zoom_city: 9
   zoom_sensor: 11
+  # The national fallback view: roughly Bulgaria's centre, at a zoom that fits
+  # the country. It is what the home page's map opens on and what
+  # /api/v1/locate returns for a visitor abroad, a visitor whose location
+  # cannot be determined, and every request in a deployment without
+  # Cloudflare — one home for the value, because a page and an API answer that
+  # disagree about "all of Bulgaria" is a bug nobody sees until it is live.
+  default_zoom: 7
+  default_lon: 25.4858
+  default_lat: 42.7339
 
 basemap:
   # {key} is substituted from AIRBG_BASEMAP_KEY at startup. Userinfo in this

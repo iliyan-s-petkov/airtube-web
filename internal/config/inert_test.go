@@ -127,6 +127,11 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			{"backfill.high_rejection_fraction", cfg.Backfill.HighRejectionFraction, 0.5},
 			{"frontend.zoom_city", float64(cfg.Frontend.ZoomCity), 9},
 			{"frontend.zoom_sensor", float64(cfg.Frontend.ZoomSensor), 11},
+			// api/locate.go's defaultZoom/defaultLon/defaultLat, which
+			// index.gohtml also carried as attribute literals.
+			{"frontend.default_zoom", float64(cfg.Frontend.DefaultZoom), 7},
+			{"frontend.default_lon", cfg.Frontend.DefaultLon, 25.4858},
+			{"frontend.default_lat", cfg.Frontend.DefaultLat, 42.7339},
 		} {
 			if tt.got != tt.want {
 				t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.want)

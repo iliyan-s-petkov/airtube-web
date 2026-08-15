@@ -181,6 +181,12 @@ type rawFrontend struct {
 	ChartLineColour    *string `yaml:"chart_line_colour"`
 	ZoomCity           *int    `yaml:"zoom_city"`
 	ZoomSensor         *int    `yaml:"zoom_sensor"`
+	// The national fallback view. One home for it, because it is rendered into
+	// the home page's map island AND returned by /api/v1/locate; two copies is
+	// how the two views drift apart.
+	DefaultZoom *int     `yaml:"default_zoom"`
+	DefaultLon  *float64 `yaml:"default_lon"`
+	DefaultLat  *float64 `yaml:"default_lat"`
 }
 
 type rawBasemap struct {

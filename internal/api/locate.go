@@ -10,14 +10,12 @@ import (
 	"airbg.org/internal/httpx"
 )
 
-// The national fallback view: roughly Bulgaria's centre, at a zoom that fits the
-// country. Used for a visitor abroad, a visitor whose location cannot be
-// determined, and every request in a deployment without Cloudflare.
-const (
-	defaultLon  = 25.4858
-	defaultLat  = 42.7339
-	defaultZoom = 7
-)
+// The national fallback view — roughly Bulgaria's centre, at a zoom that fits
+// the country — is configuration (airbg.yaml frontend.default_zoom /
+// default_lon / default_lat), not a constant here. It is used for a visitor
+// abroad, a visitor whose location cannot be determined, and every request in a
+// deployment without Cloudflare; the home page's map island opens on the same
+// three numbers, so they have exactly one home.
 
 type locateBody struct {
 	Slug string  `json:"slug"`
@@ -45,7 +43,10 @@ func (d Deps) handleLocate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := locateBody{
-		Lon: defaultLon, Lat: defaultLat, Zoom: defaultZoom, Source: "default",
+		Lon:    d.Config.Frontend.DefaultLon,
+		Lat:    d.Config.Frontend.DefaultLat,
+		Zoom:   d.Config.Frontend.DefaultZoom,
+		Source: "default",
 	}
 
 	// degraded distinguishes the two ways this handler can return the default

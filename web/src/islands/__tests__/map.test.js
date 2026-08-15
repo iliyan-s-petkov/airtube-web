@@ -111,9 +111,20 @@ describe('sensorFeatures', () => {
 // touches el.dataset, so this is exactly as pure as any other object-in,
 // object-out function here, and stays inside the "no jsdom" rule.
 describe('readConfig', () => {
-  it('applies the documented defaults when an attribute is absent', () => {
-    const cfg = readConfig({ dataset: {} })
+  it('reads the opening view from the server-rendered attributes', () => {
+    const cfg = readConfig({ dataset: { zoom: '7', lon: '25.4858', lat: '42.7339' } })
     expect(cfg).toMatchObject({ slug: null, zoom: 7, lon: 25.4858, lat: 42.7339, basemap: '' })
+  })
+
+  // The opening view is configuration too (frontend.default_zoom/_lon/_lat, or
+  // the area's own centre). A JS-side 7/25.4858/42.7339 would agree with
+  // today's airbg.yaml by coincidence while hiding a server that stopped
+  // rendering the attributes — the same rule data-metric follows below.
+  it('has no JS-side default for the opening view', () => {
+    const cfg = readConfig({ dataset: {} })
+    expect(cfg.zoom).toBeNaN()
+    expect(cfg.lon).toBeNaN()
+    expect(cfg.lat).toBeNaN()
   })
 
   // series.default_metric is configuration, not a JS default: a missing

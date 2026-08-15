@@ -135,6 +135,13 @@ type PageData struct {
 	ZoomSensor         int
 	DefaultMetric      string
 	DefaultPeriod      string
+	// The national fallback view the home page's map opens on. Templated, not
+	// written into index.gohtml: the same three numbers are what
+	// /api/v1/locate returns, and a template literal is a second home for
+	// them that no test compares against the first.
+	DefaultZoom int
+	DefaultLon  float64
+	DefaultLat  float64
 
 	cat *i18n.Catalogue
 }
@@ -211,6 +218,9 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		ZoomSensor:         rr.frontend.ZoomSensor,
 		DefaultMetric:      rr.defaultMetric,
 		DefaultPeriod:      rr.defaultPeriod,
+		DefaultZoom:        rr.frontend.DefaultZoom,
+		DefaultLon:         rr.frontend.DefaultLon,
+		DefaultLat:         rr.frontend.DefaultLat,
 	}
 }
 
