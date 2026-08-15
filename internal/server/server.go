@@ -1,10 +1,13 @@
-// Package server assembles the two listeners.
+// Package server assembles the listeners.
 //
-// Two, not one: the public listener carries the middleware chain and the
-// public routes; the private listener carries /metrics and /healthz. Separate
-// listeners rather than a path prefix, because a prefix is one routing mistake
-// away from exposing the counters that tell a scraper whether it is being
-// throttled.
+// Up to three, never one: the public listener carries the middleware chain and
+// the public routes; the private listener carries /metrics and /healthz; the
+// tiles listener carries the self-hosted basemap, and only when one is
+// configured. Separate listeners rather than path prefixes, because a prefix is
+// one routing mistake away from the wrong outcome — for /metrics, exposing the
+// counters that tell a scraper whether it is being throttled; for tiles, either
+// rate-limiting a map load into uselessness or carving out an exemption that
+// covers more than intended.
 package server
 
 import (
@@ -24,6 +27,7 @@ import (
 	"airbg.org/internal/metrics"
 	"airbg.org/internal/ratelimit"
 	"airbg.org/internal/snapshot"
+	"airbg.org/internal/tiles"
 	"airbg.org/internal/web"
 )
 
@@ -40,8 +44,11 @@ type Options struct {
 }
 
 type Server struct {
-	public        *http.Server
-	private       *http.Server
+	public  *http.Server
+	private *http.Server
+	// tiles is nil when no basemap is configured, which is the shipped
+	// configuration. Nil means two listeners, exactly as before.
+	tiles         *http.Server
 	limiter       *ratelimit.Limiter
 	breadth       *ratelimit.Breadth
 	seriesLimiter *ratelimit.Limiter
@@ -142,6 +149,28 @@ func New(opts Options) (*Server, error) {
 		seriesEvictInterval: opts.Config.RateLimit.Series.EvictInterval,
 		shutdownGrace:       opts.Config.Timeouts.ShutdownGrace,
 	}
+
+	if opts.Config.Tiles.Enabled() {
+		// The application's own origin, not "*": the tiles are on a different
+		// host, so every fetch is cross-origin, and "*" would let any page on
+		// the internet read them.
+		h, err := tiles.NewHandler(opts.Config.Tiles.Dir, opts.Config.Listen.BaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("server: tiles: %w", err)
+		}
+		s.tiles = &http.Server{
+			Addr:    opts.Config.Tiles.Addr,
+			Handler: h,
+			// The same timeouts as the other two. A range request for a few
+			// kilobytes is not a slow request, and a client that cannot finish
+			// one inside the write timeout is not a client we serve.
+			ReadHeaderTimeout: opts.Config.Timeouts.ReadHeader,
+			ReadTimeout:       opts.Config.Timeouts.Read,
+			WriteTimeout:      opts.Config.Timeouts.Write,
+			IdleTimeout:       opts.Config.Timeouts.Idle,
+			ErrorLog:          slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
+		}
+	}
 	return s, nil
 }
 
@@ -167,12 +196,18 @@ func privateMux(opts Options) *http.ServeMux {
 	return mux
 }
 
-// Run starts both listeners and blocks until ctx is cancelled, then drains.
+// Run starts every configured listener and blocks until ctx is cancelled, then
+// drains.
 func (s *Server) Run(ctx context.Context) error {
-	errCh := make(chan error, 2)
+	// Buffered for every listener that can send, so a goroutine whose listener
+	// dies during shutdown never blocks forever on an unread channel.
+	errCh := make(chan error, 3)
 
 	go func() { errCh <- s.servePublic() }()
 	go func() { errCh <- listen(s.private) }()
+	if s.tiles != nil {
+		go func() { errCh <- listen(s.tiles) }()
+	}
 
 	s.startEvicting(ctx)
 
@@ -247,6 +282,11 @@ func (s *Server) shutdown() error {
 	err := s.public.Shutdown(ctx)
 	if perr := s.private.Shutdown(ctx); err == nil {
 		err = perr
+	}
+	if s.tiles != nil {
+		if terr := s.tiles.Shutdown(ctx); err == nil {
+			err = terr
+		}
 	}
 	return err
 }

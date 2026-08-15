@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -47,7 +48,18 @@ func free(t *testing.T) string {
 	return addr
 }
 
+// running starts a server with two listeners. tilesDir empty means no basemap,
+// which is the shipped configuration; runningWithTiles covers the other state.
 func running(t *testing.T) (public, private string) {
+	pub, priv, _ := start(t, "")
+	return pub, priv
+}
+
+func runningWithTiles(t *testing.T, tilesDir string) (public, private, tiles string) {
+	return start(t, tilesDir)
+}
+
+func start(t *testing.T, tilesDir string) (public, private, tilesAddr string) {
 	t.Helper()
 
 	cat, err := i18n.Load()
@@ -66,6 +78,14 @@ func running(t *testing.T) (public, private string) {
 	cfg.Listen.Addr = public
 	cfg.Listen.MetricsAddr = private
 	cfg.Listen.BaseURL = "http://" + public
+	if tilesDir != "" {
+		tilesAddr = free(t)
+		cfg.Tiles = config.Tiles{
+			Addr:      tilesAddr,
+			Dir:       tilesDir,
+			PublicURL: "http://" + tilesAddr,
+		}
+	}
 
 	srv, err := server.New(server.Options{
 		Config:    cfg,
@@ -92,7 +112,27 @@ func running(t *testing.T) (public, private string) {
 	})
 
 	waitReady(t, private)
-	return public, private
+	return public, private, tilesAddr
+}
+
+// tilesDir writes a miniature tile directory, so these tests need no
+// 300 MB artefact. The handler serves bytes and never parses them.
+func tilesDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "glyphs", "NotoSans-Regular"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"style.json":                        `{"version":8,"sources":{},"layers":[]}`,
+		"bulgaria.pmtiles":                  "PMTilesFAKEBODY0123456789",
+		"glyphs/NotoSans-Regular/0-255.pbf": "fakeglyphs",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
 }
 
 func waitReady(t *testing.T, addr string) {
@@ -142,6 +182,64 @@ func TestMetricsAreNotOnThePublicListener(t *testing.T) {
 	}
 	if got := get(t, private, "/metrics").StatusCode; got != http.StatusOK {
 		t.Errorf("GET /metrics on the private listener = %d, want 200", got)
+	}
+}
+
+// TestTilesAreNotOnThePublicListener. This is the test that catches a later
+// "simplification" of three listeners back into two. Serving style.json from
+// the public listener would put dozens of range requests per map load through
+// the 10/s API bucket — and any exemption carved out for them is one routing
+// mistake away from covering more than intended.
+func TestTilesAreNotOnThePublicListener(t *testing.T) {
+	public, private, tiles := runningWithTiles(t, tilesDir(t))
+
+	if got := get(t, tiles, "/style.json").StatusCode; got != http.StatusOK {
+		t.Errorf("GET /style.json on the tiles listener = %d, want 200", got)
+	}
+	if got := get(t, public, "/style.json").StatusCode; got == http.StatusOK {
+		t.Error("/style.json is reachable on the public listener")
+	}
+	if got := get(t, private, "/style.json").StatusCode; got == http.StatusOK {
+		t.Error("/style.json is reachable on the private listener")
+	}
+	// The converse, so a future refactor cannot satisfy this test by pointing
+	// all three addresses at one mux that happens to 404 the wrong paths.
+	if got := get(t, tiles, "/api/v1/overview").StatusCode; got == http.StatusOK {
+		t.Error("the API is reachable on the tiles listener")
+	}
+	if got := get(t, tiles, "/metrics").StatusCode; got == http.StatusOK {
+		t.Error("/metrics is reachable on the tiles listener")
+	}
+}
+
+// TestNoTilesStartsTwoListeners. The shipped configuration has no basemap, and
+// it must not open a third socket or fail to start.
+func TestNoTilesStartsTwoListeners(t *testing.T) {
+	public, private := running(t)
+	if got := get(t, public, "/").StatusCode; got != http.StatusOK {
+		t.Errorf("GET / = %d, want 200", got)
+	}
+	if got := get(t, private, "/healthz").StatusCode; got != http.StatusOK {
+		t.Errorf("GET /healthz = %d, want 200", got)
+	}
+}
+
+// TestABadTilesDirIsAStartupError. Discovering a mis-set path from a blank map
+// in production is the outcome this refuses.
+func TestABadTilesDirIsAStartupError(t *testing.T) {
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+	cfg := testConfig(t)
+	holder := snapshot.NewHolder(cfg.Series)
+	cfg.Tiles = config.Tiles{
+		Addr:      "127.0.0.1:0",
+		Dir:       filepath.Join(t.TempDir(), "does-not-exist"),
+		PublicURL: "http://127.0.0.1:8082",
+	}
+	if _, err := server.New(server.Options{Config: cfg, Catalogue: cat, Snapshots: holder}); err == nil {
+		t.Fatal("server.New with a missing tiles.dir returned nil error, want an error")
 	}
 }
 
