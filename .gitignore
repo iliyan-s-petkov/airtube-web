@@ -2,6 +2,9 @@ CLAUDE.md
 
 /airbg
 *.pmtiles
+# ...except the miniature fixture the tiles handler's tests serve. It is 25
+# bytes of source, not a generated archive; the handler never parses it.
+!internal/tiles/testdata/bulgaria.pmtiles
 .env
 .superpowers/
 
