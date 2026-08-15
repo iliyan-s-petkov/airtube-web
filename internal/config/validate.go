@@ -48,6 +48,17 @@ func (p *problems) positiveFloat(path string, x float64) {
 	}
 }
 
+// parseErrorReason extracts the underlying reason from a url.Parse failure
+// without the input string url.Error.Error() would otherwise quote. Used
+// wherever the parsed URL may carry a credential (basemap.style_url has
+// AIRBG_BASEMAP_KEY substituted into its query string before validation).
+func parseErrorReason(err error) string {
+	if ue, ok := err.(*url.Error); ok {
+		return ue.Err.Error()
+	}
+	return err.Error()
+}
+
 func (c Config) Validate() error {
 	var p problems
 
@@ -303,7 +314,13 @@ func (c Config) validateFrontend(p *problems) {
 	if c.Basemap.StyleURL == "" {
 		p.addf("basemap.style_url is empty")
 	} else if u, err := url.Parse(c.Basemap.StyleURL); err != nil {
-		p.addf("basemap.style_url is not a URL: %v", err)
+		// Report the parse failure reason only, never err.Error() or the URL
+		// itself: net/url's *url.Error.Error() quotes the whole input,
+		// including the query string, and AIRBG_BASEMAP_KEY is substituted
+		// into this URL's query before Validate ever sees it. Echoing err
+		// verbatim would put the basemap key in every CI log that runs
+		// validate-config.
+		p.addf("basemap.style_url is not a URL: %s", parseErrorReason(err))
 	} else {
 		if u.Scheme != "http" && u.Scheme != "https" {
 			p.addf("basemap.style_url must use http or https")
