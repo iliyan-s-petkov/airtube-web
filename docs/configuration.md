@@ -66,13 +66,24 @@ Two values are **never** read from the file, because they are credentials and
 | `AIRBG_DATABASE_URL` | The PostgreSQL connection string |
 | `AIRBG_BASEMAP_KEY` | The tile-vendor API key substituted into `basemap.style_url`'s `{key}` placeholder |
 
-Writing either of these — or any recognisable secret-shaped key such as
-`password`, `dsn`, `api_key`, `secret`, or `token` — into `airbg.yaml` is a
-**hard rejection at load time**, not a silently-ignored value. This is
-enforced by `internal/config/load.go`'s `rejectSecrets`, which walks every key
-in the parsed document before the schema is even decoded, so a credential
-pasted into the committed file fails the very first load rather than being
-merely unused.
+Writing either of these into `airbg.yaml` is a **hard rejection at load time**,
+not a silently-ignored value. So is any recognisable secret-shaped key name, at
+any depth: `database_url`, `dsn`, `password`, `basemap_key`, `api_key`,
+`secret`, `token`, and bare **`key`**. One further rejection is by full path
+rather than by name — `database.url` — because `url` is legitimate under
+`upstream` and `basemap` but never under `database`.
+
+This is enforced by `internal/config/load.go`'s `rejectSecrets`, which walks
+every key in the parsed document before the schema is even decoded, so a
+credential pasted into the committed file fails the very first load rather than
+being merely unused. The error names the environment variable the value should
+have gone to; it never echoes the value.
+
+`AIRBG_BASEMAP_KEY` is substituted into `basemap.style_url`'s `{key}`
+placeholder, and that URL is **mandatory and must be non-empty** — an empty
+`basemap.style_url` is a startup error, not "run without a basemap" — because
+its host is concatenated into the Content-Security-Policy, so it must also be
+an absolute http(s) URL with a plain host or `host:port` and no userinfo.
 
 ## 5. What cannot be overridden from the environment
 
@@ -168,3 +179,46 @@ production:
 All of these are enforced in `internal/config/validate.go`; a violation is
 reported alongside every other problem in one `config: N problem(s)` error,
 not one restart at a time.
+
+## 10. Rate limiting: eviction intervals and the two `Retry-After`s
+
+There are three limiters, and they are configured asymmetrically on purpose.
+
+**`evict_interval` is per limiter.** It is how often a limiter's key map is
+swept for idle entries, and bounding that map is a memory-exhaustion defence,
+not housekeeping: every distinct client IP creates an entry, so an unswept map
+is what an attacker grows. Each limiter therefore sweeps on **its own**
+configured interval, in `internal/server/server.go`'s `startEvicting`.
+
+There is exactly one exception, and it is deliberate: the **enumerate/breadth
+limiter has no `evict_interval` key of its own** and is swept on
+`ratelimit.api.evict_interval`. If a key is ever added under
+`ratelimit.enumerate`, `startEvicting` must be changed to use it — an
+undocumented shared value is how `ratelimit.series.evict_interval` came to be
+configured but ignored.
+
+**`retry_after` is not one thing.** The two values that exist answer different
+questions, and one more is deliberately absent:
+
+| Key | Status code | Meaning |
+| --- | --- | --- |
+| *(none under `ratelimit.api`)* | 429 | Not configurable, and not an oversight. The hint on a rate-limit refusal is **computed** from the refusing client's own token deficit, so it names the moment a token actually exists instead of a fixed guess. A configured value here could only be wrong. |
+| `ratelimit.series.retry_after` | 503 | The hint on the series routes' *admission* refusal — the database in-flight cap (`database.max_inflight`) is full. An admission decision, not a rate-limit one: no bucket rejected the request, so nothing about it is computable from a token deficit. |
+| `ratelimit.enumerate.retry_after` | 429 | The breadth limiter's hint. Fixed because that limiter is a fixed window, not a token bucket, so the wait is the window, not a deficit. |
+
+A fourth `Retry-After` exists in the code and is **not** configuration:
+`internal/api/router.go`'s data-not-ready 503, sent when the store has no
+usable data yet. It is about ingest state, not about limits.
+
+## 11. Values that used to be constants
+
+Phase 3b moved the last operational constants out of Go and JavaScript. They
+behave exactly as before; only their home changed, and `internal/config/inert_test.go`
+pins each one to the value of the constant it replaced.
+
+| Key | Consumed by | Meaning |
+| --- | --- | --- |
+| `quality.pm_ratio_threshold` | `internal/quality/spatial.go` | A PM reading is flagged as a spatial outlier only if it exceeds this multiple of its neighbours' median. Guards against flagging a real, genuinely regional pollution episode. |
+| `quality.pm_absolute_threshold` | `internal/quality/spatial.go` | …**and** exceeds this absolute µg/m³ value. Both guards must trip; either alone spares the reading. Raising either makes the flagging more permissive. |
+| `quality.smooth_field_floors.{temperature,humidity,pressure}` | `internal/quality/spatial.go` | Minimum deviation, in each metric's own unit, below which a reading is never flagged however tight its neighbours agree. Without a floor, a cluster of identical readings gives a zero spread and flags ordinary noise. A metric absent from this map (e.g. `noise_LAeq`) has no floor and is never spatially flagged on this path. |
+| `frontend.default_zoom`, `frontend.default_lon`, `frontend.default_lat` | `internal/web/templates/index.gohtml`, `internal/api/locate.go` | The map's opening view — the national fallback used before geolocation resolves, and the body `/api/v1/locate` returns when it cannot place a client. Previously duplicated as three hardcoded literals in a template, a Go file and a JS island; there is now no JS-side fallback, so the attributes the server renders are the only source. |
