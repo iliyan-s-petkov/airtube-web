@@ -730,7 +730,19 @@ func (c Config) validateTiles(p *problems) {
 		// MapLibre fetches the style, the glyphs and the .pmtiles ranges over
 		// fetch/XHR. A connect-src that omits this host fails closed: a blank
 		// map, and nothing anywhere on the server to say why.
-		if !strings.Contains(connectSrc(c.Listen.CSP), u.Host) {
+		// Match whole source expressions, never a substring of the directive:
+		// "not-tiles.airbg.org" contains "tiles.airbg.org", so containment would
+		// accept a policy that blocks the very host it is checking for. Both the
+		// bare host and scheme://host are valid CSP source expressions.
+		origin := u.Scheme + "://" + u.Host
+		found := false
+		for _, tok := range strings.Fields(connectSrc(c.Listen.CSP)) {
+			if tok == origin || tok == u.Host {
+				found = true
+				break
+			}
+		}
+		if !found {
 			p.addf("listen.csp's connect-src does not allow %q, so the browser cannot fetch the basemap from tiles.public_url", u.Host)
 		}
 	}
