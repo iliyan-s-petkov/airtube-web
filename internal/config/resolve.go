@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Config is the resolved configuration: value types, no pointers, no defaults.
 // Every field is guaranteed set, because readRaw refuses to return a schema with
@@ -18,7 +21,7 @@ type Config struct {
 	Quality   Quality
 	Backfill  Backfill
 	Frontend  Frontend
-	Basemap   Basemap
+	Tiles     Tiles
 }
 
 type Listen struct {
@@ -164,17 +167,42 @@ type Frontend struct {
 	DefaultLat  float64
 }
 
-type Basemap struct {
-	// StyleURL already has {key} substituted.
-	StyleURL string
-	// Key is env-only (AIRBG_BASEMAP_KEY).
-	Key string
+// Tiles configures the self-hosted basemap listener. All three keys or none:
+// a partial setting starts a server whose map fetches from nowhere and says
+// nothing about it. Validate enforces that.
+type Tiles struct {
+	// Addr is the third listener's address. It serves static files only — no
+	// pool, no snapshot, no limiter — which is what makes it safe to expose
+	// directly while the application port accepts only Cloudflare's ranges.
+	Addr string
+	// Dir holds bulgaria.pmtiles, style.json and glyphs/.
+	Dir string
+	// PublicURL is what the browser is told to fetch. One home for it: it
+	// produces both the style URL handed to the map island and the origin the
+	// CSP must allow, and two copies is how those two drift apart.
+	PublicURL string
+}
+
+// Enabled reports whether a basemap is configured. Validate guarantees the
+// three keys are all set or all empty, so testing one would do — testing all
+// three keeps this honest if that guarantee is ever weakened.
+func (t Tiles) Enabled() bool {
+	return t.Addr != "" && t.Dir != "" && t.PublicURL != ""
+}
+
+// StyleURL is the MapLibre style document's URL, or empty when no basemap is
+// configured. Empty is not a failure: the map island renders markers over
+// frontend.empty_basemap_colour.
+func (t Tiles) StyleURL() string {
+	if !t.Enabled() {
+		return ""
+	}
+	return strings.TrimSuffix(t.PublicURL, "/") + "/style.json"
 }
 
 // resolve dereferences every pointer in the raw schema. Safe to dereference
 // unconditionally because readRaw has already guaranteed no leaf is nil.
-// Database.URL and Basemap.Key are populated by Task 7 (LoadFile) from
-// environment variables; Basemap.StyleURL arrives with {key} already substituted.
+// Database.URL is populated by LoadFile from the environment.
 func resolve(r *raw) Config {
 	cfg := Config{
 		Listen: Listen{
@@ -273,8 +301,10 @@ func resolve(r *raw) Config {
 			DefaultLon:         *r.Frontend.DefaultLon,
 			DefaultLat:         *r.Frontend.DefaultLat,
 		},
-		Basemap: Basemap{
-			StyleURL: *r.Basemap.StyleURL,
+		Tiles: Tiles{
+			Addr:      *r.Tiles.Addr,
+			Dir:       *r.Tiles.Dir,
+			PublicURL: *r.Tiles.PublicURL,
 		},
 	}
 

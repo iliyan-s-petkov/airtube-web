@@ -25,15 +25,14 @@ var secretKeys = map[string]string{
 	"database_url": "AIRBG_DATABASE_URL",
 	"dsn":          "AIRBG_DATABASE_URL",
 	"password":     "AIRBG_DATABASE_URL",
-	"basemap_key":  "AIRBG_BASEMAP_KEY",
-	"key":          "AIRBG_BASEMAP_KEY",
-	"api_key":      "AIRBG_BASEMAP_KEY",
+	"key":          "an environment variable",
+	"api_key":      "an environment variable",
 	"secret":       "an environment variable",
 	"token":        "an environment variable",
 }
 
-// "url" is legal under upstream and basemap but not under database, so it is
-// checked by full path rather than by name.
+// "url" is legal under upstream but not under database, so it is checked by
+// full path rather than by name.
 var secretPaths = map[string]string{
 	"database.url": "AIRBG_DATABASE_URL",
 }
@@ -250,10 +249,10 @@ func assignScalar(dst reflect.Value, val string) error {
 }
 
 const (
-	// DatabaseURLEnv and BasemapKeyEnv are env-only by design: both are
-	// credentials, and airbg.yaml is committed.
+	// DatabaseURLEnv is env-only by design: it is a credential, and
+	// airbg.yaml is committed. It is the project's only secret — the basemap
+	// is self-hosted and has no vendor to authenticate to.
 	DatabaseURLEnv = "AIRBG_DATABASE_URL"
-	BasemapKeyEnv  = "AIRBG_BASEMAP_KEY"
 )
 
 // Load reads the configuration named by AIRBG_CONFIG. There is no fallback
@@ -273,9 +272,6 @@ func LoadFile(path string) (Config, error) {
 	}
 	cfg := resolve(r)
 	cfg.Database.URL = os.Getenv(DatabaseURLEnv)
-	cfg.Basemap.Key = os.Getenv(BasemapKeyEnv)
-	// The style URL is templated so the key never appears in the committed file.
-	cfg.Basemap.StyleURL = strings.ReplaceAll(cfg.Basemap.StyleURL, "{key}", cfg.Basemap.Key)
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}

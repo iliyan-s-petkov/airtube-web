@@ -10,11 +10,11 @@
 #   listen.metrics_addr         -> AIRBG_LISTEN_METRICS_ADDR
 #   quality.ranges.pressure.min -> AIRBG_QUALITY_RANGES_PRESSURE_MIN
 #
-# Two settings are deliberately absent and env-only, because they are secrets
-# and this file is committed:
+# One setting is deliberately absent and env-only, because it is a secret and
+# this file is committed:
 #   AIRBG_DATABASE_URL  - the PostgreSQL connection string
-#   AIRBG_BASEMAP_KEY   - substituted into basemap.style_url's {key} placeholder
-# Writing either of them into this file is a startup error, not an ignore.
+# Writing it into this file is a startup error, not an ignore. The basemap is
+# self-hosted (see tiles: below) and has no vendor to authenticate to.
 
 listen:
   # Loopback by default and on purpose. The origin must be unreachable except
@@ -46,6 +46,10 @@ listen:
     img-src 'self' data: blob:; font-src 'self'; connect-src 'self';
     worker-src 'self' blob:; object-src 'none'; base-uri 'none';
     form-action 'none'; frame-ancestors 'none'
+  # connect-src stays 'self' because tiles.* ships empty. Configuring a
+  # basemap means adding tiles.public_url's origin here — validation refuses
+  # to start otherwise, since a CSP-blocked fetch produces a blank map and no
+  # error anywhere on the server.
   # Denies every browser capability the site does not use. The threat is the
   # frontend bundle itself: hundreds of transitive npm packages served
   # same-origin under a CSP that trusts 'self'. geolocation stays denied until
@@ -274,7 +278,25 @@ frontend:
   default_lon: 25.4858
   default_lat: 42.7339
 
-basemap:
-  # {key} is substituted from AIRBG_BASEMAP_KEY at startup. Userinfo in this
-  # URL is rejected: it would put a credential in a value the browser fetches.
-  style_url: "https://tiles.example.org/styles/basic/style.json?key={key}"
+# The self-hosted basemap. Empty means no basemap: the map renders sensor
+# markers over frontend.empty_basemap_colour and starts two listeners instead
+# of three. That is the correct setting for local development — no vendor
+# account, and no 300 MB file to download before the site runs.
+#
+# Set all three or none; a partial setting is a startup error, because a map
+# that fetches from nowhere reports nothing. Generating the artefacts is a
+# manual, few-times-a-year procedure: see docs/tiles.md.
+#
+# tiles.addr is a THIRD listener. It holds no database pool, no snapshot, no
+# rate limiter and no admission semaphore, which is what makes it safe to
+# expose directly while the application port accepts connections only from
+# Cloudflare's ranges. Do not merge it into listen.addr: a single map load
+# issues dozens of range requests and would exhaust the API bucket on the
+# first pan.
+#
+# tiles.public_url's host MUST appear in listen.csp's connect-src, or the
+# browser refuses every basemap fetch and the map is silently blank.
+tiles:
+  addr: ""        # e.g. "127.0.0.1:8082"
+  dir: ""         # e.g. "/var/lib/airbg/tiles" — holds bulgaria.pmtiles, style.json, glyphs/
+  public_url: ""  # e.g. "https://tiles.airbg.org"

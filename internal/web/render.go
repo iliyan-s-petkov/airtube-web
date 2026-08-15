@@ -75,7 +75,7 @@ func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, cfg config.Config
 	rr := &Renderer{
 		cat: cat, holder: holder,
 		baseURL:         strings.TrimSuffix(cfg.Listen.BaseURL, "/"),
-		basemapStyleURL: cfg.Basemap.StyleURL,
+		basemapStyleURL: cfg.Tiles.StyleURL(),
 		frontend:        cfg.Frontend,
 		defaultMetric:   cfg.Series.DefaultMetric,
 		defaultPeriod:   cfg.Series.PeriodNames[0],

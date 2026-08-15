@@ -35,7 +35,6 @@ func runValidateConfig(stdout, stderr io.Writer) int {
 	// that echoes a connection string is a credential in every CI log that runs
 	// it.
 	fmt.Fprintf(w, "%s\t%s\n", config.DatabaseURLEnv, presence(cfg.Database.URL))
-	fmt.Fprintf(w, "%s\t%s\n", config.BasemapKeyEnv, presence(cfg.Basemap.Key))
 	w.Flush()
 	fmt.Fprintln(stdout, "configuration is valid")
 	return 0

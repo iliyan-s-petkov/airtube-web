@@ -49,46 +49,37 @@ func TestValidateRejects(t *testing.T) {
 		{"rejection fraction above one", func(c *Config) { c.Backfill.HighRejectionFraction = 1.5 }, "high_rejection_fraction"},
 		{"bad colour", func(c *Config) { c.Frontend.NoDataColour = "grey" }, "hex colour"},
 		{"zoom tiers inverted", func(c *Config) { c.Frontend.ZoomCity = 12 }, "must be below"},
-		{"basemap userinfo", func(c *Config) { c.Basemap.StyleURL = "https://u:p@tiles.example.org/s.json" }, "userinfo"},
 		// Ported from the deleted internal/config/config_test.go (Task 8, Step
 		// 1): these assert rules Validate() still owns, even though the old
 		// loader tested them at env-parse time instead of validation time.
 		{"malformed base_url", func(c *Config) { c.Listen.BaseURL = "not-a-url" }, "must use http or https"},
 		{"relative base_url", func(c *Config) { c.Listen.BaseURL = "/path/to/site" }, "must use http or https"},
-		{"empty basemap style_url", func(c *Config) { c.Basemap.StyleURL = "" }, "basemap.style_url is empty"},
-		// The rest of this batch is a second, more careful pass over the
-		// deleted internal/config/config_test.go (git show
-		// 23171e3:internal/config/config_test.go — 24 test functions, not the
-		// 12 an earlier, incorrect version of this report claimed). The first
-		// pass missed that TestRejectsNonPositivePoolSizes covered
-		// database.api_conns/collector_conns/max_inflight and that
-		// TestRejectsHostileBasemapHost, TestRejectsBasemapHostLongerThanDNSLimit
-		// and part of TestRejectsNonHTTPSBasemapURL had no equivalent at all —
-		// meaning validateFrontend's hostPattern/maxHostLength checks on
-		// Basemap.StyleURL's host were completely unwired from the test suite.
 		{"zero database api_conns", func(c *Config) { c.Database.APIConns = 0 }, "database.api_conns"},
 		{"zero database collector_conns", func(c *Config) { c.Database.CollectorConns = 0 }, "database.collector_conns"},
 		{"zero database max_inflight", func(c *Config) { c.Database.MaxInflight = 0 }, "database.max_inflight"},
-		// TestRejectsNonHTTPSBasemapURL, ported in part: plain http is no
-		// longer rejected under the new schema (validateFrontend accepts
-		// "http" or "https" — see the brief's validateFrontend verbatim), so
-		// only the no-scheme and no-host cases still apply.
-		{"basemap url with no scheme", func(c *Config) { c.Basemap.StyleURL = "tiles.example/style.json" }, "must use http or https"},
-		{"basemap url with no host", func(c *Config) { c.Basemap.StyleURL = "https:///style.json" }, "not a valid hostname"},
-		// TestRejectsHostileBasemapHost: httpx.CSP-style header concatenation
+		// The equivalent of the deleted basemap.style_url host checks, carried
+		// forward onto tiles.public_url: httpx.CSP-style header concatenation
 		// means a host containing any of these characters could inject a new
 		// CSP directive (up to reintroducing 'unsafe-inline') the moment it
 		// reaches a response. hostPattern's charset is the only thing standing
 		// between an operator-supplied host and that outcome.
-		{"basemap host semicolon", func(c *Config) { c.Basemap.StyleURL = "https://tiles.example;object-src/style.json" }, "not a valid hostname"},
-		{"basemap host double quote", func(c *Config) { c.Basemap.StyleURL = "https://tiles.example\"evil/style.json" }, "not a valid hostname"},
-		{"basemap host single quote", func(c *Config) { c.Basemap.StyleURL = "https://tiles.example'evil/style.json" }, "not a valid hostname"},
-		{"basemap host comma", func(c *Config) { c.Basemap.StyleURL = "https://tiles.example,evil/style.json" }, "not a valid hostname"},
-		// TestRejectsBasemapHostLongerThanDNSLimit: httpx.CSP concatenates the
-		// host into the policy twice (img-src and connect-src), so an
-		// unbounded host doubles into an oversized header on every response.
-		{"basemap host longer than DNS limit", func(c *Config) {
-			c.Basemap.StyleURL = "https://" + strings.Repeat("a", 254) + ".example/style.json"
+		{"tiles host semicolon", func(c *Config) {
+			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example;object-src"}
+		}, "not a valid hostname"},
+		{"tiles host double quote", func(c *Config) {
+			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example\"evil"}
+		}, "not a valid hostname"},
+		{"tiles host single quote", func(c *Config) {
+			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example'evil"}
+		}, "not a valid hostname"},
+		{"tiles host comma", func(c *Config) {
+			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example,evil"}
+		}, "not a valid hostname"},
+		// httpx.CSP concatenates the host into the policy twice (img-src and
+		// connect-src), so an unbounded host doubles into an oversized header on
+		// every response.
+		{"tiles host longer than DNS limit", func(c *Config) {
+			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://" + strings.Repeat("a", 254) + ".example"}
 		}, "must be at most"},
 	}
 	for _, tt := range tests {
@@ -127,11 +118,12 @@ func TestValidateReportsAllProblemsAtOnce(t *testing.T) {
 // Ported from the deleted config_test.go's TestAcceptsBasemapHostWithPort: a
 // self-hosted tile server on a non-standard port is a legitimate deployment,
 // and hostPattern must accept "host:port" rather than only a bare host.
-func TestValidateAcceptsBasemapHostWithPort(t *testing.T) {
+func TestValidateAcceptsTilesHostWithPort(t *testing.T) {
 	cfg := good(t)
-	cfg.Basemap.StyleURL = "https://tiles.example:8443/style.json"
+	cfg.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/var/lib/airbg/tiles", PublicURL: "https://tiles.example:8443"}
+	cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.example:8443"
 	if err := cfg.Validate(); err != nil {
-		t.Errorf("Validate() error = %v, want a host:port basemap URL accepted", err)
+		t.Errorf("Validate() error = %v, want a host:port tiles.public_url accepted", err)
 	}
 }
 
@@ -151,19 +143,117 @@ func TestValidateAcceptsPollIntervalAtTheFloor(t *testing.T) {
 	}
 }
 
-// A secret in the environment must never be required to be in the file, and the
-// {key} placeholder must be substituted before the URL is validated or served.
-func TestBasemapKeySubstitution(t *testing.T) {
+// validConfig loads the committed configuration, so these tests mutate the
+// values the service actually ships with rather than a second copy that drifts.
+func validConfig(t *testing.T) Config {
+	t.Helper()
 	t.Setenv(DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
-	t.Setenv(BasemapKeyEnv, "s3cr3t")
 	cfg, err := LoadFile(filepath.Join("..", "..", "airbg.yaml"))
 	if err != nil {
 		t.Fatalf("LoadFile error = %v, want nil", err)
 	}
-	if strings.Contains(cfg.Basemap.StyleURL, "{key}") {
-		t.Errorf("Basemap.StyleURL still contains the {key} placeholder: %q", cfg.Basemap.StyleURL)
+	return cfg
+}
+
+// TestTilesAllOrNothing. Two of three keys set is the shape that produces a
+// running server with a map that silently fetches from nowhere.
+func TestTilesAllOrNothing(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"addr only":       func(c *Config) { c.Tiles = Tiles{Addr: "127.0.0.1:8082"} },
+		"dir only":        func(c *Config) { c.Tiles = Tiles{Dir: "/var/lib/airbg/tiles"} },
+		"public_url only": func(c *Config) { c.Tiles = Tiles{PublicURL: "https://tiles.airbg.org"} },
+		"missing dir": func(c *Config) {
+			c.Tiles = Tiles{Addr: "127.0.0.1:8082", PublicURL: "https://tiles.airbg.org"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := validConfig(t)
+			mutate(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("Validate returned nil, want an error: tiles.* is all-or-nothing")
+			}
+		})
 	}
-	if !strings.Contains(cfg.Basemap.StyleURL, "s3cr3t") {
-		t.Errorf("Basemap.StyleURL = %q, want the key substituted", cfg.Basemap.StyleURL)
+}
+
+// TestTilesEmptyIsLegal. No tiles configured means no basemap: the map island
+// renders markers over frontend.empty_basemap_colour. Local development must
+// not need a 300 MB file.
+func TestTilesEmptyIsLegal(t *testing.T) {
+	cfg := validConfig(t)
+	cfg.Tiles = Tiles{}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate with no tiles configured = %v, want nil", err)
+	}
+	if cfg.Tiles.Enabled() {
+		t.Error("Enabled() = true with every key empty")
+	}
+	if got := cfg.Tiles.StyleURL(); got != "" {
+		t.Errorf("StyleURL() = %q, want empty", got)
+	}
+}
+
+// TestTilesHostMustBeInConnectSrc. MapLibre fetches the style, the glyphs and
+// the .pmtiles ranges over fetch/XHR. A CSP that omits the host fails closed and
+// the map is blank, with nothing in any server log to say why.
+func TestTilesHostMustBeInConnectSrc(t *testing.T) {
+	cfg := validConfig(t)
+	cfg.Tiles = Tiles{
+		Addr:      "127.0.0.1:8082",
+		Dir:       "/var/lib/airbg/tiles",
+		PublicURL: "https://tiles.airbg.org",
+	}
+	cfg.Listen.CSP = "default-src 'self'; connect-src 'self'"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate returned nil, want an error: connect-src omits tiles.airbg.org")
+	}
+
+	cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.airbg.org"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate with the host in connect-src = %v, want nil", err)
+	}
+	if got, want := cfg.Tiles.StyleURL(), "https://tiles.airbg.org/style.json"; got != want {
+		t.Errorf("StyleURL() = %q, want %q", got, want)
+	}
+}
+
+// TestTilesAddrIsSeparate. Sharing a listener address with the application or
+// the metrics listener is the "three listeners simplified back to two" mistake
+// in configuration form.
+func TestTilesAddrIsSeparate(t *testing.T) {
+	for _, addr := range []string{"127.0.0.1:8080", "127.0.0.1:9090"} {
+		cfg := validConfig(t)
+		cfg.Listen.Addr = "127.0.0.1:8080"
+		cfg.Listen.MetricsAddr = "127.0.0.1:9090"
+		cfg.Tiles = Tiles{
+			Addr:      addr,
+			Dir:       "/var/lib/airbg/tiles",
+			PublicURL: "https://tiles.airbg.org",
+		}
+		cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.airbg.org"
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("Validate with tiles.addr = %q returned nil, want an error", addr)
+		}
+	}
+}
+
+// TestTilesPublicURLShape. The host reaches a Content-Security-Policy header
+// assembled by concatenation, so anything but a plain absolute http(s) URL is
+// rejected — the same rule the deleted basemap.style_url carried.
+func TestTilesPublicURLShape(t *testing.T) {
+	for name, u := range map[string]string{
+		"no scheme": "tiles.airbg.org",
+		"ftp":       "ftp://tiles.airbg.org",
+		"userinfo":  "https://user:pass@tiles.airbg.org",
+		"space":     "https://tiles airbg.org",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := validConfig(t)
+			cfg.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/var/lib/airbg/tiles", PublicURL: u}
+			cfg.Listen.CSP = "default-src 'self'; connect-src 'self' " + u
+			if err := cfg.Validate(); err == nil {
+				t.Errorf("Validate with tiles.public_url = %q returned nil, want an error", u)
+			}
+		})
 	}
 }

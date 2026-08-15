@@ -72,7 +72,6 @@ func TestRejectSecrets(t *testing.T) {
 		{"dsn", "database:\n  dsn: \"postgres://u:p@h/db\"\n"},
 		{"password", "database:\n  password: \"hunter2\"\n"},
 		{"basemap key", "basemap:\n  key: \"abc123\"\n"},
-		{"basemap_key at root", "basemap_key: \"abc123\"\n"},
 		{"api_key", "basemap:\n  api_key: \"abc123\"\n"},
 		{"token", "upstream:\n  token: \"abc123\"\n"},
 	}

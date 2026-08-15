@@ -84,7 +84,13 @@ func newTestRendererWithBasemap(t *testing.T, basemapStyleURL string) *web.Rende
 		t.Fatalf("i18n.Load: %v", err)
 	}
 	cfg := testConfig(t)
-	cfg.Basemap.StyleURL = basemapStyleURL
+	if basemapStyleURL != "" {
+		cfg.Tiles = config.Tiles{
+			Addr:      "127.0.0.1:8082",
+			Dir:       "/var/lib/airbg/tiles",
+			PublicURL: strings.TrimSuffix(basemapStyleURL, "/style.json"),
+		}
+	}
 	h := snapshot.NewHolder(cfg.Series)
 	h.Store(fixture(t))
 	rr, err := web.NewRenderer(cat, h, cfg)
@@ -439,7 +445,7 @@ func TestRenderedErrorPagesAreNotCacheable(t *testing.T) {
 // (see TestAreaPageStatesInsufficientCoverage). Coverage of / alone would not
 // have caught it.
 func TestMapIslandCarriesItsConfiguration(t *testing.T) {
-	rr := newTestRendererWithBasemap(t, "https://tiles.example/style.json?key=k")
+	rr := newTestRendererWithBasemap(t, "https://tiles.example/style.json")
 
 	for _, path := range []string{"/", "/area/sofia"} {
 		t.Run(path, func(t *testing.T) {
@@ -452,7 +458,7 @@ func TestMapIslandCarriesItsConfiguration(t *testing.T) {
 			tag := islandTag(t, body, "map")
 			for _, want := range []string{
 				`data-metric="P2"`,
-				`data-basemap="https://tiles.example/style.json?key=k"`,
+				`data-basemap="https://tiles.example/style.json"`,
 				`data-t-legend="`,
 				`data-t-hint="`,
 				`data-t-unavailable="`,
