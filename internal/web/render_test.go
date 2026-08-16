@@ -487,6 +487,7 @@ func TestMapIslandRendersFrontendConfiguration(t *testing.T) {
 			tag := islandTag(t, body, "map")
 			for _, want := range []string{
 				`data-no-data-colour="#9ca3af"`,
+				`data-unscaled-colour="#94a3b8"`,
 				`data-marker-stroke-colour="#ffffff"`,
 				`data-empty-basemap-colour="#eef2f5"`,
 				`data-zoom-city="9"`,

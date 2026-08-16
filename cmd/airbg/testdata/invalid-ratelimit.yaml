@@ -256,6 +256,7 @@ frontend:
   # Neutral grey, deliberately not a band colour: an area below the coverage
   # threshold must not be paintable as clean air.
   no_data_colour: "#9ca3af"
+  unscaled_colour: "#94a3b8"
   marker_stroke_colour: "#ffffff"
   empty_basemap_colour: "#eef2f5"
   chart_line_colour: "#2563eb"

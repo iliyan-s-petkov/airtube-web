@@ -129,6 +129,7 @@ type PageData struct {
 	// data-* attributes because the CSP has no 'unsafe-inline' — there is no
 	// inline <script> to put a config object in, and there never will be.
 	NoDataColour       string
+	UnscaledColour     string
 	MarkerStrokeColour string
 	EmptyBasemapColour string
 	ChartLineColour    string
@@ -216,6 +217,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		BasemapStyleURL: rr.basemapStyleURL,
 
 		NoDataColour:       rr.frontend.NoDataColour,
+		UnscaledColour:     rr.frontend.UnscaledColour,
 		MarkerStrokeColour: rr.frontend.MarkerStrokeColour,
 		EmptyBasemapColour: rr.frontend.EmptyBasemapColour,
 		ChartLineColour:    rr.frontend.ChartLineColour,

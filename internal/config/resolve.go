@@ -154,6 +154,7 @@ type Backfill struct {
 
 type Frontend struct {
 	NoDataColour       string
+	UnscaledColour     string
 	MarkerStrokeColour string
 	EmptyBasemapColour string
 	ChartLineColour    string
@@ -301,6 +302,7 @@ func resolve(r *raw) Config {
 		},
 		Frontend: Frontend{
 			NoDataColour:       *r.Frontend.NoDataColour,
+			UnscaledColour:     *r.Frontend.UnscaledColour,
 			MarkerStrokeColour: *r.Frontend.MarkerStrokeColour,
 			EmptyBasemapColour: *r.Frontend.EmptyBasemapColour,
 			ChartLineColour:    *r.Frontend.ChartLineColour,

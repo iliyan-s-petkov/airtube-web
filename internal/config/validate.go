@@ -306,6 +306,7 @@ func (c Config) validateQuality(p *problems) {
 func (c Config) validateFrontend(p *problems) {
 	for path, colour := range map[string]string{
 		"frontend.no_data_colour":       c.Frontend.NoDataColour,
+		"frontend.unscaled_colour":      c.Frontend.UnscaledColour,
 		"frontend.marker_stroke_colour": c.Frontend.MarkerStrokeColour,
 		"frontend.empty_basemap_colour": c.Frontend.EmptyBasemapColour,
 		"frontend.chart_line_colour":    c.Frontend.ChartLineColour,

@@ -145,10 +145,14 @@ Colour values live in exactly one of two places, split by a mechanical rule:
 
 - **`internal/web/static/theme.css`** — anything a CSS rule can style: page
   chrome, buttons, text, borders, backgrounds behind HTML elements.
-- **`frontend.*` in `airbg.yaml`** — the four paint values that are handed
+- **`frontend.*` in `airbg.yaml`** — the paint values that are handed
   directly to WebGL (MapLibre) layers and the chart `<canvas>`, which CSS
-  cannot reach at all: `frontend.no_data_colour`, `frontend.marker_stroke_colour`,
-  `frontend.empty_basemap_colour`, `frontend.chart_line_colour`.
+  cannot reach at all: `frontend.no_data_colour`, `frontend.unscaled_colour`,
+  `frontend.marker_stroke_colour`, `frontend.empty_basemap_colour`,
+  `frontend.chart_line_colour`. `no_data_colour` and `unscaled_colour` are
+  deliberately different colours: "we have no reading" and "this metric has
+  no band table" are different facts, and painting both the same grey makes a
+  working map indistinguishable from a broken one.
 
 The boundary is mechanical, not aesthetic: if CSS can style it, it belongs in
 `theme.css`; if JavaScript passes it to a canvas or a GL layer, it belongs in
