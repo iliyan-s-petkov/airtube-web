@@ -8,7 +8,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount } from '../map.js'
 import { clearCache } from '../../lib/api.js'
-import { resetViewStateForTests } from '../../lib/viewstate.svelte.js'
+import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
+import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
 
 // mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
 // out of reach under jsdom (see the "no jsdom" rule respected everywhere else
@@ -678,5 +679,99 @@ describe('mount() follows the store metric', () => {
     await vi.waitFor(() => {
       expect(map.setPaintProperty.mock.calls.length).toBeGreaterThan(callsBeforeChange)
     })
+  })
+})
+
+// Task 9: the sensor tier's response body must reach the panel, not just the
+// map layer, and a click on a sensor marker must open it — through the same
+// viewstate singleton the switcher already shares, never by the map
+// rendering a panel of its own (see islands/panel.js).
+function mountSensorTierMap({ metric = 'P2' } = {}) {
+  resetViewStateForTests()
+  history.replaceState(null, '', '/')
+
+  const el = document.createElement('div')
+  // A fixed slug, above zoomSensor: on an area page tierFor picks 'sensors'
+  // without needing a click first (see map.js's own comment on state.slug).
+  el.dataset.slug = 'sofia'
+  el.dataset.metric = metric
+  el.dataset.metrics = 'P1,P2'
+  el.dataset.zoom = '12'
+  el.dataset.lon = '23.3'
+  el.dataset.lat = '42.7'
+  el.dataset.noDataColour = '#9ca3af'
+  el.dataset.unscaledColour = '#94a3b8'
+  el.dataset.markerStrokeColour = '#ffffff'
+  el.dataset.emptyBasemapColour = '#eef2f5'
+  el.dataset.zoomCity = '9'
+  el.dataset.zoomSensor = '11'
+
+  const { map, chrome } = mount(el)
+  // FakeMap.getZoom is hardcoded to 7 (see the vi.mock at the top of this
+  // file) — every other test in this file relies on that fixed value, so it
+  // is overridden here rather than in the mock itself, to reach the sensors
+  // tier without disturbing them.
+  map.getZoom = () => 12
+  map.handlers.load()
+  return { map, chrome }
+}
+
+function stubSensorTierFetch() {
+  return vi.fn(async (url) => {
+    if (url === '/api/v1/scales') {
+      return { ok: true, status: 200, headers: new Headers(), json: async () => [] }
+    }
+    return {
+      ok: true, status: 200, headers: new Headers(),
+      json: async () => ({ sensors: { id: [42], lon: [23.3], lat: [42.7], quality: ['ok'], P2: [12] } }),
+    }
+  })
+}
+
+describe('sensor tier: registry + marker click', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests(); setSensors(null) })
+  afterEach(() => { resetViewStateForTests(); setSensors(null) })
+
+  // Mutation 3 from the task brief, adapted to this design: deleting the
+  // `if (effective === 'sensors') setSensors(body)` call in map.js's
+  // refresh() must fail this test — findSensor would stay null forever,
+  // and the panel would never resolve a marker's own click, let alone a
+  // deep link that arrived before the fetch did.
+  it('publishes the sensor-tier response into the registry', async () => {
+    vi.stubGlobal('fetch', stubSensorTierFetch())
+    mountSensorTierMap()
+
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+    expect(findSensor(42).values.P2).toBe(12)
+  })
+
+  it('opens the panel (viewstate.sensorId) when a sensor marker is clicked', async () => {
+    vi.stubGlobal('fetch', stubSensorTierFetch())
+    const { map } = mountSensorTierMap()
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+
+    map.handlers.click({ features: [{ properties: { id: 42 } }] })
+
+    expect(getViewState({ metrics: ['P2'], defaultMetric: 'P2' }).sensorId).toBe(42)
+  })
+
+  // The two branches (slug vs id) are mutually exclusive: an aggregate
+  // marker click must not also open the panel.
+  it('still selects an area, and does not open the panel, when an aggregate marker is clicked', async () => {
+    vi.stubGlobal('fetch', stubSensorTierFetch())
+    const { map } = mountSensorTierMap()
+    await vi.waitFor(() => expect(map.setPaintProperty).toHaveBeenCalled())
+
+    map.handlers.click({ features: [{ properties: { slug: 'plovdiv' } }] })
+
+    expect(getViewState({ metrics: ['P2'], defaultMetric: 'P2' }).sensorId).toBeNull()
+  })
+
+  it('ignores a click with no recognisable feature properties', () => {
+    vi.stubGlobal('fetch', stubSensorTierFetch())
+    const { map } = mountSensorTierMap()
+
+    expect(() => map.handlers.click({ features: [{ properties: {} }] })).not.toThrow()
+    expect(() => map.handlers.click({ features: [] })).not.toThrow()
   })
 })

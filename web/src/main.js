@@ -9,6 +9,7 @@ const ISLANDS = {
   map: () => import('./islands/map.js'),
   chart: () => import('./islands/chart.js'),
   switcher: () => import('./islands/switcher.js'),
+  panel: () => import('./islands/panel.js'),
 }
 
 // resolveLoader is the pure lookup at the heart of "leave the server-rendered

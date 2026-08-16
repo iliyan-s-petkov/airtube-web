@@ -11,6 +11,7 @@ import { colourFor } from '../lib/colour.js'
 import { getJSON } from '../lib/api.js'
 import { parseMetricList, hasScale } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
+import { setSensors, setScales } from '../lib/sensors.svelte.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
@@ -95,13 +96,28 @@ export function mount(el) {
 
   map.on('moveend', debounce(() => refresh(map, state, cfg, chrome), MOVE_DEBOUNCE_MS))
 
-  // Clicking an aggregate marker is what selects an area — the deliberate act
-  // the enumeration budget is denominated in.
+  // One layer, two kinds of feature (see sensorFeatures/areaFeatures): an
+  // aggregate marker carries `slug` and clicking it is what selects an area
+  // — the deliberate act the enumeration budget is denominated in. A sensor
+  // marker carries `id` instead and clicking it opens the panel via the
+  // shared viewstate; the map does not render the panel itself (see
+  // islands/panel.js), only publishes the click as a destination.
   map.on('click', LAYER_ID, (e) => {
-    const slug = e.features?.[0]?.properties?.slug
-    if (!slug) return
-    state.slug = slug
-    refresh(map, state, cfg, chrome)
+    const props = e.features?.[0]?.properties
+    if (!props) return
+    if (props.slug) {
+      state.slug = props.slug
+      refresh(map, state, cfg, chrome)
+      return
+    }
+    // Number(): the click path already carries a number in production (see
+    // sensorFeatures, which sets properties.id = ids[i] straight from the
+    // JSON int64 column), but GeoJSON feature properties are not guaranteed
+    // by the spec to preserve type across every producer, and
+    // lib/sensors.svelte.js's own lookup applies the same coercion — so this
+    // stays a defensive match to that contract rather than an assumption
+    // about MapLibre's internals.
+    if (props.id !== undefined) vs.openSensor(Number(props.id))
   })
 
   return { map, chrome, stop: () => unsubscribe?.() }
@@ -144,6 +160,10 @@ function onMetricChange(map, state, cfg, chrome, metric) {
 // between the two functions, so the test has to span both.
 export async function initData(map, state, cfg, chrome) {
   state.scales = await loadScales(chrome, cfg)
+  // Published into the registry the moment it resolves (null included, on a
+  // failed fetch) — see lib/sensors.svelte.js's own comment on why the panel
+  // reads scales from there rather than calling loadScales a second time.
+  setScales(state.scales)
   await refresh(map, state, cfg, chrome)
 }
 
@@ -201,6 +221,14 @@ async function refresh(map, state, cfg, chrome, force = false) {
     return
   }
   state.tier = key
+
+  // Published for the panel to read (see lib/sensors.svelte.js) whenever
+  // this fetch actually carried sensor coordinates. Left untouched on a
+  // city/country tier response: those responses have no sensor columns at
+  // all (see areaPayload), and clearing the registry here would blank an
+  // already-open panel the instant a visitor zooms out past the sensor
+  // tier, rather than leaving its last-known content on screen.
+  if (effective === 'sensors') setSensors(body)
 
   const features = effective === 'sensors'
     ? sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
