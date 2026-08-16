@@ -457,7 +457,7 @@ export function unitFor(scales, metric) {
 - [ ] **Step 4: Run and watch it pass**
 
 Run: `cd web && npx vitest run src/lib/__tests__/metrics.test.js`
-Expected: PASS, 9 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Mutation-prove**
 
