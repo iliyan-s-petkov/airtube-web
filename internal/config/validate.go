@@ -426,6 +426,16 @@ func (c Config) validateTiles(p *problems) {
 		// tokens, not a substring test: strings.Contains("not-tiles.airbg.org",
 		// "tiles.airbg.org") is true, which would let a CSP that allows a
 		// *different* origin satisfy the check for this one.
+		//
+		// The cost of exactness is that a wildcard source such as
+		// "https://*.airbg.org" is not recognised, even though a browser would
+		// honour it and the map would work. That is accepted rather than fixed:
+		// matching wildcards means reimplementing CSP source-expression matching
+		// here, and getting that subtly wrong turns a check that catches a real
+		// misconfiguration into one that waves it through. So the message below
+		// says what this check wants — the host, written literally — instead of
+		// telling the operator their CSP is broken, which for a wildcard it is
+		// not.
 		origin := u.Scheme + "://" + u.Host
 		found := false
 		for _, tok := range strings.Fields(connectSrc(c.Listen.CSP)) {
@@ -435,7 +445,7 @@ func (c Config) validateTiles(p *problems) {
 			}
 		}
 		if !found {
-			p.addf("listen.csp's connect-src does not allow %q, so the browser cannot fetch the basemap from tiles.public_url", u.Host)
+			p.addf("listen.csp's connect-src must list %q literally (as %q or %q); wildcard sources are not recognised here even though browsers honour them, so widen the CSP or add the exact host", u.Host, origin, u.Host)
 		}
 	}
 }

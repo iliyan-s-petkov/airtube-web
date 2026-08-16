@@ -280,7 +280,13 @@ func TestTilesListenerIsCapped(t *testing.T) {
 }
 
 // TestNoTilesStartsTwoListeners. The shipped configuration has no basemap, and
-// it must not open a third socket or fail to start.
+// it must still start and serve on both of its listeners.
+//
+// It does not assert that a third socket is absent — nothing here observes the
+// process's sockets, and the tiles listener's address is only ever read from
+// tiles.addr, which is empty on this path. What it pins is that the empty
+// tiles.* path is a supported configuration rather than a startup error, which
+// is what would break if the basemap were ever made mandatory by accident.
 func TestNoTilesStartsTwoListeners(t *testing.T) {
 	public, private := running(t)
 	if got := get(t, public, "/").StatusCode; got != http.StatusOK {

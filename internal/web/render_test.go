@@ -577,16 +577,6 @@ func islandTag(t *testing.T, body, name string) string {
 	return body[open : start+end+1]
 }
 
-// TestNoBasemapRendersAnEmptyAttribute. Empty rather than absent, so the island
-// reads "" and falls back to its blank style instead of reading undefined.
-func TestNoBasemapRendersAnEmptyAttribute(t *testing.T) {
-	rr := newTestRendererWithTiles(t, "")
-	body := fetch(t, rr, "/").Body.String()
-	if !strings.Contains(body, `data-basemap=""`) {
-		t.Errorf("index page has no empty data-basemap attribute:\n%s", body)
-	}
-}
-
 // TestBasemapURLCannotBreakOutOfTheAttribute. BasemapStyleURL is
 // operator-supplied config (from tiles.public_url), not user input, but
 // it still lands in an HTML attribute and html/template's attribute-context
@@ -626,7 +616,9 @@ func TestBasemapStyleURLIsDerivedFromTilesPublicURL(t *testing.T) {
 
 // TestNoTilesRendersAnEmptyBasemapAttribute. Empty is the map island's signal
 // to fall back to a flat colour — a fallback that was live, tested and
-// unreachable for as long as validation rejected an empty style URL.
+// unreachable for as long as validation rejected an empty style URL. Empty
+// rather than absent: an absent attribute reads as undefined in the island,
+// which is not the same branch.
 func TestNoTilesRendersAnEmptyBasemapAttribute(t *testing.T) {
 	rr := newTestRendererWithTiles(t, "")
 	body := fetch(t, rr, "/").Body.String()
