@@ -403,18 +403,23 @@ export function layerPaint(cfg) {
 // metric — recomputed on every metric switch and applied via
 // map.setPaintProperty, never at layer-creation time (see layerPaint above).
 //
-// An unscaled metric gets ONE flat colour for every marker, with no
-// conditioning on whether the marker has a reading. Two things drove that,
-// not one: it is what the prescribed test in this file's __tests__/map.test.js
-// asserts (a ['case', ['has','value'], unscaledColour, noDataColour]
-// expression — the shape suggested by this task's own brief — embeds
-// noDataColour in its JSON and so FAILS "must not contain '#999999'"), and
-// product-wise it is the simpler, defensible rule: an unscaled metric has no
-// per-value meaning to draw with grey vs. colour, only "did anyone report
-// this metric here or not" — see metricNote's note text for what a reader is
-// told instead.
+// Three different facts must not share one colour: "no reading" (grey,
+// noDataColour), "this metric has no band table" (unscaledColour), and a
+// real band value. An unscaled metric still distinguishes the first two —
+// only the third collapses, because there is no per-value meaning left to
+// draw once there are no bands. A flat unscaledColour return for the whole
+// !scaled branch was tried and rejected: it paints "no reading" and "has a
+// reading" identically, so on a metric most sensors don't report (e.g.
+// temperature), the map reads as full coverage when it is not — the same
+// class of defect this file's colourFor/noDataColour split exists to
+// prevent for scaled metrics. ['has', 'value'] (the shape this task's brief
+// originally suggested) is ALSO wrong here, for a reason worth stating
+// loudly: areaFeatures and sensorFeatures always set the `value` key, even
+// when its content is null (`value: a.covered ? ... : null` /
+// `column[i] ?? null`), so `has` is true unconditionally and that branch
+// would be dead code, always taking the "has a reading" side.
 export function markerPaint(bands, { noDataColour, unscaledColour, scaled }) {
-  if (!scaled) return unscaledColour
+  if (!scaled) return ['case', ['==', ['get', 'value'], null], noDataColour, unscaledColour]
 
   // Mirrors colourFor's own rule (bands ascending, upper INCLUSIVE, upper ==
   // null is the open top band) but as a MapLibre `step` expression instead of

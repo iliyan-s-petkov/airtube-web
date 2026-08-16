@@ -611,13 +611,26 @@ describe('mapStyle with a self-hosted basemap', () => {
 
 // Three different facts must not share one colour: "no reading" (grey),
 // "this metric has no band table" (unscaledColour), and a real band value.
+// Evaluates the one MapLibre expression shape markerPaint's !scaled branch
+// produces — ['case', ['==', ['get', 'value'], null], whenNull, whenNotNull]
+// — against a fake feature's properties. Used instead of a bare
+// JSON.stringify/toContain check so the unscaled test below proves the
+// actual no-reading/has-reading DISTINCTION (both branches individually),
+// not just "some colour string is present somewhere in the JSON" — a check
+// that a mutation swapping the two colours would still pass.
+function evalUnscaledCase(expr, properties) {
+  const [op, [cmp, [, key], compareTo], whenTrue, whenFalse] = expr
+  if (op !== 'case' || cmp !== '==') throw new Error(`unexpected expression shape: ${JSON.stringify(expr)}`)
+  return properties[key] === compareTo ? whenTrue : whenFalse
+}
+
 describe('unscaled metrics', () => {
   const scales = [{ metric: 'P2', bands: [{ upper: 5, colour: '#50f0e6' }] }]
 
-  it('paints every marker the unscaled colour when the metric has no scale', () => {
+  it('keeps "no reading" distinct from "has a reading" when the metric has no scale', () => {
     const paint = markerPaint([], { noDataColour: '#999999', unscaledColour: '#94a3b8', scaled: false })
-    expect(JSON.stringify(paint)).toContain('#94a3b8')
-    expect(JSON.stringify(paint)).not.toContain('#999999')
+    expect(evalUnscaledCase(paint, { value: null })).toBe('#999999')
+    expect(evalUnscaledCase(paint, { value: 12 })).toBe('#94a3b8')
   })
 
   it('still uses the bands when the metric is scaled', () => {
