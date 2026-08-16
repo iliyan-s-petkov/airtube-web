@@ -3,6 +3,7 @@ package tiles_test
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,36 @@ func handler(t *testing.T) http.Handler {
 		t.Fatalf("NewHandler error = %v, want nil", err)
 	}
 	return h
+}
+
+// copyTestdata mirrors testdata/ into a temp directory, for the tests that need
+// to add a file to it. Writing into the committed directory instead would make
+// the suite mutate its own version-controlled inputs.
+func copyTestdata(t *testing.T) string {
+	t.Helper()
+	dst := t.TempDir()
+	err := filepath.WalkDir("testdata", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel("testdata", p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, b, 0o600)
+	})
+	if err != nil {
+		t.Fatalf("copying testdata: %v", err)
+	}
+	return dst
 }
 
 func do(t *testing.T, h http.Handler, method, target string, hdr http.Header) *http.Response {
@@ -54,12 +85,19 @@ func TestServesTheThreeArtefacts(t *testing.T) {
 // path; whatever else lands in it — a build log, a half-written temp file, the
 // planetiler jar — must not become a public download.
 func TestRejectsAnythingOutsideTheAllowlist(t *testing.T) {
-	if err := os.WriteFile(filepath.Join("testdata", "notes.txt"), []byte("private"), 0o600); err != nil {
+	// A copy in a temp directory, not a file written into the committed
+	// testdata/: seeding and removing a file in a shared, version-controlled
+	// directory races every other test reading it under -count=2 -parallel, and
+	// a crashed run leaves the stray file behind in the working tree.
+	dir := copyTestdata(t)
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("private"), 0o600); err != nil {
 		t.Fatalf("seeding notes.txt: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Remove(filepath.Join("testdata", "notes.txt")) })
 
-	h := handler(t)
+	h, err := tiles.NewHandler(dir, origin)
+	if err != nil {
+		t.Fatalf("NewHandler error = %v, want nil", err)
+	}
 	if got := do(t, h, http.MethodGet, "/notes.txt", nil).StatusCode; got != http.StatusNotFound {
 		t.Errorf("GET /notes.txt = %d, want 404", got)
 	}
@@ -138,6 +176,63 @@ func TestCORSHeaders(t *testing.T) {
 	}
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got == "*" {
 		t.Error(`Access-Control-Allow-Origin is "*"; it must name the application origin`)
+	}
+}
+
+// TestCORSHeadersOnRefusals pins the PLACEMENT of the header block, which
+// nothing else does: TestCORSHeaders asserts on a 200, TestOnlyGetAndHead on a
+// status and Allow, TestPathTraversal on a status alone. Moving the block below
+// the method switch and the allowlist check left every one of them green.
+//
+// The headers belong on refusals for a concrete reason: without
+// Access-Control-Allow-Origin the browser hands the page a network error
+// instead of the 404 or 405, so MapLibre's error handler cannot report what
+// went wrong and the operator debugs a blank map with no signal on either side.
+// Vary: Origin belongs on them because a cache must not serve one origin's
+// answer to another's.
+//
+// X-Content-Type-Options is asserted for completeness, not as a discriminator:
+// net/http's own http.Error and http.NotFound set nosniff on the bodies they
+// write, so that one header survives the moved-block mutation. The CORS headers
+// and Vary are what actually pin the placement.
+func TestCORSHeadersOnRefusals(t *testing.T) {
+	h := handler(t)
+	for _, tc := range []struct {
+		name   string
+		method string
+		target string
+		status int
+	}{
+		{"404", http.MethodGet, "/no-such-file.txt", http.StatusNotFound},
+		{"404 traversal", http.MethodGet, "/glyphs/../../style.json", http.StatusNotFound},
+		{"405", http.MethodPost, "/style.json", http.StatusMethodNotAllowed},
+		{"405 on a path that does not exist", http.MethodDelete, "/nope", http.StatusMethodNotAllowed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := do(t, h, tc.method, tc.target, nil)
+			if resp.StatusCode != tc.status {
+				t.Fatalf("%s %s = %d, want %d", tc.method, tc.target, resp.StatusCode, tc.status)
+			}
+			for header, want := range map[string]string{
+				"Access-Control-Allow-Origin": origin,
+				"X-Content-Type-Options":      "nosniff",
+				"Vary":                        "Origin",
+			} {
+				if got := resp.Header.Get(header); got != want {
+					t.Errorf("%s %s (%d): %s = %q, want %q",
+						tc.method, tc.target, resp.StatusCode, header, got, want)
+				}
+			}
+		})
+	}
+}
+
+// TestVaryOriginOnASuccess. Vary was asserted nowhere at all; a cache that
+// ignores it can serve one origin's response to another.
+func TestVaryOriginOnASuccess(t *testing.T) {
+	h := handler(t)
+	if got := do(t, h, http.MethodGet, "/style.json", nil).Header.Get("Vary"); got != "Origin" {
+		t.Errorf("Vary = %q, want %q", got, "Origin")
 	}
 }
 
