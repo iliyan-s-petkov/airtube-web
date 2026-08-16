@@ -276,12 +276,20 @@ test reaches: the server-rendered fallback surviving with JS disabled; deep-link
 `#sensor=` restore; Back closing the panel; both auto-locate branches; find-me
 with permission granted and denied.
 
-**How the E2E stack starts.** A build-tagged Go command starts a
+**How the E2E stack starts.** Go drives Playwright, not the other way round. A
+Go **test** behind `//go:build e2e` (`internal/e2e/e2e_test.go`) starts a
 PostGIS+TimescaleDB container through the **existing `internal/testsupport`
 helpers**, runs migrations, seeds a fixed fixture dataset, starts the real
-server, prints its base URL, and waits for SIGTERM. Playwright's `webServer`
-config runs it. One seeding path, shared with the Go integration suite — no
-second copy of fixture data to drift.
+server on port 0, then execs `npx playwright test` with the base URL in
+`AIRBG_E2E_BASE_URL` and fails on a non-zero exit. Playwright's `webServer`
+option is not used.
+
+A test rather than a command because `testsupport.NewPostgres` and
+`NewPostgresURL` both take a `*testing.T` — container lifetime is tied to
+`t.Cleanup`, so a plain `main()` cannot call them, and the alternative is a
+second copy of the container setup that drifts from the one the integration
+suite uses. One seeding path, shared with the Go integration suite — no second
+copy of fixture data to drift.
 
 With no CDN headers present, `/api/v1/locate` returns `source: "default"`
 deterministically, so the opening view is stable in tests for free; the geoip
