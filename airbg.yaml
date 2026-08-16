@@ -55,10 +55,13 @@ listen:
   # error anywhere on the server.
   # Denies every browser capability the site does not use. The threat is the
   # frontend bundle itself: hundreds of transitive npm packages served
-  # same-origin under a CSP that trusts 'self'. geolocation stays denied until
-  # the "sensors near me" button exists (Phase 3c) — an allowance nobody uses
-  # is an allowance nobody chose.
-  permissions_policy: "geolocation=(), camera=(), microphone=(), payment=(), usb=()"
+  # same-origin under a CSP that trusts 'self'. geolocation is scoped to
+  # 'self' (never '*') because the "Find me" button (Phase 3c,
+  # web/src/islands/map.js's locateMe) now exists and calls it from this
+  # origin only — an empty allowlist denies the top-level document too, not
+  # just third parties, which silently broke the button until Task 13's E2E
+  # spec (web/e2e/locate.spec.js) caught it against this exact file.
+  permissions_policy: "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
 
 timeouts:
   read_header: "5s"

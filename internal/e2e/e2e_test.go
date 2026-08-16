@@ -91,12 +91,41 @@ func seedFixtures(t *testing.T, st *store.Store) {
 	// smoke spec hits the unprefixed /area/sofia route, which i18n.DefaultLang
 	// ("bg") renders with name_bg. name_en is distinct so a later spec can
 	// assert the /en/area/sofia route renders the English name specifically.
+	//
+	// kind "city" (not "oblast"): area_derive_presentation (migration 00007)
+	// sets default_zoom from kind, and default_zoom becomes the area page's
+	// initial map zoom (data-zoom="{{.Area.Zoom}}" in area.gohtml). Task 13's
+	// panel spec deep-links straight to #sensor=101 with no click to zoom in
+	// first, so the area must open AT OR ABOVE zoom_sensor (11, airbg.yaml)
+	// for the sensor tier's columnar data to load on that very first paint —
+	// "oblast" (9) stays on the city tier and the deep-linked sensor can
+	// never resolve. "city" (11) is exactly the zoom_sensor threshold.
 	_, err := st.Pool().Exec(ctx,
 		`INSERT INTO area (slug, kind, name_bg, name_en, geom)
 		 VALUES ($1, $2, $3, $4, ST_SetSRID(ST_GeomFromText($5), 4326)::geography)`,
-		"sofia", "oblast", "София (Sofia)", "Sofia", wkt)
+		"sofia", "city", "София (Sofia)", "Sofia", wkt)
 	if err != nil {
 		t.Fatalf("seed area: %v", err)
+	}
+
+	// A second, oblast-kind area over the same footprint. snapshot.Build
+	// (internal/snapshot/build.go) draws the country tier from kind "oblast"
+	// only — "sofia" above is kind "city" and never appears in it — and
+	// locate.spec.js's find-me flow reads its candidate list entirely from
+	// that country-tier response (islands/map.js's state.areas, populated on
+	// the index page at zoom 7). Without an oblast entry near the geolocated
+	// point, locateMe finds an empty list and reports "could not determine
+	// your location" instead of navigating anywhere. Real data has exactly
+	// this nesting — a city sits inside its oblast — so a second area row is
+	// the accurate fixture, not a workaround. The slug embeds "sofia" so
+	// locate.spec.js's `/\/area\/sofia/` assertion, which is not anchored,
+	// still matches the URL this area's page lands on.
+	_, err = st.Pool().Exec(ctx,
+		`INSERT INTO area (slug, kind, name_bg, name_en, geom)
+		 VALUES ($1, $2, $3, $4, ST_SetSRID(ST_GeomFromText($5), 4326)::geography)`,
+		"sofia-oblast", "oblast", "Софийска област", "Sofia Oblast", wkt)
+	if err != nil {
+		t.Fatalf("seed oblast area: %v", err)
 	}
 
 	now := time.Now().UTC()
