@@ -51,4 +51,19 @@ func TestCommittedConfigDecodesStrictly(t *testing.T) {
 	if len(r.Series.Periods) != 4 {
 		t.Errorf("len(series.periods) = %d, want 4", len(r.Series.Periods))
 	}
+	// listen.permissions_policy is a security header, not an ordinary knob: it
+	// is the browser-side enforcement that no capability beyond what the site
+	// actually uses is ever granted. Pinning the FULL string — not a substring
+	// check for "geolocation=(self)" — means any future loosening (a broader
+	// allowlist, an added directive, a dropped one) fails this test and has to
+	// be a deliberate, reviewed edit rather than something that slips in
+	// silently. "geolocation=(self)" specifically is the minimum the find-me
+	// button (web/src/islands/map.js's locateMe) needs; every other directive
+	// stays denied because nothing in the frontend uses it.
+	if r.Listen.PermissionsPolicy == nil {
+		t.Fatal("listen.permissions_policy decoded to nil, want a value")
+	}
+	if got, want := *r.Listen.PermissionsPolicy, "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"; got != want {
+		t.Errorf("listen.permissions_policy = %q, want %q", got, want)
+	}
 }
