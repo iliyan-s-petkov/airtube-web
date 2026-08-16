@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount } from '../map.js'
+import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, locateVisitor } from '../map.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
@@ -29,6 +29,9 @@ vi.mock('maplibre-gl', () => {
       this.addLayer = vi.fn()
       this.getZoom = vi.fn(() => 7)
       this.getSource = vi.fn(() => ({ setData: vi.fn() }))
+      // Spied so the locateVisitor tests below can assert a "geoip" response
+      // jumps the map, and that a "default"/rejected response does not.
+      this.jumpTo = vi.fn()
     }
     // map.on('click', LAYER_ID, cb) carries the layer id as a second
     // argument; every other event map.js registers is map.on(event, cb).
@@ -773,5 +776,92 @@ describe('sensor tier: registry + marker click', () => {
 
     expect(() => map.handlers.click({ features: [{ properties: {} }] })).not.toThrow()
     expect(() => map.handlers.click({ features: [] })).not.toThrow()
+  })
+})
+
+// Task 10, fix round 1: mountTestMap's harness sets no data-slug, so
+// locateVisitor DOES run during the mount()-based tests above via the
+// 'load' handler — but nothing there ever mocked fetchJSON, so only the
+// applyLocate(null, …) "stay" branch (a rejected real fetch under jsdom) was
+// ever exercised. The "geoip" branch — the one that calls map.jumpTo and
+// adopts a slug, which is what unlocks the per-area sensor tier for a
+// visitor the server actually placed — had never run under test. Driven
+// directly here through the exported function and its fetchJSON seam,
+// rather than through mount(), so the injected response body is the only
+// thing standing between "stay" and "move".
+describe('locateVisitor', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests() })
+  afterEach(() => { resetViewStateForTests() })
+
+  function fakeMap() {
+    return {
+      jumpTo: vi.fn(),
+      getZoom: vi.fn(() => 7),
+      getSource: vi.fn(() => ({ setData: vi.fn() })),
+    }
+  }
+
+  function fakeChrome() {
+    return { showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn() }
+  }
+
+  const cfg = {
+    lon: 25.4858, lat: 42.7339, zoom: 7,
+    zoomCity: 9, zoomSensor: 11, metric: 'P2', noDataColour: '#9ca3af',
+    t: { hint: 'h', unavailable: 'u' },
+  }
+
+  // On a "move", locateVisitor's own refresh() call still goes through the
+  // real getJSON (only the /api/v1/locate lookup itself is injected), so the
+  // global fetch is stubbed to satisfy that forced repaint quietly rather
+  // than logging a real network failure.
+  function stubOverviewFetch() {
+    return vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }))
+  }
+
+  // The load-bearing pair: adopting body.slug straight off a "default"
+  // response — or moving at all — is exactly the spoofing-defence bypass
+  // described in internal/api/locate_test.go:81. The server answers
+  // "default" both when it cannot place the visitor and when the Cloudflare
+  // geo headers came from an untrusted peer; the frontend must never read
+  // that as a placement.
+  it('does not jump and leaves state.slug unset for source: "default"', async () => {
+    vi.stubGlobal('fetch', stubOverviewFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const chrome = fakeChrome()
+    const fetchJSON = vi.fn().mockResolvedValue({ source: 'default', slug: 'bg', lon: 25.4, lat: 42.7, zoom: 7 })
+
+    await locateVisitor(map, state, cfg, chrome, fetchJSON)
+
+    expect(map.jumpTo).not.toHaveBeenCalled()
+    expect(state.slug).toBeNull()
+  })
+
+  it('jumps to and adopts the slug for source: "geoip"', async () => {
+    vi.stubGlobal('fetch', stubOverviewFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const chrome = fakeChrome()
+    const fetchJSON = vi.fn().mockResolvedValue({ source: 'geoip', slug: 'sofia', lon: 23.32, lat: 42.7, zoom: 11 })
+
+    await locateVisitor(map, state, cfg, chrome, fetchJSON)
+
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [23.32, 42.7], zoom: 11 })
+    expect(state.slug).toBe('sofia')
+  })
+
+  // The wrapped-fetch requirement from the brief: a rejected lookup must land
+  // in the same "stay put" branch rather than throwing out of the map's init.
+  it('does not jump when the lookup rejects', async () => {
+    vi.stubGlobal('fetch', stubOverviewFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const chrome = fakeChrome()
+    const fetchJSON = vi.fn().mockRejectedValue(new Error('network'))
+
+    await expect(locateVisitor(map, state, cfg, chrome, fetchJSON)).resolves.toBeUndefined()
+    expect(map.jumpTo).not.toHaveBeenCalled()
+    expect(state.slug).toBeNull()
   })
 })
