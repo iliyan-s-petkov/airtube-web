@@ -68,3 +68,12 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
     destroy() { win.removeEventListener('hashchange', onHashChange) },
   }
 }
+
+// One store per page, shared by every island. Two independent stores would each
+// write the hash and clobber the other's key — the switcher would close the
+// panel on every metric change.
+let shared = null
+export function getViewState(opts) {
+  if (shared === null) shared = createViewState(opts)
+  return shared
+}

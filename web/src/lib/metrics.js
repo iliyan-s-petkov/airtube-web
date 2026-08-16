@@ -26,3 +26,11 @@ export function unitFor(scales, metric) {
   if (!Array.isArray(scales)) return ''
   return scales.find((s) => s.metric === metric)?.unit ?? ''
 }
+
+// Positional pairing of the two server attributes. Extra labels are dropped and
+// missing ones fall back to the metric's own name: a mislabelled control is
+// worse than an unlabelled one, and silently shifting labels by one is exactly
+// what an unchecked zip does when the two lists disagree.
+export function zipLabels(metrics, labels) {
+  return metrics.map((metric, i) => ({ metric, label: labels[i] || metric }))
+}

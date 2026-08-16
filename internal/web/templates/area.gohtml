@@ -31,6 +31,12 @@
   </div>
 {{end}}
 
+<div data-island="switcher"
+     data-metrics="{{.MetricsAttr}}"
+     data-metric-labels="{{.MetricLabelsAttr}}"
+     data-metric="{{.DefaultMetric}}"
+     data-t-legend="{{.T "metric.legend"}}"></div>
+
 <div id="area-map" data-island="map"
      data-slug="{{.Area.Slug}}"
      data-zoom="{{.Area.Zoom}}"

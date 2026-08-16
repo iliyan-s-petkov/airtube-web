@@ -13,6 +13,7 @@ import (
 	"airbg.org/internal/config"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
+	"airbg.org/internal/upstream"
 	"airbg.org/internal/web"
 )
 
@@ -557,6 +558,58 @@ func TestChartIslandCarriesItsUnavailableString(t *testing.T) {
 	if !strings.Contains(tag, want) {
 		t.Errorf("the chart island's tag is missing %s: %s", want, tag)
 	}
+}
+
+// TestPagesRenderTheMetricSwitcher pins the switcher island's data-metrics
+// list against upstream.CanonicalMetrics()'s ACTUAL order — sort.Strings over
+// the canonical set, which sorts uppercase before lowercase and so does not
+// read as alphabetical to a human ("P1,P2,humidity,noise_LA_max,noise_LAeq,
+// pressure,temperature"). A template-literal copy of that order here would be
+// a second home for a fact CanonicalMetrics already owns and would drift the
+// moment a metric is added or renamed.
+func TestPagesRenderTheMetricSwitcher(t *testing.T) {
+	body := fetch(t, renderer(t, fixture(t)), "/").Body.String()
+
+	wantMetrics := strings.Join(upstream.CanonicalMetrics(), ",")
+	if !strings.Contains(body, `data-metrics="`+wantMetrics+`"`) {
+		t.Errorf("metric list not rendered as %q:\n%s", wantMetrics, body)
+	}
+	if !strings.Contains(body, `data-island="switcher"`) {
+		t.Errorf("switcher island container missing:\n%s", body)
+	}
+
+	// Labels are positional: the Nth label belongs to the Nth metric. Extract
+	// both attribute values and compare how many elements each splits into — a
+	// bare "does the body contain a comma somewhere" assertion would pass even
+	// if the label list were empty, truncated, or off by one entry.
+	tag := islandTag(t, body, "switcher")
+	metricsAttr := attrValue(t, tag, "data-metrics")
+	labelsAttr := attrValue(t, tag, "data-metric-labels")
+	gotMetrics := strings.Split(metricsAttr, ",")
+	gotLabels := strings.Split(labelsAttr, ",")
+	if len(gotMetrics) != len(gotLabels) {
+		t.Errorf("data-metrics has %d entries but data-metric-labels has %d:\nmetrics=%q\nlabels=%q",
+			len(gotMetrics), len(gotLabels), metricsAttr, labelsAttr)
+	}
+}
+
+// attrValue extracts a double-quoted attribute's value out of an already
+// narrowed element tag (see islandTag). Narrowed to one attribute by NAME
+// first, so a value that itself contains '"' or another attribute's name as a
+// substring cannot be mistaken for the wrong attribute.
+func attrValue(t *testing.T, tag, name string) string {
+	t.Helper()
+	marker := name + `="`
+	start := strings.Index(tag, marker)
+	if start < 0 {
+		t.Fatalf("tag has no %s attribute: %s", name, tag)
+	}
+	start += len(marker)
+	end := strings.Index(tag[start:], `"`)
+	if end < 0 {
+		t.Fatalf("unterminated %s attribute: %s", name, tag)
+	}
+	return tag[start : start+end]
 }
 
 // islandTag returns the opening tag that carries data-island="<name>", so an

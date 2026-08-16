@@ -16,6 +16,8 @@
   "metric.pressure": "Pressure",
   "metric.noise_LAeq": "Noise (LAeq)",
   "metric.noise_LA_max": "Noise (max)",
+  "metric.legend": "Metric",
+  "metric.unscaled": "This metric has no air-quality scale — dots show where readings exist, not how good they are.",
   "sensor.title": "Sensor",
   "sensor.quality.ok": "Healthy",
   "sensor.quality.out_of_range": "Value out of range",

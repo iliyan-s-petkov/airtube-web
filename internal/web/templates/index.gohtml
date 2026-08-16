@@ -2,6 +2,15 @@
 <h1>{{.T "site.title"}}</h1>
 <p>{{.T "site.tagline"}}</p>
 
+{{/* The switcher: server-rendered metric list and labels, positional pairs —
+     see PageData.Metrics/MetricLabels. Above the map island because it
+     controls what the map shows, not the other way round. */}}
+<div data-island="switcher"
+     data-metrics="{{.MetricsAttr}}"
+     data-metric-labels="{{.MetricLabelsAttr}}"
+     data-metric="{{.DefaultMetric}}"
+     data-t-legend="{{.T "metric.legend"}}"></div>
+
 {{/* The list below stays as the no-JavaScript fallback and as the crawlable
      content — a map alone is invisible to a search engine and unusable with
      a screen reader. The MapLibre island mounts on #map beside it, never

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseMetricList, hasScale, unitFor } from '../metrics.js'
+import { parseMetricList, hasScale, unitFor, zipLabels } from '../metrics.js'
 
 // Shaped exactly like /api/v1/scales: two tables for P2, one for P1, none for
 // anything else. The duplicate P2 entry is not padding — it is what the real
@@ -50,5 +50,28 @@ describe('unitFor', () => {
 
   it('is empty for a metric with no table', () => {
     expect(unitFor(scales, 'humidity')).toBe('')
+  })
+})
+
+describe('zipLabels', () => {
+  it('pairs each metric with its positional label', () => {
+    expect(zipLabels(['P1', 'P2'], ['PM10', 'PM2.5'])).toEqual([
+      { metric: 'P1', label: 'PM10' },
+      { metric: 'P2', label: 'PM2.5' },
+    ])
+  })
+
+  // The lists disagreeing in length must not shift labels onto the wrong
+  // metric: a missing label falls back to the metric's own name instead.
+  it('falls back to the metric name when the label list is shorter', () => {
+    expect(zipLabels(['P1', 'P2', 'temperature'], ['PM10'])).toEqual([
+      { metric: 'P1', label: 'PM10' },
+      { metric: 'P2', label: 'P2' },
+      { metric: 'temperature', label: 'temperature' },
+    ])
+  })
+
+  it('drops extra labels when the label list is longer', () => {
+    expect(zipLabels(['P1'], ['PM10', 'PM2.5'])).toEqual([{ metric: 'P1', label: 'PM10' }])
   })
 })

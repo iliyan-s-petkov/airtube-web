@@ -16,6 +16,8 @@
   "metric.pressure": "Атмосферно налягане",
   "metric.noise_LAeq": "Шум (LAeq)",
   "metric.noise_LA_max": "Шум (макс.)",
+  "metric.legend": "Показател",
+  "metric.unscaled": "Този показател няма скала за качество на въздуха — точките показват само къде има измервания.",
   "sensor.title": "Сензор",
   "sensor.quality.ok": "Изправен",
   "sensor.quality.out_of_range": "Стойност извън обхват",
