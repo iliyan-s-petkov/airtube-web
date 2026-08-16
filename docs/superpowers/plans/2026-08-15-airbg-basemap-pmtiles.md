@@ -433,6 +433,7 @@ git commit -m "tiles: serve the self-hosted basemap artefacts from their own han
 - Modify: `internal/config/resolve.go` (`Basemap Basemap` at line 21; `type Basemap` at line 167; the `Basemap:` literal at line 276)
 - Modify: `internal/config/validate.go` (`Validate` at line 62; the `basemap.style_url` block at the end of `validateFrontend`, lines 336-361)
 - Modify: `internal/config/load.go` (`secretKeys` at line 24; `BasemapKeyEnv` at line 256; the substitution at line 278)
+- Modify: `internal/web/render.go:78`, `internal/web/render_test.go:87` (compile-level only; Task 3 owns the rest)
 - Modify: `internal/config/inert_test.go`
 - Modify: `airbg.yaml` (`basemap:` at line 277; header comment at line 16; `listen.csp` at line 44)
 - Modify: `cmd/airbg/validate.go:38`
@@ -729,7 +730,19 @@ func (c Config) validateTiles(p *problems) {
 		// MapLibre fetches the style, the glyphs and the .pmtiles ranges over
 		// fetch/XHR. A connect-src that omits this host fails closed: a blank
 		// map, and nothing anywhere on the server to say why.
-		if !strings.Contains(connectSrc(c.Listen.CSP), u.Host) {
+		// Match whole source expressions, never a substring of the directive:
+		// "not-tiles.airbg.org" contains "tiles.airbg.org", so containment would
+		// accept a policy that blocks the very host it is checking for. Both the
+		// bare host and scheme://host are valid CSP source expressions.
+		origin := u.Scheme + "://" + u.Host
+		found := false
+		for _, tok := range strings.Fields(connectSrc(c.Listen.CSP)) {
+			if tok == origin || tok == u.Host {
+				found = true
+				break
+			}
+		}
+		if !found {
 			p.addf("listen.csp's connect-src does not allow %q, so the browser cannot fetch the basemap from tiles.public_url", u.Host)
 		}
 	}
@@ -800,7 +813,36 @@ In `internal/config/load.go`:
 
 In `cmd/airbg/validate.go`, delete line 38 (`fmt.Fprintf(w, "%s\t%s\n", config.BasemapKeyEnv, presence(cfg.Basemap.Key))`) and its test expectation in `cmd/airbg/validate_test.go` if one names `AIRBG_BASEMAP_KEY`.
 
-- [ ] **Step 7: Update `airbg.yaml`**
+- [ ] **Step 7: Keep the tree compiling**
+
+Deleting `Config.Basemap` breaks `internal/web`, which still reads it. Make the
+two minimum changes here so this task's own `go test ./...` gate can pass; Task 3
+owns the comments, the derivation tests and the footer attribution.
+
+In `internal/web/render.go`, change line 78:
+
+```go
+		basemapStyleURL: cfg.Tiles.StyleURL(),
+```
+
+In `internal/web/render_test.go:87`, replace `cfg.Basemap.StyleURL = basemapStyleURL` with:
+
+```go
+	if basemapStyleURL != "" {
+		cfg.Tiles = config.Tiles{
+			Addr:      "127.0.0.1:8082",
+			Dir:       "/var/lib/airbg/tiles",
+			PublicURL: strings.TrimSuffix(basemapStyleURL, "/style.json"),
+		}
+	}
+```
+
+That helper's parameter still reads as a style URL, which Task 3 renames. Leave
+the existing assertions alone: they pass a full style URL and expect it rendered
+verbatim, and the `TrimSuffix` above preserves exactly that. Add `"strings"` and
+`"airbg.org/internal/config"` to the test file's imports if absent.
+
+- [ ] **Step 8: Update `airbg.yaml`**
 
 Delete the `basemap:` block (lines 277-280 — the section header, its comment, and `style_url`). Add, at the same position:
 
@@ -840,7 +882,7 @@ At line 16, replace the `AIRBG_BASEMAP_KEY` line in the header comment with noth
   # error anywhere on the server.
 ```
 
-- [ ] **Step 8: Pin the new values in `inert_test.go`**
+- [ ] **Step 9: Pin the new values in `inert_test.go`**
 
 In `internal/config/inert_test.go`'s `strings` subtest, delete any `basemap.style_url` row and add:
 
@@ -858,12 +900,12 @@ Match the subtest's existing row struct — if it uses named fields or a map, fo
 		// non-change. Configuring one is a deployment step (docs/tiles.md).
 ```
 
-- [ ] **Step 9: Run the tests**
+- [ ] **Step 10: Run the tests**
 
-Run: `go test ./internal/config/ ./cmd/airbg/ -v 2>&1 | tail -40`
+Run: `go test ./internal/config/ ./cmd/airbg/ ./internal/web/ -v 2>&1 | tail -40`
 Expected: PASS, including all five `TestTiles*` tests.
 
-- [ ] **Step 10: Mutation-prove the couplings**
+- [ ] **Step 11: Mutation-prove the couplings**
 
 1. In `airbg.yaml`, set `tiles.addr: "127.0.0.1:8082"` and leave the other two empty. Run `go test ./internal/config/`. Expected: FAIL — `LoadFile` returns the all-or-nothing error, and `validConfig`/`TestShippedValuesMatchPhase2Behaviour` fail. Revert.
 2. In `validateTiles`, delete the `connect-src` check. Run `go test ./internal/config/ -run TestTilesHostMustBeInConnectSrc`. Expected: FAIL. Revert.
@@ -871,11 +913,11 @@ Expected: PASS, including all five `TestTiles*` tests.
 
 Record each mutation and its failure output.
 
-- [ ] **Step 11: Verify and commit**
+- [ ] **Step 12: Verify and commit**
 
 ```bash
 gofmt -l . && go vet ./... && go vet -tags integration ./... && go test ./...
-git add internal/config airbg.yaml cmd/airbg
+git add internal/config airbg.yaml cmd/airbg internal/web
 git commit -m "config: replace the vendor basemap with a self-hosted tiles section"
 ```
 
@@ -946,15 +988,12 @@ If the file has no `renderIndex` helper, render through whatever entry point the
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `go test ./internal/web/`
-Expected: FAIL to compile — `cfg.Basemap undefined`.
+Expected: FAIL — `newTestRendererWithTiles` and the two new tests are undefined.
 
 - [ ] **Step 3: Implement**
 
-In `internal/web/render.go`, change line 78 from `basemapStyleURL: cfg.Basemap.StyleURL,` to:
-
-```go
-		basemapStyleURL: cfg.Tiles.StyleURL(),
-```
+`internal/web/render.go:78` already reads `basemapStyleURL: cfg.Tiles.StyleURL(),`
+— Task 2 made that change so the tree would compile. Confirm it, do not repeat it.
 
 Rewrite the `NewRenderer` doc comment's basemap paragraph (lines 52-58) to:
 

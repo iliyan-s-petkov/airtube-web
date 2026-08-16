@@ -118,8 +118,8 @@ func TestTopLevelSectionAbsentIsNil(t *testing.T) {
 	if r.Frontend != nil {
 		t.Errorf("Frontend = %v, want nil", r.Frontend)
 	}
-	if r.Basemap != nil {
-		t.Errorf("Basemap = %v, want nil", r.Basemap)
+	if r.Tiles != nil {
+		t.Errorf("Tiles = %v, want nil", r.Tiles)
 	}
 }
 
@@ -415,8 +415,8 @@ func TestEmptyYAMLIsAllNil(t *testing.T) {
 	if r.Frontend != nil {
 		t.Errorf("Frontend = %v, want nil", r.Frontend)
 	}
-	if r.Basemap != nil {
-		t.Errorf("Basemap = %v, want nil", r.Basemap)
+	if r.Tiles != nil {
+		t.Errorf("Tiles = %v, want nil", r.Tiles)
 	}
 }
 

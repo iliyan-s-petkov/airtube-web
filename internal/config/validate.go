@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -50,8 +51,7 @@ func (p *problems) positiveFloat(path string, x float64) {
 
 // parseErrorReason extracts the underlying reason from a url.Parse failure
 // without the input string url.Error.Error() would otherwise quote. Used
-// wherever the parsed URL may carry a credential (basemap.style_url has
-// AIRBG_BASEMAP_KEY substituted into its query string before validation).
+// wherever the parsed URL comes from operator input, such as tiles.public_url.
 func parseErrorReason(err error) string {
 	if ue, ok := err.(*url.Error); ok {
 		return ue.Err.Error()
@@ -70,6 +70,7 @@ func (c Config) Validate() error {
 	c.validateStoreAndSeries(&p)
 	c.validateQuality(&p)
 	c.validateFrontend(&p)
+	c.validateTiles(&p)
 
 	if len(p) > 0 {
 		return fmt.Errorf("config: %d problem(s):\n  %s", len(p), strings.Join(p, "\n  "))
@@ -333,30 +334,144 @@ func (c Config) validateFrontend(p *problems) {
 	if c.Frontend.ZoomCity >= c.Frontend.ZoomSensor {
 		p.addf("frontend.zoom_city (%d) must be below frontend.zoom_sensor (%d); the tiers are country, then city, then sensor", c.Frontend.ZoomCity, c.Frontend.ZoomSensor)
 	}
-	if c.Basemap.StyleURL == "" {
-		p.addf("basemap.style_url is empty")
-	} else if u, err := url.Parse(c.Basemap.StyleURL); err != nil {
-		// Report the parse failure reason only, never err.Error() or the URL
-		// itself: net/url's *url.Error.Error() quotes the whole input,
-		// including the query string, and AIRBG_BASEMAP_KEY is substituted
-		// into this URL's query before Validate ever sees it. Echoing err
-		// verbatim would put the basemap key in every CI log that runs
-		// validate-config.
-		p.addf("basemap.style_url is not a URL: %s", parseErrorReason(err))
-	} else {
-		if u.Scheme != "http" && u.Scheme != "https" {
-			p.addf("basemap.style_url must use http or https")
-		}
-		// Userinfo would put a credential in a URL the browser fetches, and the
-		// CSP widens connect-src and img-src by this URL's host.
-		if u.User != nil {
-			p.addf("basemap.style_url must not contain userinfo")
-		}
-		if len(u.Host) > maxHostLength {
-			p.addf("basemap.style_url host is %d bytes, must be at most %d", len(u.Host), maxHostLength)
-		}
-		if !hostPattern.MatchString(u.Host) {
-			p.addf("basemap.style_url host = %q is not a valid hostname", u.Host)
+}
+
+// validateTiles checks the two couplings the self-hosted basemap depends on.
+// Both fail silently at runtime — a blank map and no server-side error — so
+// both fail loudly at startup instead.
+func (c Config) validateTiles(p *problems) {
+	set := map[string]string{
+		"tiles.addr":       c.Tiles.Addr,
+		"tiles.dir":        c.Tiles.Dir,
+		"tiles.public_url": c.Tiles.PublicURL,
+		"tiles.archive":    c.Tiles.Archive,
+	}
+	var empty, filled []string
+	for path, v := range set {
+		if v == "" {
+			empty = append(empty, path)
+		} else {
+			filled = append(filled, path)
 		}
 	}
+	if len(filled) == 0 {
+		// No basemap configured. Legal: the map renders markers over
+		// frontend.empty_basemap_colour, and local development needs neither a
+		// vendor account nor a 300 MB file.
+		return
+	}
+	if len(empty) > 0 {
+		sort.Strings(empty)
+		p.addf("tiles.* is all-or-nothing; %s is set but %s is empty",
+			strings.Join(sorted(filled), ", "), strings.Join(empty, ", "))
+		return
+	}
+
+	if len(c.Tiles.Addr) > maxHostLength || !hostPattern.MatchString(c.Tiles.Addr) {
+		p.addf("tiles.addr = %q, must be host:port", c.Tiles.Addr)
+	}
+	// A third listener that shares an address with either of the other two is
+	// the "three listeners simplified back to two" mistake, in configuration.
+	if c.Tiles.Addr == c.Listen.Addr {
+		p.addf("tiles.addr and listen.addr are both %q; the tiles listener must be separate", c.Tiles.Addr)
+	}
+	if c.Tiles.Addr == c.Listen.MetricsAddr {
+		p.addf("tiles.addr and listen.metrics_addr are both %q; the tiles listener must be separate", c.Tiles.Addr)
+	}
+
+	// A plain filename inside tiles.dir, nothing else. This is defence in depth
+	// and a clearer error, not the primary control: internal/tiles reads through
+	// os.DirFS, which already makes an escape from tiles.dir structurally
+	// impossible. What this buys is that a name with a path in it fails here,
+	// at startup, instead of passing the handler's existence check and then
+	// being refused by its allowlist at request time — which is a blank map.
+	if strings.ContainsAny(c.Tiles.Archive, `/\`) || c.Tiles.Archive == "." || c.Tiles.Archive == ".." {
+		p.addf("tiles.archive = %q must be a plain filename inside tiles.dir, with no path separator", c.Tiles.Archive)
+	}
+
+	u, err := url.Parse(c.Tiles.PublicURL)
+	switch {
+	case err != nil:
+		p.addf("tiles.public_url is not a URL: %s", parseErrorReason(err))
+	case u.Scheme != "http" && u.Scheme != "https":
+		p.addf("tiles.public_url must use http or https")
+	case u.User != nil:
+		// Userinfo would put a credential in a URL the browser fetches, and the
+		// host below is concatenated into a CSP header.
+		p.addf("tiles.public_url must not contain userinfo")
+	case len(u.Host) > maxHostLength:
+		p.addf("tiles.public_url host is %d bytes, must be at most %d", len(u.Host), maxHostLength)
+	case !hostPattern.MatchString(u.Host):
+		p.addf("tiles.public_url host = %q is not a valid hostname", u.Host)
+	case u.Path != "" && u.Path != "/":
+		// StyleURL only trims a trailing slash, so a path here produces
+		// ".../basemap/style.json" — two segments, which the handler's allowlist
+		// 404s. The CSP coupling below would still pass, because it matches on
+		// the host: the map goes blank and every check that exists to catch that
+		// says nothing. This is an origin, not a URL prefix.
+		p.addf("tiles.public_url = %q must be an origin with no path; the tiles listener serves style.json, glyphs/ and the archive at its root", c.Tiles.PublicURL)
+	case u.RawQuery != "":
+		// The deleted basemap.style_url carried "?key=..."; a query here is the
+		// vendor shape returning, and it would be concatenated into every
+		// derived URL where nothing consumes it.
+		p.addf("tiles.public_url = %q must not contain a query string", c.Tiles.PublicURL)
+	case u.Fragment != "":
+		p.addf("tiles.public_url = %q must not contain a fragment", c.Tiles.PublicURL)
+	default:
+		// MapLibre fetches the style, the glyphs and the .pmtiles ranges over
+		// fetch/XHR. A connect-src that omits this host fails closed: a blank
+		// map, and nothing anywhere on the server to say why.
+		//
+		// This must be an exact match against whitespace-separated connect-src
+		// tokens, not a substring test: strings.Contains("not-tiles.airbg.org",
+		// "tiles.airbg.org") is true, which would let a CSP that allows a
+		// *different* origin satisfy the check for this one.
+		//
+		// The cost of exactness is that a wildcard source such as
+		// "https://*.airbg.org" is not recognised, even though a browser would
+		// honour it and the map would work. That is accepted rather than fixed:
+		// matching wildcards means reimplementing CSP source-expression matching
+		// here, and getting that subtly wrong turns a check that catches a real
+		// misconfiguration into one that waves it through. So the message below
+		// says what this check wants — the host, written literally — instead of
+		// telling the operator their CSP is broken, which for a wildcard it is
+		// not.
+		origin := u.Scheme + "://" + u.Host
+		found := false
+		for _, tok := range strings.Fields(connectSrc(c.Listen.CSP)) {
+			if tok == origin || tok == u.Host {
+				found = true
+				break
+			}
+		}
+		if !found {
+			p.addf("listen.csp's connect-src must list %q literally (as %q or %q); wildcard sources are not recognised here even though browsers honour them, so widen the CSP or add the exact host", u.Host, origin, u.Host)
+		}
+	}
+}
+
+// sorted returns a sorted copy, so a problem message reads the same on every
+// run. Ranging a map is deliberately unordered in Go.
+func sorted(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
+}
+
+// connectSrc extracts the connect-src directive from a CSP, or default-src when
+// connect-src is absent — the fallback the browser itself applies.
+func connectSrc(csp string) string {
+	var fallback string
+	for _, directive := range strings.Split(csp, ";") {
+		directive = strings.TrimSpace(directive)
+		if name, rest, ok := strings.Cut(directive, " "); ok {
+			switch name {
+			case "connect-src":
+				return rest
+			case "default-src":
+				fallback = rest
+			}
+		}
+	}
+	return fallback
 }

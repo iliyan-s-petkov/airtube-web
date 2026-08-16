@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"airbg.org/internal/config"
+	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/server"
 	"airbg.org/internal/snapshot"
@@ -47,7 +49,21 @@ func free(t *testing.T) string {
 	return addr
 }
 
+// running starts a server with two listeners. tilesDir empty means no basemap,
+// which is the shipped configuration; runningWithTiles covers the other state.
 func running(t *testing.T) (public, private string) {
+	pub, priv, _ := start(t, "")
+	return pub, priv
+}
+
+func runningWithTiles(t *testing.T, tilesDir string, tweak ...func(*config.Config)) (public, private, tiles string) {
+	return start(t, tilesDir, tweak...)
+}
+
+// start builds the server from the committed configuration. tweak runs after
+// the addresses are assigned and before server.New, so a test can move a knob
+// (the connection cap, say) without a second copy of this setup.
+func start(t *testing.T, tilesDir string, tweak ...func(*config.Config)) (public, private, tilesAddr string) {
 	t.Helper()
 
 	cat, err := i18n.Load()
@@ -66,6 +82,18 @@ func running(t *testing.T) (public, private string) {
 	cfg.Listen.Addr = public
 	cfg.Listen.MetricsAddr = private
 	cfg.Listen.BaseURL = "http://" + public
+	if tilesDir != "" {
+		tilesAddr = free(t)
+		cfg.Tiles = config.Tiles{
+			Addr:      tilesAddr,
+			Dir:       tilesDir,
+			PublicURL: "http://" + tilesAddr,
+			Archive:   tilesArchive,
+		}
+	}
+	for _, fn := range tweak {
+		fn(&cfg)
+	}
 
 	srv, err := server.New(server.Options{
 		Config:    cfg,
@@ -92,7 +120,32 @@ func running(t *testing.T) (public, private string) {
 	})
 
 	waitReady(t, private)
-	return public, private
+	return public, private, tilesAddr
+}
+
+// tilesArchive is the dated PMTiles filename these tests configure. Dated
+// because that is the shape docs/tiles.md produces, and configured because the
+// handler serves the configured name and no other.
+const tilesArchive = "bulgaria-20260815.pmtiles"
+
+// tilesDir writes a miniature tile directory, so these tests need no
+// 300 MB artefact. The handler serves bytes and never parses them.
+func tilesDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "glyphs", "NotoSans-Regular"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"style.json":                        `{"version":8,"sources":{},"layers":[]}`,
+		tilesArchive:                        "PMTilesFAKEBODY0123456789",
+		"glyphs/NotoSans-Regular/0-255.pbf": "fakeglyphs",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
 }
 
 func waitReady(t *testing.T, addr string) {
@@ -142,6 +195,125 @@ func TestMetricsAreNotOnThePublicListener(t *testing.T) {
 	}
 	if got := get(t, private, "/metrics").StatusCode; got != http.StatusOK {
 		t.Errorf("GET /metrics on the private listener = %d, want 200", got)
+	}
+}
+
+// TestTilesAreNotOnThePublicListener. This is the test that catches a later
+// "simplification" of three listeners back into two. Serving style.json from
+// the public listener would put dozens of range requests per map load through
+// the 10/s API bucket — and any exemption carved out for them is one routing
+// mistake away from covering more than intended.
+func TestTilesAreNotOnThePublicListener(t *testing.T) {
+	public, private, tiles := runningWithTiles(t, tilesDir(t))
+
+	if got := get(t, tiles, "/style.json").StatusCode; got != http.StatusOK {
+		t.Errorf("GET /style.json on the tiles listener = %d, want 200", got)
+	}
+	if got := get(t, public, "/style.json").StatusCode; got == http.StatusOK {
+		t.Error("/style.json is reachable on the public listener")
+	}
+	if got := get(t, private, "/style.json").StatusCode; got == http.StatusOK {
+		t.Error("/style.json is reachable on the private listener")
+	}
+	// The converse, so a future refactor cannot satisfy this test by pointing
+	// all three addresses at one mux that happens to 404 the wrong paths.
+	if got := get(t, tiles, "/api/v1/overview").StatusCode; got == http.StatusOK {
+		t.Error("the API is reachable on the tiles listener")
+	}
+	if got := get(t, tiles, "/metrics").StatusCode; got == http.StatusOK {
+		t.Error("/metrics is reachable on the tiles listener")
+	}
+}
+
+// TestTilesListenerIsCapped. The tiles bulkhead separates the pool, the
+// snapshot, the limiters and the admission semaphore — but file descriptors and
+// goroutines are process-wide and cannot be separated. An uncapped tiles
+// listener is therefore a way to exhaust them and take the public listener's
+// Accept down with it. And the assumption that makes listen.max_conns look
+// redundant on the public port — that the origin is reachable only through
+// Cloudflare — is known false here by design: the tiles port sits on a DNS-only
+// hostname and accepts the world.
+func TestTilesListenerIsCapped(t *testing.T) {
+	const maxConns = 2
+	_, _, tilesAddr := runningWithTiles(t, tilesDir(t), func(c *config.Config) {
+		c.Listen.MaxConns = maxConns
+	})
+
+	before := httpx.ConnectionsRejectedCountForTesting()
+
+	// Held open and silent: the cap bounds sockets, not requests, so a
+	// connection that never sends a byte must still occupy a slot. That is the
+	// whole failure mode — tens of thousands of these complete no request, so
+	// no rate limiter or admission cap ever sees them.
+	for i := 0; i < maxConns; i++ {
+		c, err := net.Dial("tcp", tilesAddr)
+		if err != nil {
+			t.Fatalf("dial %d: %v", i, err)
+		}
+		defer c.Close()
+	}
+
+	// The listener accepts in FIFO order, so both slots are taken by the time
+	// this one is accepted.
+	over, err := net.Dial("tcp", tilesAddr)
+	if err != nil {
+		t.Fatalf("dial over-cap: %v", err)
+	}
+	defer over.Close()
+
+	// An over-cap connection is accepted from the kernel and closed at once, so
+	// this read ends instead of blocking. Two seconds is deliberately well under
+	// the 5s ReadHeaderTimeout that would eventually close an ACCEPTED silent
+	// connection: a longer deadline would pass with or without the cap.
+	_ = over.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := over.Read(make([]byte, 1))
+	switch {
+	case err == nil:
+		t.Fatalf("the over-cap connection read %d bytes and stayed open; the tiles listener has no connection cap", n)
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		t.Fatalf("the over-cap connection was still open 2s after connecting; the tiles listener has no connection cap")
+	}
+
+	if got := httpx.ConnectionsRejectedCountForTesting() - before; got < 1 {
+		t.Errorf("airbg_connections_rejected_total rose by %d over the over-cap connection, want at least 1", got)
+	}
+}
+
+// TestNoTilesStartsTwoListeners. The shipped configuration has no basemap, and
+// it must still start and serve on both of its listeners.
+//
+// It does not assert that a third socket is absent — nothing here observes the
+// process's sockets, and the tiles listener's address is only ever read from
+// tiles.addr, which is empty on this path. What it pins is that the empty
+// tiles.* path is a supported configuration rather than a startup error, which
+// is what would break if the basemap were ever made mandatory by accident.
+func TestNoTilesStartsTwoListeners(t *testing.T) {
+	public, private := running(t)
+	if got := get(t, public, "/").StatusCode; got != http.StatusOK {
+		t.Errorf("GET / = %d, want 200", got)
+	}
+	if got := get(t, private, "/healthz").StatusCode; got != http.StatusOK {
+		t.Errorf("GET /healthz = %d, want 200", got)
+	}
+}
+
+// TestABadTilesDirIsAStartupError. Discovering a mis-set path from a blank map
+// in production is the outcome this refuses.
+func TestABadTilesDirIsAStartupError(t *testing.T) {
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+	cfg := testConfig(t)
+	holder := snapshot.NewHolder(cfg.Series)
+	cfg.Tiles = config.Tiles{
+		Addr:      "127.0.0.1:0",
+		Dir:       filepath.Join(t.TempDir(), "does-not-exist"),
+		PublicURL: "http://127.0.0.1:8082",
+		Archive:   tilesArchive,
+	}
+	if _, err := server.New(server.Options{Config: cfg, Catalogue: cat, Snapshots: holder}); err == nil {
+		t.Fatal("server.New with a missing tiles.dir returned nil error, want an error")
 	}
 }
 

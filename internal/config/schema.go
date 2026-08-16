@@ -20,7 +20,7 @@ type raw struct {
 	Quality   *rawQuality   `yaml:"quality"`
 	Backfill  *rawBackfill  `yaml:"backfill"`
 	Frontend  *rawFrontend  `yaml:"frontend"`
-	Basemap   *rawBasemap   `yaml:"basemap"`
+	Tiles     *rawTiles     `yaml:"tiles"`
 }
 
 type rawListen struct {
@@ -189,6 +189,13 @@ type rawFrontend struct {
 	DefaultLat  *float64 `yaml:"default_lat"`
 }
 
-type rawBasemap struct {
-	StyleURL *string `yaml:"style_url"`
+// rawTiles has no key field, and must never grow one. The whole point of the
+// self-hosted basemap is that there is no vendor to authenticate to; a key here
+// would also route a credential through assignScalar's value-echoing parse
+// errors, the same reason rawDatabase has no url field.
+type rawTiles struct {
+	Addr      *string `yaml:"addr"`
+	Dir       *string `yaml:"dir"`
+	PublicURL *string `yaml:"public_url"`
+	Archive   *string `yaml:"archive"`
 }

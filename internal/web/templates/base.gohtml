@@ -29,6 +29,7 @@
   <p class="disclaimer">{{.T "disclaimer"}}</p>
   <p>{{.T "footer.data"}}</p>
   <p>{{.T "footer.boundaries"}}</p>
+  {{if .HasBasemap}}<p>{{.T "footer.basemap"}}</p>{{end}}
   {{if not .GeneratedAt.IsZero}}<p>{{.T "area.updated"}}: <time datetime="{{.GeneratedAtISO}}">{{.GeneratedAtHuman}}</time></p>{{end}}
 </footer>
 {{with .Assets.Script "main"}}<script type="module" src="{{.}}"></script>

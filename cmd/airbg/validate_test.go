@@ -25,11 +25,10 @@ func TestValidateConfigAcceptsCommittedFile(t *testing.T) {
 func TestValidateConfigNeverPrintsSecrets(t *testing.T) {
 	t.Setenv(config.PathEnv, filepath.Join("..", "..", "airbg.yaml"))
 	t.Setenv(config.DatabaseURLEnv, "postgres://user:hunter2@localhost:5432/airbg")
-	t.Setenv(config.BasemapKeyEnv, "s3cr3tk3y")
 	var out, errOut bytes.Buffer
 	runValidateConfig(&out, &errOut)
 	combined := out.String() + errOut.String()
-	for _, secret := range []string{"hunter2", "s3cr3tk3y"} {
+	for _, secret := range []string{"hunter2"} {
 		if strings.Contains(combined, secret) {
 			t.Errorf("output contains the secret %q:\n%s", secret, combined)
 		}
@@ -65,26 +64,23 @@ func TestValidateConfigRejectsSemanticallyInvalidFile(t *testing.T) {
 	}
 }
 
-// AIRBG_BASEMAP_KEY is substituted into basemap.style_url's query string
-// before Validate ever runs. A key containing bytes that make the resulting
-// URL unparseable (e.g. a trailing control character) must not resurface via
-// net/url's parse-error message, which otherwise quotes the whole input URL,
-// query string included.
-func TestValidateConfigNeverPrintsSecretThatBreaksBasemapURL(t *testing.T) {
+// The committed airbg.yaml ships tiles.* empty, which is a supported
+// configuration (no basemap, two listeners) — not an absence of the keys.
+// An operator debugging a blank map runs validate-config first; if these
+// rows were silently missing from the table, that operator would
+// reasonably conclude tiles are unsupported rather than merely unconfigured.
+func TestValidateConfigShowsEmptyTilesKeys(t *testing.T) {
 	t.Setenv(config.PathEnv, filepath.Join("..", "..", "airbg.yaml"))
 	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
-	const secret = "s3cr3tk3y\x7f"
-	t.Setenv(config.BasemapKeyEnv, secret)
 	var out, errOut bytes.Buffer
-	if code := runValidateConfig(&out, &errOut); code != 1 {
-		t.Fatalf("runValidateConfig = %d, want 1 (the substituted key makes basemap.style_url unparseable); stdout:\n%s", code, out.String())
+	if code := runValidateConfig(&out, &errOut); code != 0 {
+		t.Fatalf("runValidateConfig = %d, want 0; stderr:\n%s", code, errOut.String())
 	}
-	combined := out.String() + errOut.String()
-	if strings.Contains(combined, secret) || strings.Contains(combined, "s3cr3tk3y") {
-		t.Errorf("output contains the basemap key:\n%s", combined)
-	}
-	if !strings.Contains(errOut.String(), "basemap.style_url is not a URL") {
-		t.Errorf("stderr = %q, want it to still name what is wrong with basemap.style_url", errOut.String())
+	got := out.String()
+	for _, key := range []string{"tiles.addr", "tiles.dir", "tiles.public_url", "tiles.archive"} {
+		if !strings.Contains(got, key) {
+			t.Errorf("stdout does not mention %s:\n%s", key, got)
+		}
 	}
 }
 
