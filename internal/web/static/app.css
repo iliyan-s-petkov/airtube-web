@@ -26,6 +26,16 @@ footer { border-top: 1px solid var(--border); color: var(--muted); font-size: .8
    with the switcher) — stacking them together would read as one message. */
 .map-note { top: 2.5rem; color: var(--muted); }
 .map-note[hidden] { display: none; }
+/* Bottom-right, same overlay idiom as .map-legend/.map-hint/.map-note above
+   (absolute within #map/#area-map): the left edge is already legend/note
+   (top) and hint (bottom), and top-right is .sensor-panel's corner (see
+   below) whenever it is open — bottom-right is the one spot nothing else
+   claims. */
+.map-locate {
+  position: absolute; z-index: 1; bottom: .5rem; right: .5rem;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: .25rem;
+  padding: .25rem .5rem; font-size: .8rem; color: var(--fg); cursor: pointer;
+}
 /* Positioned over the map (absolute within #map/#area-map, both position:
    relative above) rather than pushing layout: a click target under the panel
    must stay reachable by panning, not get reflowed off the page. */

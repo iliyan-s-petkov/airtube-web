@@ -929,16 +929,28 @@ describe('locateMe', () => {
     expect(chrome.showHint).not.toHaveBeenCalled()
   })
 
-  it('shows the outside-coverage message when nearestArea finds nothing to compare against', () => {
-    const state = { areas: null }
-    const chrome = fakeChrome()
+  // nearestArea has no distance cutoff: any non-empty areas array always
+  // yields SOME nearest match, however far away. So its own null return can
+  // only mean "the area list is empty or has not loaded yet" — never
+  // "you're genuinely outside coverage" — and that unknown case must get
+  // locateFailed, NOT locateOutside, which would assert something this
+  // implementation cannot actually verify. Covers both null (never loaded,
+  // e.g. an area page still at the sensor tier — see state.areas's own
+  // comment in map.js) and [] (a country/city response with zero areas).
+  it('shows the "could not determine" message, not "outside coverage", when the area list is unknown', () => {
     const navigate = vi.fn()
     const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
 
-    locateMe(state, cfg, chrome, { geolocation, navigate })
+    for (const unknownAreas of [null, []]) {
+      const state = { areas: unknownAreas }
+      const chrome = fakeChrome()
 
-    expect(navigate).not.toHaveBeenCalled()
-    expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateOutside)
+      locateMe(state, cfg, chrome, { geolocation, navigate })
+
+      expect(navigate).not.toHaveBeenCalled()
+      expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
+      expect(chrome.showHint).not.toHaveBeenCalledWith(cfg.t.locateOutside)
+    }
   })
 
   // PERMISSION_DENIED === 1 per the Geolocation API spec.
@@ -969,5 +981,64 @@ describe('locateMe', () => {
     locateMe(state, cfg, chrome, { geolocation: null, navigate: vi.fn() })
 
     expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
+  })
+})
+
+// This phase's recurring defect (Tasks 9 and 10, both Important review
+// findings) is code that is PRESENT but INERT: a function is written,
+// unit-tested in isolation, and never actually wired to the DOM event that is
+// supposed to trigger it. locateMe's own tests above call it directly; this
+// test instead mounts a real map island and dispatches a real click on
+// chrome.locateButton, so a mutation that drops the addEventListener call in
+// mount() (or points it at the wrong element) fails here even though every
+// locateMe test above still passes.
+describe('mount() wires the locate button to a real click', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests() })
+  afterEach(() => { clearCache(); resetViewStateForTests() })
+
+  function stubOkFetch() {
+    return vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }))
+  }
+
+  it('reaches locateMe, surfaced through the real hint banner', async () => {
+    vi.stubGlobal('fetch', stubOkFetch())
+    history.replaceState(null, '', '/#metric=P2')
+
+    const el = document.createElement('div')
+    el.dataset.metric = 'P2'
+    el.dataset.metrics = 'P1,P2'
+    el.dataset.zoom = '7'
+    el.dataset.lon = '25.4858'
+    el.dataset.lat = '42.7339'
+    el.dataset.noDataColour = '#9ca3af'
+    el.dataset.unscaledColour = '#94a3b8'
+    el.dataset.markerStrokeColour = '#ffffff'
+    el.dataset.emptyBasemapColour = '#eef2f5'
+    el.dataset.zoomCity = '9'
+    el.dataset.zoomSensor = '11'
+    // Distinct from every other cfg.t string in this test file, so a false
+    // pass from some OTHER hint text (e.g. the tier hint) is not possible.
+    el.dataset.tLocateDenied = 'LOCATE DENIED MARKER'
+
+    const { map, chrome } = mount(el)
+    map.handlers.load()
+    await vi.waitFor(() => expect(map.setPaintProperty).toHaveBeenCalled())
+
+    const originalDescriptor = Object.getOwnPropertyDescriptor(navigator, 'geolocation')
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: { getCurrentPosition: (_onSuccess, onError) => onError({ code: 1 }) },
+    })
+
+    try {
+      chrome.locateButton.click()
+    } finally {
+      if (originalDescriptor) Object.defineProperty(navigator, 'geolocation', originalDescriptor)
+      else delete navigator.geolocation
+    }
+
+    const hint = el.querySelector('.map-hint')
+    expect(hint.textContent).toBe('LOCATE DENIED MARKER')
+    expect(hint.hidden).toBe(false)
   })
 })

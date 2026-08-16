@@ -303,6 +303,21 @@ export function locateMe(state, cfg, chrome, { geolocation = navigator.geolocati
   }
   geolocation.getCurrentPosition(
     (pos) => {
+      // nearestArea has no distance cutoff: any non-empty areas array always
+      // yields SOME nearest match, however far away it actually is. So its
+      // own null return only ever means "the area list itself is empty or
+      // unknown" (state.areas hasn't loaded — see state.areas's own comment
+      // above), never "you are genuinely outside coverage". Checked here,
+      // BEFORE calling nearestArea, so that distinction reaches the right
+      // message: locateFailed ("we don't know"), not locateOutside ("you're
+      // outside") — a claim this implementation cannot actually make true.
+      // locateOutside is therefore currently unreachable; kept in the
+      // catalogue as a plan-mandated key and an open question for whether
+      // nearestArea should grow a real cutoff (see the task report).
+      if (!state.areas || state.areas.length === 0) {
+        chrome.showHint(cfg.t.locateFailed)
+        return
+      }
       const area = nearestArea([pos.coords.longitude, pos.coords.latitude], state.areas)
       if (!area) {
         chrome.showHint(cfg.t.locateOutside)
