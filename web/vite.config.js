@@ -79,4 +79,8 @@ export default {
   // failed. Forced here only under `vitest` (`process.env.VITEST`) so the
   // real build keeps Vite's own resolution untouched.
   resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
+  // Vitest's default include glob (**/*.{test,spec}.*) also matches
+  // web/e2e/*.spec.js — Playwright's own test files, run only by
+  // `npx playwright test` from internal/e2e's Go driver, never by Vitest.
+  test: { exclude: ['**/node_modules/**', 'e2e/**'] },
 }

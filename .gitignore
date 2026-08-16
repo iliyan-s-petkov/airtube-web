@@ -16,3 +16,6 @@ CLAUDE.md
 internal/web/dist/*
 !internal/web/dist/.keep
 web/node_modules/
+web/test-results/
+web/playwright-report/
+web/blob-report/
