@@ -93,4 +93,32 @@ describe('createViewState', () => {
     expect(vs.metric).toBe('P1')
     vs.destroy()
   })
+
+  // Real browsers enforce a pushState/replaceState rate limit and can throw
+  // SecurityError. If `writing` were left true after a throw, the store would
+  // silently stop reacting to every future hashchange — Back/Forward and
+  // external hash links going dead with nothing surfaced. This fake `win`
+  // makes replaceState throw to prove the guard is still cleared afterwards.
+  it('keeps listening after a history write throws', () => {
+    let listener
+    const win = {
+      location: { pathname: '/area/sofia', search: '', hash: '' },
+      addEventListener: (_type, fn) => { listener = fn },
+      removeEventListener: () => { listener = null },
+      history: {
+        pushState: () => { throw new DOMException('rate limited', 'SecurityError') },
+        replaceState: () => { throw new DOMException('rate limited', 'SecurityError') },
+      },
+    }
+
+    const vs = createViewState({ ...opts, win })
+    expect(() => vs.setMetric('P1')).toThrow()
+
+    // An external hash change after the throw must still be observed — proof
+    // that `writing` was cleared, not left stuck true.
+    win.location.hash = '#metric=temperature'
+    listener()
+    expect(vs.metric).toBe('temperature')
+    vs.destroy()
+  })
 })

@@ -11,6 +11,10 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
   // Programmatic writes change the hash, which fires hashchange, which would
   // re-parse and re-assign what we just set. Harmless for values, but it also
   // fires while the caller is mid-update. The flag makes our own echo a no-op.
+  // A real browser never fires hashchange synchronously from pushState/
+  // replaceState, so this guard is defensive in production, not load-bearing
+  // there — only a fake `win` that echoes synchronously (as one of this
+  // file's tests does) actually exercises it.
   let writing = false
 
   const onHashChange = () => {
@@ -28,9 +32,17 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
     const hash = serialiseHash({ metric, sensorId }, defaultMetric)
     const url = win.location.pathname + win.location.search + hash
     writing = true
-    if (push) win.history.pushState(null, '', url)
-    else win.history.replaceState(null, '', url)
-    writing = false
+    // finally, not a bare assignment after: real browsers enforce a
+    // pushState/replaceState rate limit and can throw SecurityError. Without
+    // this, a throw here would leave `writing` stuck true forever and the
+    // store would silently stop reacting to every future hashchange — Back/
+    // Forward and external hash links going dead with nothing surfaced.
+    try {
+      if (push) win.history.pushState(null, '', url)
+      else win.history.replaceState(null, '', url)
+    } finally {
+      writing = false
+    }
   }
 
   return {
