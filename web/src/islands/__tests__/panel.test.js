@@ -8,7 +8,7 @@
 // the columnar /api/v1/area/{slug}/sensors body (internal/snapshot/build.go),
 // which is what setSensors/normaliseSensor below actually consume. See
 // lib/sensors.svelte.js for the full rationale.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // panel.js imports Chart.svelte (for the embedded chart snippet), which
 // imports uplot — and uplot touches layout APIs (matchMedia) at import time,
@@ -20,8 +20,9 @@ vi.mock('uplot', () => ({
   default: vi.fn(function () { this.setSize = vi.fn() }),
 }))
 
-import { normaliseSensor, flagTextFor } from '../panel.js'
+import { mount, normaliseSensor, flagTextFor } from '../panel.js'
 import { setSensors, findSensor } from '../../lib/sensors.svelte.js'
+import { resetViewStateForTests } from '../../lib/viewstate.svelte.js'
 
 beforeEach(() => setSensors(null))
 
@@ -126,5 +127,73 @@ describe('flagTextFor', () => {
     expect(flagTextFor('something_new', catalogue)).toBe('')
     expect(flagTextFor(undefined, catalogue)).toBe('')
     expect(flagTextFor('', catalogue)).toBe('')
+  })
+})
+
+// Code-review finding (fix round 1): every test above exercises
+// normaliseSensor/findSensor/flagTextFor as plain functions. None of them
+// mounts panel.js's OWN mount() — so nothing above actually proves the
+// getter-prop chain in mount() (`get rows() { const sensor =
+// findSensor(vs.sensorId); ... }`) repaints an already-mounted SensorPanel
+// when data that did not exist at mount time (setSensors called later)
+// finally lands. A one-time destructure at mount would compile, read
+// identically at the moment of construction, and pass every test above while
+// silently freezing the panel — see the mutation this test is proven against
+// in task-9-report.md.
+//
+// The case that matters is deep-link-before-data, not pan-brings-in-more:
+// the hash already names a sensor when mount() runs, the registry has
+// nothing for it yet (setSensors(null)), and the panel must render CLOSED
+// (not throw, not show a blank dialog) until the map's own fetch calls
+// setSensors — at which point THIS SAME mounted instance, with no remount,
+// must show it.
+describe('mount() end to end: deep link before data', () => {
+  beforeEach(() => {
+    resetViewStateForTests()
+    setSensors(null)
+  })
+  afterEach(() => {
+    resetViewStateForTests()
+    setSensors(null)
+  })
+
+  it('renders closed at mount, then repaints with the sensor once the registry catches up', async () => {
+    // A visitor following a shared #sensor=42 link, or reloading a page with
+    // the panel already open: vs.sensorId is 42 before mount() ever runs.
+    history.replaceState(null, '', '/#sensor=42')
+
+    const el = document.createElement('div')
+    el.dataset.metrics = 'P2'
+    el.dataset.metricLabels = 'PM2.5'
+    el.dataset.metric = 'P2'
+    el.dataset.period = '24h'
+    el.dataset.lineColour = '#2563eb'
+    el.dataset.tTitle = 'Sensor'
+    el.dataset.tClose = 'Close'
+    el.dataset.tNoValue = 'no data'
+    el.dataset.tFlagOutOfRange = 'out of range'
+    el.dataset.tFlagStuck = 'stuck'
+    el.dataset.tFlagSpatialOutlier = 'outlier'
+    el.dataset.tChartTitle = 'Chart'
+    el.dataset.tChartValue = 'Value'
+    el.dataset.tChartEmpty = 'empty'
+    el.dataset.tChartUnavailable = 'unavailable'
+
+    mount(el)
+
+    // No data yet: findSensor(42) is null, so SensorPanel's `open` prop is
+    // false and {#if open} renders nothing — not a blank/empty dialog.
+    expect(el.querySelector('[role="dialog"]')).toBeNull()
+
+    // The map's own fetch lands AFTER mount — this is the moment a one-time
+    // destructure at mount would have already missed.
+    setSensors({ sensors: { id: [42], quality: ['ok'], P2: [12] } })
+
+    await vi.waitFor(() => {
+      expect(el.querySelector('[role="dialog"]')).not.toBeNull()
+    })
+    expect(el.textContent).toContain('42')
+    expect(el.textContent).toContain('PM2.5')
+    expect(el.textContent).toContain('12')
   })
 })
