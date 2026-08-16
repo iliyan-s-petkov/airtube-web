@@ -173,6 +173,7 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			{"tiles.addr", cfg.Tiles.Addr, ""},
 			{"tiles.dir", cfg.Tiles.Dir, ""},
 			{"tiles.public_url", cfg.Tiles.PublicURL, ""},
+			{"tiles.archive", cfg.Tiles.Archive, ""},
 		} {
 			if tt.got != tt.want {
 				t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)

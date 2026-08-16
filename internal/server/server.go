@@ -154,7 +154,7 @@ func New(opts Options) (*Server, error) {
 		// The application's own origin, not "*": the tiles are on a different
 		// host, so every fetch is cross-origin, and "*" would let any page on
 		// the internet read them.
-		h, err := tiles.NewHandler(opts.Config.Tiles.Dir, opts.Config.Listen.BaseURL)
+		h, err := tiles.NewHandler(opts.Config.Tiles.Dir, opts.Config.Tiles.Archive, opts.Config.Listen.BaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("server: tiles: %w", err)
 		}

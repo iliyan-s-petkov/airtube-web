@@ -15,9 +15,14 @@ import (
 
 const origin = "https://airbg.org"
 
+// archive is testdata's PMTiles filename. Dated, like the ones docs/tiles.md
+// has the operator generate, and passed in rather than compiled into the
+// package — which is the whole point of tiles.archive.
+const archive = "bulgaria-20260815.pmtiles"
+
 func handler(t *testing.T) http.Handler {
 	t.Helper()
-	h, err := tiles.NewHandler("testdata", origin)
+	h, err := tiles.NewHandler("testdata", archive, origin)
 	if err != nil {
 		t.Fatalf("NewHandler error = %v, want nil", err)
 	}
@@ -71,7 +76,7 @@ func TestServesTheThreeArtefacts(t *testing.T) {
 	h := handler(t)
 	for _, path := range []string{
 		"/style.json",
-		"/bulgaria.pmtiles",
+		"/" + archive,
 		"/glyphs/NotoSans-Regular/0-255.pbf",
 	} {
 		resp := do(t, h, http.MethodGet, path, nil)
@@ -94,7 +99,7 @@ func TestRejectsAnythingOutsideTheAllowlist(t *testing.T) {
 		t.Fatalf("seeding notes.txt: %v", err)
 	}
 
-	h, err := tiles.NewHandler(dir, origin)
+	h, err := tiles.NewHandler(dir, archive, origin)
 	if err != nil {
 		t.Fatalf("NewHandler error = %v, want nil", err)
 	}
@@ -144,7 +149,7 @@ func TestOnlyGetAndHead(t *testing.T) {
 // 200 with the whole body would send the entire file on the first tile.
 func TestRangeRequest(t *testing.T) {
 	h := handler(t)
-	resp := do(t, h, http.MethodGet, "/bulgaria.pmtiles", http.Header{"Range": []string{"bytes=8-11"}})
+	resp := do(t, h, http.MethodGet, "/"+archive, http.Header{"Range": []string{"bytes=8-11"}})
 	if resp.StatusCode != http.StatusPartialContent {
 		t.Fatalf("status = %d, want 206", resp.StatusCode)
 	}
@@ -238,7 +243,7 @@ func TestVaryOriginOnASuccess(t *testing.T) {
 
 func TestPreflight(t *testing.T) {
 	h := handler(t)
-	resp := do(t, h, http.MethodOptions, "/bulgaria.pmtiles", http.Header{
+	resp := do(t, h, http.MethodOptions, "/"+archive, http.Header{
 		"Origin":                        []string{origin},
 		"Access-Control-Request-Method": []string{"GET"},
 	})
@@ -255,27 +260,100 @@ func TestPreflight(t *testing.T) {
 // guards against.
 func TestConstructorRejectsAnIncompleteDirectory(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := tiles.NewHandler(dir, origin); err == nil {
+	if _, err := tiles.NewHandler(dir, archive, origin); err == nil {
 		t.Fatal("NewHandler on an empty directory returned nil error, want an error")
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "style.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := tiles.NewHandler(dir, origin)
+	_, err := tiles.NewHandler(dir, archive, origin)
 	if err == nil {
-		t.Fatal("NewHandler with style.json but no bulgaria.pmtiles returned nil error, want an error")
+		t.Fatal("NewHandler with style.json but no archive returned nil error, want an error")
 	}
 	if got := fmt.Sprint(err); got == "" {
 		t.Error("error message is empty")
 	}
 }
 
+// TestServesTheConfiguredArchiveAndNoOther. Still exactly one archive name, as
+// before — but the CONFIGURED one. docs/tiles.md has the operator generate
+// bulgaria-YYYYMMDD.pmtiles and write that name into style.json; against a
+// hardcoded allowlist the handler 404'd it, producing a blank map with no
+// server-side error. The dated name is also what makes the year-long immutable
+// Cache-Control honest, since a regenerated basemap gets a URL nobody has
+// cached.
+func TestServesTheConfiguredArchiveAndNoOther(t *testing.T) {
+	dir := copyTestdata(t)
+	// A second archive in the same directory — exactly what a regeneration
+	// leaves behind before the old file is swept up.
+	other := "bulgaria-20250101.pmtiles"
+	if err := os.WriteFile(filepath.Join(dir, other), []byte("PMTilesSTALESTALE0123456"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	h, err := tiles.NewHandler(dir, archive, origin)
+	if err != nil {
+		t.Fatalf("NewHandler error = %v, want nil", err)
+	}
+	if got := do(t, h, http.MethodGet, "/"+archive, nil).StatusCode; got != http.StatusOK {
+		t.Errorf("GET /%s = %d, want 200", archive, got)
+	}
+	if got := do(t, h, http.MethodGet, "/"+other, nil).StatusCode; got != http.StatusNotFound {
+		t.Errorf("GET /%s = %d, want 404: only the configured archive is served", other, got)
+	}
+
+	// The converse, so this cannot be satisfied by an allowlist that happens to
+	// accept any *.pmtiles: point the config at the other file and the two
+	// answers must swap.
+	h2, err := tiles.NewHandler(dir, other, origin)
+	if err != nil {
+		t.Fatalf("NewHandler(%q) error = %v, want nil", other, err)
+	}
+	if got := do(t, h2, http.MethodGet, "/"+other, nil).StatusCode; got != http.StatusOK {
+		t.Errorf("with tiles.archive = %q, GET /%s = %d, want 200", other, other, got)
+	}
+	if got := do(t, h2, http.MethodGet, "/"+archive, nil).StatusCode; got != http.StatusNotFound {
+		t.Errorf("with tiles.archive = %q, GET /%s = %d, want 404", other, archive, got)
+	}
+}
+
+// TestConstructorRejectsAnArchiveThatIsNotThere. A mis-set tiles.archive must
+// be a startup failure for the same reason a mis-set tiles.dir is: the runtime
+// symptom is a blank map with nothing on the server to say why, and that is the
+// whole reason this constructor validates at all.
+func TestConstructorRejectsAnArchiveThatIsNotThere(t *testing.T) {
+	dir := copyTestdata(t)
+	if _, err := tiles.NewHandler(dir, "bulgaria-19990101.pmtiles", origin); err == nil {
+		t.Fatal("NewHandler with an archive name that names no file returned nil error, want an error")
+	}
+}
+
+// TestConstructorRejectsANonPlainArchiveName. os.DirFS already bounds every
+// read to dir, so this is defence in depth and a clearer error rather than the
+// control that stops traversal.
+func TestConstructorRejectsANonPlainArchiveName(t *testing.T) {
+	for _, name := range []string{
+		"glyphs/../style.json",
+		"../style.json",
+		`sub\bulgaria.pmtiles`,
+		".",
+		"..",
+	} {
+		if _, err := tiles.NewHandler("testdata", name, origin); err == nil {
+			t.Errorf("NewHandler with archive = %q returned nil error, want an error", name)
+		}
+	}
+}
+
 func TestConstructorRejectsEmptyArguments(t *testing.T) {
-	if _, err := tiles.NewHandler("", origin); err == nil {
+	if _, err := tiles.NewHandler("testdata", "", origin); err == nil {
+		t.Error("NewHandler with an empty archive returned nil error, want an error")
+	}
+	if _, err := tiles.NewHandler("", archive, origin); err == nil {
 		t.Error("NewHandler with an empty dir returned nil error, want an error")
 	}
-	if _, err := tiles.NewHandler("testdata", ""); err == nil {
+	if _, err := tiles.NewHandler("testdata", archive, ""); err == nil {
 		t.Error("NewHandler with an empty allowOrigin returned nil error, want an error")
 	}
 }

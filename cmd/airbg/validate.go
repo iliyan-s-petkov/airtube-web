@@ -34,11 +34,12 @@ func runValidateConfig(stdout, stderr io.Writer) int {
 	// Not secrets, and empty is a supported, shipped value (no basemap, two
 	// listeners) — print them like every other operational key, so an operator
 	// debugging a blank map sees at a glance whether the basemap is configured
-	// at all, rather than concluding tiles are unsupported because these three
+	// at all, rather than concluding tiles are unsupported because these four
 	// keys are silently absent from the table.
 	fmt.Fprintln(w, "tiles.addr\t"+cfg.Tiles.Addr)
 	fmt.Fprintln(w, "tiles.dir\t"+cfg.Tiles.Dir)
 	fmt.Fprintln(w, "tiles.public_url\t"+cfg.Tiles.PublicURL)
+	fmt.Fprintln(w, "tiles.archive\t"+cfg.Tiles.Archive)
 	// Secrets are reported as present/absent, never printed. A validate command
 	// that echoes a connection string is a credential in every CI log that runs
 	// it.

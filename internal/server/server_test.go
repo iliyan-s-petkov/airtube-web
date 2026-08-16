@@ -88,6 +88,7 @@ func start(t *testing.T, tilesDir string, tweak ...func(*config.Config)) (public
 			Addr:      tilesAddr,
 			Dir:       tilesDir,
 			PublicURL: "http://" + tilesAddr,
+			Archive:   tilesArchive,
 		}
 	}
 	for _, fn := range tweak {
@@ -122,6 +123,11 @@ func start(t *testing.T, tilesDir string, tweak ...func(*config.Config)) (public
 	return public, private, tilesAddr
 }
 
+// tilesArchive is the dated PMTiles filename these tests configure. Dated
+// because that is the shape docs/tiles.md produces, and configured because the
+// handler serves the configured name and no other.
+const tilesArchive = "bulgaria-20260815.pmtiles"
+
 // tilesDir writes a miniature tile directory, so these tests need no
 // 300 MB artefact. The handler serves bytes and never parses them.
 func tilesDir(t *testing.T) string {
@@ -132,7 +138,7 @@ func tilesDir(t *testing.T) string {
 	}
 	for name, body := range map[string]string{
 		"style.json":                        `{"version":8,"sources":{},"layers":[]}`,
-		"bulgaria.pmtiles":                  "PMTilesFAKEBODY0123456789",
+		tilesArchive:                        "PMTilesFAKEBODY0123456789",
 		"glyphs/NotoSans-Regular/0-255.pbf": "fakeglyphs",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(body), 0o600); err != nil {
@@ -298,6 +304,7 @@ func TestABadTilesDirIsAStartupError(t *testing.T) {
 		Addr:      "127.0.0.1:0",
 		Dir:       filepath.Join(t.TempDir(), "does-not-exist"),
 		PublicURL: "http://127.0.0.1:8082",
+		Archive:   tilesArchive,
 	}
 	if _, err := server.New(server.Options{Config: cfg, Catalogue: cat, Snapshots: holder}); err == nil {
 		t.Fatal("server.New with a missing tiles.dir returned nil error, want an error")

@@ -77,7 +77,7 @@ func TestValidateConfigShowsEmptyTilesKeys(t *testing.T) {
 		t.Fatalf("runValidateConfig = %d, want 0; stderr:\n%s", code, errOut.String())
 	}
 	got := out.String()
-	for _, key := range []string{"tiles.addr", "tiles.dir", "tiles.public_url"} {
+	for _, key := range []string{"tiles.addr", "tiles.dir", "tiles.public_url", "tiles.archive"} {
 		if !strings.Contains(got, key) {
 			t.Errorf("stdout does not mention %s:\n%s", key, got)
 		}

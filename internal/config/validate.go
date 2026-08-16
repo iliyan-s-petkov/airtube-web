@@ -344,6 +344,7 @@ func (c Config) validateTiles(p *problems) {
 		"tiles.addr":       c.Tiles.Addr,
 		"tiles.dir":        c.Tiles.Dir,
 		"tiles.public_url": c.Tiles.PublicURL,
+		"tiles.archive":    c.Tiles.Archive,
 	}
 	var empty, filled []string
 	for path, v := range set {
@@ -376,6 +377,16 @@ func (c Config) validateTiles(p *problems) {
 	}
 	if c.Tiles.Addr == c.Listen.MetricsAddr {
 		p.addf("tiles.addr and listen.metrics_addr are both %q; the tiles listener must be separate", c.Tiles.Addr)
+	}
+
+	// A plain filename inside tiles.dir, nothing else. This is defence in depth
+	// and a clearer error, not the primary control: internal/tiles reads through
+	// os.DirFS, which already makes an escape from tiles.dir structurally
+	// impossible. What this buys is that a name with a path in it fails here,
+	// at startup, instead of passing the handler's existence check and then
+	// being refused by its allowlist at request time — which is a blank map.
+	if strings.ContainsAny(c.Tiles.Archive, `/\`) || c.Tiles.Archive == "." || c.Tiles.Archive == ".." {
+		p.addf("tiles.archive = %q must be a plain filename inside tiles.dir, with no path separator", c.Tiles.Archive)
 	}
 
 	u, err := url.Parse(c.Tiles.PublicURL)

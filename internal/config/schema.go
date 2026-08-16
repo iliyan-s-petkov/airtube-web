@@ -197,4 +197,5 @@ type rawTiles struct {
 	Addr      *string `yaml:"addr"`
 	Dir       *string `yaml:"dir"`
 	PublicURL *string `yaml:"public_url"`
+	Archive   *string `yaml:"archive"`
 }

@@ -167,7 +167,7 @@ type Frontend struct {
 	DefaultLat  float64
 }
 
-// Tiles configures the self-hosted basemap listener. All three keys or none:
+// Tiles configures the self-hosted basemap listener. All four keys or none:
 // a partial setting starts a server whose map fetches from nowhere and says
 // nothing about it. Validate enforces that.
 type Tiles struct {
@@ -175,19 +175,28 @@ type Tiles struct {
 	// pool, no snapshot, no limiter — which is what makes it safe to expose
 	// directly while the application port accepts only Cloudflare's ranges.
 	Addr string
-	// Dir holds bulgaria.pmtiles, style.json and glyphs/.
+	// Dir holds the PMTiles archive, style.json and glyphs/.
 	Dir string
 	// PublicURL is what the browser is told to fetch. One home for it: it
 	// produces both the style URL handed to the map island and the origin the
 	// CSP must allow, and two copies is how those two drift apart.
 	PublicURL string
+	// Archive is the PMTiles filename inside Dir, and the only archive name the
+	// handler will serve. Configurable rather than compiled in because
+	// docs/tiles.md has the operator generate a dated name
+	// (bulgaria-20260815.pmtiles) and write it into style.json: a fixed name
+	// meant that style referenced a file the handler 404s, and it also made the
+	// year-long immutable Cache-Control a lie, since a regenerated basemap would
+	// reuse the URL a visitor already has cached. Validate requires a plain
+	// filename.
+	Archive string
 }
 
 // Enabled reports whether a basemap is configured. Validate guarantees the
-// three keys are all set or all empty, so testing one would do — testing all
-// three keeps this honest if that guarantee is ever weakened.
+// four keys are all set or all empty, so testing one would do — testing all
+// four keeps this honest if that guarantee is ever weakened.
 func (t Tiles) Enabled() bool {
-	return t.Addr != "" && t.Dir != "" && t.PublicURL != ""
+	return t.Addr != "" && t.Dir != "" && t.PublicURL != "" && t.Archive != ""
 }
 
 // StyleURL is the MapLibre style document's URL, or empty when no basemap is
@@ -305,6 +314,7 @@ func resolve(r *raw) Config {
 			Addr:      *r.Tiles.Addr,
 			Dir:       *r.Tiles.Dir,
 			PublicURL: *r.Tiles.PublicURL,
+			Archive:   *r.Tiles.Archive,
 		},
 	}
 

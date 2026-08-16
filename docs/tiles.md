@@ -6,7 +6,7 @@ hundreds of megabytes and the cadence is seasonal.
 
 | File | What it is |
 |---|---|
-| `bulgaria.pmtiles` | Protomaps basemap, Bulgaria extract, ~150–300 MB |
+| `bulgaria-YYYYMMDD.pmtiles` | Protomaps basemap, Bulgaria extract, ~150–300 MB. The date is part of the name, and the name goes in `tiles.archive`. |
 | `glyphs/{fontstack}/{range}.pbf` | Font atlases MapLibre needs to render labels |
 | `style.json` | References the `pmtiles://` source, the glyphs, and the layer styling |
 
@@ -90,7 +90,9 @@ erroring — there is no visible failure to debug from.
 
 Start from a pinned Protomaps theme and set:
 
-- `sources.protomaps.url` to `pmtiles://<tiles.public_url>/bulgaria-YYYYMMDD.pmtiles`
+- `sources.protomaps.url` to `pmtiles://<tiles.public_url>/<tiles.archive>` — the
+  same dated filename you generated in §1, e.g.
+  `pmtiles://https://tiles.airbg.org/bulgaria-20260815.pmtiles`
 - `glyphs` to `<tiles.public_url>/glyphs/{fontstack}/{range}.pbf`
 - every label layer's `text-field` to `["coalesce", ["get", "name:bg"], ["get", "name"]]`,
   so the basemap follows the interface language
@@ -101,18 +103,47 @@ ODbL. The page footer must carry the same credit.
 
 ## 5. Install
 
-Lay the three artefacts out under `tiles.dir`:
+Lay the three artefacts out under `tiles.dir`, keeping the dated archive name:
 
     /var/lib/airbg/tiles/
       style.json
-      bulgaria.pmtiles
+      bulgaria-20260815.pmtiles
       glyphs/NotoSans-Regular/0-255.pbf
       ...
 
-`bulgaria.pmtiles` is the name the handler serves; symlink the dated file to it,
-or rename on install. The handler refuses to start if any of `style.json`,
-`bulgaria.pmtiles` or `glyphs/` is missing, so a mis-set `tiles.dir` is a
-startup failure rather than a blank map nobody notices.
+Then set `tiles.archive` to that filename:
+
+```yaml
+tiles:
+  addr: "127.0.0.1:8082"
+  dir: "/var/lib/airbg/tiles"
+  public_url: "https://tiles.airbg.org"
+  archive: "bulgaria-20260815.pmtiles"   # regeneration changes this
+```
+
+Do **not** rename or symlink the archive to a fixed name. The handler serves
+exactly one archive name — the configured one — and responses carry
+`Cache-Control: public, max-age=31536000, immutable`. That header is only
+truthful because regeneration produces a new filename and therefore a new URL:
+reuse the name and every returning visitor keeps serving themselves the old
+basemap for up to a year, with no way to invalidate it.
+
+Three names must agree: the file on disk, `tiles.archive`, and the
+`pmtiles://` URL inside `style.json` (§4). The first two are checked at
+startup — the handler refuses to start if `style.json`, the configured archive
+or `glyphs/` is missing, so a mis-set `tiles.dir` or `tiles.archive` is a
+startup failure rather than a blank map nobody notices. The third is not
+checkable from the server, because `style.json` is an opaque generated
+artefact: if it points at a name the handler does not serve, the basemap is
+blank and only the browser's network panel says so.
+
+## 5a. Regenerating
+
+Every regeneration is: build a new `bulgaria-YYYYMMDD.pmtiles`, point
+`style.json` at the new name, update `tiles.archive`, restart. The old archive
+can stay on disk for as long as you like — the handler will not serve it once
+`tiles.archive` names the new one — and should be deleted once no cached page
+still references it.
 
 ## 6. The firewall rule
 

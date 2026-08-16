@@ -124,7 +124,7 @@ not deploy."
 - **Exit 0**: configuration loaded and passed every check in
   `Config.Validate()`. Stdout is a tab-aligned table of the operationally
   significant values (listener addresses, pool sizes, poll interval, cache
-  age, rate limits, coverage threshold, and the three `tiles.*` keys) plus a
+  age, rate limits, coverage threshold, and the four `tiles.*` keys) plus a
   `configuration is valid` line. `tiles.*` rows are printed even when
   empty — that is the shipped, supported state, not an absent key, and an
   operator debugging a blank map should not have to guess whether the basemap
@@ -175,7 +175,8 @@ production:
 | `frontend.zoom_city` < `frontend.zoom_sensor` | The map has three tiers — country, then city, then sensor — and the zoom thresholds must preserve that order or a zoom level would resolve to no tier or the wrong one. |
 | `listen.csp` must not contain `unsafe-inline` or `unsafe-eval` | Either directive makes the Content-Security-Policy decorative; an inline-script allowance is the single most common way a CSP stops mitigating XSS. Making the policy configurable must not make it disableable. |
 | `tiles.public_url`'s host must appear in `listen.csp`'s `connect-src` | MapLibre fetches the style, the glyphs and the `.pmtiles` ranges over `fetch`/XHR; a CSP that omits the host fails closed and the map is blank, with nothing on the server to say why. |
-| `tiles.addr`, `tiles.dir` and `tiles.public_url` are all-or-nothing, and `tiles.addr` must differ from both `listen.addr` and `listen.metrics_addr` | A partially configured basemap is not a smaller basemap, it is a broken one; and a tiles listener sharing an address with either of the other two is the "three listeners simplified back to two" mistake, in configuration. |
+| `tiles.addr`, `tiles.dir`, `tiles.public_url` and `tiles.archive` are all-or-nothing, and `tiles.addr` must differ from both `listen.addr` and `listen.metrics_addr` | A partially configured basemap is not a smaller basemap, it is a broken one; and a tiles listener sharing an address with either of the other two is the "three listeners simplified back to two" mistake, in configuration. |
+| `tiles.archive` must be a plain filename, with no path separator and not `.` or `..` | Defence in depth and a clearer error, not the control that stops traversal — `internal/tiles` reads through `os.DirFS`, which already bounds every read to `tiles.dir`. What the check buys is that a name with a path in it fails at startup naming the key, rather than passing the handler's existence check and then being refused by its one-segment allowlist on every request, which looks like a blank map. |
 
 All of these are enforced in `internal/config/validate.go`; a violation is
 reported alongside every other problem in one `config: N problem(s)` error,
@@ -187,7 +188,7 @@ not one restart at a time.
 a map that renders sensor markers over `frontend.empty_basemap_colour`. Local
 development needs no vendor account and no 300 MB file.
 
-Setting all three keys starts a third listener serving the self-hosted
+Setting all four keys starts a third listener serving the self-hosted
 Protomaps artefacts. It holds no database pool, no snapshot, no rate limiter
 and no admission semaphore — that is what makes it safe to expose directly
 while the application port accepts only Cloudflare's ranges. Generating the
@@ -235,4 +236,4 @@ pins each one to the value of the constant it replaced.
 | `quality.pm_absolute_threshold` | `internal/quality/spatial.go` | …**and** exceeds this absolute µg/m³ value. Both guards must trip; either alone spares the reading. Raising either makes the flagging more permissive. |
 | `quality.smooth_field_floors.{temperature,humidity,pressure}` | `internal/quality/spatial.go` | Minimum deviation, in each metric's own unit, below which a reading is never flagged however tight its neighbours agree. Without a floor, a cluster of identical readings gives a zero spread and flags ordinary noise. A metric absent from this map (e.g. `noise_LAeq`) has no floor and is never spatially flagged on this path. |
 | `frontend.default_zoom`, `frontend.default_lon`, `frontend.default_lat` | `internal/web/templates/index.gohtml`, `internal/api/locate.go` | The map's opening view — the national fallback used before geolocation resolves, and the body `/api/v1/locate` returns when it cannot place a client. Previously duplicated as three hardcoded literals in a template, a Go file and a JS island; there is now no JS-side fallback, so the attributes the server renders are the only source. |
-| `tiles.addr`, `tiles.dir`, `tiles.public_url` | `internal/tiles`, `internal/server`, `internal/web/render.go` | The self-hosted basemap's listen address, artefact directory, and public origin. Shipped **empty** in `airbg.yaml`: no basemap, two listeners instead of three, sensor markers over `frontend.empty_basemap_colour`. Setting all three (never fewer) starts the tiles listener; see ["The basemap"](#the-basemap) and `docs/tiles.md`. |
+| `tiles.addr`, `tiles.dir`, `tiles.public_url`, `tiles.archive` | `internal/tiles`, `internal/server`, `internal/web/render.go` | The self-hosted basemap's listen address, artefact directory, public origin, and PMTiles filename. Shipped **empty** in `airbg.yaml`: no basemap, two listeners instead of three, sensor markers over `frontend.empty_basemap_colour`. Setting all four (never fewer) starts the tiles listener; see ["The basemap"](#the-basemap) and `docs/tiles.md`. `tiles.archive` carries the build date (`bulgaria-20260815.pmtiles`) because tile responses are cached immutably for a year: regeneration must change the filename, or returning visitors keep the old basemap. |

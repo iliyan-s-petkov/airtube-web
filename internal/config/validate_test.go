@@ -64,22 +64,22 @@ func TestValidateRejects(t *testing.T) {
 		// reaches a response. hostPattern's charset is the only thing standing
 		// between an operator-supplied host and that outcome.
 		{"tiles host semicolon", func(c *Config) {
-			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example;object-src"}
+			c.Tiles = Tiles{Archive: archiveName, Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example;object-src"}
 		}, "not a valid hostname"},
 		{"tiles host double quote", func(c *Config) {
-			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example\"evil"}
+			c.Tiles = Tiles{Archive: archiveName, Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example\"evil"}
 		}, "not a valid hostname"},
 		{"tiles host single quote", func(c *Config) {
-			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example'evil"}
+			c.Tiles = Tiles{Archive: archiveName, Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example'evil"}
 		}, "not a valid hostname"},
 		{"tiles host comma", func(c *Config) {
-			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example,evil"}
+			c.Tiles = Tiles{Archive: archiveName, Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://tiles.example,evil"}
 		}, "not a valid hostname"},
 		// httpx.CSP concatenates the host into the policy twice (img-src and
 		// connect-src), so an unbounded host doubles into an oversized header on
 		// every response.
 		{"tiles host longer than DNS limit", func(c *Config) {
-			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://" + strings.Repeat("a", 254) + ".example"}
+			c.Tiles = Tiles{Archive: archiveName, Addr: "127.0.0.1:8082", Dir: "/tiles", PublicURL: "https://" + strings.Repeat("a", 254) + ".example"}
 		}, "must be at most"},
 	}
 	for _, tt := range tests {
@@ -120,7 +120,7 @@ func TestValidateReportsAllProblemsAtOnce(t *testing.T) {
 // and hostPattern must accept "host:port" rather than only a bare host.
 func TestValidateAcceptsTilesHostWithPort(t *testing.T) {
 	cfg := good(t)
-	cfg.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/var/lib/airbg/tiles", PublicURL: "https://tiles.example:8443"}
+	cfg.Tiles = Tiles{Archive: archiveName, Addr: "127.0.0.1:8082", Dir: "/var/lib/airbg/tiles", PublicURL: "https://tiles.example:8443"}
 	cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.example:8443"
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate() error = %v, want a host:port tiles.public_url accepted", err)
@@ -143,6 +143,10 @@ func TestValidateAcceptsPollIntervalAtTheFloor(t *testing.T) {
 	}
 }
 
+// archiveName is a representative tiles.archive: a plain, dated PMTiles
+// filename, the shape docs/tiles.md tells the operator to generate.
+const archiveName = "bulgaria-20260815.pmtiles"
+
 // validConfig loads the committed configuration, so these tests mutate the
 // values the service actually ships with rather than a second copy that drifts.
 func validConfig(t *testing.T) Config {
@@ -155,20 +159,32 @@ func validConfig(t *testing.T) Config {
 	return cfg
 }
 
-// TestTilesAllOrNothing. Two of three keys set is the shape that produces a
+// TestTilesAllOrNothing. Three of four keys set is the shape that produces a
 // running server with a map that silently fetches from nowhere.
 func TestTilesAllOrNothing(t *testing.T) {
 	for name, mutate := range map[string]func(*Config){
 		"addr only":       func(c *Config) { c.Tiles = Tiles{Addr: "127.0.0.1:8082"} },
 		"dir only":        func(c *Config) { c.Tiles = Tiles{Dir: "/var/lib/airbg/tiles"} },
 		"public_url only": func(c *Config) { c.Tiles = Tiles{PublicURL: "https://tiles.airbg.org"} },
+		"archive only":    func(c *Config) { c.Tiles = Tiles{Archive: archiveName} },
 		"missing dir": func(c *Config) {
-			c.Tiles = Tiles{Addr: "127.0.0.1:8082", PublicURL: "https://tiles.airbg.org"}
+			c.Tiles = Tiles{Addr: "127.0.0.1:8082", PublicURL: "https://tiles.airbg.org", Archive: archiveName}
+		},
+		// The key this fix added, in the shape that would otherwise slip through:
+		// everything configured except the archive name, which the handler then
+		// has no way to serve.
+		"missing archive": func(c *Config) {
+			c.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/var/lib/airbg/tiles", PublicURL: "https://tiles.airbg.org"}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := validConfig(t)
 			mutate(&cfg)
+			// Satisfy the connect-src coupling, so the only rule left that can
+			// reject these is the all-or-nothing one. Without this the "missing
+			// archive" case passes on the CSP error instead and proves nothing
+			// about the key it is named for.
+			cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.airbg.org"
 			if err := cfg.Validate(); err == nil {
 				t.Fatal("Validate returned nil, want an error: tiles.* is all-or-nothing")
 			}
@@ -202,6 +218,7 @@ func TestTilesHostMustBeInConnectSrc(t *testing.T) {
 		Addr:      "127.0.0.1:8082",
 		Dir:       "/var/lib/airbg/tiles",
 		PublicURL: "https://tiles.airbg.org",
+		Archive:   archiveName,
 	}
 	cfg.Listen.CSP = "default-src 'self'; connect-src 'self'"
 	if err := cfg.Validate(); err == nil {
@@ -244,11 +261,54 @@ func TestTilesAddrIsSeparate(t *testing.T) {
 			Addr:      addr,
 			Dir:       "/var/lib/airbg/tiles",
 			PublicURL: "https://tiles.airbg.org",
+			Archive:   archiveName,
 		}
 		cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.airbg.org"
 		if err := cfg.Validate(); err == nil {
 			t.Errorf("Validate with tiles.addr = %q returned nil, want an error", addr)
 		}
+	}
+}
+
+// TestTilesArchiveShape. tiles.archive names a file inside tiles.dir and
+// nothing else. internal/tiles reads through os.DirFS, so a traversing name
+// could not escape the directory anyway — this gate exists so the operator gets
+// a startup error naming the key, instead of a handler that finds the file and
+// then 404s every request for it because the allowlist takes one path segment.
+func TestTilesArchiveShape(t *testing.T) {
+	for name, tc := range map[string]struct{ archive, want string }{
+		"dated filename": {"bulgaria-20260815.pmtiles", ""},
+		"plain filename": {"bulgaria.pmtiles", ""},
+		"subdirectory":   {"archives/bulgaria.pmtiles", "plain filename"},
+		"leading slash":  {"/var/lib/airbg/bulgaria.pmtiles", "plain filename"},
+		"traversal":      {"../bulgaria.pmtiles", "plain filename"},
+		"backslash":      {`archives\bulgaria.pmtiles`, "plain filename"},
+		"dot":            {".", "plain filename"},
+		"dotdot":         {"..", "plain filename"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := validConfig(t)
+			cfg.Tiles = Tiles{
+				Addr:      "127.0.0.1:8082",
+				Dir:       "/var/lib/airbg/tiles",
+				PublicURL: "https://tiles.airbg.org",
+				Archive:   tc.archive,
+			}
+			cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.airbg.org"
+			err := cfg.Validate()
+			if tc.want == "" {
+				if err != nil {
+					t.Errorf("Validate with tiles.archive = %q returned %v, want nil", tc.archive, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate with tiles.archive = %q returned nil, want an error mentioning %q", tc.archive, tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Validate with tiles.archive = %q returned %v, want a message mentioning %q", tc.archive, err, tc.want)
+			}
+		})
 	}
 }
 
@@ -279,7 +339,7 @@ func TestTilesPublicURLShape(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := validConfig(t)
-			cfg.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/var/lib/airbg/tiles", PublicURL: tc.url}
+			cfg.Tiles = Tiles{Archive: archiveName, Addr: "127.0.0.1:8082", Dir: "/var/lib/airbg/tiles", PublicURL: tc.url}
 			// The origin, not the raw value: the host coupling must be satisfied
 			// so that only the shape gate can reject these.
 			cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.airbg.org"

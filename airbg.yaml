@@ -286,7 +286,7 @@ frontend:
 # of three. That is the correct setting for local development — no vendor
 # account, and no 300 MB file to download before the site runs.
 #
-# Set all three or none; a partial setting is a startup error, because a map
+# Set all four or none; a partial setting is a startup error, because a map
 # that fetches from nowhere reports nothing. Generating the artefacts is a
 # manual, few-times-a-year procedure: see docs/tiles.md.
 #
@@ -299,7 +299,15 @@ frontend:
 #
 # tiles.public_url's host MUST appear in listen.csp's connect-src, or the
 # browser refuses every basemap fetch and the map is silently blank.
+#
+# tiles.archive names the PMTiles file, and must match the name written into
+# style.json's pmtiles:// source. It carries the build date because responses
+# are cached immutably for a year: regenerating the basemap must produce a NEW
+# filename, or returning visitors keep serving themselves the old map. The
+# handler serves this one archive name and no other, and refuses to start if the
+# file is not there.
 tiles:
   addr: ""        # e.g. "127.0.0.1:8082"
-  dir: ""         # e.g. "/var/lib/airbg/tiles" — holds bulgaria.pmtiles, style.json, glyphs/
+  dir: ""         # e.g. "/var/lib/airbg/tiles" — holds the archive, style.json, glyphs/
   public_url: ""  # e.g. "https://tiles.airbg.org"
+  archive: ""     # e.g. "bulgaria-20260815.pmtiles" — regeneration changes this

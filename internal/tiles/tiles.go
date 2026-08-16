@@ -21,26 +21,50 @@ import (
 	"strings"
 )
 
-// required names the files NewHandler insists on finding. Glyphs are checked as
-// a directory rather than by name: the fontstack depends on what the style
-// references, and enumerating them here would be a second place for that choice
-// to live.
-var required = []string{"style.json", "bulgaria.pmtiles"}
+// styleFile is the one artefact name that is fixed. The style document is
+// generated per basemap build but its name is what the renderer appends to
+// tiles.public_url, so it is part of the interface rather than an operator
+// choice. The archive's name is not: see tiles.archive.
+//
+// Glyphs are checked as a directory rather than by name: the fontstack depends
+// on what the style references, and enumerating them here would be a second
+// place for that choice to live.
+const styleFile = "style.json"
 
 const glyphsDir = "glyphs"
 
-// cacheControl: the artefacts are immutable by construction — regeneration
-// changes the filename (see docs/tiles.md), so a cached copy can never be
-// stale. Without this every visitor re-fetches hundreds of megabytes of ranges.
+// cacheControl asks browsers to keep an artefact for a year and never
+// revalidate it. That is only honest because the archive is addressed by a
+// configured, dated filename (tiles.archive, e.g. bulgaria-20260815.pmtiles):
+// regenerating the basemap produces a new name, style.json points at the new
+// name, and the old URL is simply never requested again. A fixed archive name
+// would make this header a lie — returning visitors would keep serving
+// themselves last year's map for up to a year. Without the header every visitor
+// re-fetches hundreds of megabytes of ranges.
 const cacheControl = "public, max-age=31536000, immutable"
 
 // NewHandler serves dir's basemap artefacts, allowing cross-origin reads from
-// allowOrigin. It returns an error rather than serving 404s if dir is not a
-// tile directory, so a mis-set path fails at startup instead of producing a
-// blank map in production that looks like a tile-generation mistake.
-func NewHandler(dir string, allowOrigin string) (http.Handler, error) {
+// allowOrigin. archive is the PMTiles filename — the one artefact whose name
+// changes with every basemap build, which is what keeps cacheControl honest.
+//
+// It returns an error rather than serving 404s if dir is not a tile directory,
+// so a mis-set path — or a tiles.archive naming a file that is not there —
+// fails at startup instead of producing a blank map in production that looks
+// like a tile-generation mistake.
+func NewHandler(dir string, archive string, allowOrigin string) (http.Handler, error) {
 	if dir == "" {
 		return nil, errors.New("tiles: dir is empty")
+	}
+	if archive == "" {
+		return nil, errors.New("tiles: archive is empty")
+	}
+	// Defence in depth, not the primary control: os.DirFS below already bounds
+	// every read to dir, so a traversing name could not escape it. This exists
+	// because the failure it prevents is a confusing one — an archive name with
+	// a separator would be checked here and then refused by the allowlist at
+	// request time, which is a blank map, not a startup error.
+	if strings.ContainsAny(archive, `/\`) || archive == "." || archive == ".." {
+		return nil, fmt.Errorf("tiles: archive = %q must be a plain filename", archive)
 	}
 	if allowOrigin == "" {
 		// Not defaulted to "*": that would let any page on the internet read
@@ -49,7 +73,7 @@ func NewHandler(dir string, allowOrigin string) (http.Handler, error) {
 	}
 
 	fsys := os.DirFS(dir)
-	for _, name := range required {
+	for _, name := range []string{styleFile, archive} {
 		if _, err := fs.Stat(fsys, name); err != nil {
 			return nil, fmt.Errorf("tiles: %s in %s: %w", name, dir, err)
 		}
@@ -63,11 +87,12 @@ func NewHandler(dir string, allowOrigin string) (http.Handler, error) {
 	}
 
 	files := http.FileServerFS(fsys)
-	return &handler{files: files, allowOrigin: allowOrigin}, nil
+	return &handler{files: files, archive: archive, allowOrigin: allowOrigin}, nil
 }
 
 type handler struct {
 	files       http.Handler
+	archive     string
 	allowOrigin string
 }
 
@@ -97,7 +122,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !allowed(r.URL.Path) {
+	if !h.allowed(r.URL.Path) {
 		http.NotFound(w, r)
 		return
 	}
@@ -108,9 +133,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // allowed is the allowlist. Two independent defences meet here: os.DirFS makes
 // an escape from the directory structurally impossible, and this makes anything
-// else that happens to sit inside it — a build log, a half-written temp file —
-// unreachable.
-func allowed(p string) bool {
+// else that happens to sit inside it — a build log, a half-written temp file,
+// last year's archive left behind after a regeneration — unreachable.
+//
+// It is still exactly one archive name, as before: the name is now the
+// configured one rather than a compiled-in one, which is what lets the dated
+// filenames docs/tiles.md tells the operator to generate actually be served.
+func (h *handler) allowed(p string) bool {
 	// A path with "." or ".." segments is never one style.json generates; it is
 	// only ever a probe. Refusing it outright is cheaper than reasoning about
 	// where each one resolves to: "/glyphs/../0-255.pbf" has three segments and
@@ -122,10 +151,8 @@ func allowed(p string) bool {
 		return false
 	}
 	p = strings.TrimPrefix(p, "/")
-	for _, name := range required {
-		if p == name {
-			return true
-		}
+	if p == styleFile || p == h.archive {
+		return true
 	}
 	// glyphs/{fontstack}/{range}.pbf — exactly two segments below glyphs/.
 	parts := strings.Split(p, "/")

@@ -89,6 +89,7 @@ func newTestRendererWithTiles(t *testing.T, publicURL string) *web.Renderer {
 			Addr:      "127.0.0.1:8082",
 			Dir:       "/var/lib/airbg/tiles",
 			PublicURL: publicURL,
+			Archive:   "bulgaria-20260815.pmtiles",
 		}
 	}
 	h := snapshot.NewHolder(cfg.Series)
