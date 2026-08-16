@@ -12,6 +12,7 @@ import { getJSON } from '../lib/api.js'
 import { parseMetricList, hasScale } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales } from '../lib/sensors.svelte.js'
+import { applyLocate } from '../lib/locate.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
@@ -92,6 +93,13 @@ export function mount(el) {
     // deliberately AFTER initData so the FIRST real paint has state.scales to
     // work with, rather than racing it.
     onMetricChange(map, state, cfg, chrome, vs.metric)
+
+    // Home page only: an area page's map island carries a fixed data-slug
+    // (cfg.slug is non-null there), so its opening view is already the
+    // area's own centre and there is nothing for /api/v1/locate to improve.
+    // Fired after the first paint above, not before it, so a slow or failed
+    // lookup never delays the map the visitor already sees.
+    if (!cfg.slug) await locateVisitor(map, state, cfg, chrome)
   })
 
   map.on('moveend', debounce(() => refresh(map, state, cfg, chrome), MOVE_DEBOUNCE_MS))
@@ -234,6 +242,27 @@ async function refresh(map, state, cfg, chrome, force = false) {
     ? sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
     : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
   map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
+}
+
+// locateVisitor asks the server where the visitor is and, only for a genuine
+// "geoip" placement (see applyLocate's own comment on why "default" must
+// never move the map or adopt a slug), jumps the map straight there and
+// adopts the slug so refresh()'s next call may use the per-area sensor tier.
+//
+// map.jumpTo, never map.easeTo: a multi-second flight away from the national
+// view on first paint reads as a bug, not a feature, on a page the visitor
+// has been looking at for less than a second.
+//
+// The fetch is wrapped so a rejected promise (network failure, an endpoint
+// that does not exist in a given environment) lands in applyLocate's own
+// "stay put" branch rather than throwing out of this async 'load' handler.
+export async function locateVisitor(map, state, cfg, chrome, fetchJSON = getJSON) {
+  const body = await fetchJSON('/api/v1/locate').catch(() => null)
+  const located = applyLocate(body, { defaultView: { lon: cfg.lon, lat: cfg.lat, zoom: cfg.zoom } })
+  if (!located.move) return
+  map.jumpTo({ center: located.centre, zoom: located.zoom })
+  state.slug = located.slug
+  await refresh(map, state, cfg, chrome, true)
 }
 
 export function urlFor(tier, slug) {
