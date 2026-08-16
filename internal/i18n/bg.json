@@ -46,5 +46,11 @@
   "map.error.unavailable": "Данните за картата в момента не са достъпни",
   "chart.title": "ПМ2.5, последните 24 часа",
   "chart.empty": "Няма данни за последните 24 часа",
-  "chart.axis.value": "µg/m³"
+  "chart.axis.value": "µg/m³",
+  "panel.title": "Сензор",
+  "panel.close": "Затвори",
+  "panel.no_value": "няма измерване",
+  "panel.flag.out_of_range": "Стойността е извън очаквания диапазон.",
+  "panel.flag.stuck": "Стойността не се променя от известно време.",
+  "panel.flag.spatial_outlier": "Измерването се различава силно от съседните сензори."
 }

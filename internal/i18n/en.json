@@ -46,5 +46,11 @@
   "map.error.unavailable": "Map data is unavailable right now",
   "chart.title": "PM2.5, last 24 hours",
   "chart.empty": "No readings in the last 24 hours",
-  "chart.axis.value": "µg/m³"
+  "chart.axis.value": "µg/m³",
+  "panel.title": "Sensor",
+  "panel.close": "Close",
+  "panel.no_value": "no reading",
+  "panel.flag.out_of_range": "This reading is out of the expected range.",
+  "panel.flag.stuck": "This reading has not changed in a while.",
+  "panel.flag.spatial_outlier": "This reading disagrees with nearby sensors."
 }

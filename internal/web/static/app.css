@@ -26,5 +26,19 @@ footer { border-top: 1px solid var(--border); color: var(--muted); font-size: .8
    with the switcher) — stacking them together would read as one message. */
 .map-note { top: 2.5rem; color: var(--muted); }
 .map-note[hidden] { display: none; }
+/* Positioned over the map (absolute within #map/#area-map, both position:
+   relative above) rather than pushing layout: a click target under the panel
+   must stay reachable by panning, not get reflowed off the page. */
+.sensor-panel {
+  position: absolute; z-index: 2; top: .5rem; right: .5rem; width: 16rem; max-width: calc(100% - 1rem);
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: .25rem;
+  padding: .5rem .75rem; font-size: .875rem; color: var(--fg);
+}
+.sensor-panel header { border-bottom: none; padding: 0 0 .25rem; margin: 0 0 .25rem; }
+.sensor-panel h2 { font-size: 1rem; margin: 0; }
+.panel-flag { color: var(--warn); margin: 0 0 .5rem; }
+.sensor-panel dl { display: grid; grid-template-columns: auto 1fr; gap: .1rem .5rem; margin: 0; }
+.sensor-panel dt { color: var(--muted); }
+.sensor-panel dd { margin: 0; text-align: right; }
 /* Honour the reduced-motion preference before Phase 3 adds any transitions. */
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
