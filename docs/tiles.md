@@ -161,6 +161,23 @@ connection, and every rate limiter keys off it.
 With the filter in place, discovering the origin IP yields tiles and nothing
 else. Without it, self-hosting the tiles weakens the system.
 
+## 7. Sizing the tiles host
+
+Nothing fronts `tiles.addr` — that is the point of the DNS-only hostname, and it
+means every byte is served from the origin's own bandwidth. Size for it before
+deploying, because the ceiling is not obvious:
+
+`listen.max_conns` caps concurrent connections on the tiles listener as well as
+the public one, and a single unranged `GET /<tiles.archive>` transfers the whole
+archive. Worst-case concurrent egress is therefore `listen.max_conns` × the
+archive size — with the shipped cap and a ~300 MB Bulgaria extract, that is
+substantial.
+
+No real client does this: MapLibre reads the archive through the `pmtiles`
+protocol, which issues ranged requests for the few megabytes a viewport needs.
+The unranged GET is a `curl` away, though, so treat it as a bandwidth
+consideration when choosing the host, not as an attack that has been closed.
+
 ## Open deployment questions
 
 Two things are left to the deployment phase, not decided here — the
