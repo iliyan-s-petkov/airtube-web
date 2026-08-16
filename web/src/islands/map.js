@@ -13,6 +13,7 @@ import { parseMetricList, hasScale } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales } from '../lib/sensors.svelte.js'
 import { applyLocate } from '../lib/locate.js'
+import { nearestArea } from '../lib/nearest.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
@@ -48,7 +49,19 @@ export function mount(el) {
   // is only ever set by a deliberate click — never derived from the viewport,
   // which would be a client-side bbox query and is exactly what the API's
   // no-bbox rule forbids.
-  const state = { slug: cfg.slug, tier: null, scales: null }
+  //
+  // areas: the raw {slug, lon, lat, zoom, ...} area payload (see refresh's own
+  // comment on why it must be the raw body, not the lossy GeoJSON features
+  // areaFeatures produces), retained here for locateMe below. null until the
+  // first country/city-tier response lands — on an area page opened straight
+  // at the sensor tier (fixed data-slug), that may never happen unless the
+  // visitor zooms out, so locateMe's "outside coverage" branch can fire
+  // before there is anything to compare against. Accepted: fetching the
+  // overview solely to populate this would be the extra request the brief
+  // rules out ("no new request").
+  const state = { slug: cfg.slug, tier: null, scales: null, areas: null }
+
+  chrome.locateButton.addEventListener('click', () => locateMe(state, cfg, chrome))
 
   // unsubscribe is assigned inside the 'load' handler (see below) and read by
   // the returned `stop`. No call site in this app ever invokes `stop` today —
@@ -236,7 +249,14 @@ async function refresh(map, state, cfg, chrome, force = false) {
   // all (see areaPayload), and clearing the registry here would blank an
   // already-open panel the instant a visitor zooms out past the sensor
   // tier, rather than leaving its last-known content on screen.
-  if (effective === 'sensors') setSensors(body)
+  if (effective === 'sensors') {
+    setSensors(body)
+  } else {
+    // The raw payload, not areaFeatures' output: features drop `zoom`
+    // entirely and fold lon/lat into GeoJSON geometry, but locateMe needs
+    // exactly {slug, lon, lat, zoom} per area (see nearestArea's signature).
+    state.areas = body?.areas ?? []
+  }
 
   const features = effective === 'sensors'
     ? sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
@@ -263,6 +283,56 @@ export async function locateVisitor(map, state, cfg, chrome, fetchJSON = getJSON
   map.jumpTo({ center: located.centre, zoom: located.zoom })
   state.slug = located.slug
   await refresh(map, state, cfg, chrome, true)
+}
+
+// locateMe is the PRECISE, user-initiated path to an area page — distinct
+// from locateVisitor's coarse, server-side placement above. The coordinate
+// itself never reaches the network: nearestArea resolves it against the
+// already-loaded area list entirely in the browser, and only the resulting
+// slug becomes a request, as an ordinary page navigation. See nearest.js's
+// own comment for why: there is no server endpoint that accepts a point, by
+// design, because one would be a bounding-box query in disguise.
+//
+// geolocation/navigate are injected (default: the real browser APIs) so a
+// test can drive both the success and every error branch without a real
+// location prompt or a real page navigation.
+export function locateMe(state, cfg, chrome, { geolocation = navigator.geolocation, navigate = defaultNavigate } = {}) {
+  if (!geolocation) {
+    chrome.showHint(cfg.t.locateFailed)
+    return
+  }
+  geolocation.getCurrentPosition(
+    (pos) => {
+      const area = nearestArea([pos.coords.longitude, pos.coords.latitude], state.areas)
+      if (!area) {
+        chrome.showHint(cfg.t.locateOutside)
+        return
+      }
+      navigate(areaPath(area.slug))
+    },
+    (err) => {
+      // PERMISSION_DENIED === 1 is the Geolocation API's own constant
+      // (GeolocationPositionError.PERMISSION_DENIED); every other error
+      // (POSITION_UNAVAILABLE, TIMEOUT, or none of the above) gets the
+      // generic message.
+      chrome.showHint(err?.code === 1 ? cfg.t.locateDenied : cfg.t.locateFailed)
+    },
+  )
+}
+
+function defaultNavigate(url) {
+  window.location.href = url
+}
+
+// areaPath builds the area URL under whatever language prefix the visitor is
+// currently on (see internal/web/pages.go's Routes: "" and "/en" are the only
+// two, each area route registered once per prefix) — a plain "/area/{slug}"
+// would silently switch an /en/ visitor back to the default language on
+// click.
+export function areaPath(slug) {
+  const p = window.location.pathname
+  const prefix = p === '/en' || p.startsWith('/en/') ? '/en' : ''
+  return `${prefix}/area/${encodeURIComponent(slug)}`
 }
 
 export function urlFor(tier, slug) {
@@ -371,6 +441,10 @@ export function readConfig(el) {
       rateLimited: d.tRateLimited || '',
       unavailable: d.tUnavailable || '',
       unscaled: d.tUnscaled || '',
+      locateButton: d.tLocateButton || '',
+      locateDenied: d.tLocateDenied || '',
+      locateFailed: d.tLocateFailed || '',
+      locateOutside: d.tLocateOutside || '',
     },
   }
 }
@@ -573,6 +647,17 @@ function mountChrome(el, cfg) {
   note.hidden = true
   el.appendChild(note)
 
+  // The find-me button: precise, user-initiated geolocation (see locateMe in
+  // this file). textContent, never innerHTML — same CSP constraint as
+  // everything else in this container. The click handler itself is wired by
+  // mount(), which is where `state` (the loaded area list locateMe reads)
+  // and the real `map` first exist; mountChrome only owns the DOM.
+  const locateButton = document.createElement('button')
+  locateButton.type = 'button'
+  locateButton.className = 'map-locate'
+  locateButton.textContent = cfg.t.locateButton
+  el.appendChild(locateButton)
+
   // The precedence rule lives in hintController; this is only the wiring from
   // its decision to the banner. textContent, never innerHTML.
   const hintCtl = hintController((text) => {
@@ -586,5 +671,6 @@ function mountChrome(el, cfg) {
       note.textContent = text
       note.hidden = !text
     },
+    locateButton,
   }
 }

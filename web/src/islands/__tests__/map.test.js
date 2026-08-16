@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, locateVisitor } from '../map.js'
+import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, locateVisitor, locateMe, areaPath } from '../map.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
@@ -230,6 +230,9 @@ describe('readConfig', () => {
         tLegend: 'Air quality', tHint: 'Select an area',
         tRateLimited: 'Retrying', tUnavailable: 'Unavailable',
         tUnscaled: 'No air-quality scale for this metric',
+        tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
+        tLocateFailed: 'We could not determine your location.',
+        tLocateOutside: 'You appear to be outside the mapped area.',
         tNoData: 'Not enough data', // no longer rendered; must not reappear in cfg
       },
     })
@@ -237,6 +240,9 @@ describe('readConfig', () => {
       legend: 'Air quality', hint: 'Select an area',
       rateLimited: 'Retrying', unavailable: 'Unavailable',
       unscaled: 'No air-quality scale for this metric',
+      locateButton: 'Find me', locateDenied: 'Location access was denied.',
+      locateFailed: 'We could not determine your location.',
+      locateOutside: 'You appear to be outside the mapped area.',
     })
   })
 
@@ -863,5 +869,105 @@ describe('locateVisitor', () => {
     await expect(locateVisitor(map, state, cfg, chrome, fetchJSON)).resolves.toBeUndefined()
     expect(map.jumpTo).not.toHaveBeenCalled()
     expect(state.slug).toBeNull()
+  })
+})
+
+// areaPath: the client-side navigation target locateMe hands to `navigate`.
+// Mirrors internal/web/pages.go's Routes, which registers "/area/{slug}"
+// under both "" and "/en" — a plain "/area/{slug}" from an /en/ visitor would
+// silently drop them back to the default language on click.
+describe('areaPath', () => {
+  afterEach(() => { history.replaceState(null, '', '/') })
+
+  it('builds an unprefixed path from the default-language root', () => {
+    history.replaceState(null, '', '/')
+    expect(areaPath('sofia')).toBe('/area/sofia')
+  })
+
+  it('keeps the /en prefix for an English visitor', () => {
+    history.replaceState(null, '', '/en/')
+    expect(areaPath('sofia')).toBe('/en/area/sofia')
+
+    history.replaceState(null, '', '/en/area/plovdiv')
+    expect(areaPath('sofia')).toBe('/en/area/sofia')
+  })
+
+  it('percent-encodes the slug', () => {
+    history.replaceState(null, '', '/')
+    expect(areaPath('a/b')).toBe('/area/a%2Fb')
+  })
+})
+
+// locateMe: the PRECISE, user-initiated path. Never touches the network with
+// a coordinate — nearestArea resolves it against state.areas entirely in the
+// browser (see nearest.js), and only the resulting slug is handed to
+// `navigate`.
+describe('locateMe', () => {
+  const cfg = {
+    t: {
+      locateDenied: 'Location access was denied.',
+      locateFailed: 'We could not determine your location.',
+      locateOutside: 'You appear to be outside the mapped area.',
+    },
+  }
+
+  function fakeChrome() {
+    return { showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn() }
+  }
+
+  const areas = [{ slug: 'sofia', lon: 23.32, lat: 42.7, zoom: 11 }]
+
+  it('navigates to the nearest area on a successful fix', () => {
+    const state = { areas }
+    const chrome = fakeChrome()
+    const navigate = vi.fn()
+    const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
+
+    locateMe(state, cfg, chrome, { geolocation, navigate })
+
+    expect(navigate).toHaveBeenCalledWith('/area/sofia')
+    expect(chrome.showHint).not.toHaveBeenCalled()
+  })
+
+  it('shows the outside-coverage message when nearestArea finds nothing to compare against', () => {
+    const state = { areas: null }
+    const chrome = fakeChrome()
+    const navigate = vi.fn()
+    const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
+
+    locateMe(state, cfg, chrome, { geolocation, navigate })
+
+    expect(navigate).not.toHaveBeenCalled()
+    expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateOutside)
+  })
+
+  // PERMISSION_DENIED === 1 per the Geolocation API spec.
+  it('shows the denied message for a PERMISSION_DENIED error', () => {
+    const state = { areas }
+    const chrome = fakeChrome()
+    const geolocation = { getCurrentPosition: (_s, onError) => onError({ code: 1 }) }
+
+    locateMe(state, cfg, chrome, { geolocation, navigate: vi.fn() })
+
+    expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateDenied)
+  })
+
+  it('shows the generic failure message for any other geolocation error', () => {
+    const state = { areas }
+    const chrome = fakeChrome()
+    const geolocation = { getCurrentPosition: (_s, onError) => onError({ code: 2 }) }
+
+    locateMe(state, cfg, chrome, { geolocation, navigate: vi.fn() })
+
+    expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
+  })
+
+  it('shows the generic failure message when the browser has no geolocation API at all', () => {
+    const state = { areas }
+    const chrome = fakeChrome()
+
+    locateMe(state, cfg, chrome, { geolocation: null, navigate: vi.fn() })
+
+    expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
   })
 })
