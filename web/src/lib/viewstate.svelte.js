@@ -8,6 +8,20 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
   let metric = $state(initial.metric)
   let sensorId = $state(initial.sensorId)
 
+  // Plain (non-rune) subscriber list — added ONLY because a consumer
+  // (islands/map.js) is deliberately plain .js: runes only compile in
+  // .svelte/.svelte.js files, so it cannot use $effect to react to `metric`
+  // changing. window 'hashchange' is not a substitute seam either — real
+  // browsers never dispatch hashchange for our own history.pushState/
+  // replaceState writes (see write() below), so a same-page setMetric() call
+  // from the switcher would otherwise be invisible to a plain-.js listener.
+  // Kept to metric only and kept minimal: nothing outside this phase needs to
+  // learn about sensorId changes over a non-rune seam.
+  const metricListeners = new Set()
+  function notifyMetric() {
+    for (const fn of metricListeners) fn(metric)
+  }
+
   // Programmatic writes change the hash, which fires hashchange, which would
   // re-parse and re-assign what we just set. Harmless for values, but it also
   // fires while the caller is mid-update. The flag makes our own echo a no-op.
@@ -22,6 +36,7 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
     const next = parseHash(win.location.hash, { metrics, defaultMetric })
     metric = next.metric
     sensorId = next.sensorId
+    notifyMetric()
   }
   win.addEventListener('hashchange', onHashChange)
 
@@ -53,6 +68,15 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
       if (!metrics.includes(next) || next === metric) return
       metric = next
       write(false)
+      notifyMetric()
+    },
+    // Non-rune subscription seam — see metricListeners above. Returns an
+    // unsubscribe function, same shape as $effect.root's teardown, so a
+    // plain-.js caller has an equivalent cleanup handle without needing
+    // runes.
+    onMetricChange(fn) {
+      metricListeners.add(fn)
+      return () => metricListeners.delete(fn)
     },
     // A destination: pushState, so Back closes the panel and Back again leaves.
     openSensor(id) {
@@ -65,7 +89,10 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
       sensorId = null
       write(true)
     },
-    destroy() { win.removeEventListener('hashchange', onHashChange) },
+    destroy() {
+      win.removeEventListener('hashchange', onHashChange)
+      metricListeners.clear()
+    },
   }
 }
 
@@ -76,4 +103,18 @@ let shared = null
 export function getViewState(opts) {
   if (shared === null) shared = createViewState(opts)
   return shared
+}
+
+// TEST-ONLY reset seam. `shared` has no other invalidation than a full page
+// reload in production, which is fine there — but a test suite exercising
+// islands/map.js (which must call the real getViewState to share state with
+// the switcher island, per the comment above) runs many `it()` blocks inside
+// one process. Without this, the first test to touch getViewState decides the
+// metric/hash every later test observes, in whichever order Vitest happens to
+// run them — exactly the "passes because it happened to run first" hazard.
+// Not exported from the app's own code anywhere; only test files should call
+// this.
+export function resetViewStateForTests() {
+  shared?.destroy()
+  shared = null
 }

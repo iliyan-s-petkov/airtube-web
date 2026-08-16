@@ -1,6 +1,79 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, markerPaint, blankStyle, mapStyle, registerProtocols, installErrorHandler } from '../map.js'
+// @vitest-environment jsdom
+//
+// jsdom, not the default node environment: the repaint test below drives
+// mount() through a real container element and a real `location.hash` /
+// `hashchange`, which the rest of this file's pure-logic tests do not need
+// but do not mind either — jsdom is a superset, not a different behaviour,
+// for code that touches no DOM.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount } from '../map.js'
 import { clearCache } from '../../lib/api.js'
+import { resetViewStateForTests } from '../../lib/viewstate.svelte.js'
+
+// mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
+// out of reach under jsdom (see the "no jsdom" rule respected everywhere else
+// in this file). Mocked here, ONLY for the mountTestMap-based tests below, so
+// mount() can be driven end to end (readConfig -> addLayer -> the metric
+// subscription) without a real renderer. Every other describe block in this
+// file drives map.js's exported functions directly with plain objects, never
+// through mount(), so this mock never applies to them in practice — but
+// vi.mock is file-scoped, so it is declared once, here.
+vi.mock('maplibre-gl', () => {
+  class FakeMap {
+    constructor(options) {
+      this.options = options
+      this.handlers = {}
+      this.setPaintProperty = vi.fn()
+      this.addSource = vi.fn()
+      this.addLayer = vi.fn()
+      this.getZoom = vi.fn(() => 7)
+      this.getSource = vi.fn(() => ({ setData: vi.fn() }))
+    }
+    // map.on('click', LAYER_ID, cb) carries the layer id as a second
+    // argument; every other event map.js registers is map.on(event, cb).
+    on(event, a, b) {
+      this.handlers[event] = event === 'click' ? b : a
+    }
+  }
+  return { Map: FakeMap, addProtocol: vi.fn() }
+})
+
+// The minimum harness this task needs: mount a map island against a fresh
+// container and fresh viewstate singleton, fire the 'load' handler mount()
+// registers (which is where the metric-follow subscription is wired — see
+// map.js), and hand the test the fake map plus the chrome object mount()
+// returns. No harness by this name or shape existed before this task; the
+// brief assumed one without it being written, so this is built fresh, kept to
+// exactly what the two tests below need.
+function mountTestMap({ metric }) {
+  resetViewStateForTests()
+  history.replaceState(null, '', `/#metric=${metric}`)
+
+  const el = document.createElement('div')
+  el.dataset.metric = metric
+  el.dataset.metrics = 'P1,P2,temperature'
+  el.dataset.zoom = '7'
+  el.dataset.lon = '25.4858'
+  el.dataset.lat = '42.7339'
+  el.dataset.noDataColour = '#9ca3af'
+  el.dataset.unscaledColour = '#94a3b8'
+  el.dataset.markerStrokeColour = '#ffffff'
+  el.dataset.emptyBasemapColour = '#eef2f5'
+  el.dataset.zoomCity = '9'
+  el.dataset.zoomSensor = '11'
+
+  const { map, chrome } = mount(el)
+  // Fired, not awaited: mount()'s 'load' handler registers the metric
+  // subscription SYNCHRONOUSLY, before its first `await` (see map.js's own
+  // comment on why) — so by the time this call returns to mountTestMap, the
+  // subscription already exists, even though the handler's own data-loading
+  // tail (initData) is still pending in the microtask queue. A real
+  // MapLibreMap fires 'load' itself, asynchronously, once its style is
+  // ready; this harness fires it eagerly instead, since the fake map here
+  // has no style to wait for.
+  map.handlers.load()
+  return { map, chrome }
+}
 
 // The no-data colour is configuration now (arrives as a data-* attribute), not
 // a module constant — restated here as a literal because these tests are about
@@ -152,13 +225,23 @@ describe('readConfig', () => {
       dataset: {
         tLegend: 'Air quality', tHint: 'Select an area',
         tRateLimited: 'Retrying', tUnavailable: 'Unavailable',
+        tUnscaled: 'No air-quality scale for this metric',
         tNoData: 'Not enough data', // no longer rendered; must not reappear in cfg
       },
     })
     expect(cfg.t).toEqual({
       legend: 'Air quality', hint: 'Select an area',
       rateLimited: 'Retrying', unavailable: 'Unavailable',
+      unscaled: 'No air-quality scale for this metric',
     })
+  })
+
+  // data-metrics is the same attribute (and same parseMetricList) the switcher
+  // island reads — getViewState needs the full metric list to validate a
+  // metric read from the hash before adopting it.
+  it('reads the metric list from data-metrics with parseMetricList\'s own blank-input rule', () => {
+    expect(readConfig({ dataset: { metrics: 'P1,P2,temperature' } }).metrics).toEqual(['P1', 'P2', 'temperature'])
+    expect(readConfig({ dataset: {} }).metrics).toEqual([])
   })
 
   it('reads numeric attributes as numbers, not strings', () => {
@@ -175,6 +258,7 @@ describe('readConfig', () => {
     const cfg = readConfig({
       dataset: {
         noDataColour: '#9ca3af',
+        unscaledColour: '#94a3b8',
         markerStrokeColour: '#ffffff',
         emptyBasemapColour: '#eef2f5',
         zoomCity: '9',
@@ -182,6 +266,7 @@ describe('readConfig', () => {
       },
     })
     expect(cfg.noDataColour).toBe('#9ca3af')
+    expect(cfg.unscaledColour).toBe('#94a3b8')
     expect(cfg.markerStrokeColour).toBe('#ffffff')
     expect(cfg.emptyBasemapColour).toBe('#eef2f5')
     expect(cfg.zoomCity).toBe(9)
@@ -417,12 +502,15 @@ describe('initData ordering', () => {
 
 // J1 (review round 2): the circle layer's stroke colour must come from
 // cfg.markerStrokeColour, not from any other config field. This is built by
-// markerPaint(cfg), extracted out of mount()'s map.on('load', ...) callback
-// specifically so it can be tested without a real MapLibre map.
-describe('markerPaint', () => {
+// layerPaint(cfg) (named markerPaint before task 7, renamed to make room for
+// the metric-aware markerPaint(bands, opts) below — see that function's own
+// comment for why one name could not serve both), extracted out of mount()'s
+// map.on('load', ...) callback specifically so it can be tested without a
+// real MapLibre map.
+describe('layerPaint', () => {
   it('reads circle-stroke-color from cfg.markerStrokeColour', () => {
     const cfg = { markerStrokeColour: '#ffffff', noDataColour: '#9ca3af' }
-    const paint = markerPaint(cfg)
+    const paint = layerPaint(cfg)
     expect(paint['circle-stroke-color']).toBe('#ffffff')
   })
 })
@@ -518,5 +606,64 @@ describe('mapStyle with a self-hosted basemap', () => {
   it('falls back to a flat colour when no basemap is configured', () => {
     expect(mapStyle({ basemap: '', emptyBasemapColour: '#eef2f5' }))
       .toEqual(blankStyle('#eef2f5'))
+  })
+})
+
+// Three different facts must not share one colour: "no reading" (grey),
+// "this metric has no band table" (unscaledColour), and a real band value.
+describe('unscaled metrics', () => {
+  const scales = [{ metric: 'P2', bands: [{ upper: 5, colour: '#50f0e6' }] }]
+
+  it('paints every marker the unscaled colour when the metric has no scale', () => {
+    const paint = markerPaint([], { noDataColour: '#999999', unscaledColour: '#94a3b8', scaled: false })
+    expect(JSON.stringify(paint)).toContain('#94a3b8')
+    expect(JSON.stringify(paint)).not.toContain('#999999')
+  })
+
+  it('still uses the bands when the metric is scaled', () => {
+    const paint = markerPaint(scales[0].bands, { noDataColour: '#999999', unscaledColour: '#94a3b8', scaled: true })
+    expect(JSON.stringify(paint)).toContain('#50f0e6')
+    expect(JSON.stringify(paint)).not.toContain('#94a3b8')
+  })
+
+  it('explains an unscaled metric and says nothing for a scaled one', () => {
+    expect(metricNote(scales, 'temperature', 'no scale')).toBe('no scale')
+    expect(metricNote(scales, 'P2', 'no scale')).toBe('')
+  })
+})
+
+// mount() end to end, through the fake MapLibreMap declared at the top of
+// this file: does changing vs.metric (via a hashchange, the same seam a
+// Back/Forward navigation or an external link uses) reach the layer's paint
+// property, without a new map and without re-registering the layer.
+//
+// getViewState is a page-lifetime singleton with no reset seam of its own
+// (see viewstate.svelte.js) — nothing exercised it until this task, so
+// without resetViewStateForTests() in beforeEach, whichever it() runs FIRST
+// in this file (or in another file sharing this Vitest worker) would decide
+// every later test's starting metric/hash. resetViewStateForTests() is a
+// test-only export added specifically for this hazard.
+describe('mount() follows the store metric', () => {
+  beforeEach(() => { resetViewStateForTests() })
+  afterEach(() => { resetViewStateForTests() })
+
+  it('repaints when the store metric changes', async () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    // mount() always paints once for the metric the page opened on (see the
+    // comment above the explicit call in map.js), so a bare
+    // "toHaveBeenCalled()" after the hashchange would pass even if the
+    // store subscription itself were gutted into a no-op — that initial
+    // call alone satisfies it. Wait for that first paint and record its
+    // count, so the assertion below can only pass if the hashchange
+    // triggers a REPAINT ON TOP OF it, which is what this test is for.
+    await vi.waitFor(() => expect(map.setPaintProperty).toHaveBeenCalled())
+    const callsBeforeChange = map.setPaintProperty.mock.calls.length
+
+    location.hash = '#metric=P1'
+    dispatchEvent(new HashChangeEvent('hashchange'))
+
+    await vi.waitFor(() => {
+      expect(map.setPaintProperty.mock.calls.length).toBeGreaterThan(callsBeforeChange)
+    })
   })
 })

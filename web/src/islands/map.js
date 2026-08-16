@@ -9,6 +9,8 @@ import { Protocol } from 'pmtiles'
 import { tierFor } from '../lib/tier.js'
 import { colourFor } from '../lib/colour.js'
 import { getJSON } from '../lib/api.js'
+import { parseMetricList, hasScale } from '../lib/metrics.js'
+import { getViewState } from '../lib/viewstate.svelte.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
@@ -22,6 +24,11 @@ export function mount(el) {
   const cfg = readConfig(el)
   registerProtocols()
   const chrome = mountChrome(el, cfg)
+
+  // Shared with the switcher island through the module-level singleton (see
+  // getViewState's own doc comment) — the same store, so a metric picked
+  // there is the metric this map follows.
+  const vs = getViewState({ metrics: cfg.metrics, defaultMetric: cfg.metric })
 
   const map = new MapLibreMap({
     container: el,
@@ -41,16 +48,49 @@ export function mount(el) {
   // no-bbox rule forbids.
   const state = { slug: cfg.slug, tier: null, scales: null }
 
+  // unsubscribe is assigned inside the 'load' handler (see below) and read by
+  // the returned `stop`. No call site in this app ever invokes `stop` today —
+  // islands mount once at page load and are never explicitly unmounted (there
+  // is no SPA router, see main.js's runIsland) — so this subscription is
+  // intentionally page-lifetime. Exposed anyway, the same way $effect.root's
+  // teardown would be, for test hygiene and in case that ever changes.
+  let unsubscribe = null
+
   map.on('load', async () => {
     map.addSource(SOURCE_ID, { type: 'geojson', data: emptyCollection() })
     map.addLayer({
       id: LAYER_ID,
       type: 'circle',
       source: SOURCE_ID,
-      paint: markerPaint(cfg),
+      paint: layerPaint(cfg),
     })
 
+    // Registered synchronously, right here — after addLayer so setPaintProperty
+    // always has a real layer to act on, but deliberately BEFORE awaiting
+    // initData below, not after: islands/map.js is plain .js, not .svelte.js,
+    // so $effect.root cannot be used here (runes only compile in
+    // .svelte/.svelte.js — see the task brief's own note on this). vs.metric
+    // is an ordinary getter backed by a rune defined in viewstate.svelte.js,
+    // so reading it needs no rune; reacting to it changing does, which is why
+    // onMetricChange (a plain callback list, see that file) exists instead of
+    // a second, invented store API — it already had to exist for the reason
+    // documented there (window 'hashchange' does not fire for our own
+    // pushState/replaceState writes, so it cannot substitute either).
+    //
+    // A metric change arriving before state.scales has loaded is handled, not
+    // ignored: markerPaint treats "no scales yet" the same as "no band
+    // table" (hasScale(null, metric) is false), so it paints unscaledColour
+    // rather than throwing or silently dropping the change — and the explicit
+    // call below self-corrects it the moment initData's own scales arrive.
+    unsubscribe = vs.onMetricChange((metric) => onMetricChange(map, state, cfg, chrome, metric))
+
     await initData(map, state, cfg, chrome)
+
+    // Explicit first call for the metric the page opened on: the STORE
+    // method registered above only notifies on a CHANGE, and this is
+    // deliberately AFTER initData so the FIRST real paint has state.scales to
+    // work with, rather than racing it.
+    onMetricChange(map, state, cfg, chrome, vs.metric)
   })
 
   map.on('moveend', debounce(() => refresh(map, state, cfg, chrome), MOVE_DEBOUNCE_MS))
@@ -63,6 +103,34 @@ export function mount(el) {
     state.slug = slug
     refresh(map, state, cfg, chrome)
   })
+
+  return { map, chrome, stop: () => unsubscribe?.() }
+}
+
+// onMetricChange is what runs on every metric switch (and once, explicitly,
+// for the metric the page opened on): repaint the layer via setPaintProperty
+// — cheap, synchronous, and needs neither a new map nor a network round trip
+// — show or clear the unscaled-metric note, and catch up the ALREADY-loaded
+// features' stale `value`/`colour` (computed for the PREVIOUS metric) by
+// forcing refresh() to recompute them.
+//
+// That forced refresh is NOT a network request in practice: urlFor never
+// takes a metric (the aggregate/sensor endpoints return every metric's values
+// in one payload — see sensorFeatures/areaFeatures, which merely pick a
+// column), so it is the exact same URL as before and getJSON's cache serves
+// it. `force` exists only to bypass refresh()'s own tier:slug dedup key,
+// which does not change when just the metric does and would otherwise make
+// this a silent no-op.
+function onMetricChange(map, state, cfg, chrome, metric) {
+  cfg.metric = metric
+  const scaled = hasScale(state.scales, metric)
+  map.setPaintProperty(LAYER_ID, 'circle-color', markerPaint(bandsFor(state.scales, metric), {
+    noDataColour: cfg.noDataColour,
+    unscaledColour: cfg.unscaledColour,
+    scaled,
+  }))
+  chrome.showNote(metricNote(state.scales, metric, cfg.t.unscaled))
+  refresh(map, state, cfg, chrome, true)
 }
 
 // initData is the whole body of the MapLibre 'load' handler after the source and
@@ -102,7 +170,13 @@ export async function loadScales(chrome, cfg, fetchJSON = getJSON) {
 }
 
 // refresh fetches the tier the current zoom permits and repaints.
-async function refresh(map, state, cfg, chrome) {
+//
+// `force` bypasses the tier:slug dedup key below. Ordinary callers (moveend,
+// a marker click) never need it: those genuinely change the tier or the slug.
+// onMetricChange does — the tier and slug are untouched by a metric switch,
+// so without `force` the dedup key would make repainting for the new metric a
+// silent no-op.
+async function refresh(map, state, cfg, chrome, force = false) {
   const tier = tierFor(map.getZoom(), cfg.zoomCity, cfg.zoomSensor)
 
   // The sensor tier needs a slug and must not invent one. With none selected,
@@ -116,7 +190,7 @@ async function refresh(map, state, cfg, chrome) {
   // Unchanged tier and slug: nothing to do. getJSON would serve from cache
   // anyway, but repainting the same features on every moveend is visible churn.
   const key = `${effective}:${state.slug ?? ''}`
-  if (key === state.tier) return
+  if (!force && key === state.tier) return
 
   let body
   try {
@@ -213,12 +287,21 @@ export function readConfig(el) {
     // renders data-metric now (see internal/web/render.go), so a missing
     // attribute must surface as undefined, not a quiet default.
     metric: d.metric,
+    // The full metric list (upstream.CanonicalMetrics, server-rendered) that
+    // getViewState needs to validate a metric before adopting it — same
+    // attribute, same parseMetricList, as the switcher island reads. No
+    // fallback beyond what parseMetricList itself already gives a blank/
+    // missing attribute ([]): a second default list here would be the
+    // duplicated-constant problem series.default_metric's comment above is
+    // about, one metric list instead of one metric.
+    metrics: parseMetricList(d.metrics),
     basemap: d.basemap || '',
     // Paint values and zoom thresholds: configuration, arriving as data-*
     // attributes, no fallback here — a hardcoded fallback that numerically
     // agrees with today's airbg.yaml is exactly the duplicated constant this
     // phase removes.
     noDataColour: d.noDataColour,
+    unscaledColour: d.unscaledColour,
     markerStrokeColour: d.markerStrokeColour,
     emptyBasemapColour: d.emptyBasemapColour,
     zoomCity: Number(d.zoomCity),
@@ -230,6 +313,7 @@ export function readConfig(el) {
       hint: d.tHint || '',
       rateLimited: d.tRateLimited || '',
       unavailable: d.tUnavailable || '',
+      unscaled: d.tUnscaled || '',
     },
   }
 }
@@ -293,21 +377,66 @@ export function installErrorHandler(map, warn = console.warn) {
   })
 }
 
-// markerPaint is the circle layer's paint object. Pulled out of mount()'s
-// map.on('load', ...) callback, which is unreachable from a test (it needs a
-// real MapLibre map), so the paint values it reads from cfg can be proven
-// directly.
-export function markerPaint(cfg) {
+// layerPaint is the circle layer's INITIAL paint object, set once at
+// map.addLayer time. Pulled out of mount()'s map.on('load', ...) callback,
+// which is unreachable from a test (it needs a real MapLibre map), so the
+// paint values it reads from cfg can be proven directly.
+//
+// Named layerPaint, not markerPaint (its name before this task): 'circle-
+// color' here is only ever a placeholder — the source is empty at addLayer
+// time (see emptyCollection), and by the time features exist, onMetricChange
+// has already replaced 'circle-color' via setPaintProperty with the real,
+// metric-aware expression from markerPaint below. Two functions named
+// markerPaint, one returning a full paint object and one returning a single
+// paint VALUE, would have been the same kind of silent ambiguity this file's
+// other comments warn about elsewhere.
+export function layerPaint(cfg) {
   return {
-    // Colour is resolved per feature in JS and carried on the feature, so
-    // the band table stays the server's business. A MapLibre `step`
-    // expression built from the scales would work too, but it would put the
-    // band thresholds into the style — a second place they could drift.
     'circle-color': ['get', 'colour'],
     'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 5, 12, 9],
     'circle-stroke-width': 1,
     'circle-stroke-color': cfg.markerStrokeColour,
   }
+}
+
+// markerPaint is the circle layer's 'circle-color' paint VALUE for one
+// metric — recomputed on every metric switch and applied via
+// map.setPaintProperty, never at layer-creation time (see layerPaint above).
+//
+// An unscaled metric gets ONE flat colour for every marker, with no
+// conditioning on whether the marker has a reading. Two things drove that,
+// not one: it is what the prescribed test in this file's __tests__/map.test.js
+// asserts (a ['case', ['has','value'], unscaledColour, noDataColour]
+// expression — the shape suggested by this task's own brief — embeds
+// noDataColour in its JSON and so FAILS "must not contain '#999999'"), and
+// product-wise it is the simpler, defensible rule: an unscaled metric has no
+// per-value meaning to draw with grey vs. colour, only "did anyone report
+// this metric here or not" — see metricNote's note text for what a reader is
+// told instead.
+export function markerPaint(bands, { noDataColour, unscaledColour, scaled }) {
+  if (!scaled) return unscaledColour
+
+  // Mirrors colourFor's own rule (bands ascending, upper INCLUSIVE, upper ==
+  // null is the open top band) but as a MapLibre `step` expression instead of
+  // a JS loop, because this runs in the paint property, not against a feature
+  // array — deliberately duplicated rather than shared with colourFor: the
+  // whole point of computing colour here, instead of recomputing every
+  // feature's `colour` property through colourFor again, is that switching
+  // metric must not re-walk every feature. See onMetricChange's comment.
+  const steps = []
+  for (let i = 0; i < bands.length - 1; i++) steps.push(bands[i].upper, bands[i + 1].colour)
+  return [
+    'case',
+    ['==', ['get', 'value'], null], noDataColour,
+    ['step', ['get', 'value'], bands[0]?.colour ?? noDataColour, ...steps],
+  ]
+}
+
+// The note is the only thing telling a reader why every dot on an unscaled
+// metric's map is the same colour. Returned rather than rendered here so the
+// caller (onMetricChange) owns the DOM, through chrome.showNote.
+export function metricNote(scales, metric, text) {
+  return hasScale(scales, metric) ? '' : text
 }
 
 // hintController owns the ONE rule about the hint banner: an error outranks the
@@ -370,10 +499,30 @@ function mountChrome(el, cfg) {
   hint.hidden = true
   el.appendChild(hint)
 
+  // The unscaled-metric explanation. A separate element from the hint/error
+  // banner above, on purpose: hintController's whole reason to exist is the
+  // precedence rule between a routine hint and a sticky error, and a note
+  // about the CURRENT metric having no band table is neither of those — it is
+  // not routine (it does not come and go with the viewport) and it is not an
+  // error (nothing failed). Conflating it with hint/error would either let a
+  // real error hide the note or let the note block a real error from showing.
+  const note = document.createElement('div')
+  note.className = 'map-note'
+  note.hidden = true
+  el.appendChild(note)
+
   // The precedence rule lives in hintController; this is only the wiring from
   // its decision to the banner. textContent, never innerHTML.
-  return hintController((text) => {
+  const hintCtl = hintController((text) => {
     hint.textContent = text
     hint.hidden = !text
   })
+
+  return {
+    ...hintCtl,
+    showNote(text) {
+      note.textContent = text
+      note.hidden = !text
+    },
+  }
 }

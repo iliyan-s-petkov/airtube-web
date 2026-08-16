@@ -43,6 +43,7 @@
      data-lon="{{.Area.Lon}}"
      data-lat="{{.Area.Lat}}"
      data-metric="{{.DefaultMetric}}"
+     data-metrics="{{.MetricsAttr}}"
      data-basemap="{{.BasemapStyleURL}}"
      data-no-data-colour="{{.NoDataColour}}"
      data-unscaled-colour="{{.UnscaledColour}}"
@@ -53,5 +54,6 @@
      data-t-legend="{{.T "map.legend.title"}}"
      data-t-hint="{{.T "map.hint.select_area"}}"
      data-t-rate-limited="{{.T "map.error.rate_limited"}}"
-     data-t-unavailable="{{.T "map.error.unavailable"}}"></div>
+     data-t-unavailable="{{.T "map.error.unavailable"}}"
+     data-t-unscaled="{{.T "metric.unscaled"}}"></div>
 {{end}}
