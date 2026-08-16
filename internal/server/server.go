@@ -203,10 +203,10 @@ func (s *Server) Run(ctx context.Context) error {
 	// dies during shutdown never blocks forever on an unread channel.
 	errCh := make(chan error, 3)
 
-	go func() { errCh <- s.servePublic() }()
+	go func() { errCh <- s.serveCapped(s.public) }()
 	go func() { errCh <- listen(s.private) }()
 	if s.tiles != nil {
-		go func() { errCh <- listen(s.tiles) }()
+		go func() { errCh <- s.serveCapped(s.tiles) }()
 	}
 
 	s.startEvicting(ctx)
@@ -248,18 +248,39 @@ func (s *Server) startEvicting(ctx context.Context) {
 	s.seriesLimiter.StartEvicting(ctx, s.seriesEvictInterval)
 }
 
-// servePublic listens and serves the public server under the connection cap.
+// serveCapped listens and serves srv under the connection cap.
 //
-// Separate from listen() because only the public listener is capped: the private
-// listener carries /metrics and /healthz on loopback, and capping it would mean a
-// connection flood could also blind the operator to the flood.
-func (s *Server) servePublic() error {
-	ln, err := net.Listen("tcp", s.public.Addr)
+// Separate from listen() because it is the two internet-facing listeners that
+// are capped, not the private one: /metrics and /healthz sit on loopback, and
+// capping them would mean a connection flood could also blind the operator to
+// the flood.
+//
+// The tiles listener needs this at least as much as the public one does. File
+// descriptors and goroutines are process-wide, so an unbounded tiles listener
+// exhausts them and takes the public listener's Accept down with it — the one
+// resource the tiles bulkhead cannot separate, having separated the pool, the
+// snapshot, the limiters and the admission semaphore. And the assumption that
+// makes the cap look redundant on the public listener — that the origin is
+// reachable only through Cloudflare — is known false for tiles by design: that
+// port is on a DNS-only hostname and accepts the world.
+//
+// Both take listen.max_conns rather than the tiles listener taking a key of its
+// own. A tiles.max_conns would have to ship alongside its all-or-nothing
+// string neighbours, and an int cannot ship "empty": it would ship 0, which
+// LimitListener treats as no limiting — the shipped configuration would then
+// carry exactly the defect this closes. One number bounding what any one
+// internet-facing socket may hold is also the shape of the resource being
+// bounded, which is per-process, not per-workload. The cost is real and
+// accepted: dozens of range requests per map load and one JSON request per page
+// are different workloads sharing a knob, so an operator who raises the cap for
+// tiles raises it for the API too.
+func (s *Server) serveCapped(srv *http.Server) error {
+	ln, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
-		return fmt.Errorf("listening on %s: %w", s.public.Addr, err)
+		return fmt.Errorf("listening on %s: %w", srv.Addr, err)
 	}
-	if err := s.public.Serve(httpx.LimitListener(ln, int(s.maxConns))); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("serving %s: %w", s.public.Addr, err)
+	if err := srv.Serve(httpx.LimitListener(ln, int(s.maxConns))); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serving %s: %w", srv.Addr, err)
 	}
 	return nil
 }

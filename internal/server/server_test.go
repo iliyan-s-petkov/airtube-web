@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"airbg.org/internal/config"
+	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/server"
 	"airbg.org/internal/snapshot"
@@ -55,11 +56,14 @@ func running(t *testing.T) (public, private string) {
 	return pub, priv
 }
 
-func runningWithTiles(t *testing.T, tilesDir string) (public, private, tiles string) {
-	return start(t, tilesDir)
+func runningWithTiles(t *testing.T, tilesDir string, tweak ...func(*config.Config)) (public, private, tiles string) {
+	return start(t, tilesDir, tweak...)
 }
 
-func start(t *testing.T, tilesDir string) (public, private, tilesAddr string) {
+// start builds the server from the committed configuration. tweak runs after
+// the addresses are assigned and before server.New, so a test can move a knob
+// (the connection cap, say) without a second copy of this setup.
+func start(t *testing.T, tilesDir string, tweak ...func(*config.Config)) (public, private, tilesAddr string) {
 	t.Helper()
 
 	cat, err := i18n.Load()
@@ -85,6 +89,9 @@ func start(t *testing.T, tilesDir string) (public, private, tilesAddr string) {
 			Dir:       tilesDir,
 			PublicURL: "http://" + tilesAddr,
 		}
+	}
+	for _, fn := range tweak {
+		fn(&cfg)
 	}
 
 	srv, err := server.New(server.Options{
@@ -209,6 +216,60 @@ func TestTilesAreNotOnThePublicListener(t *testing.T) {
 	}
 	if got := get(t, tiles, "/metrics").StatusCode; got == http.StatusOK {
 		t.Error("/metrics is reachable on the tiles listener")
+	}
+}
+
+// TestTilesListenerIsCapped. The tiles bulkhead separates the pool, the
+// snapshot, the limiters and the admission semaphore — but file descriptors and
+// goroutines are process-wide and cannot be separated. An uncapped tiles
+// listener is therefore a way to exhaust them and take the public listener's
+// Accept down with it. And the assumption that makes listen.max_conns look
+// redundant on the public port — that the origin is reachable only through
+// Cloudflare — is known false here by design: the tiles port sits on a DNS-only
+// hostname and accepts the world.
+func TestTilesListenerIsCapped(t *testing.T) {
+	const maxConns = 2
+	_, _, tilesAddr := runningWithTiles(t, tilesDir(t), func(c *config.Config) {
+		c.Listen.MaxConns = maxConns
+	})
+
+	before := httpx.ConnectionsRejectedCountForTesting()
+
+	// Held open and silent: the cap bounds sockets, not requests, so a
+	// connection that never sends a byte must still occupy a slot. That is the
+	// whole failure mode — tens of thousands of these complete no request, so
+	// no rate limiter or admission cap ever sees them.
+	for i := 0; i < maxConns; i++ {
+		c, err := net.Dial("tcp", tilesAddr)
+		if err != nil {
+			t.Fatalf("dial %d: %v", i, err)
+		}
+		defer c.Close()
+	}
+
+	// The listener accepts in FIFO order, so both slots are taken by the time
+	// this one is accepted.
+	over, err := net.Dial("tcp", tilesAddr)
+	if err != nil {
+		t.Fatalf("dial over-cap: %v", err)
+	}
+	defer over.Close()
+
+	// An over-cap connection is accepted from the kernel and closed at once, so
+	// this read ends instead of blocking. Two seconds is deliberately well under
+	// the 5s ReadHeaderTimeout that would eventually close an ACCEPTED silent
+	// connection: a longer deadline would pass with or without the cap.
+	_ = over.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err := over.Read(make([]byte, 1))
+	switch {
+	case err == nil:
+		t.Fatalf("the over-cap connection read %d bytes and stayed open; the tiles listener has no connection cap", n)
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		t.Fatalf("the over-cap connection was still open 2s after connecting; the tiles listener has no connection cap")
+	}
+
+	if got := httpx.ConnectionsRejectedCountForTesting() - before; got < 1 {
+		t.Errorf("airbg_connections_rejected_total rose by %d over the over-cap connection, want at least 1", got)
 	}
 }
 

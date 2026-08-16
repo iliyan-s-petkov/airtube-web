@@ -28,8 +28,11 @@ listen:
   metrics_addr: "127.0.0.1:9090"
   # Absolute origin used to build canonical and alternate-language URLs.
   base_url: "http://localhost:8080"
-  # Hard ceiling on concurrent connections to the public listener. 0 would mean
-  # unlimited, which is why absent is an error rather than a default.
+  # Hard ceiling on concurrent connections, applied to each internet-facing
+  # listener: the public one, and the tiles one when tiles.* is configured.
+  # 0 would mean unlimited, which is why absent is an error rather than a
+  # default — and why the tiles listener shares this key instead of owning an
+  # int of its own that would have to ship as 0.
   max_conns: 4096
   # CIDRs whose X-Forwarded-For / CF-Connecting-IP headers are believed. Empty
   # means trust nothing and bucket on the direct peer address.

@@ -9,8 +9,11 @@ import (
 
 // connectionsRejected counts connections closed for exceeding the cap.
 //
-// Unlabelled: there is exactly one public listener, and the peer address would
-// be unbounded cardinality handed straight to an attacker.
+// Unlabelled: the peer address would be unbounded cardinality handed straight
+// to an attacker. Two listeners are capped now — public and tiles — and they
+// share this counter, because shedding on either is the same operational event:
+// the process is at its socket ceiling. A listener label would be bounded and
+// safe to add if an operator ever needs to tell the two apart.
 var connectionsRejected = metrics.Counter(
 	"airbg_connections_rejected_total",
 	"Connections closed immediately because the concurrent-connection cap was reached.")
