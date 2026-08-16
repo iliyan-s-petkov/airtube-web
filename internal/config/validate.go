@@ -392,6 +392,20 @@ func (c Config) validateTiles(p *problems) {
 		p.addf("tiles.public_url host is %d bytes, must be at most %d", len(u.Host), maxHostLength)
 	case !hostPattern.MatchString(u.Host):
 		p.addf("tiles.public_url host = %q is not a valid hostname", u.Host)
+	case u.Path != "" && u.Path != "/":
+		// StyleURL only trims a trailing slash, so a path here produces
+		// ".../basemap/style.json" — two segments, which the handler's allowlist
+		// 404s. The CSP coupling below would still pass, because it matches on
+		// the host: the map goes blank and every check that exists to catch that
+		// says nothing. This is an origin, not a URL prefix.
+		p.addf("tiles.public_url = %q must be an origin with no path; the tiles listener serves style.json, glyphs/ and the archive at its root", c.Tiles.PublicURL)
+	case u.RawQuery != "":
+		// The deleted basemap.style_url carried "?key=..."; a query here is the
+		// vendor shape returning, and it would be concatenated into every
+		// derived URL where nothing consumes it.
+		p.addf("tiles.public_url = %q must not contain a query string", c.Tiles.PublicURL)
+	case u.Fragment != "":
+		p.addf("tiles.public_url = %q must not contain a fragment", c.Tiles.PublicURL)
 	default:
 		// MapLibre fetches the style, the glyphs and the .pmtiles ranges over
 		// fetch/XHR. A connect-src that omits this host fails closed: a blank

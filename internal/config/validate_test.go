@@ -256,18 +256,45 @@ func TestTilesAddrIsSeparate(t *testing.T) {
 // assembled by concatenation, so anything but a plain absolute http(s) URL is
 // rejected — the same rule the deleted basemap.style_url carried.
 func TestTilesPublicURLShape(t *testing.T) {
-	for name, u := range map[string]string{
-		"no scheme": "tiles.airbg.org",
-		"ftp":       "ftp://tiles.airbg.org",
-		"userinfo":  "https://user:pass@tiles.airbg.org",
-		"space":     "https://tiles airbg.org",
+	// want is a distinctive fragment of the message each case must produce.
+	// Asserting the message, not merely "some error": several of these URLs also
+	// fail the connect-src coupling below, so a bare non-nil check would pass
+	// even with the shape gate deleted.
+	for name, tc := range map[string]struct{ url, want string }{
+		"no scheme":  {"tiles.airbg.org", "must use http or https"},
+		"ftp":        {"ftp://tiles.airbg.org", "must use http or https"},
+		"userinfo":   {"https://user:pass@tiles.airbg.org", "must not contain userinfo"},
+		"space":      {"https://tiles airbg.org", "tiles.public_url"},
+		"empty host": {"https:///style.json", "is not a valid hostname"},
+		// A path is the case the gate exists for and the one nothing caught:
+		// StyleURL yields ".../basemap/style.json", the handler 404s two
+		// segments, and the connect-src check still passes because it matches
+		// on the host alone. Blank map, no server-side error.
+		"path":            {"https://tiles.airbg.org/basemap", "no path"},
+		"trailing path":   {"https://tiles.airbg.org/basemap/", "no path"},
+		"query":           {"https://tiles.airbg.org?key=secret", "query string"},
+		"fragment":        {"https://tiles.airbg.org#frag", "fragment"},
+		"path and query":  {"https://tiles.airbg.org/a?b=c", "no path"},
+		"root path is ok": {"https://tiles.airbg.org/", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := validConfig(t)
-			cfg.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/var/lib/airbg/tiles", PublicURL: u}
-			cfg.Listen.CSP = "default-src 'self'; connect-src 'self' " + u
-			if err := cfg.Validate(); err == nil {
-				t.Errorf("Validate with tiles.public_url = %q returned nil, want an error", u)
+			cfg.Tiles = Tiles{Addr: "127.0.0.1:8082", Dir: "/var/lib/airbg/tiles", PublicURL: tc.url}
+			// The origin, not the raw value: the host coupling must be satisfied
+			// so that only the shape gate can reject these.
+			cfg.Listen.CSP = "default-src 'self'; connect-src 'self' https://tiles.airbg.org"
+			err := cfg.Validate()
+			if tc.want == "" {
+				if err != nil {
+					t.Errorf("Validate with tiles.public_url = %q returned %v, want nil", tc.url, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate with tiles.public_url = %q returned nil, want an error mentioning %q", tc.url, tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Validate with tiles.public_url = %q returned %v, want a message mentioning %q", tc.url, err, tc.want)
 			}
 		})
 	}
