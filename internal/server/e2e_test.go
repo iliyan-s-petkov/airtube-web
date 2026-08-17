@@ -235,20 +235,26 @@ func TestEndToEndEnumerationTrips(t *testing.T) {
 	st, cleanup := newIntegrationStore(t)
 	defer cleanup()
 
-	for i := 0; i < 20; i++ {
+	// Walk enough distinct areas to cross the configured limit, not a
+	// hardcoded count — a retuned limit must not silently stop this test
+	// from proving the wall comes up.
+	limit := testConfig(t).RateLimit.Enumerate.AreasPerWindow
+	walk := limit + 2
+
+	for i := 0; i < walk; i++ {
 		seedArea(t, st, fmt.Sprintf("area-%02d", i), "oblast", 23.0+float64(i)/100, 42.0+float64(i)/100)
 	}
 
 	public, _ := runningWith(t, st)
 
 	var lastStatus int
-	for i := 0; i < 20; i++ {
+	for i := 0; i < walk; i++ {
 		lastStatus = get(t, public, fmt.Sprintf("/api/v1/area/area-%02d/sensors", i)).StatusCode
 		if lastStatus == http.StatusTooManyRequests {
 			return
 		}
 	}
-	t.Errorf("walked 20 distinct areas from one address without tripping; last status %d", lastStatus)
+	t.Errorf("walked %d distinct areas from one address without tripping; last status %d", walk, lastStatus)
 }
 
 // TestEndToEndPageRendersFromTheDatabase — one assertion that the HTML path and
