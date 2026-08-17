@@ -10,6 +10,7 @@ package deploy
 
 import (
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -240,4 +241,75 @@ func TestSchedulerIsQuarantined(t *testing.T) {
 	if _, on := service(t, c, "db").Networks["sched"]; on {
 		t.Error("db is attached to the sched network, want back only")
 	}
+}
+
+// caddyBlocks splits a Caddyfile into site blocks keyed by their header line.
+// Deliberately simple: site headers start at column 0 and end with " {", and
+// the matching close is a "}" at column 0. That is the shape of this file, and
+// the test fails loudly if it stops being.
+func caddyBlocks(t *testing.T) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile("Caddyfile")
+	if err != nil {
+		t.Fatalf("ReadFile(Caddyfile) error = %v, want nil", err)
+	}
+	blocks := map[string]string{}
+	var current string
+	var body []string
+	for _, line := range strings.Split(string(data), "\n") {
+		switch {
+		case current == "" && strings.HasSuffix(line, " {") && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t"):
+			current = strings.TrimSuffix(line, " {")
+			body = nil
+		case current != "" && line == "}":
+			blocks[current] = strings.Join(body, "\n")
+			current = ""
+		case current != "":
+			body = append(body, line)
+		}
+	}
+	if current != "" {
+		t.Fatalf("Caddyfile block %q is never closed at column 0", current)
+	}
+	return blocks
+}
+
+// This is the whole enforcement. Cloudflare's edge holds a client certificate
+// the public does not, so a direct connection to the origin IP fails the TLS
+// handshake and no request carrying a forged CF-Connecting-IP ever reaches the
+// rate limiters. The tiles host shares the port and must NOT require it —
+// browsers connect to it directly.
+//
+// Checked per block, not per file: `client_auth` in the tiles block would
+// satisfy a whole-file substring check while leaving the API wide open.
+func TestOnlyTheSiteVhostRequiresCloudflaresCertificate(t *testing.T) {
+	blocks := caddyBlocks(t)
+
+	site, ok := blocks["airbg.org"]
+	if !ok {
+		t.Fatalf("Caddyfile has no airbg.org site block; found %v", keysOf(blocks))
+	}
+	if !strings.Contains(site, "client_auth") {
+		t.Error("the airbg.org block does not require a client certificate — the origin is reachable directly")
+	}
+	if !strings.Contains(site, "require_and_verify") {
+		t.Error("the airbg.org block does not use require_and_verify; any weaker mode accepts a connection with no certificate")
+	}
+
+	tiles, ok := blocks["tiles.airbg.org"]
+	if !ok {
+		t.Fatalf("Caddyfile has no tiles.airbg.org site block; found %v", keysOf(blocks))
+	}
+	if strings.Contains(tiles, "client_auth") {
+		t.Error("the tiles block requires a client certificate; browsers connect to it directly and would all fail")
+	}
+}
+
+func keysOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
