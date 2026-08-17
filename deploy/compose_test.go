@@ -192,6 +192,11 @@ func TestOnlyTheSocketProxyHoldsTheDockerSocket(t *testing.T) {
 // endpoint groups that would turn it back into a root-equivalent socket:
 // EXEC lets you run commands in the running app container, VOLUMES and IMAGES
 // let you stage a payload, SWARM and SYSTEM reconfigure the daemon itself.
+// Each forbidden key must be explicitly "0", not merely absent: the proxy
+// image happens to deny undeclared endpoints by default today, but a line
+// deleted in a future edit would silently fall back to that default instead
+// of failing this test, so the config must say so itself rather than lean on
+// an assumption about the image.
 func TestSocketProxyGrantsOnlyContainerCreation(t *testing.T) {
 	proxy := service(t, loadCompose(t), "socket-proxy")
 	env := map[string]string{}
@@ -207,14 +212,18 @@ func TestSocketProxyGrantsOnlyContainerCreation(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{"EXEC", "IMAGES", "NETWORKS", "VOLUMES", "INFO", "SWARM", "SYSTEM"} {
-		if v, set := env[forbidden]; set && v != "0" {
-			t.Errorf("socket-proxy sets %s=%q, which widens it back towards a root-equivalent socket", forbidden, v)
+		v, set := env[forbidden]
+		if !set || v != "0" {
+			t.Errorf("socket-proxy sets %s=%q (present=%v), want an explicit \"0\" — an absent key relies on the image's default instead of the config saying so", forbidden, v, set)
 		}
 	}
 }
 
 // The scheduler pair is quarantined: it cannot reach the internet-facing
 // network or the database network, and the app cannot reach the scheduler's.
+// db must also stay off sched: it is the one service the collect and backup
+// jobs must reach across the back network — sched carries only ofelia and
+// the socket proxy.
 func TestSchedulerIsQuarantined(t *testing.T) {
 	c := loadCompose(t)
 	for _, name := range []string{"ofelia", "socket-proxy"} {
@@ -227,5 +236,8 @@ func TestSchedulerIsQuarantined(t *testing.T) {
 	}
 	if _, on := service(t, c, "app").Networks["sched"]; on {
 		t.Error("app is attached to the sched network, want edge and back only")
+	}
+	if _, on := service(t, c, "db").Networks["sched"]; on {
+		t.Error("db is attached to the sched network, want back only")
 	}
 }
