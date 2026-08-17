@@ -198,6 +198,54 @@ and no admission semaphore — that is what makes it safe to expose directly
 while the application port accepts only Cloudflare's ranges. Generating the
 artefacts: `docs/tiles.md`.
 
+## Message overrides
+
+The site's copy lives in `internal/i18n/bg.json` and `en.json`, embedded in the
+binary. Bulgarian is the default; English is served under `/en/`. No
+user-visible string is written in Go or in `web/src` — `web/src/lib/literals.test.js`
+fails the build if one appears there — so copy is changed by editing a
+catalogue, not by editing code.
+
+`i18n.dir` exists for the case where a rebuild is the wrong tool: a clumsy
+sentence, or a translation a native speaker rejects, that needs correcting
+before the next release. Point it at a directory of `<lang>.json` files and
+their keys are overlaid on the embedded catalogues at startup:
+
+```yaml
+i18n:
+  dir: "/etc/airbg/messages"
+```
+
+```json
+// /etc/airbg/messages/bg.json — only the keys being changed
+{
+  "panel.flag.stuck": "Стойността не се е променяла отдавна."
+}
+```
+
+Empty (the shipped setting) means embedded only. A file need name only the keys
+it changes; everything else keeps the embedded text.
+
+Four things are startup errors rather than warnings, because each is an edit
+that would otherwise appear to work and not:
+
+| Situation | Why it fails |
+|---|---|
+| `de.json`, or any language outside `bg`/`en` | The file would be read by nothing. A third language needs more than a catalogue — see the limit below. |
+| A key the embedded catalogue does not hold | A typo, or a key a later release retired. Silently ignored, it looks applied. |
+| A blank value | Renders an empty label, the exact outcome the `!key!` fallback marker exists to prevent. |
+| A missing `i18n.dir` | The operator meant to serve corrected copy. Falling back to the embedded text would look healthy while serving the words they replaced. |
+
+Overrides are read **once, at startup**. Editing a file changes nothing until
+the process restarts — no watcher, and no operator-controlled filesystem read
+on the hot path of every page.
+
+**The two-language limit is not in these files.** Area names come from the
+database columns `name_bg` and `name_en` (`internal/web/pages.go`), the language
+switcher is a binary toggle (`internal/web/render.go`), and `i18n.Languages` is
+a compiled-in list. A third language is a schema change and a code change, not
+a dropped-in JSON file.
+
 ## 10. Rate limiting: eviction intervals and the two `Retry-After`s
 
 There are three limiters, and they are configured asymmetrically on purpose.
