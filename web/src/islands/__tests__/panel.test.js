@@ -314,3 +314,74 @@ describe('the home page mounts the panel island', () => {
     el.remove()
   })
 })
+
+// Whole-branch review finding: mutating panel.js's flagText getter, closeLabel
+// or noValue to '' left all 186 tests green. flagTextFor was tested only as a
+// bare function, and SensorPanel.svelte's own close test supplied its own
+// vi.fn() rather than the real wiring — so the entire quality-flag sentence
+// path could have been deleted without a single failure. These three tests go
+// through mount() and assert the strings on screen.
+describe('mount() puts the panel copy on screen', () => {
+  // The hash is set BEFORE mount, i.e. the deep-link order: the store reads it
+  // at construction, so a test that mounts first would be exercising a
+  // different path than the one these three tests are about.
+  function mountPanel(sensorId) {
+    history.replaceState(null, '', `/#sensor=${sensorId}`)
+    const el = fillFixtures(islandFrom('area.gohtml', 'panel'))
+    document.body.append(el)
+    mount(el)
+    return el
+  }
+
+  beforeEach(() => {
+    resetViewStateForTests()
+    setSensors(null)
+  })
+  afterEach(() => {
+    resetViewStateForTests()
+    setSensors(null)
+    history.replaceState(null, '', '/')
+  })
+
+  // Sensor 104 mirrors internal/e2e/e2e_test.go's seeded fixture: an ordinary
+  // sensor whose P2 reading carries the 'stuck' quality flag.
+  it('renders the flag sentence for a non-ok quality flag', async () => {
+    const el = mountPanel(104)
+    setSensors({ sensors: { id: [104], quality: ['stuck'], P1: [12], P2: [300] } })
+
+    await vi.waitFor(() => {
+      expect(el.querySelector('.panel-flag')).not.toBeNull()
+    })
+    expect(el.querySelector('.panel-flag').textContent).toBe(PANEL_ATTR_FIXTURES.tFlagStuck)
+    el.remove()
+  })
+
+  it('renders the close control with its label', async () => {
+    const el = mountPanel(104)
+    setSensors({ sensors: { id: [104], quality: ['stuck'], P2: [300] } })
+
+    await vi.waitFor(() => {
+      expect(el.querySelector('button[data-close]')).not.toBeNull()
+    })
+    expect(el.querySelector('button[data-close]').textContent).toBe(PANEL_ATTR_FIXTURES.tClose)
+    el.remove()
+  })
+
+  // Sensor 103 mirrors the other seeded fixture: the P1 COLUMN exists (other
+  // sensors report it) but this sensor's entry in it is null — a reported
+  // metric with no current reading, which is the case noValue renders. A
+  // metric the response does not carry at all is omitted instead, and would
+  // make this test pass for the wrong reason, so the P1 label is asserted
+  // present alongside the placeholder.
+  it('renders the no-value placeholder for a reported metric with no reading', async () => {
+    const el = mountPanel(103)
+    setSensors({ sensors: { id: [103], quality: ['ok'], P1: [null], P2: [22] } })
+
+    await vi.waitFor(() => {
+      expect(el.querySelector('[role="dialog"]')).not.toBeNull()
+    })
+    expect(el.textContent).toContain('PM10')
+    expect(el.querySelector('dl').textContent).toContain(PANEL_ATTR_FIXTURES.tNoValue)
+    el.remove()
+  })
+})
