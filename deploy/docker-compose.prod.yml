@@ -75,6 +75,50 @@ services:
       retries: 10
     logging: *journal
 
+  # ofelia needs to start containers, which means the Docker socket, which is
+  # root-equivalent on the host. It never gets it: this proxy holds the socket
+  # read-only and exposes container creation and nothing else. Widening the
+  # environment below re-creates the risk the proxy exists to remove —
+  # compose_test.go fails if it happens.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1
+      - POST=1
+      - EXEC=0
+      - IMAGES=0
+      - NETWORKS=0
+      - VOLUMES=0
+      - INFO=0
+      - SWARM=0
+      - SYSTEM=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      sched: {}
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    logging: *journal
+
+  # Runs `airbg collect` on the poll interval and pg_dump nightly, each as a
+  # one-shot container from the same image. Talks to the proxy, never to the
+  # daemon.
+  ofelia:
+    image: mcuadros/ofelia:v0.3.20
+    restart: unless-stopped
+    command: ["daemon", "--config=/etc/ofelia/config.ini"]
+    environment:
+      - DOCKER_HOST=tcp://socket-proxy:2375
+    volumes:
+      - ./ofelia.ini:/etc/ofelia/config.ini:ro
+    networks:
+      sched: {}
+    depends_on:
+      - socket-proxy
+    logging: *journal
+
 networks:
   # Subnets are explicit so AIRBG_LISTEN_TRUSTED_PROXY_CIDRS is a value you can
   # write down. Trusting the wrong CIDR means CF-Connecting-IP is ignored and
@@ -88,6 +132,11 @@ networks:
     ipam:
       config:
         - subnet: 172.29.0.0/24
+  sched:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   db_data:

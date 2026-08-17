@@ -165,3 +165,67 @@ func TestNoServiceUsesHostNetworking(t *testing.T) {
 		}
 	}
 }
+
+// The scheduler is the one component that must be able to start containers,
+// and /var/run/docker.sock is root-equivalent on the host: whatever holds it
+// can start a privileged container that mounts /. So ofelia talks to a proxy
+// that exposes container creation and nothing else, and the proxy is the only
+// thing anywhere in the deployment that touches the real socket.
+func TestOnlyTheSocketProxyHoldsTheDockerSocket(t *testing.T) {
+	c := loadCompose(t)
+	for name, svc := range c.Services {
+		for _, v := range svc.Volumes {
+			if !strings.Contains(v, "docker.sock") {
+				continue
+			}
+			if name != "socket-proxy" {
+				t.Errorf("service %s mounts the docker socket (%q); only socket-proxy may", name, v)
+			}
+			if !strings.HasSuffix(v, ":ro") {
+				t.Errorf("service %s mounts the docker socket %q writable, want :ro", name, v)
+			}
+		}
+	}
+}
+
+// A socket proxy is only worth having while it stays narrow. These are the
+// endpoint groups that would turn it back into a root-equivalent socket:
+// EXEC lets you run commands in the running app container, VOLUMES and IMAGES
+// let you stage a payload, SWARM and SYSTEM reconfigure the daemon itself.
+func TestSocketProxyGrantsOnlyContainerCreation(t *testing.T) {
+	proxy := service(t, loadCompose(t), "socket-proxy")
+	env := map[string]string{}
+	for _, e := range proxy.Environment {
+		k, v, ok := strings.Cut(e, "=")
+		if ok {
+			env[k] = v
+		}
+	}
+	for _, required := range []string{"CONTAINERS", "POST"} {
+		if env[required] != "1" {
+			t.Errorf("socket-proxy sets %s=%q, want \"1\" — ofelia cannot start jobs without it", required, env[required])
+		}
+	}
+	for _, forbidden := range []string{"EXEC", "IMAGES", "NETWORKS", "VOLUMES", "INFO", "SWARM", "SYSTEM"} {
+		if v, set := env[forbidden]; set && v != "0" {
+			t.Errorf("socket-proxy sets %s=%q, which widens it back towards a root-equivalent socket", forbidden, v)
+		}
+	}
+}
+
+// The scheduler pair is quarantined: it cannot reach the internet-facing
+// network or the database network, and the app cannot reach the scheduler's.
+func TestSchedulerIsQuarantined(t *testing.T) {
+	c := loadCompose(t)
+	for _, name := range []string{"ofelia", "socket-proxy"} {
+		svc := service(t, c, name)
+		for _, forbidden := range []string{"edge", "back"} {
+			if _, on := svc.Networks[forbidden]; on {
+				t.Errorf("%s is attached to the %s network, want sched only", name, forbidden)
+			}
+		}
+	}
+	if _, on := service(t, c, "app").Networks["sched"]; on {
+		t.Error("app is attached to the sched network, want edge and back only")
+	}
+}
