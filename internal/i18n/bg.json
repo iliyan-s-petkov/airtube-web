@@ -32,7 +32,7 @@
   "footer.data": "Данни от сътрудниците на sensor.community, ODbL 1.0",
   "footer.boundaries": "Граници © сътрудниците на OpenStreetMap, ODbL 1.0",
   "footer.basemap": "Картна основа © сътрудниците на OpenStreetMap, ODbL 1.0, плочки от Protomaps",
-  "lang.switch": "English",
+  "lang.name": "Български",
   "map.legend.title": "Качество на въздуха",
   "map.legend.no_data": "Недостатъчно данни",
   "map.hint.select_area": "Изберете район, за да видите отделните сензори",

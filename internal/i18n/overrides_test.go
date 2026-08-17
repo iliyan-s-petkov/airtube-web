@@ -1,8 +1,10 @@
 package i18n_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,9 +71,20 @@ func TestOverrideRejections(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "unsupported language",
+			// A new language is allowed — but only a WHOLE one. One key of
+			// fifty renders a German page that is 98% Bulgarian, which T's
+			// fallback makes look deliberate rather than broken.
+			name:    "incomplete new language",
 			files:   map[string]string{"de.json": `{"locate.button": "Finde mich"}`},
-			wantErr: `names language "de"`,
+			wantErr: "catalogue de is missing",
+		},
+		{
+			// The filename is the language code. "bulgarian.json" would
+			// otherwise be skipped in silence, and the operator would spend the
+			// afternoon wondering why their translation never appeared.
+			name:    "filename is not a language code",
+			files:   map[string]string{"bulgarian.json": `{"locate.button": "Открий ме"}`},
+			wantErr: "does not name a language",
 		},
 		{
 			name:    "unknown key",
@@ -105,6 +118,85 @@ func TestOverrideRejections(t *testing.T) {
 				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// wholeCatalogue renders a complete catalogue for lang, giving every key the
+// embedded default holds a distinct, recognisable value. Built from Keys()
+// rather than from a fixed list so it cannot rot: a key added to bg.json next
+// month is included here automatically.
+func wholeCatalogue(t *testing.T, lang string, extra map[string]string) string {
+	t.Helper()
+	m := map[string]string{}
+	for _, key := range loaded(t).Keys() {
+		m[key] = lang + ":" + key
+	}
+	for k, v := range extra {
+		m[k] = v
+	}
+	body, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshalling the %s catalogue: %v", lang, err)
+	}
+	return string(body)
+}
+
+// The feature this whole design exists for: a language nobody compiled in.
+// Drop de.json into the override directory and German is served — no schema
+// change, no rebuild, no code change.
+func TestACompleteNewLanguageIsServed(t *testing.T) {
+	dir := writeOverrides(t, map[string]string{"de.json": wholeCatalogue(t, "de", nil)})
+
+	c, err := i18n.LoadWithOverrides(dir)
+	if err != nil {
+		t.Fatalf("LoadWithOverrides: %v", err)
+	}
+
+	// It joins the served set, default first and the rest sorted, so the
+	// switcher's order does not depend on map iteration.
+	if got, want := c.Languages(), []string{"bg", "de", "en"}; !slices.Equal(got, want) {
+		t.Errorf("Languages() = %v, want %v", got, want)
+	}
+	// It is routable: without this, every /de/ link the switcher renders 404s.
+	if lang, rest := c.LangFromPath("/de/area/sofia"); lang != "de" || rest != "/area/sofia" {
+		t.Errorf(`LangFromPath("/de/area/sofia") = (%q, %q), want ("de", "/area/sofia")`, lang, rest)
+	}
+	// And it actually serves its own text rather than falling back.
+	if got, want := c.T("de", "site.title"), "de:site.title"; got != want {
+		t.Errorf("T(de, site.title) = %q, want %q", got, want)
+	}
+	// The languages that were already there are untouched.
+	if got, want := c.T("bg", "site.title"), loaded(t).T("bg", "site.title"); got != want {
+		t.Errorf("T(bg, site.title) = %q, want the embedded %q", got, want)
+	}
+}
+
+// Area names are the one thing that used to need a database column per
+// language. They are catalogue keys instead: optional, so a new language need
+// not name every oblast, and accepted even though no embedded catalogue holds
+// them.
+func TestAreaNameKeysAreOptionalAndAccepted(t *testing.T) {
+	dir := writeOverrides(t, map[string]string{
+		// de.json omits every area name — completeness must not demand them.
+		"de.json": wholeCatalogue(t, "de", nil),
+		// en.json names one, though nothing embedded declares that key.
+		"en.json": `{"area.name.sofia": "Sofia City"}`,
+	})
+
+	c, err := i18n.LoadWithOverrides(dir)
+	if err != nil {
+		t.Fatalf("LoadWithOverrides: %v", err)
+	}
+	if !c.Has("en", "area.name.sofia") {
+		t.Error("the area name key was not stored")
+	}
+	if got, want := c.T("en", "area.name.sofia"), "Sofia City"; got != want {
+		t.Errorf("T = %q, want %q", got, want)
+	}
+	// Not declared for German — the renderer must be able to tell, so it can
+	// fall back to the stored name rather than render a marker.
+	if c.Has("de", "area.name.sofia") {
+		t.Error("area.name.sofia leaked into the German catalogue")
 	}
 }
 

@@ -328,10 +328,20 @@ tiles:
 # clumsy sentence or a translation a native speaker rejects can be corrected by
 # editing a file and restarting — no rebuild, no new image.
 #
-# Only bg.json and en.json are read, and only keys the embedded catalogue
-# already holds. An unknown language file, an unknown key or a blank value is a
-# startup error, not a warning: each one means the operator edited something
-# that would otherwise have no effect, or would render an empty label.
+# The same directory is how a language is ADDED. Write <code>.json — de.json,
+# ro.json, de-at.json — holding every key the Bulgarian catalogue has, and that
+# language is routed (/de/), listed in the switcher and offered as an hreflang
+# alternate on the next restart. No rebuild, no database migration, no code
+# change: nothing in the binary enumerates the languages. Area names need no
+# column per language either — a non-Bulgarian language gets the stored
+# Latin-script name_en by default, overridable with the optional catalogue key
+# "area.name.<slug>".
+#
+# A filename that is not a language code, a new language missing keys the
+# default catalogue holds, an unknown key, or a blank value is a startup error,
+# not a warning: each one means the operator edited something that would
+# otherwise have no effect, render an empty label, or serve a page half in
+# another language. See docs/configuration.md.
 #
 # Read once, at startup. Changing a file does nothing until the process
 # restarts. Empty means embedded only, which is the shipped setting.

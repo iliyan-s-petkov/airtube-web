@@ -17,7 +17,8 @@
   <nav>
     <a href="{{.Path "/"}}">{{.T "nav.map"}}</a>
     <a href="{{.Path "/areas"}}">{{.T "nav.areas"}}</a>
-    <a href="{{.OtherLangURL}}" hreflang="{{.OtherLang}}">{{.T "lang.switch"}}</a>
+    {{range .LangLinks}}{{if .Current}}<span lang="{{.Lang}}" aria-current="true">{{.Name}}</span>{{else}}<a href="{{.URL}}" hreflang="{{.Lang}}" lang="{{.Lang}}">{{.Name}}</a>{{end}}
+    {{end}}
   </nav>
 </header>
 

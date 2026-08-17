@@ -198,53 +198,80 @@ and no admission semaphore — that is what makes it safe to expose directly
 while the application port accepts only Cloudflare's ranges. Generating the
 artefacts: `docs/tiles.md`.
 
-## Message overrides
+## Message overrides and adding a language
 
 The site's copy lives in `internal/i18n/bg.json` and `en.json`, embedded in the
-binary. Bulgarian is the default; English is served under `/en/`. No
-user-visible string is written in Go or in `web/src` — `web/src/lib/literals.test.js`
-fails the build if one appears there — so copy is changed by editing a
-catalogue, not by editing code.
+binary. Bulgarian is the default; every other language is served under its own
+path prefix (`/en/`). No user-visible string is written in Go or in `web/src` —
+`web/src/lib/literals.test.js` fails the build if one appears there — so copy is
+changed by editing a catalogue, not by editing code.
 
-`i18n.dir` exists for the case where a rebuild is the wrong tool: a clumsy
-sentence, or a translation a native speaker rejects, that needs correcting
-before the next release. Point it at a directory of `<lang>.json` files and
-their keys are overlaid on the embedded catalogues at startup:
+`i18n.dir` points at a directory of `<lang>.json` files, read once at startup.
+It does two jobs:
 
 ```yaml
 i18n:
   dir: "/etc/airbg/messages"
 ```
 
+**Correcting copy.** A clumsy sentence, or a translation a native speaker
+rejects, that needs fixing before the next release. Name only the keys you are
+changing; everything else keeps its embedded text.
+
 ```json
-// /etc/airbg/messages/bg.json — only the keys being changed
+// /etc/airbg/messages/bg.json
 {
   "panel.flag.stuck": "Стойността не се е променяла отдавна."
 }
 ```
 
-Empty (the shipped setting) means embedded only. A file need name only the keys
-it changes; everything else keeps the embedded text.
+**Adding a language.** Write `<code>.json` — `de.json`, `ro.json`, `de-at.json`
+— containing *every* key the Bulgarian catalogue holds, and restart. The
+language is then routed (`/de/`, `/de/areas`, `/de/area/{slug}`), listed in the
+language switcher, offered as a `rel="alternate"` to search engines, and used by
+the map island's own navigation. **No rebuild, no database migration, no code
+change.** Nothing in the binary enumerates the languages: routes, the switcher,
+and `hreflang` are all derived from the catalogues that loaded.
 
-Four things are startup errors rather than warnings, because each is an edit
-that would otherwise appear to work and not:
+Two conventions make that work:
+
+- `lang.name` is that language's name written *in that language* (`"English"`,
+  `"Български"`) — it is the label the switcher shows for it. A reader who
+  cannot read the current page is exactly who that link is for.
+- **Area names** need no `name_de` column. Any language other than Bulgarian
+  gets the stored Latin-script `name_en` by default (`Sofia`, not `София`). To
+  override one, add the optional key `area.name.<slug>`:
+
+  ```json
+  { "area.name.sofia": "Sofia Stadt" }
+  ```
+
+  These keys are optional in every catalogue and are the one exception to the
+  "must exist in the embedded catalogue" rule below.
+
+Empty `i18n.dir` (the shipped setting) means embedded catalogues only.
+
+Six things are startup errors rather than warnings, because each is an edit that
+would otherwise appear to work and not:
 
 | Situation | Why it fails |
 |---|---|
-| `de.json`, or any language outside `bg`/`en` | The file would be read by nothing. A third language needs more than a catalogue — see the limit below. |
-| A key the embedded catalogue does not hold | A typo, or a key a later release retired. Silently ignored, it looks applied. |
+| A filename that is not a language code (`bulgarian.json`, `notes.json`) | The file would be read by nothing, in silence. Codes are `xx` or `xx-yy`, lowercase — the name becomes a URL path segment. |
+| A new language missing keys the default catalogue holds | The missing keys fall back to Bulgarian, so the page renders in two languages at once and looks deliberate. The error lists what is missing. |
+| A key the embedded catalogue does not hold (and is not `area.name.*`) | A typo, or a key a later release retired. Silently ignored, it looks applied. |
 | A blank value | Renders an empty label, the exact outcome the `!key!` fallback marker exists to prevent. |
+| An unparseable or empty catalogue | Every label on the page would render as a fallback marker. |
 | A missing `i18n.dir` | The operator meant to serve corrected copy. Falling back to the embedded text would look healthy while serving the words they replaced. |
 
 Overrides are read **once, at startup**. Editing a file changes nothing until
 the process restarts — no watcher, and no operator-controlled filesystem read
 on the hot path of every page.
 
-**The two-language limit is not in these files.** Area names come from the
-database columns `name_bg` and `name_en` (`internal/web/pages.go`), the language
-switcher is a binary toggle (`internal/web/render.go`), and `i18n.Languages` is
-a compiled-in list. A third language is a schema change and a code change, not
-a dropped-in JSON file.
+Two things a new language does *not* reach today, both outside the rendered
+site: `/api/v1/locate` returns the area's `name_bg` regardless of language (it
+is an internal endpoint with no language parameter), and non-JSON files in the
+override directory are ignored on purpose, so backups and notes can live beside
+the catalogues.
 
 ## 10. Rate limiting: eviction intervals and the two `Retry-After`s
 

@@ -193,6 +193,14 @@ describe('readConfig', () => {
     expect(cfg).toMatchObject({ slug: null, zoom: 7, lon: 25.4858, lat: 42.7339, basemap: '' })
   })
 
+  // The language prefix is server-supplied for any language, not just the two
+  // that happen to be embedded — and '' is the default language's real value,
+  // not a missing one.
+  it('reads the language prefix the server rendered', () => {
+    expect(readConfig({ dataset: { langPrefix: '/de' } }).langPrefix).toBe('/de')
+    expect(readConfig({ dataset: {} }).langPrefix).toBe('')
+  })
+
   // The opening view is configuration too (frontend.default_zoom/_lon/_lat, or
   // the area's own centre). A JS-side 7/25.4858/42.7339 would agree with
   // today's airbg.yaml by coincidence while hiding a server that stopped
@@ -875,28 +883,30 @@ describe('locateVisitor', () => {
 })
 
 // areaPath: the client-side navigation target locateMe hands to `navigate`.
-// Mirrors internal/web/pages.go's Routes, which registers "/area/{slug}"
-// under both "" and "/en" — a plain "/area/{slug}" from an /en/ visitor would
-// silently drop them back to the default language on click.
+// The prefix comes from the server (data-lang-prefix, PageData.LangPrefix) and
+// is never sniffed from window.location — the language set is data, so the
+// browser cannot tell a language segment from a page segment.
 describe('areaPath', () => {
-  afterEach(() => { history.replaceState(null, '', '/') })
-
-  it('builds an unprefixed path from the default-language root', () => {
-    history.replaceState(null, '', '/')
-    expect(areaPath('sofia')).toBe('/area/sofia')
+  it('builds an unprefixed path for the default language', () => {
+    expect(areaPath('', 'sofia')).toBe('/area/sofia')
   })
 
-  it('keeps the /en prefix for an English visitor', () => {
-    history.replaceState(null, '', '/en/')
-    expect(areaPath('sofia')).toBe('/en/area/sofia')
-
-    history.replaceState(null, '', '/en/area/plovdiv')
-    expect(areaPath('sofia')).toBe('/en/area/sofia')
+  it('keeps the reader in whatever language the server rendered', () => {
+    expect(areaPath('/en', 'sofia')).toBe('/en/area/sofia')
+    // A language nobody compiled in works the same way — this is the case a
+    // hardcoded '/en' check silently got wrong.
+    expect(areaPath('/de', 'sofia')).toBe('/de/area/sofia')
   })
 
   it('percent-encodes the slug', () => {
-    history.replaceState(null, '', '/')
-    expect(areaPath('a/b')).toBe('/area/a%2Fb')
+    expect(areaPath('', 'a/b')).toBe('/area/a%2Fb')
+  })
+
+  // The prefix is data from an attribute, and the slug is data from the API.
+  // Neither may open a path-traversal or protocol-switch hole; the prefix is
+  // server-rendered so it is trusted, but the slug never is.
+  it('cannot be talked out of the /area/ path by a hostile slug', () => {
+    expect(areaPath('', '../../evil')).toBe('/area/..%2F..%2Fevil')
   })
 })
 
@@ -906,6 +916,9 @@ describe('areaPath', () => {
 // `navigate`.
 describe('locateMe', () => {
   const cfg = {
+    // Every real cfg carries this (readConfig defaults it to ''), and locateMe
+    // hands it to areaPath — a fixture without it produced "undefined/area/…".
+    langPrefix: '',
     t: {
       locateDenied: 'Location access was denied.',
       locateFailed: 'We could not determine your location.',
@@ -928,6 +941,18 @@ describe('locateMe', () => {
 
     expect(navigate).toHaveBeenCalledWith('/area/sofia')
     expect(chrome.showHint).not.toHaveBeenCalled()
+  })
+
+  // Find-me must not be the one control that ejects a reader from their
+  // language — including a language that only exists as a catalogue file.
+  it('keeps the visitor in the page language', () => {
+    const state = { areas }
+    const navigate = vi.fn()
+    const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
+
+    locateMe(state, { ...cfg, langPrefix: '/de' }, fakeChrome(), { geolocation, navigate })
+
+    expect(navigate).toHaveBeenCalledWith('/de/area/sofia')
   })
 
   // nearestArea has no distance cutoff: any non-empty areas array always

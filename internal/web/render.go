@@ -106,7 +106,6 @@ func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, cfg config.Config
 // where the value depends on the template's own argument (T, Path).
 type PageData struct {
 	Lang        string
-	OtherLang   string
 	RequestPath string // language-stripped, e.g. "/area/sofia"
 	BaseURL     string
 	GeneratedAt time.Time
@@ -170,6 +169,16 @@ type alternate struct {
 	URL  string
 }
 
+// langLink is one entry in the language switcher. Name is that language's name
+// written IN that language ("Български", not "Bulgarian"): a reader who cannot
+// read the current page's language is exactly the reader the switcher is for.
+type langLink struct {
+	Lang    string
+	URL     string
+	Name    string
+	Current bool
+}
+
 func (p PageData) T(key string) string { return p.cat.T(p.Lang, key) }
 
 // MetricsAttr and MetricLabelsAttr are the comma-joined form of Metrics and
@@ -199,14 +208,47 @@ func (p PageData) Path(path string) string {
 
 func (p PageData) CanonicalURL() string { return p.BaseURL + p.Path(p.RequestPath) }
 
-func (p PageData) OtherLangURL() string {
-	other := PageData{Lang: p.OtherLang, RequestPath: p.RequestPath, BaseURL: p.BaseURL}
-	return other.BaseURL + other.Path(p.RequestPath)
+// LangPrefix is Path's prefix on its own — "" for the default language,
+// "/<lang>" otherwise — rendered into the map island as data-lang-prefix.
+//
+// The island needs it because the language set is data: no expression in the
+// browser can tell whether the first path segment is a language or a page, so
+// the client cannot derive what the server already knows. Without it, a click
+// on a marker returns a non-default reader to the default language.
+func (p PageData) LangPrefix() string {
+	if p.Lang == i18n.DefaultLang {
+		return ""
+	}
+	return "/" + p.Lang
+}
+
+// LangLinks is the switcher: one entry per served language, in the catalogue's
+// display order, each pointing at the SAME page in that language.
+//
+// A list rather than the old binary "other language" link, because the served
+// set is whatever catalogues loaded — dropping de.json into i18n.dir adds a
+// third link here with no code change. The current language is included and
+// marked rather than filtered out, so the switcher does not change width when a
+// reader switches, and a template can render it as the selected item.
+func (p PageData) LangLinks() []langLink {
+	langs := p.cat.Languages()
+	out := make([]langLink, 0, len(langs))
+	for _, lang := range langs {
+		other := PageData{Lang: lang, RequestPath: p.RequestPath, BaseURL: p.BaseURL}
+		out = append(out, langLink{
+			Lang:    lang,
+			URL:     other.BaseURL + other.Path(p.RequestPath),
+			Name:    p.cat.T(lang, "lang.name"),
+			Current: lang == p.Lang,
+		})
+	}
+	return out
 }
 
 func (p PageData) Alternates() []alternate {
-	out := make([]alternate, 0, len(i18n.Languages))
-	for _, lang := range i18n.Languages {
+	langs := p.cat.Languages()
+	out := make([]alternate, 0, len(langs))
+	for _, lang := range langs {
 		other := PageData{Lang: lang, RequestPath: p.RequestPath, BaseURL: p.BaseURL}
 		out = append(out, alternate{Lang: lang, URL: other.BaseURL + other.Path(p.RequestPath)})
 	}
@@ -221,10 +263,6 @@ func (p PageData) GeneratedAtHuman() string {
 
 // newPageData builds the common fields for one request.
 func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageData {
-	other := "en"
-	if lang == "en" {
-		other = "bg"
-	}
 	// CanonicalMetrics is sorted, not map-ordered — see its own doc comment —
 	// so this order is stable across requests and processes; the switcher's
 	// server test pins the exact string it produces.
@@ -234,7 +272,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		labels[i] = rr.cat.T(lang, "metric."+m)
 	}
 	return PageData{
-		Lang: lang, OtherLang: other, RequestPath: path,
+		Lang: lang, RequestPath: path,
 		BaseURL: rr.baseURL, GeneratedAt: generatedAt, cat: rr.cat,
 		Assets:          rr.assets,
 		BasemapStyleURL: rr.basemapStyleURL,
@@ -328,7 +366,7 @@ func (rr *Renderer) writePlain(w http.ResponseWriter, status int) {
 // kind is "not_found", "unavailable" or "internal" — a fixed set, so the keys
 // it builds always exist in the catalogue.
 func (rr *Renderer) RenderError(w http.ResponseWriter, r *http.Request, status int, kind string) {
-	lang, path := i18n.LangFromPath(r.URL.Path)
+	lang, path := rr.cat.LangFromPath(r.URL.Path)
 	data := rr.newPageData(lang, path, time.Time{})
 	data.TitleKey = "error." + kind + ".title"
 	data.BodyKey = "error." + kind + ".body"

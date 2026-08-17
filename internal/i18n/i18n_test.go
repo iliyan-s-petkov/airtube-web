@@ -43,7 +43,7 @@ func TestCataloguesHaveIdenticalKeys(t *testing.T) {
 	c := loaded(t)
 
 	for _, key := range c.Keys() {
-		for _, lang := range i18n.Languages {
+		for _, lang := range c.Languages() {
 			if !c.Has(lang, key) {
 				t.Errorf("key %q is missing from the %q catalogue", key, lang)
 			}
@@ -76,6 +76,7 @@ func TestUnknownLanguageFallsBackToBulgarian(t *testing.T) {
 }
 
 func TestLangFromPath(t *testing.T) {
+	cat := loaded(t)
 	cases := []struct{ path, lang, rest string }{
 		{"/", "bg", "/"},
 		{"/area/sofia", "bg", "/area/sofia"},
@@ -88,10 +89,10 @@ func TestLangFromPath(t *testing.T) {
 		// An unsupported prefix is part of the path, not a language.
 		{"/de/area/sofia", "bg", "/de/area/sofia"},
 	}
-	for _, c := range cases {
-		lang, rest := i18n.LangFromPath(c.path)
-		if lang != c.lang || rest != c.rest {
-			t.Errorf("LangFromPath(%q) = (%q, %q), want (%q, %q)", c.path, lang, rest, c.lang, c.rest)
+	for _, tc := range cases {
+		lang, rest := cat.LangFromPath(tc.path)
+		if lang != tc.lang || rest != tc.rest {
+			t.Errorf("LangFromPath(%q) = (%q, %q), want (%q, %q)", tc.path, lang, rest, tc.lang, tc.rest)
 		}
 	}
 }

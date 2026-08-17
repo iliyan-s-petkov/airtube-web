@@ -49,13 +49,17 @@ var mapLibreUnhashedAssets = []string{
 func (rr *Renderer) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	for _, prefix := range []string{"", "/en"} {
-		root := prefix + "/"
-		if prefix == "" {
-			root = "/{$}" // exact "/" only, so it does not swallow every path
-		} else {
-			root = prefix + "/{$}"
+	// One prefix per loaded language: "" for the default, "/<lang>" for the
+	// rest. Derived from the catalogue rather than written out, so a language
+	// dropped into i18n.dir is routable without a code change — a hardcoded
+	// {"", "/en"} would load de.json, list German in the switcher, and then
+	// 404 every /de/ link it rendered.
+	for _, lang := range rr.cat.Languages() {
+		prefix := ""
+		if lang != i18n.DefaultLang {
+			prefix = "/" + lang
 		}
+		root := prefix + "/{$}" // exact match only, so it does not swallow every path
 		mux.HandleFunc("GET "+root, rr.handleIndex)
 		mux.HandleFunc("GET "+prefix+"/areas", rr.handleIndex)
 		mux.HandleFunc("GET "+prefix+"/area/{slug}", rr.handleArea)
@@ -89,9 +93,9 @@ func (rr *Renderer) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lang, path := i18n.LangFromPath(r.URL.Path)
+	lang, path := rr.cat.LangFromPath(r.URL.Path)
 	data := rr.newPageData(lang, path, snap.GeneratedAt)
-	data.Areas = areaRows(snap, lang, "oblast")
+	data.Areas = rr.areaRows(snap, lang, "oblast")
 	rr.render(w, http.StatusOK, "index", data)
 }
 
@@ -110,20 +114,20 @@ func (rr *Renderer) handleArea(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lang, path := i18n.LangFromPath(r.URL.Path)
+	lang, path := rr.cat.LangFromPath(r.URL.Path)
 	data := rr.newPageData(lang, path, snap.GeneratedAt)
-	row := rowFrom(meta, lang)
+	row := rr.rowFrom(meta, lang)
 	data.Area = &row
 	rr.render(w, http.StatusOK, "area", data)
 }
 
-func areaRows(snap *snapshot.Snapshot, lang, kind string) []AreaRow {
+func (rr *Renderer) areaRows(snap *snapshot.Snapshot, lang, kind string) []AreaRow {
 	rows := make([]AreaRow, 0, len(snap.KnownSlugs))
 	for _, meta := range snap.KnownSlugs {
 		if kind != "" && meta.Kind != kind {
 			continue
 		}
-		rows = append(rows, rowFrom(meta, lang))
+		rows = append(rows, rr.rowFrom(meta, lang))
 	}
 	// Sorted by name so the list is stable between requests. Map iteration
 	// order would reshuffle it on every page load — visibly wrong to a reader
@@ -132,10 +136,24 @@ func areaRows(snap *snapshot.Snapshot, lang, kind string) []AreaRow {
 	return rows
 }
 
-func rowFrom(meta snapshot.AreaMeta, lang string) AreaRow {
+// rowFrom picks the area's name for lang without needing a database column per
+// language.
+//
+// Order: a catalogue key "area.name.<slug>" if that language's catalogue has
+// one, then name_en for any non-default language, then name_bg.
+//
+// The middle rule is what makes a third language usable on day one: a German
+// reader is better served by "Sofia" than by "София", so name_en acts as the
+// Latin-script fallback until someone writes area.name.sofia into de.json. The
+// catalogue key wins over both, so a translator can correct any name they
+// disagree with — one line of JSON, no migration, no rebuild.
+func (rr *Renderer) rowFrom(meta snapshot.AreaMeta, lang string) AreaRow {
 	name := meta.NameBG
-	if lang == "en" && meta.NameEN != "" {
+	if lang != i18n.DefaultLang && meta.NameEN != "" {
 		name = meta.NameEN
+	}
+	if key := "area.name." + meta.Slug; rr.cat.Has(lang, key) {
+		name = rr.cat.T(lang, key)
 	}
 	return AreaRow{
 		Slug: meta.Slug, Name: name, Kind: meta.Kind,

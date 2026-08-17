@@ -320,7 +320,7 @@ export function locateMe(state, cfg, chrome, { geolocation = navigator.geolocati
         return
       }
       const area = nearestArea([pos.coords.longitude, pos.coords.latitude], state.areas)
-      navigate(areaPath(area.slug))
+      navigate(areaPath(cfg.langPrefix, area.slug))
     },
     (err) => {
       // PERMISSION_DENIED === 1 is the Geolocation API's own constant
@@ -336,14 +336,16 @@ function defaultNavigate(url) {
   window.location.href = url
 }
 
-// areaPath builds the area URL under whatever language prefix the visitor is
-// currently on (see internal/web/pages.go's Routes: "" and "/en" are the only
-// two, each area route registered once per prefix) — a plain "/area/{slug}"
-// would silently switch an /en/ visitor back to the default language on
-// click.
-export function areaPath(slug) {
-  const p = window.location.pathname
-  const prefix = p === '/en' || p.startsWith('/en/') ? '/en' : ''
+// areaPath builds the area URL under the language prefix the server rendered
+// this page at — a plain "/area/{slug}" would silently switch a non-default
+// reader back to the site's default language on click.
+//
+// The prefix is SERVER-SUPPLIED (data-lang-prefix), not sniffed from
+// window.location. The set of languages is data — an operator adds one by
+// dropping a catalogue into i18n.dir — so no expression here can know which
+// first path segment is a language and which is a page. Matching "/en" by hand
+// would send every German reader back to Bulgarian the day de.json lands.
+export function areaPath(prefix, slug) {
   return `${prefix}/area/${encodeURIComponent(slug)}`
 }
 
@@ -435,6 +437,11 @@ export function readConfig(el) {
     // about, one metric list instead of one metric.
     metrics: parseMetricList(d.metrics),
     basemap: d.basemap || '',
+    // The language prefix for in-app links: "" for the default language,
+    // "/de" otherwise. Server-rendered because the language set is data (see
+    // areaPath). Empty is a legitimate value, so the fallback is only for a
+    // missing attribute on the default-language page.
+    langPrefix: d.langPrefix || '',
     // Paint values and zoom thresholds: configuration, arriving as data-*
     // attributes, no fallback here — a hardcoded fallback that numerically
     // agrees with today's airbg.yaml is exactly the duplicated constant this

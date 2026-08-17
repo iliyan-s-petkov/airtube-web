@@ -32,7 +32,7 @@
   "footer.data": "Data from sensor.community contributors, ODbL 1.0",
   "footer.boundaries": "Boundaries © OpenStreetMap contributors, ODbL 1.0",
   "footer.basemap": "Basemap © OpenStreetMap contributors, ODbL 1.0, tiles by Protomaps",
-  "lang.switch": "Български",
+  "lang.name": "English",
   "map.legend.title": "Air quality",
   "map.legend.no_data": "Not enough data",
   "map.hint.select_area": "Select an area to see individual sensors",

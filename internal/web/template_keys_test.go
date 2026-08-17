@@ -52,7 +52,7 @@ func TestEveryTemplateKeyExistsInEveryCatalogue(t *testing.T) {
 		for _, m := range tCallRe.FindAllSubmatch(src, -1) {
 			key := string(m[1])
 			total++
-			for _, lang := range i18n.Languages {
+			for _, lang := range cat.Languages() {
 				if !cat.Has(lang, key) {
 					t.Errorf("%s references %q, missing from %s.json", name, key, lang)
 				}
