@@ -45,12 +45,15 @@ listen:
     img-src 'self' data: blob:; font-src 'self'; connect-src 'self';
     worker-src 'self' blob:; object-src 'none'; base-uri 'none';
     form-action 'none'; frame-ancestors 'none'
-  # Denies every browser capability the site does not use. The threat is the
-  # frontend bundle itself: hundreds of transitive npm packages served
-  # same-origin under a CSP that trusts 'self'. geolocation stays denied until
-  # the "sensors near me" button exists (Phase 3c) — an allowance nobody uses
-  # is an allowance nobody chose.
-  permissions_policy: "geolocation=(), camera=(), microphone=(), payment=(), usb=()"
+  # A deliberately non-authoritative placeholder, NOT the site's policy: this
+  # fixture exists only to exercise the invalid ratelimit.api.per_second
+  # branch, and a full copy of the real header value here drifts silently the
+  # moment the shipped one changes (it already had — this line still denied
+  # geolocation after the "sensors near me" button started needing it). The
+  # shipped policy lives in airbg.yaml and is pinned by full-string equality
+  # in internal/config/committed_config_test.go. Non-empty because
+  # validateListen rejects an empty policy, which is not what this file tests.
+  permissions_policy: "camera=()"
 
 timeouts:
   read_header: "5s"
@@ -246,7 +249,7 @@ backfill:
   high_rejection_fraction: 0.5
 
 frontend:
-  # These four are paint values handed to WebGL layers and a canvas, so no CSS
+  # These are paint values handed to WebGL layers and a canvas, so no CSS
   # rule can ever reach them — which is why they live here and not in
   # theme.css. The boundary is mechanical: if CSS can style it, it belongs in
   # internal/web/static/theme.css; if JS passes it to a canvas or a GL layer,
