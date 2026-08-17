@@ -321,3 +321,19 @@ tiles:
   dir: ""         # e.g. "/var/lib/airbg/tiles" — holds the archive, style.json, glyphs/
   public_url: ""  # e.g. "https://tiles.airbg.org"
   archive: ""     # e.g. "bulgaria-20260815.pmtiles" — regeneration changes this
+
+# Message overrides. The site's copy lives in the embedded catalogues
+# (internal/i18n/bg.json and en.json); this points at a directory of
+# <lang>.json files whose keys are overlaid on top of them at startup, so a
+# clumsy sentence or a translation a native speaker rejects can be corrected by
+# editing a file and restarting — no rebuild, no new image.
+#
+# Only bg.json and en.json are read, and only keys the embedded catalogue
+# already holds. An unknown language file, an unknown key or a blank value is a
+# startup error, not a warning: each one means the operator edited something
+# that would otherwise have no effect, or would render an empty label.
+#
+# Read once, at startup. Changing a file does nothing until the process
+# restarts. Empty means embedded only, which is the shipped setting.
+i18n:
+  dir: ""  # e.g. "/etc/airbg/messages" — holds bg.json and/or en.json

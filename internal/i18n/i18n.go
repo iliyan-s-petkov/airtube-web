@@ -9,6 +9,8 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -39,6 +41,79 @@ func Load() (*Catalogue, error) {
 		c.messages[lang] = m
 	}
 	return c, nil
+}
+
+// LoadWithOverrides loads the embedded catalogues and then overlays per-key
+// overrides read from dir, so an operator can reword copy — a clumsy sentence,
+// a translation a native speaker rejected — by editing a file and restarting,
+// without a rebuild and a redeploy of the binary.
+//
+// An empty dir means embedded only, the same all-or-nothing shape tiles.* uses.
+// Overrides are read ONCE, at startup: re-reading per request would put an
+// operator-controlled filesystem read on the hot path of every page, and a
+// watcher would need locking around a catalogue that is otherwise immutable and
+// shared by every handler. Restart to apply.
+func LoadWithOverrides(dir string) (*Catalogue, error) {
+	c, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	if dir == "" {
+		return c, nil
+	}
+	if err := c.overlay(dir); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// overlay applies every <lang>.json in dir over the already-loaded catalogues.
+//
+// Three things are rejected rather than absorbed, because each one is a
+// silently-does-nothing bug in an operator's hands: a file naming an
+// unsupported language (drop de.json in and nothing would happen), a key the
+// shipped catalogue does not hold (a typo, or a key retired by a later
+// release), and a blank value (which would render an empty label, the exact
+// outcome T's "!key!" marker exists to avoid).
+//
+// A missing directory is an error too: it means the operator configured an
+// override path that isn't there, and starting with the embedded copy would
+// serve the wrong copy while looking healthy.
+func (c *Catalogue) overlay(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("i18n: reading override directory: %w", err)
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		lang := strings.TrimSuffix(name, ".json")
+		messages, ok := c.messages[lang]
+		if !ok {
+			return fmt.Errorf("i18n: override %s names language %q, not one of %s",
+				name, lang, strings.Join(Languages, ", "))
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return fmt.Errorf("i18n: reading override %s: %w", name, err)
+		}
+		overrides, err := parseCatalogue(lang, raw)
+		if err != nil {
+			return err
+		}
+		for key, text := range overrides {
+			if _, ok := messages[key]; !ok {
+				return fmt.Errorf("i18n: override %s sets unknown key %q", name, key)
+			}
+			if strings.TrimSpace(text) == "" {
+				return fmt.Errorf("i18n: override %s sets key %q to a blank value", name, key)
+			}
+			messages[key] = text
+		}
+	}
+	return nil
 }
 
 // parseCatalogue parses and validates a single catalogue's raw JSON bytes,

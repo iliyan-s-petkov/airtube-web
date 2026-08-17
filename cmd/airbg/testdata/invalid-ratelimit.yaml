@@ -282,3 +282,5 @@ tiles:
   dir: ""
   public_url: ""
   archive: ""
+i18n:
+  dir: ""

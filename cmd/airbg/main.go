@@ -211,7 +211,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	holder := snapshot.NewHolder(cfg.Series)
 	pub := server.NewPublisher(collectorStore, holder, log)
 
-	cat, err := i18n.Load()
+	cat, err := i18n.LoadWithOverrides(cfg.I18n.Dir)
 	if err != nil {
 		return err
 	}

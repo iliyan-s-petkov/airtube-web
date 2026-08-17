@@ -22,6 +22,7 @@ type Config struct {
 	Backfill  Backfill
 	Frontend  Frontend
 	Tiles     Tiles
+	I18n      I18n
 }
 
 type Listen struct {
@@ -193,6 +194,19 @@ type Tiles struct {
 	Archive string
 }
 
+// I18n points at operator-supplied message overrides.
+type I18n struct {
+	// Dir holds <lang>.json files whose keys are overlaid on the embedded
+	// catalogues at startup — the way copy gets reworded without a rebuild.
+	// Empty means embedded only, which is the shipped setting: the catalogues
+	// in internal/i18n ARE the site's copy, and this exists so an operator can
+	// correct a sentence before the next release, not as the normal home for
+	// it. internal/i18n rejects an unknown language, an unknown key and a blank
+	// value, so a stale override file fails at startup rather than quietly
+	// serving the wrong words.
+	Dir string
+}
+
 // Enabled reports whether a basemap is configured. Validate guarantees the
 // four keys are all set or all empty, so testing one would do — testing all
 // four keeps this honest if that guarantee is ever weakened.
@@ -317,6 +331,9 @@ func resolve(r *raw) Config {
 			Dir:       *r.Tiles.Dir,
 			PublicURL: *r.Tiles.PublicURL,
 			Archive:   *r.Tiles.Archive,
+		},
+		I18n: I18n{
+			Dir: *r.I18n.Dir,
 		},
 	}
 

@@ -21,6 +21,7 @@ type raw struct {
 	Backfill  *rawBackfill  `yaml:"backfill"`
 	Frontend  *rawFrontend  `yaml:"frontend"`
 	Tiles     *rawTiles     `yaml:"tiles"`
+	I18n      *rawI18n      `yaml:"i18n"`
 }
 
 type rawListen struct {
@@ -199,4 +200,11 @@ type rawTiles struct {
 	Dir       *string `yaml:"dir"`
 	PublicURL *string `yaml:"public_url"`
 	Archive   *string `yaml:"archive"`
+}
+
+// rawI18n holds only an override directory, never message text. Copy belongs in
+// a catalogue file, not in the config file: airbg.yaml is committed, and the
+// keys here are echoed back in assignScalar's parse errors.
+type rawI18n struct {
+	Dir *string `yaml:"dir"`
 }
