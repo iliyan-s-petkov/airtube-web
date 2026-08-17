@@ -10,6 +10,7 @@ package deploy
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -30,6 +31,7 @@ type composeService struct {
 	Networks    map[string]composeAttach `yaml:"networks"`
 	Environment []string                 `yaml:"environment"`
 	Volumes     []string                 `yaml:"volumes"`
+	NetworkMode string                   `yaml:"network_mode"`
 }
 
 type composeAttach struct {
@@ -110,6 +112,56 @@ func TestOnlyCaddyPublishesPorts(t *testing.T) {
 	for _, p := range caddy.Ports {
 		if !want[p] {
 			t.Errorf("caddy publishes %q, which is not 80:80 or 443:443", p)
+		}
+	}
+}
+
+// The trusted-proxy CIDR must be the edge subnet, because the direct peer is
+// the caddy container. Cloudflare's published ranges never appear as a peer
+// address in this topology, and trusting them instead would silently collapse
+// every visitor into one rate-limit bucket. This ties the documented value to
+// the real subnet so the two cannot drift apart.
+func TestTrustedProxyCIDRMatchesTheEdgeSubnet(t *testing.T) {
+	c := loadCompose(t)
+	edge, ok := c.Networks["edge"]
+	if !ok {
+		t.Fatal("no edge network in docker-compose.prod.yml")
+	}
+	if len(edge.IPAM.Config) != 1 {
+		t.Fatalf("edge declares %d ipam configs, want exactly 1 — the subnet must be explicit, not allocator-assigned", len(edge.IPAM.Config))
+	}
+	subnet := edge.IPAM.Config[0].Subnet
+
+	data, err := os.ReadFile(".env.example")
+	if err != nil {
+		t.Fatalf("ReadFile(.env.example) error = %v, want nil", err)
+	}
+	const key = "AIRBG_LISTEN_TRUSTED_PROXY_CIDRS="
+	var documented string
+	var found bool
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, key) {
+			documented, found = strings.TrimSpace(strings.TrimPrefix(line, key)), true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf(".env.example documents no %s line", key)
+	}
+	if documented != subnet {
+		t.Errorf(".env.example says %s%s, but the edge subnet is %s", key, documented, subnet)
+	}
+}
+
+// network_mode: host is the port publication that leaves no ports: key behind.
+// It would put every listener in the container directly on the host, defeating
+// TestAppPublishesNoPort and TestOnlyCaddyPublishesPorts without tripping
+// either — they inspect only Ports. No service in this deployment has any
+// business using it.
+func TestNoServiceUsesHostNetworking(t *testing.T) {
+	for name, svc := range loadCompose(t).Services {
+		if svc.NetworkMode != "" {
+			t.Errorf("service %s sets network_mode: %q; this deployment isolates every service on a Docker network", name, svc.NetworkMode)
 		}
 	}
 }
