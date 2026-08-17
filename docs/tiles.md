@@ -152,14 +152,21 @@ hostname that resolves to the origin IP, and the anti-scraping design depends on
 that IP being unknown: `CF-Connecting-IP` is attacker-controlled on a direct
 connection, and every rate limiter keys off it.
 
-- The **application port** (`listen.addr`) accepts connections only from
-  Cloudflare's published IP ranges, enforced by a packet filter.
-  `listen.trusted_proxy_cidrs` is not sufficient on its own — it governs header
-  parsing, not who may connect.
-- The **tiles port** (`tiles.addr`) accepts the world, on a DNS-only hostname.
+- The **application vhost** (`airbg.org`) requires a TLS client certificate
+  issued by Cloudflare's origin-pull CA, enforced by Caddy
+  (`deploy/Caddyfile`). A direct connection to the origin IP fails the
+  handshake whatever its source address. This replaces the IP allowlist this
+  section originally proposed: an allowlist trusts where a packet came from,
+  and anything hosted inside Cloudflare's ranges qualifies.
+- The **tiles vhost** (`tiles.airbg.org`) accepts the world, on a DNS-only
+  hostname, with a publicly trusted certificate. It shares port 443 with the
+  application vhost — which is why the enforcement has to be per-vhost. SNI is
+  above the layer a packet filter works at.
+- `listen.trusted_proxy_cidrs` governs header parsing, not who may connect, and
+  in this deployment it names the reverse proxy's own Docker subnet — not
+  Cloudflare's ranges, which never appear as a peer address.
 
-With the filter in place, discovering the origin IP yields tiles and nothing
-else. Without it, self-hosting the tiles weakens the system.
+With this in place, discovering the origin IP yields tiles and a TLS rejection.
 
 ## 7. Sizing the tiles host
 
@@ -178,11 +185,16 @@ protocol, which issues ranged requests for the few megabytes a viewport needs.
 The unranged GET is a `curl` away, though, so treat it as a bandwidth
 consideration when choosing the host, not as an attack that has been closed.
 
-## Open deployment questions
+## Deployment decisions
 
-Two things are left to the deployment phase, not decided here — the
-configuration supports either:
+Both questions this section used to leave open are settled in
+`docs/superpowers/specs/2026-08-17-airbg-deployment-design.md`:
 
-- Whether `tiles.dir` is baked into the image (~300 MB image, simpler) or
-  mounted as a volume (smaller image, one more thing to provision).
-- Whether `tiles.airbg.org` gets its own TLS certificate or a wildcard.
+- `tiles.dir` is a **bind-mounted host directory** (`/var/lib/airbg/tiles`),
+  mounted read-only into the app container. The image stays ~27 MB and
+  regenerating the basemap is an scp rather than a rebuild — which matters
+  because releases ship the whole image over the wire.
+- `tiles.airbg.org` gets **its own Let's Encrypt certificate**, obtained and
+  renewed by Caddy. Not a wildcard, and specifically not a Cloudflare Origin CA
+  certificate: browsers do not trust one, and this hostname is deliberately not
+  proxied.
