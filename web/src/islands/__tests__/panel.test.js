@@ -20,9 +20,73 @@ vi.mock('uplot', () => ({
   default: vi.fn(function () { this.setSize = vi.fn() }),
 }))
 
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { mount, normaliseSensor, flagTextFor } from '../panel.js'
 import { setSensors, findSensor } from '../../lib/sensors.svelte.js'
-import { resetViewStateForTests } from '../../lib/viewstate.svelte.js'
+import { getViewState, resetViewStateForTests } from '../../lib/viewstate.svelte.js'
+
+// The values a rendered page would carry in each of the panel island's
+// attributes, keyed by dataset key. Deliberately NOT read from the i18n
+// catalogues: these tests assert that whatever the template puts in an
+// attribute reaches the DOM, so the strings here are fixtures, not copy.
+// An attribute with no entry here fails the test rather than defaulting —
+// a new data-t-* on the panel island must be given a value here, which is
+// what stops "the attribute is rendered" from silently drifting away from
+// "the attribute is read".
+const PANEL_ATTR_FIXTURES = {
+  metrics: 'P1,P2',
+  metricLabels: 'PM10,PM2.5',
+  metric: 'P2',
+  period: '24h',
+  lineColour: '#2563eb',
+  tTitle: 'Sensor',
+  tClose: 'Close this panel',
+  tNoValue: 'no reading',
+  tFlagOutOfRange: 'This reading is out of the expected range.',
+  tFlagStuck: 'This reading has not changed in a while.',
+  tFlagSpatialOutlier: 'This reading disagrees with nearby sensors.',
+  tChartTitle: 'Chart',
+  tChartValue: 'Value',
+  tChartEmpty: 'empty',
+  tChartUnavailable: 'unavailable',
+}
+
+// islandFrom returns the REAL server template's island container as a live DOM
+// element, ready to mount. Go actions ({{.X}}, {{.T "k"}}, {{/* comments */}})
+// are stripped before parsing — an action's own inner quotes (data-t-title="{{.T
+// "panel.title"}}") would otherwise terminate the attribute early and hand the
+// parser garbage — and every emptied attribute is then filled from the fixture
+// table above.
+//
+// The point of going through the template rather than hand-building a div: a
+// hand-built one proves nothing about whether the SERVER renders a mount point
+// on that page. That was the defect this covers — the panel island existed and
+// worked, and index.gohtml simply never rendered it.
+function islandFrom(templateName, island) {
+  // join(dirname(fileURLToPath(...))) rather than new URL(path, import.meta.url):
+  // Vite rewrites the latter into an ASSET import at transform time and then
+  // refuses the path for being outside the project root — it never reaches
+  // readFileSync at all.
+  const here = dirname(fileURLToPath(import.meta.url))
+  const path = join(here, '..', '..', '..', '..', 'internal', 'web', 'templates', templateName)
+  const src = readFileSync(path, 'utf8').replace(/\{\{[\s\S]*?\}\}/g, '')
+  const doc = new DOMParser().parseFromString(src, 'text/html')
+  return doc.querySelector(`[data-island="${island}"]`)
+}
+
+function fillFixtures(el) {
+  for (const key of Object.keys({ ...el.dataset })) {
+    if (key === 'island') continue
+    if (!Object.hasOwn(PANEL_ATTR_FIXTURES, key)) {
+      throw new Error(`no fixture for data-${key}; add one to PANEL_ATTR_FIXTURES`)
+    }
+    el.dataset[key] = PANEL_ATTR_FIXTURES[key]
+  }
+  return el
+}
 
 beforeEach(() => setSensors(null))
 
@@ -195,5 +259,58 @@ describe('mount() end to end: deep link before data', () => {
     expect(el.textContent).toContain('42')
     expect(el.textContent).toContain('PM2.5')
     expect(el.textContent).toContain('12')
+  })
+})
+
+// Whole-branch review finding: the home page reaches the SENSOR tier — an
+// area-marker click (islands/map.js's click handler) and locateVisitor's geoip
+// slug adoption both set state.slug, and refresh() only downgrades to the area
+// tier when the slug is null — so a sensor dot on / is clickable and
+// vs.openSensor() pushes #sensor=<id> onto the history stack. index.gohtml
+// rendered no panel island, so that click opened nothing and merely spent a
+// Back press undoing its own hash. The fix is the mount point; these tests are
+// what pin it there.
+describe('the home page mounts the panel island', () => {
+  beforeEach(() => {
+    resetViewStateForTests()
+    setSensors(null)
+    history.replaceState(null, '', '/')
+  })
+  afterEach(() => {
+    resetViewStateForTests()
+    setSensors(null)
+    history.replaceState(null, '', '/')
+  })
+
+  // Attribute-set parity, not a hand-listed expectation: the panel is entirely
+  // data-driven, so anything area.gohtml passes it and index.gohtml does not is
+  // a behaviour the home page silently loses (a missing data-t-* renders as an
+  // empty string, which is invisible rather than broken).
+  it('gives it the same attributes area.gohtml does', () => {
+    const home = islandFrom('index.gohtml', 'panel')
+    const area = islandFrom('area.gohtml', 'panel')
+    expect(area).not.toBeNull()
+    expect(home).not.toBeNull()
+    const names = (el) => el.getAttributeNames().sort()
+    expect(names(home)).toEqual(names(area))
+  })
+
+  it('opens a sensor clicked on the home page instead of only changing the hash', async () => {
+    const el = fillFixtures(islandFrom('index.gohtml', 'panel'))
+    document.body.append(el)
+    mount(el)
+
+    // What a marker click does, and all it does: islands/map.js:141 calls
+    // exactly this on the shared viewstate singleton.
+    getViewState({ metrics: ['P1', 'P2'], defaultMetric: 'P2' }).openSensor(42)
+    setSensors({ sensors: { id: [42], quality: ['ok'], P2: [12] } })
+
+    await vi.waitFor(() => {
+      expect(el.querySelector('[role="dialog"]')).not.toBeNull()
+    })
+    expect(el.textContent).toContain('PM2.5')
+    expect(el.textContent).toContain('12')
+
+    el.remove()
   })
 })
