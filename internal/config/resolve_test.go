@@ -25,8 +25,8 @@ func TestResolveCommittedConfig(t *testing.T) {
 	if got, want := cfg.Database.StatementTimeouts.Series, 5*time.Second; got != want {
 		t.Errorf("StatementTimeouts.Series = %v, want %v", got, want) // db.SeriesStatementTimeout
 	}
-	if got, want := cfg.RateLimit.Enumerate.AreasPerWindow, 12; got != want {
-		t.Errorf("Enumerate.AreasPerWindow = %d, want %d", got, want) // ratelimit.DistinctAreaLimit
+	if got, want := cfg.RateLimit.Enumerate.AreasPerWindow, 30; got != want {
+		t.Errorf("Enumerate.AreasPerWindow = %d, want %d", got, want) // raised from 12, see docs/superpowers/specs/2026-08-17-airbg-deployment-design.md
 	}
 	if got, want := cfg.Cache.DataMaxAge, 150*time.Second; got != want {
 		t.Errorf("Cache.DataMaxAge = %v, want %v", got, want) // api.dataMaxAge

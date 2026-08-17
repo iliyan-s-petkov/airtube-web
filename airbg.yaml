@@ -20,7 +20,13 @@ listen:
   # Loopback by default and on purpose. The origin must be unreachable except
   # through the CDN: CF-Connecting-IP is the only rate-limit bucket key, so a
   # scraper that reaches the origin directly bypasses every limiter in one hop.
-  # Do not "fix" a container that answers nothing by binding 0.0.0.0.
+  #
+  # The rule is "never expose the origin", not "never bind 0.0.0.0". The
+  # production deployment overrides this to 0.0.0.0:8080 and is safe doing so,
+  # because that container publishes no port and is reachable only from the
+  # reverse proxy on an internal Docker network — the namespace does the
+  # enforcing. Binding 0.0.0.0 on a host with a published port is still the
+  # mistake this comment warns about. See deploy/ and docs/deployment.md.
   addr: "127.0.0.1:8080"
   # The private listener carrying /metrics. Must differ from addr: sharing them
   # publishes the counters that show an attacker whether their probing is being
@@ -121,8 +127,11 @@ ratelimit:
   # limiting, not authentication.
   enumerate:
     # Bulgaria has 28 oblasti and comparing them is the site's obvious use, so
-    # this is the knob most likely to need raising in production.
-    areas_per_window: 12
+    # this covers the whole set in one sitting plus a couple of repeats. It was
+    # 12, which turned an ordinary browsing session into a 15-minute wall at the
+    # 13th area page. Areas are a bounded set: 30/hour still hard-stops
+    # sustained extraction, which is what breadth limiting is for.
+    areas_per_window: 30
     sensors_per_window: 40
     window: "1h"
     retry_after: "900s"
