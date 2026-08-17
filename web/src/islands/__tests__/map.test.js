@@ -232,8 +232,11 @@ describe('readConfig', () => {
         tUnscaled: 'No air-quality scale for this metric',
         tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
         tLocateFailed: 'We could not determine your location.',
+        // Neither is rendered any more; toEqual below is what keeps them from
+        // reappearing in cfg.t. tLocateOutside went with the unreachable
+        // outside-coverage branch (nearestArea has no distance cutoff).
         tLocateOutside: 'You appear to be outside the mapped area.',
-        tNoData: 'Not enough data', // no longer rendered; must not reappear in cfg
+        tNoData: 'Not enough data',
       },
     })
     expect(cfg.t).toEqual({
@@ -242,7 +245,6 @@ describe('readConfig', () => {
       unscaled: 'No air-quality scale for this metric',
       locateButton: 'Find me', locateDenied: 'Location access was denied.',
       locateFailed: 'We could not determine your location.',
-      locateOutside: 'You appear to be outside the mapped area.',
     })
   })
 
@@ -907,7 +909,6 @@ describe('locateMe', () => {
     t: {
       locateDenied: 'Location access was denied.',
       locateFailed: 'We could not determine your location.',
-      locateOutside: 'You appear to be outside the mapped area.',
     },
   }
 
@@ -933,11 +934,12 @@ describe('locateMe', () => {
   // yields SOME nearest match, however far away. So its own null return can
   // only mean "the area list is empty or has not loaded yet" — never
   // "you're genuinely outside coverage" — and that unknown case must get
-  // locateFailed, NOT locateOutside, which would assert something this
-  // implementation cannot actually verify. Covers both null (never loaded,
-  // e.g. an area page still at the sensor tier — see state.areas's own
-  // comment in map.js) and [] (a country/city response with zero areas).
-  it('shows the "could not determine" message, not "outside coverage", when the area list is unknown', () => {
+  // locateFailed, the honest message. There is deliberately no
+  // outside-coverage string to show instead; give nearestArea a real cutoff
+  // before adding one back. Covers both null (never loaded, e.g. an area page
+  // still at the sensor tier — see state.areas's own comment in map.js) and
+  // [] (a country/city response with zero areas).
+  it('shows the "could not determine" message when the area list is unknown', () => {
     const navigate = vi.fn()
     const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
 
@@ -948,8 +950,8 @@ describe('locateMe', () => {
       locateMe(state, cfg, chrome, { geolocation, navigate })
 
       expect(navigate).not.toHaveBeenCalled()
+      expect(chrome.showHint).toHaveBeenCalledTimes(1)
       expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
-      expect(chrome.showHint).not.toHaveBeenCalledWith(cfg.t.locateOutside)
     }
   })
 
