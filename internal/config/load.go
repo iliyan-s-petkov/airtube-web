@@ -253,7 +253,40 @@ const (
 	// airbg.yaml is committed. It is the project's only secret — the basemap
 	// is self-hosted and has no vendor to authenticate to.
 	DatabaseURLEnv = "AIRBG_DATABASE_URL"
+
+	// DatabaseURLFileEnv names a file containing the credential instead of
+	// carrying it directly. It exists for ofelia's one-shot `collect` job:
+	// job-run starts a fresh container through the Docker API and inherits no
+	// env/mounts from compose's env_file, so AIRBG_DATABASE_URL can't reach it
+	// the way it reaches the long-lived `app` service. This mirrors the
+	// PGPASSFILE pattern the backup job already uses — a root-owned, chmod
+	// 600, read-only host bind mount — except pg_dump reads PGPASSFILE itself
+	// while this binary has no equivalent client-library support, so it reads
+	// the file here instead. AIRBG_DATABASE_URL wins if both are set.
+	DatabaseURLFileEnv = "AIRBG_DATABASE_URL_FILE"
 )
+
+// databaseURLFromEnv resolves the database credential from the environment:
+// the literal value if set, otherwise the contents of the file named by
+// DatabaseURLFileEnv, otherwise empty (Validate reports that as a startup
+// error). A file that cannot be read is a hard error rather than a silent
+// empty credential — the same reasoning as PGPASSFILE's permission
+// requirement in deploy/ofelia.ini: a misconfigured secret must fail loudly,
+// not connect as nobody.
+func databaseURLFromEnv() (string, error) {
+	if v := os.Getenv(DatabaseURLEnv); v != "" {
+		return v, nil
+	}
+	path := os.Getenv(DatabaseURLFileEnv)
+	if path == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("config: cannot read %s (naming %s): %w", DatabaseURLFileEnv, path, err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
 
 // Load reads the configuration named by AIRBG_CONFIG. There is no fallback
 // path: guessing one would be a default, and this project keeps none.
@@ -271,7 +304,11 @@ func LoadFile(path string) (Config, error) {
 		return Config{}, err
 	}
 	cfg := resolve(r)
-	cfg.Database.URL = os.Getenv(DatabaseURLEnv)
+	dbURL, err := databaseURLFromEnv()
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Database.URL = dbURL
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}

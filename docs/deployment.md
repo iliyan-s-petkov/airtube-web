@@ -16,14 +16,29 @@ document safe to follow: **only `caddy` publishes ports.**
 |---|---|---|
 | `caddy` | The only service the internet can open a socket to. Terminates TLS for both vhosts and reverse-proxies to `app`. Publishes `80` and `443`. | `edge` |
 | `app` | The Go application: serves `airbg.org` on `:8080`, `tiles.airbg.org` on `:8082`, and Prometheus metrics on `:9090`. Publishes **no port**, in this file or any other, in any environment. | `edge`, `back` |
-| `db` | TimescaleDB (Postgres). Publishes no port; reachable only from `app` and from the one-shot backup jobs. | `back` (`internal: true`) |
+| `db` | TimescaleDB (Postgres). Publishes no port; reachable only from `app`, the one-shot backup jobs, and the one-shot `collect` job. | `back` (`internal: true`), `collect` |
 | `socket-proxy` | `tecnativa/docker-socket-proxy`, holding the real Docker socket read-only and exposing only container creation (`CONTAINERS=1`, `POST=1`; every other endpoint group explicit `0`). | `sched` (`internal: true`) |
 | `ofelia` | Scheduler. Runs `airbg collect` every 5 minutes and `pg_dump` nightly as one-shot containers, talking only to `socket-proxy`, never to the Docker daemon directly. | `sched` (`internal: true`) |
 
 `back` and `sched` are marked `internal: true` in the compose file, so neither
 has a route to the internet or to each other's neighbours: `ofelia` and
 `socket-proxy` cannot reach `edge` or `back` except where `db` sits on `back`
-for the collect/backup jobs to reach it, and `app` is not on `sched`.
+for the app and the backup jobs to reach it, and `app` is not on `sched`.
+
+`collect` is deliberately **not** `internal: true` — it exists only so the
+`collect` job (run by `ofelia`, on the schedule in `deploy/ofelia.ini`) can
+reach both `db` and `https://data.sensor.community` (`airbg.yaml`'s
+`upstream.url`) from the same one-shot container. `back` can't do this job:
+it's internal by design, so a container on it alone has no route out.
+Widening `back` itself to grant that route was rejected — it's shared with
+`app`, and `app` should keep the same no-egress posture `db` has. `ofelia`'s
+INI format holds exactly one `network =` value per job (a second line
+silently replaces the first instead of adding to it — see the comment above
+the `collect` job in `deploy/ofelia.ini`), so a job can't simply list both
+`back` and `collect`; `db` joining `collect` in addition to `back` is what
+lets one job container reach both from one network. `caddy`, `app` and
+`ofelia`/`socket-proxy` never join `collect` — only `db` and the transient
+`collect` job containers do.
 
 Because `app` publishes nothing, there is no URL and no port on the host that
 reaches it directly. The only way to talk to the running container from a
@@ -99,7 +114,7 @@ Run these in order. Each step depends on the one before it.
    found. That is expected — those files only exist on the host once this
    step is done — and is not a sign the Caddyfile itself is wrong. Validate
    it for real by pointing it at a checkout with the certs already in place,
-   or defer validation to `docker compose up -d` in step 12.
+   or defer validation to `docker compose up -d` in step 13.
 
 5. `cp deploy/.env.example /srv/airbg/.env`, fill in every value (database
    credentials, `AIRBG_IMAGE_TAG`, `AIRBG_TILES_ARCHIVE`), then:
@@ -109,13 +124,34 @@ Run these in order. Each step depends on the one before it.
    chown root:root /srv/airbg/.env
    ```
 
-6. `cp deploy/docker-compose.prod.yml deploy/Caddyfile deploy/ofelia.ini /srv/airbg/`
+6. Create the `collect` job's database credential file. `deploy/ofelia.ini`
+   runs `collect` as a fresh container through the Docker API every 5
+   minutes; that container inherits nothing from `app`'s `env_file: [.env]`,
+   so `AIRBG_DATABASE_URL` has to reach it a different way — a bind-mounted
+   file, the same pattern `/srv/airbg/pgpass` already uses for the backup job
+   (§7). Put the *same* connection string as `AIRBG_DATABASE_URL` in
+   `/srv/airbg/.env` on one line in `/srv/airbg/airbg_database_url`, then:
 
-7. Generate and install the tiles artefacts per `docs/tiles.md`, then set
+   ```bash
+   chmod 600 /srv/airbg/airbg_database_url
+   chown root:root /srv/airbg/airbg_database_url
+   ```
+
+   Skipping this step doesn't fail loudly at `docker compose up -d` — the
+   long-lived services all start fine. It fails quietly, every 5 minutes,
+   inside the `collect` job's own container: internal/config.Validate makes a
+   missing credential fatal at startup, and `deploy/ofelia.ini` sets
+   `delete = true` on that job, so there is nothing left in `docker ps` to
+   show it happened. Check with the "collector has run" item in the §3
+   checklist before you trust that the site is actually getting new data.
+
+7. `cp deploy/docker-compose.prod.yml deploy/Caddyfile deploy/ofelia.ini /srv/airbg/`
+
+8. Generate and install the tiles artefacts per `docs/tiles.md`, then set
    `AIRBG_TILES_ARCHIVE` in `/srv/airbg/.env` to match the exact filename you
    installed.
 
-8. Build and load the image (see §4 Releases), then also tag it `latest`:
+9. Build and load the image (see §4 Releases), then also tag it `latest`:
 
    ```bash
    docker tag airbg:$TAG airbg:latest
@@ -129,18 +165,18 @@ Run these in order. Each step depends on the one before it.
    this step, the scheduled collector keeps running the previous release
    after every deploy.
 
-9. `cd /srv/airbg && docker compose -f docker-compose.prod.yml run --rm app validate-config`
+10. `cd /srv/airbg && docker compose -f docker-compose.prod.yml run --rm app validate-config`
 
-   Checks `airbg.yaml` plus the `.env` overlay before anything touches the
-   database or opens a listener. Fix any reported error before continuing.
-   (`docker compose` reads `.env` from the current directory automatically —
-   that's why step 5 puts it at `/srv/airbg/.env`.)
+    Checks `airbg.yaml` plus the `.env` overlay before anything touches the
+    database or opens a listener. Fix any reported error before continuing.
+    (`docker compose` reads `.env` from the current directory automatically —
+    that's why step 5 puts it at `/srv/airbg/.env`.)
 
-10. `docker compose -f docker-compose.prod.yml run --rm app migrate`
+11. `docker compose -f docker-compose.prod.yml run --rm app migrate`
 
-11. `docker compose -f docker-compose.prod.yml run --rm app import-areas`
+12. `docker compose -f docker-compose.prod.yml run --rm app import-areas`
 
-12. `docker compose -f docker-compose.prod.yml up -d`
+13. `docker compose -f docker-compose.prod.yml up -d`
 
 ## 3. Post-deploy checklist
 

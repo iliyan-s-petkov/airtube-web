@@ -326,6 +326,126 @@ func TestOnlyTheSiteVhostRequiresCloudflaresCertificate(t *testing.T) {
 	}
 }
 
+// ofeliaJobLines returns every `key = value` line inside a `[job-run "name"]`
+// section of ofelia.ini, in file order, with full-line `;` comments and blank
+// lines dropped. Deliberately simple, same spirit as caddyBlocks: sections
+// start at column 0 with a `[...]` header and run until the next one. A key
+// like `environment` or `volume` can appear more than once in a real section
+// — ofelia treats repeats of those as a slice, not a last-wins scalar, see
+// the comment above [job-run "collect"] in ofelia.ini — so every occurrence
+// is returned, not just the last.
+func ofeliaJobLines(t *testing.T, header string) []string {
+	t.Helper()
+	data, err := os.ReadFile("ofelia.ini")
+	if err != nil {
+		t.Fatalf("ReadFile(ofelia.ini) error = %v, want nil", err)
+	}
+	want := "[" + header + "]"
+	var lines []string
+	inSection := false
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			inSection = line == want
+			continue
+		}
+		if inSection {
+			lines = append(lines, line)
+		}
+	}
+	if lines == nil {
+		t.Fatalf("ofelia.ini has no %s section", want)
+	}
+	return lines
+}
+
+// ofeliaValue returns the value of the first `key = ...` line among lines, or
+// "" with ok=false if key never appears.
+func ofeliaValue(lines []string, key string) (string, bool) {
+	prefix := key + " ="
+	for _, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
+		}
+	}
+	return "", false
+}
+
+// The collect job is started fresh through the Docker API by ofelia's
+// job-run, which — unlike a Compose service — inherits no env_file and no
+// mounts from anything else in this deployment. Without a database
+// credential reaching that spawned container, internal/config.Validate makes
+// startup fail, silently, every 5 minutes, because delete = true leaves no
+// exited container behind to notice. This asserts the credential mechanism
+// is actually wired: AIRBG_DATABASE_URL_FILE is set, and a read-only volume
+// is bind-mounted at the exact path it names — the two halves of the
+// PGPASSFILE-style pattern the backup job already uses.
+func TestCollectJobHasADatabaseCredential(t *testing.T) {
+	lines := ofeliaJobLines(t, `job-run "collect"`)
+
+	var fileEnv string
+	var found bool
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "environment =") {
+			continue
+		}
+		v := strings.TrimSpace(strings.TrimPrefix(line, "environment ="))
+		k, val, ok := strings.Cut(v, "=")
+		if ok && k == "AIRBG_DATABASE_URL_FILE" {
+			fileEnv, found = val, true
+		}
+	}
+	if !found {
+		t.Fatal(`collect job sets no environment = AIRBG_DATABASE_URL_FILE=...; the collector has no way to reach the database and dies at startup every run`)
+	}
+
+	var mounted bool
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "volume =") {
+			continue
+		}
+		v := strings.TrimSpace(strings.TrimPrefix(line, "volume ="))
+		parts := strings.Split(v, ":")
+		if len(parts) >= 2 && parts[1] == fileEnv {
+			mounted = true
+			if !strings.HasSuffix(v, ":ro") {
+				t.Errorf("collect job mounts the credential file %q writable, want :ro", v)
+			}
+		}
+	}
+	if !mounted {
+		t.Errorf("collect job sets AIRBG_DATABASE_URL_FILE=%s but mounts no volume at that path — the file the job expects to read never exists inside the container", fileEnv)
+	}
+}
+
+// airbg.yaml points the collector at https://data.sensor.community, so the
+// collect job needs a route out. back is internal: true precisely to deny
+// this to everything on it, app included, so the job cannot simply reuse
+// back — see the comment above [job-run "collect"] in ofelia.ini for why a
+// second `network =` line does not add a second network (ofelia keeps only
+// the last one). This asserts the job is not attached to an internal-only
+// network, i.e. it actually has a route to the public internet.
+func TestCollectJobHasARouteToTheInternet(t *testing.T) {
+	lines := ofeliaJobLines(t, `job-run "collect"`)
+	network, ok := ofeliaValue(lines, "network")
+	if !ok {
+		t.Fatal("collect job sets no network =; ofelia would attach it to the Docker default bridge only, undocumented and untested here")
+	}
+
+	c := loadCompose(t)
+	name := strings.TrimPrefix(network, "airbg_")
+	net, ok := c.Networks[name]
+	if !ok {
+		t.Fatalf("collect job's network = %s does not correspond to any network in docker-compose.prod.yml (looked for %q)", network, name)
+	}
+	if net.Internal {
+		t.Errorf("collect job runs on network %s, which is internal: true — it has no route to https://data.sensor.community", network)
+	}
+}
+
 func keysOf(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

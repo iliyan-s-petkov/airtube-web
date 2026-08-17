@@ -66,8 +66,13 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - db_data:/home/postgres/pgdata
+    # back for app; collect for the ofelia-spawned `collect` job (see the
+    # `collect` network below and deploy/ofelia.ini). Publishes no port
+    # either way — this only adds a second private route to reach it from,
+    # it does not put db on the public internet.
     networks:
       back: {}
+      collect: {}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
@@ -140,6 +145,25 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+  # Egress for exactly one thing: ofelia's `collect` job, which must reach
+  # https://data.sensor.community (airbg.yaml's upstream.url) — impossible
+  # from `back`, which is `internal: true` on purpose. Deliberately NOT
+  # internal, and deliberately not shared with app or caddy: only db (for the
+  # collect job's own DB writes — see deploy/ofelia.ini) and the collect job
+  # itself ever attach here. ofelia's INI `network =` key holds exactly one
+  # network per job — verified against a running ofelia container by
+  # inspecting the resulting NetworkSettings.Networks, where a second
+  # `network =` line silently replaces the first instead of adding to it —
+  # so `back` and `collect` cannot both be listed for one job. Putting db on
+  # this network too, rather than adding a second network to the job, is the
+  # only way for one one-shot container to reach both the database and the
+  # internet without making `back` itself non-internal, which would hand
+  # every service on it — `app` included — the same egress this network
+  # grants to db alone.
+  collect:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
 
 volumes:
   db_data:
