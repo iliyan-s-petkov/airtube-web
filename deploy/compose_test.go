@@ -243,10 +243,29 @@ func TestSchedulerIsQuarantined(t *testing.T) {
 	}
 }
 
+// stripCaddyComment removes a "#" comment from a Caddyfile line. Caddyfile
+// comments start with "#" at the beginning of the line or preceded by
+// whitespace; that is enough to handle both whole-line and inline comments
+// in this file without needing a real Caddyfile lexer.
+func stripCaddyComment(line string) string {
+	if idx := strings.Index(line, "#"); idx != -1 && (idx == 0 || line[idx-1] == ' ' || line[idx-1] == '\t') {
+		return line[:idx]
+	}
+	return line
+}
+
 // caddyBlocks splits a Caddyfile into site blocks keyed by their header line.
 // Deliberately simple: site headers start at column 0 and end with " {", and
 // the matching close is a "}" at column 0. That is the shape of this file, and
 // the test fails loudly if it stops being.
+//
+// Comments are stripped from each block's body before it is stored. These
+// blocks are heavily commented, and the comments necessarily name the very
+// directives this test asserts on (they explain client_auth and
+// require_and_verify in prose) — so without stripping them, a check meant to
+// match configuration could be satisfied, or defeated, by documentation
+// instead. A comment must never be able to stand in for the directive it
+// describes.
 func caddyBlocks(t *testing.T) map[string]string {
 	t.Helper()
 	data, err := os.ReadFile("Caddyfile")
@@ -265,7 +284,9 @@ func caddyBlocks(t *testing.T) map[string]string {
 			blocks[current] = strings.Join(body, "\n")
 			current = ""
 		case current != "":
-			body = append(body, line)
+			if stripped := stripCaddyComment(line); strings.TrimSpace(stripped) != "" {
+				body = append(body, stripped)
+			}
 		}
 	}
 	if current != "" {
