@@ -16,6 +16,8 @@
   "metric.pressure": "Атмосферно налягане",
   "metric.noise_LAeq": "Шум (LAeq)",
   "metric.noise_LA_max": "Шум (макс.)",
+  "metric.legend": "Показател",
+  "metric.unscaled": "Този показател няма скала за качество на въздуха — точките показват само къде има измервания.",
   "sensor.title": "Сензор",
   "sensor.quality.ok": "Изправен",
   "sensor.quality.out_of_range": "Стойност извън обхват",
@@ -42,7 +44,17 @@
   "map.hint.select_area": "Изберете район, за да видите отделните сензори",
   "map.error.rate_limited": "Данните са ограничени, опитваме отново",
   "map.error.unavailable": "Данните за картата в момента не са достъпни",
+  "locate.button": "Намери ме",
+  "locate.denied": "Няма достъп до местоположението.",
+  "locate.failed": "Не успяхме да определим местоположението.",
+  "locate.outside": "Изглежда сте извън покритието на картата.",
   "chart.title": "ПМ2.5, последните 24 часа",
   "chart.empty": "Няма данни за последните 24 часа",
-  "chart.axis.value": "µg/m³"
+  "chart.axis.value": "µg/m³",
+  "panel.title": "Сензор",
+  "panel.close": "Затвори",
+  "panel.no_value": "няма измерване",
+  "panel.flag.out_of_range": "Стойността е извън очаквания диапазон.",
+  "panel.flag.stuck": "Стойността не се променя от известно време.",
+  "panel.flag.spatial_outlier": "Измерването се различава силно от съседните сензори."
 }

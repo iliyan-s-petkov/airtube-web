@@ -143,6 +143,20 @@ func TestValidateAcceptsPollIntervalAtTheFloor(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsEmptyUnscaledColour. unscaled_colour is the paint value
+// for "this metric has no air-quality scale" (temperature, humidity,
+// pressure, the two noise metrics) and must be present like every other
+// frontend colour — an empty value here is a config bug, not a legal "use
+// nothing" state.
+func TestValidateRejectsEmptyUnscaledColour(t *testing.T) {
+	c := validConfig(t)
+	c.Frontend.UnscaledColour = ""
+	err := c.Validate()
+	if err == nil || !strings.Contains(err.Error(), "frontend.unscaled_colour") {
+		t.Fatalf("Validate() = %v, want an error naming frontend.unscaled_colour", err)
+	}
+}
+
 // archiveName is a representative tiles.archive: a plain, dated PMTiles
 // filename, the shape docs/tiles.md tells the operator to generate.
 const archiveName = "bulgaria-20260815.pmtiles"

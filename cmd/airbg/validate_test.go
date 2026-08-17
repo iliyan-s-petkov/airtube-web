@@ -84,6 +84,22 @@ func TestValidateConfigShowsEmptyTilesKeys(t *testing.T) {
 	}
 }
 
+// TestValidateConfigShowsUnscaledColour. frontend.unscaled_colour is a paint
+// value reaching a GL layer, not a secret, so it belongs in the printed table
+// like every other operational value an operator debugging the map needs to
+// see at a glance.
+func TestValidateConfigShowsUnscaledColour(t *testing.T) {
+	t.Setenv(config.PathEnv, filepath.Join("..", "..", "airbg.yaml"))
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	var out, errOut bytes.Buffer
+	if code := runValidateConfig(&out, &errOut); code != 0 {
+		t.Fatalf("runValidateConfig = %d, want 0; stderr:\n%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "frontend.unscaled_colour") {
+		t.Errorf("stdout does not mention frontend.unscaled_colour:\n%s", out.String())
+	}
+}
+
 func TestValidateConfigRejectsUnsetPath(t *testing.T) {
 	t.Setenv(config.PathEnv, "")
 	var out, errOut bytes.Buffer

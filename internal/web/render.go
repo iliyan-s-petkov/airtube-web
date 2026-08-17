@@ -17,6 +17,7 @@ import (
 	"airbg.org/internal/config"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
+	"airbg.org/internal/upstream"
 )
 
 //go:embed templates/*.gohtml
@@ -129,6 +130,7 @@ type PageData struct {
 	// data-* attributes because the CSP has no 'unsafe-inline' — there is no
 	// inline <script> to put a config object in, and there never will be.
 	NoDataColour       string
+	UnscaledColour     string
 	MarkerStrokeColour string
 	EmptyBasemapColour string
 	ChartLineColour    string
@@ -143,6 +145,12 @@ type PageData struct {
 	DefaultZoom int
 	DefaultLon  float64
 	DefaultLat  float64
+
+	// Metrics and MetricLabels are POSITIONAL pairs: MetricLabels[i] names
+	// Metrics[i]. Two parallel attributes rather than a JSON blob because the
+	// CSP has no 'unsafe-inline' and data-* attributes are the only channel.
+	Metrics      []string
+	MetricLabels []string
 
 	cat *i18n.Catalogue
 }
@@ -163,6 +171,14 @@ type alternate struct {
 }
 
 func (p PageData) T(key string) string { return p.cat.T(p.Lang, key) }
+
+// MetricsAttr and MetricLabelsAttr are the comma-joined form of Metrics and
+// MetricLabels that the switcher island's data-metrics / data-metric-labels
+// attributes carry. Joined here, not in the template, so the same rule that
+// splits them back apart in web/src/lib/metrics.js (parseMetricList) has one
+// counterpart on this side, not a {{range}} loop reproducing it.
+func (p PageData) MetricsAttr() string      { return strings.Join(p.Metrics, ",") }
+func (p PageData) MetricLabelsAttr() string { return strings.Join(p.MetricLabels, ",") }
 
 // HasBasemap reports whether the page renders basemap tiles, which is what
 // makes the footer's ODbL credit required — and, when false, wrong.
@@ -209,6 +225,14 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 	if lang == "en" {
 		other = "bg"
 	}
+	// CanonicalMetrics is sorted, not map-ordered — see its own doc comment —
+	// so this order is stable across requests and processes; the switcher's
+	// server test pins the exact string it produces.
+	metrics := upstream.CanonicalMetrics()
+	labels := make([]string, len(metrics))
+	for i, m := range metrics {
+		labels[i] = rr.cat.T(lang, "metric."+m)
+	}
 	return PageData{
 		Lang: lang, OtherLang: other, RequestPath: path,
 		BaseURL: rr.baseURL, GeneratedAt: generatedAt, cat: rr.cat,
@@ -216,6 +240,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		BasemapStyleURL: rr.basemapStyleURL,
 
 		NoDataColour:       rr.frontend.NoDataColour,
+		UnscaledColour:     rr.frontend.UnscaledColour,
 		MarkerStrokeColour: rr.frontend.MarkerStrokeColour,
 		EmptyBasemapColour: rr.frontend.EmptyBasemapColour,
 		ChartLineColour:    rr.frontend.ChartLineColour,
@@ -226,6 +251,8 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		DefaultZoom:        rr.frontend.DefaultZoom,
 		DefaultLon:         rr.frontend.DefaultLon,
 		DefaultLat:         rr.frontend.DefaultLat,
+		Metrics:            metrics,
+		MetricLabels:       labels,
 	}
 }
 

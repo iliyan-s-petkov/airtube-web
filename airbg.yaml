@@ -55,10 +55,13 @@ listen:
   # error anywhere on the server.
   # Denies every browser capability the site does not use. The threat is the
   # frontend bundle itself: hundreds of transitive npm packages served
-  # same-origin under a CSP that trusts 'self'. geolocation stays denied until
-  # the "sensors near me" button exists (Phase 3c) — an allowance nobody uses
-  # is an allowance nobody chose.
-  permissions_policy: "geolocation=(), camera=(), microphone=(), payment=(), usb=()"
+  # same-origin under a CSP that trusts 'self'. geolocation is scoped to
+  # 'self' (never '*') because the "Find me" button (Phase 3c,
+  # web/src/islands/map.js's locateMe) now exists and calls it from this
+  # origin only — an empty allowlist denies the top-level document too, not
+  # just third parties, which silently broke the button until Task 13's E2E
+  # spec (web/e2e/locate.spec.js) caught it against this exact file.
+  permissions_policy: "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
 
 timeouts:
   read_header: "5s"
@@ -254,7 +257,7 @@ backfill:
   high_rejection_fraction: 0.5
 
 frontend:
-  # These four are paint values handed to WebGL layers and a canvas, so no CSS
+  # These are paint values handed to WebGL layers and a canvas, so no CSS
   # rule can ever reach them — which is why they live here and not in
   # theme.css. The boundary is mechanical: if CSS can style it, it belongs in
   # internal/web/static/theme.css; if JS passes it to a canvas or a GL layer,
@@ -264,6 +267,13 @@ frontend:
   # Neutral grey, deliberately not a band colour: an area below the coverage
   # threshold must not be paintable as clean air.
   no_data_colour: "#9ca3af"
+  # Shown when the selected metric has NO air-quality scale — temperature,
+  # humidity, pressure and the two noise metrics, none of which /api/v1/scales
+  # publishes bands for. Deliberately NOT no_data_colour: "we have no reading"
+  # and "this metric has no band table" are different facts, and painting both
+  # the same grey makes a working map indistinguishable from a broken one.
+  # A muted blue-grey, distinct from both the no-data grey and every band colour.
+  unscaled_colour: "#94a3b8"
   marker_stroke_colour: "#ffffff"
   empty_basemap_colour: "#eef2f5"
   chart_line_colour: "#2563eb"

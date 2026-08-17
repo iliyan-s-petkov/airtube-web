@@ -2,6 +2,15 @@
 <h1>{{.T "site.title"}}</h1>
 <p>{{.T "site.tagline"}}</p>
 
+{{/* The switcher: server-rendered metric list and labels, positional pairs —
+     see PageData.Metrics/MetricLabels. Above the map island because it
+     controls what the map shows, not the other way round. */}}
+<div data-island="switcher"
+     data-metrics="{{.MetricsAttr}}"
+     data-metric-labels="{{.MetricLabelsAttr}}"
+     data-metric="{{.DefaultMetric}}"
+     data-t-legend="{{.T "metric.legend"}}"></div>
+
 {{/* The list below stays as the no-JavaScript fallback and as the crawlable
      content — a map alone is invisible to a search engine and unusable with
      a screen reader. The MapLibre island mounts on #map beside it, never
@@ -9,8 +18,10 @@
 <div id="map" data-island="map"
      data-zoom="{{.DefaultZoom}}" data-lon="{{.DefaultLon}}" data-lat="{{.DefaultLat}}"
      data-metric="{{.DefaultMetric}}"
+     data-metrics="{{.MetricsAttr}}"
      data-basemap="{{.BasemapStyleURL}}"
      data-no-data-colour="{{.NoDataColour}}"
+     data-unscaled-colour="{{.UnscaledColour}}"
      data-marker-stroke-colour="{{.MarkerStrokeColour}}"
      data-empty-basemap-colour="{{.EmptyBasemapColour}}"
      data-zoom-city="{{.ZoomCity}}"
@@ -18,7 +29,43 @@
      data-t-legend="{{.T "map.legend.title"}}"
      data-t-hint="{{.T "map.hint.select_area"}}"
      data-t-rate-limited="{{.T "map.error.rate_limited"}}"
-     data-t-unavailable="{{.T "map.error.unavailable"}}"></div>
+     data-t-unavailable="{{.T "map.error.unavailable"}}"
+     data-t-unscaled="{{.T "metric.unscaled"}}"
+     data-t-locate-button="{{.T "locate.button"}}"
+     data-t-locate-denied="{{.T "locate.denied"}}"
+     data-t-locate-failed="{{.T "locate.failed"}}"
+     data-t-locate-outside="{{.T "locate.outside"}}"></div>
+
+{{/* The same panel island area.gohtml mounts, with the same attributes: the
+     sensor tier is reachable from here too. refresh() (web/src/islands/map.js)
+     only downgrades to the area tier when no slug is selected, and both an
+     area-marker click and locateVisitor's geoip placement adopt one — so a
+     visitor who clicks an area and zooms in gets clickable sensor dots on this
+     page, and the click pushes #sensor=<id> exactly as it does on an area page.
+     Without this container that push opened nothing and merely spent a Back
+     press undoing its own hash.
+
+     A #sensor= DEEP LINK still resolves only on an area page, and that is
+     unchanged: the panel reads the sensor the map already loaded (see
+     web/src/lib/sensors.svelte.js), and this page starts with no slug and
+     therefore no sensor data — so a shared /#sensor=101 link renders the page
+     with no panel, exactly as before. */}}
+<div data-island="panel"
+     data-metrics="{{.MetricsAttr}}"
+     data-metric-labels="{{.MetricLabelsAttr}}"
+     data-metric="{{.DefaultMetric}}"
+     data-period="{{.DefaultPeriod}}"
+     data-line-colour="{{.ChartLineColour}}"
+     data-t-title="{{.T "panel.title"}}"
+     data-t-close="{{.T "panel.close"}}"
+     data-t-no-value="{{.T "panel.no_value"}}"
+     data-t-flag-out-of-range="{{.T "panel.flag.out_of_range"}}"
+     data-t-flag-stuck="{{.T "panel.flag.stuck"}}"
+     data-t-flag-spatial-outlier="{{.T "panel.flag.spatial_outlier"}}"
+     data-t-chart-title="{{.T "chart.title"}}"
+     data-t-chart-value="{{.T "chart.axis.value"}}"
+     data-t-chart-empty="{{.T "chart.empty"}}"
+     data-t-chart-unavailable="{{.T "map.error.unavailable"}}"></div>
 
 <h2>{{.T "nav.areas"}}</h2>
 <ul class="areas">

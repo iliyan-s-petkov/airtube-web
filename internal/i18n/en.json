@@ -16,6 +16,8 @@
   "metric.pressure": "Pressure",
   "metric.noise_LAeq": "Noise (LAeq)",
   "metric.noise_LA_max": "Noise (max)",
+  "metric.legend": "Metric",
+  "metric.unscaled": "This metric has no air-quality scale — dots show where readings exist, not how good they are.",
   "sensor.title": "Sensor",
   "sensor.quality.ok": "Healthy",
   "sensor.quality.out_of_range": "Value out of range",
@@ -42,7 +44,17 @@
   "map.hint.select_area": "Select an area to see individual sensors",
   "map.error.rate_limited": "Data is rate limited, retrying",
   "map.error.unavailable": "Map data is unavailable right now",
+  "locate.button": "Find me",
+  "locate.denied": "Location access was denied.",
+  "locate.failed": "We could not determine your location.",
+  "locate.outside": "You appear to be outside the mapped area.",
   "chart.title": "PM2.5, last 24 hours",
   "chart.empty": "No readings in the last 24 hours",
-  "chart.axis.value": "µg/m³"
+  "chart.axis.value": "µg/m³",
+  "panel.title": "Sensor",
+  "panel.close": "Close",
+  "panel.no_value": "no reading",
+  "panel.flag.out_of_range": "This reading is out of the expected range.",
+  "panel.flag.stuck": "This reading has not changed in a while.",
+  "panel.flag.spatial_outlier": "This reading disagrees with nearby sensors."
 }

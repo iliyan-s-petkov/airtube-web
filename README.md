@@ -259,12 +259,27 @@ computed by TimescaleDB.
 
 ## Tests
 
+There are four test tiers:
+
 ```bash
-go test ./... -race
+go test ./... -race                    # unit: no Docker, no Node
+go test -tags integration ./... -race  # integration: real PostgreSQL via testcontainers
+cd web && npm test                     # Vitest: frontend unit tests
+go test -tags e2e ./internal/e2e/      # Playwright, driven from a build-tagged Go test
 ```
 
-Integration tests start real PostgreSQL containers via testcontainers, so Docker
-must be running. The first run pulls `timescale/timescaledb-ha:pg18`.
+`go test ./... -race` alone does **not** start any containers — the
+testcontainers-backed suite in `internal/server/e2e_test.go` is gated behind
+the `integration` build tag specifically so the default `go test ./...` stays
+fast and Docker-free. Run `go test -tags integration ./... -race` to include
+it; Docker must be running, and the first run pulls
+`timescale/timescaledb-ha:pg18`.
+
+The `e2e` tier requires `npm run build` to have been run first in `web/` — the
+Go test serves the embedded Vite bundle, so without a build every island is
+missing and every spec fails — plus a Docker daemon (it starts the same
+Postgres container as the `integration` tier) and Playwright's browsers
+(`npx playwright install --with-deps chromium` in `web/`).
 
 To check the live upstream contract:
 

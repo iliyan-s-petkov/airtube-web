@@ -1,6 +1,83 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, markerPaint, blankStyle, mapStyle, registerProtocols, installErrorHandler } from '../map.js'
+// @vitest-environment jsdom
+//
+// jsdom, not the default node environment: the repaint test below drives
+// mount() through a real container element and a real `location.hash` /
+// `hashchange`, which the rest of this file's pure-logic tests do not need
+// but do not mind either — jsdom is a superset, not a different behaviour,
+// for code that touches no DOM.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, locateVisitor, locateMe, areaPath } from '../map.js'
 import { clearCache } from '../../lib/api.js'
+import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
+import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
+
+// mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
+// out of reach under jsdom (see the "no jsdom" rule respected everywhere else
+// in this file). Mocked here, ONLY for the mountTestMap-based tests below, so
+// mount() can be driven end to end (readConfig -> addLayer -> the metric
+// subscription) without a real renderer. Every other describe block in this
+// file drives map.js's exported functions directly with plain objects, never
+// through mount(), so this mock never applies to them in practice — but
+// vi.mock is file-scoped, so it is declared once, here.
+vi.mock('maplibre-gl', () => {
+  class FakeMap {
+    constructor(options) {
+      this.options = options
+      this.handlers = {}
+      this.setPaintProperty = vi.fn()
+      this.addSource = vi.fn()
+      this.addLayer = vi.fn()
+      this.getZoom = vi.fn(() => 7)
+      this.getSource = vi.fn(() => ({ setData: vi.fn() }))
+      // Spied so the locateVisitor tests below can assert a "geoip" response
+      // jumps the map, and that a "default"/rejected response does not.
+      this.jumpTo = vi.fn()
+    }
+    // map.on('click', LAYER_ID, cb) carries the layer id as a second
+    // argument; every other event map.js registers is map.on(event, cb).
+    on(event, a, b) {
+      this.handlers[event] = event === 'click' ? b : a
+    }
+  }
+  return { Map: FakeMap, addProtocol: vi.fn() }
+})
+
+// The minimum harness this task needs: mount a map island against a fresh
+// container and fresh viewstate singleton, fire the 'load' handler mount()
+// registers (which is where the metric-follow subscription is wired — see
+// map.js), and hand the test the fake map plus the chrome object mount()
+// returns. No harness by this name or shape existed before this task; the
+// brief assumed one without it being written, so this is built fresh, kept to
+// exactly what the two tests below need.
+function mountTestMap({ metric }) {
+  resetViewStateForTests()
+  history.replaceState(null, '', `/#metric=${metric}`)
+
+  const el = document.createElement('div')
+  el.dataset.metric = metric
+  el.dataset.metrics = 'P1,P2,temperature'
+  el.dataset.zoom = '7'
+  el.dataset.lon = '25.4858'
+  el.dataset.lat = '42.7339'
+  el.dataset.noDataColour = '#9ca3af'
+  el.dataset.unscaledColour = '#94a3b8'
+  el.dataset.markerStrokeColour = '#ffffff'
+  el.dataset.emptyBasemapColour = '#eef2f5'
+  el.dataset.zoomCity = '9'
+  el.dataset.zoomSensor = '11'
+
+  const { map, chrome } = mount(el)
+  // Fired, not awaited: mount()'s 'load' handler registers the metric
+  // subscription SYNCHRONOUSLY, before its first `await` (see map.js's own
+  // comment on why) — so by the time this call returns to mountTestMap, the
+  // subscription already exists, even though the handler's own data-loading
+  // tail (initData) is still pending in the microtask queue. A real
+  // MapLibreMap fires 'load' itself, asynchronously, once its style is
+  // ready; this harness fires it eagerly instead, since the fake map here
+  // has no style to wait for.
+  map.handlers.load()
+  return { map, chrome }
+}
 
 // The no-data colour is configuration now (arrives as a data-* attribute), not
 // a module constant — restated here as a literal because these tests are about
@@ -152,13 +229,29 @@ describe('readConfig', () => {
       dataset: {
         tLegend: 'Air quality', tHint: 'Select an area',
         tRateLimited: 'Retrying', tUnavailable: 'Unavailable',
+        tUnscaled: 'No air-quality scale for this metric',
+        tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
+        tLocateFailed: 'We could not determine your location.',
+        tLocateOutside: 'You appear to be outside the mapped area.',
         tNoData: 'Not enough data', // no longer rendered; must not reappear in cfg
       },
     })
     expect(cfg.t).toEqual({
       legend: 'Air quality', hint: 'Select an area',
       rateLimited: 'Retrying', unavailable: 'Unavailable',
+      unscaled: 'No air-quality scale for this metric',
+      locateButton: 'Find me', locateDenied: 'Location access was denied.',
+      locateFailed: 'We could not determine your location.',
+      locateOutside: 'You appear to be outside the mapped area.',
     })
+  })
+
+  // data-metrics is the same attribute (and same parseMetricList) the switcher
+  // island reads — getViewState needs the full metric list to validate a
+  // metric read from the hash before adopting it.
+  it('reads the metric list from data-metrics with parseMetricList\'s own blank-input rule', () => {
+    expect(readConfig({ dataset: { metrics: 'P1,P2,temperature' } }).metrics).toEqual(['P1', 'P2', 'temperature'])
+    expect(readConfig({ dataset: {} }).metrics).toEqual([])
   })
 
   it('reads numeric attributes as numbers, not strings', () => {
@@ -175,6 +268,7 @@ describe('readConfig', () => {
     const cfg = readConfig({
       dataset: {
         noDataColour: '#9ca3af',
+        unscaledColour: '#94a3b8',
         markerStrokeColour: '#ffffff',
         emptyBasemapColour: '#eef2f5',
         zoomCity: '9',
@@ -182,6 +276,7 @@ describe('readConfig', () => {
       },
     })
     expect(cfg.noDataColour).toBe('#9ca3af')
+    expect(cfg.unscaledColour).toBe('#94a3b8')
     expect(cfg.markerStrokeColour).toBe('#ffffff')
     expect(cfg.emptyBasemapColour).toBe('#eef2f5')
     expect(cfg.zoomCity).toBe(9)
@@ -417,12 +512,15 @@ describe('initData ordering', () => {
 
 // J1 (review round 2): the circle layer's stroke colour must come from
 // cfg.markerStrokeColour, not from any other config field. This is built by
-// markerPaint(cfg), extracted out of mount()'s map.on('load', ...) callback
-// specifically so it can be tested without a real MapLibre map.
-describe('markerPaint', () => {
+// layerPaint(cfg) (named markerPaint before task 7, renamed to make room for
+// the metric-aware markerPaint(bands, opts) below — see that function's own
+// comment for why one name could not serve both), extracted out of mount()'s
+// map.on('load', ...) callback specifically so it can be tested without a
+// real MapLibre map.
+describe('layerPaint', () => {
   it('reads circle-stroke-color from cfg.markerStrokeColour', () => {
     const cfg = { markerStrokeColour: '#ffffff', noDataColour: '#9ca3af' }
-    const paint = markerPaint(cfg)
+    const paint = layerPaint(cfg)
     expect(paint['circle-stroke-color']).toBe('#ffffff')
   })
 })
@@ -518,5 +616,429 @@ describe('mapStyle with a self-hosted basemap', () => {
   it('falls back to a flat colour when no basemap is configured', () => {
     expect(mapStyle({ basemap: '', emptyBasemapColour: '#eef2f5' }))
       .toEqual(blankStyle('#eef2f5'))
+  })
+})
+
+// Three different facts must not share one colour: "no reading" (grey),
+// "this metric has no band table" (unscaledColour), and a real band value.
+// Evaluates the one MapLibre expression shape markerPaint's !scaled branch
+// produces — ['case', ['==', ['get', 'value'], null], whenNull, whenNotNull]
+// — against a fake feature's properties. Used instead of a bare
+// JSON.stringify/toContain check so the unscaled test below proves the
+// actual no-reading/has-reading DISTINCTION (both branches individually),
+// not just "some colour string is present somewhere in the JSON" — a check
+// that a mutation swapping the two colours would still pass.
+function evalUnscaledCase(expr, properties) {
+  const [op, [cmp, [, key], compareTo], whenTrue, whenFalse] = expr
+  if (op !== 'case' || cmp !== '==') throw new Error(`unexpected expression shape: ${JSON.stringify(expr)}`)
+  return properties[key] === compareTo ? whenTrue : whenFalse
+}
+
+describe('unscaled metrics', () => {
+  const scales = [{ metric: 'P2', bands: [{ upper: 5, colour: '#50f0e6' }] }]
+
+  it('keeps "no reading" distinct from "has a reading" when the metric has no scale', () => {
+    const paint = markerPaint([], { noDataColour: '#999999', unscaledColour: '#94a3b8', scaled: false })
+    expect(evalUnscaledCase(paint, { value: null })).toBe('#999999')
+    expect(evalUnscaledCase(paint, { value: 12 })).toBe('#94a3b8')
+  })
+
+  it('still uses the bands when the metric is scaled', () => {
+    const paint = markerPaint(scales[0].bands, { noDataColour: '#999999', unscaledColour: '#94a3b8', scaled: true })
+    expect(JSON.stringify(paint)).toContain('#50f0e6')
+    expect(JSON.stringify(paint)).not.toContain('#94a3b8')
+  })
+
+  it('explains an unscaled metric and says nothing for a scaled one', () => {
+    expect(metricNote(scales, 'temperature', 'no scale')).toBe('no scale')
+    expect(metricNote(scales, 'P2', 'no scale')).toBe('')
+  })
+})
+
+// mount() end to end, through the fake MapLibreMap declared at the top of
+// this file: does changing vs.metric (via a hashchange, the same seam a
+// Back/Forward navigation or an external link uses) reach the layer's paint
+// property, without a new map and without re-registering the layer.
+//
+// getViewState is a page-lifetime singleton with no reset seam of its own
+// (see viewstate.svelte.js) — nothing exercised it until this task, so
+// without resetViewStateForTests() in beforeEach, whichever it() runs FIRST
+// in this file (or in another file sharing this Vitest worker) would decide
+// every later test's starting metric/hash. resetViewStateForTests() is a
+// test-only export added specifically for this hazard.
+describe('mount() follows the store metric', () => {
+  beforeEach(() => { resetViewStateForTests() })
+  afterEach(() => { resetViewStateForTests() })
+
+  it('repaints when the store metric changes', async () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    // mount() always paints once for the metric the page opened on (see the
+    // comment above the explicit call in map.js), so a bare
+    // "toHaveBeenCalled()" after the hashchange would pass even if the
+    // store subscription itself were gutted into a no-op — that initial
+    // call alone satisfies it. Wait for that first paint and record its
+    // count, so the assertion below can only pass if the hashchange
+    // triggers a REPAINT ON TOP OF it, which is what this test is for.
+    await vi.waitFor(() => expect(map.setPaintProperty).toHaveBeenCalled())
+    const callsBeforeChange = map.setPaintProperty.mock.calls.length
+
+    location.hash = '#metric=P1'
+    dispatchEvent(new HashChangeEvent('hashchange'))
+
+    await vi.waitFor(() => {
+      expect(map.setPaintProperty.mock.calls.length).toBeGreaterThan(callsBeforeChange)
+    })
+  })
+})
+
+// Task 9: the sensor tier's response body must reach the panel, not just the
+// map layer, and a click on a sensor marker must open it — through the same
+// viewstate singleton the switcher already shares, never by the map
+// rendering a panel of its own (see islands/panel.js).
+function mountSensorTierMap({ metric = 'P2' } = {}) {
+  resetViewStateForTests()
+  history.replaceState(null, '', '/')
+
+  const el = document.createElement('div')
+  // A fixed slug, above zoomSensor: on an area page tierFor picks 'sensors'
+  // without needing a click first (see map.js's own comment on state.slug).
+  el.dataset.slug = 'sofia'
+  el.dataset.metric = metric
+  el.dataset.metrics = 'P1,P2'
+  el.dataset.zoom = '12'
+  el.dataset.lon = '23.3'
+  el.dataset.lat = '42.7'
+  el.dataset.noDataColour = '#9ca3af'
+  el.dataset.unscaledColour = '#94a3b8'
+  el.dataset.markerStrokeColour = '#ffffff'
+  el.dataset.emptyBasemapColour = '#eef2f5'
+  el.dataset.zoomCity = '9'
+  el.dataset.zoomSensor = '11'
+
+  const { map, chrome } = mount(el)
+  // FakeMap.getZoom is hardcoded to 7 (see the vi.mock at the top of this
+  // file) — every other test in this file relies on that fixed value, so it
+  // is overridden here rather than in the mock itself, to reach the sensors
+  // tier without disturbing them.
+  map.getZoom = () => 12
+  map.handlers.load()
+  return { map, chrome }
+}
+
+function stubSensorTierFetch() {
+  return vi.fn(async (url) => {
+    if (url === '/api/v1/scales') {
+      return { ok: true, status: 200, headers: new Headers(), json: async () => [] }
+    }
+    return {
+      ok: true, status: 200, headers: new Headers(),
+      json: async () => ({ sensors: { id: [42], lon: [23.3], lat: [42.7], quality: ['ok'], P2: [12] } }),
+    }
+  })
+}
+
+describe('sensor tier: registry + marker click', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests(); setSensors(null) })
+  afterEach(() => { resetViewStateForTests(); setSensors(null) })
+
+  // Mutation 3 from the task brief, adapted to this design: deleting the
+  // `if (effective === 'sensors') setSensors(body)` call in map.js's
+  // refresh() must fail this test — findSensor would stay null forever,
+  // and the panel would never resolve a marker's own click, let alone a
+  // deep link that arrived before the fetch did.
+  it('publishes the sensor-tier response into the registry', async () => {
+    vi.stubGlobal('fetch', stubSensorTierFetch())
+    mountSensorTierMap()
+
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+    expect(findSensor(42).values.P2).toBe(12)
+  })
+
+  it('opens the panel (viewstate.sensorId) when a sensor marker is clicked', async () => {
+    vi.stubGlobal('fetch', stubSensorTierFetch())
+    const { map } = mountSensorTierMap()
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+
+    map.handlers.click({ features: [{ properties: { id: 42 } }] })
+
+    expect(getViewState({ metrics: ['P2'], defaultMetric: 'P2' }).sensorId).toBe(42)
+  })
+
+  // The two branches (slug vs id) are mutually exclusive: an aggregate
+  // marker click must not also open the panel.
+  it('still selects an area, and does not open the panel, when an aggregate marker is clicked', async () => {
+    vi.stubGlobal('fetch', stubSensorTierFetch())
+    const { map } = mountSensorTierMap()
+    await vi.waitFor(() => expect(map.setPaintProperty).toHaveBeenCalled())
+
+    map.handlers.click({ features: [{ properties: { slug: 'plovdiv' } }] })
+
+    expect(getViewState({ metrics: ['P2'], defaultMetric: 'P2' }).sensorId).toBeNull()
+  })
+
+  it('ignores a click with no recognisable feature properties', () => {
+    vi.stubGlobal('fetch', stubSensorTierFetch())
+    const { map } = mountSensorTierMap()
+
+    expect(() => map.handlers.click({ features: [{ properties: {} }] })).not.toThrow()
+    expect(() => map.handlers.click({ features: [] })).not.toThrow()
+  })
+})
+
+// Task 10, fix round 1: mountTestMap's harness sets no data-slug, so
+// locateVisitor DOES run during the mount()-based tests above via the
+// 'load' handler — but nothing there ever mocked fetchJSON, so only the
+// applyLocate(null, …) "stay" branch (a rejected real fetch under jsdom) was
+// ever exercised. The "geoip" branch — the one that calls map.jumpTo and
+// adopts a slug, which is what unlocks the per-area sensor tier for a
+// visitor the server actually placed — had never run under test. Driven
+// directly here through the exported function and its fetchJSON seam,
+// rather than through mount(), so the injected response body is the only
+// thing standing between "stay" and "move".
+describe('locateVisitor', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests() })
+  afterEach(() => { resetViewStateForTests() })
+
+  function fakeMap() {
+    return {
+      jumpTo: vi.fn(),
+      getZoom: vi.fn(() => 7),
+      getSource: vi.fn(() => ({ setData: vi.fn() })),
+    }
+  }
+
+  function fakeChrome() {
+    return { showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn() }
+  }
+
+  const cfg = {
+    lon: 25.4858, lat: 42.7339, zoom: 7,
+    zoomCity: 9, zoomSensor: 11, metric: 'P2', noDataColour: '#9ca3af',
+    t: { hint: 'h', unavailable: 'u' },
+  }
+
+  // On a "move", locateVisitor's own refresh() call still goes through the
+  // real getJSON (only the /api/v1/locate lookup itself is injected), so the
+  // global fetch is stubbed to satisfy that forced repaint quietly rather
+  // than logging a real network failure.
+  function stubOverviewFetch() {
+    return vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }))
+  }
+
+  // The load-bearing pair: adopting body.slug straight off a "default"
+  // response — or moving at all — is exactly the spoofing-defence bypass
+  // described in internal/api/locate_test.go:81. The server answers
+  // "default" both when it cannot place the visitor and when the Cloudflare
+  // geo headers came from an untrusted peer; the frontend must never read
+  // that as a placement.
+  it('does not jump and leaves state.slug unset for source: "default"', async () => {
+    vi.stubGlobal('fetch', stubOverviewFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const chrome = fakeChrome()
+    const fetchJSON = vi.fn().mockResolvedValue({ source: 'default', slug: 'bg', lon: 25.4, lat: 42.7, zoom: 7 })
+
+    await locateVisitor(map, state, cfg, chrome, fetchJSON)
+
+    expect(map.jumpTo).not.toHaveBeenCalled()
+    expect(state.slug).toBeNull()
+  })
+
+  it('jumps to and adopts the slug for source: "geoip"', async () => {
+    vi.stubGlobal('fetch', stubOverviewFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const chrome = fakeChrome()
+    const fetchJSON = vi.fn().mockResolvedValue({ source: 'geoip', slug: 'sofia', lon: 23.32, lat: 42.7, zoom: 11 })
+
+    await locateVisitor(map, state, cfg, chrome, fetchJSON)
+
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [23.32, 42.7], zoom: 11 })
+    expect(state.slug).toBe('sofia')
+  })
+
+  // The wrapped-fetch requirement from the brief: a rejected lookup must land
+  // in the same "stay put" branch rather than throwing out of the map's init.
+  it('does not jump when the lookup rejects', async () => {
+    vi.stubGlobal('fetch', stubOverviewFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const chrome = fakeChrome()
+    const fetchJSON = vi.fn().mockRejectedValue(new Error('network'))
+
+    await expect(locateVisitor(map, state, cfg, chrome, fetchJSON)).resolves.toBeUndefined()
+    expect(map.jumpTo).not.toHaveBeenCalled()
+    expect(state.slug).toBeNull()
+  })
+})
+
+// areaPath: the client-side navigation target locateMe hands to `navigate`.
+// Mirrors internal/web/pages.go's Routes, which registers "/area/{slug}"
+// under both "" and "/en" — a plain "/area/{slug}" from an /en/ visitor would
+// silently drop them back to the default language on click.
+describe('areaPath', () => {
+  afterEach(() => { history.replaceState(null, '', '/') })
+
+  it('builds an unprefixed path from the default-language root', () => {
+    history.replaceState(null, '', '/')
+    expect(areaPath('sofia')).toBe('/area/sofia')
+  })
+
+  it('keeps the /en prefix for an English visitor', () => {
+    history.replaceState(null, '', '/en/')
+    expect(areaPath('sofia')).toBe('/en/area/sofia')
+
+    history.replaceState(null, '', '/en/area/plovdiv')
+    expect(areaPath('sofia')).toBe('/en/area/sofia')
+  })
+
+  it('percent-encodes the slug', () => {
+    history.replaceState(null, '', '/')
+    expect(areaPath('a/b')).toBe('/area/a%2Fb')
+  })
+})
+
+// locateMe: the PRECISE, user-initiated path. Never touches the network with
+// a coordinate — nearestArea resolves it against state.areas entirely in the
+// browser (see nearest.js), and only the resulting slug is handed to
+// `navigate`.
+describe('locateMe', () => {
+  const cfg = {
+    t: {
+      locateDenied: 'Location access was denied.',
+      locateFailed: 'We could not determine your location.',
+      locateOutside: 'You appear to be outside the mapped area.',
+    },
+  }
+
+  function fakeChrome() {
+    return { showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn() }
+  }
+
+  const areas = [{ slug: 'sofia', lon: 23.32, lat: 42.7, zoom: 11 }]
+
+  it('navigates to the nearest area on a successful fix', () => {
+    const state = { areas }
+    const chrome = fakeChrome()
+    const navigate = vi.fn()
+    const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
+
+    locateMe(state, cfg, chrome, { geolocation, navigate })
+
+    expect(navigate).toHaveBeenCalledWith('/area/sofia')
+    expect(chrome.showHint).not.toHaveBeenCalled()
+  })
+
+  // nearestArea has no distance cutoff: any non-empty areas array always
+  // yields SOME nearest match, however far away. So its own null return can
+  // only mean "the area list is empty or has not loaded yet" — never
+  // "you're genuinely outside coverage" — and that unknown case must get
+  // locateFailed, NOT locateOutside, which would assert something this
+  // implementation cannot actually verify. Covers both null (never loaded,
+  // e.g. an area page still at the sensor tier — see state.areas's own
+  // comment in map.js) and [] (a country/city response with zero areas).
+  it('shows the "could not determine" message, not "outside coverage", when the area list is unknown', () => {
+    const navigate = vi.fn()
+    const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
+
+    for (const unknownAreas of [null, []]) {
+      const state = { areas: unknownAreas }
+      const chrome = fakeChrome()
+
+      locateMe(state, cfg, chrome, { geolocation, navigate })
+
+      expect(navigate).not.toHaveBeenCalled()
+      expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
+      expect(chrome.showHint).not.toHaveBeenCalledWith(cfg.t.locateOutside)
+    }
+  })
+
+  // PERMISSION_DENIED === 1 per the Geolocation API spec.
+  it('shows the denied message for a PERMISSION_DENIED error', () => {
+    const state = { areas }
+    const chrome = fakeChrome()
+    const geolocation = { getCurrentPosition: (_s, onError) => onError({ code: 1 }) }
+
+    locateMe(state, cfg, chrome, { geolocation, navigate: vi.fn() })
+
+    expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateDenied)
+  })
+
+  it('shows the generic failure message for any other geolocation error', () => {
+    const state = { areas }
+    const chrome = fakeChrome()
+    const geolocation = { getCurrentPosition: (_s, onError) => onError({ code: 2 }) }
+
+    locateMe(state, cfg, chrome, { geolocation, navigate: vi.fn() })
+
+    expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
+  })
+
+  it('shows the generic failure message when the browser has no geolocation API at all', () => {
+    const state = { areas }
+    const chrome = fakeChrome()
+
+    locateMe(state, cfg, chrome, { geolocation: null, navigate: vi.fn() })
+
+    expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
+  })
+})
+
+// This phase's recurring defect (Tasks 9 and 10, both Important review
+// findings) is code that is PRESENT but INERT: a function is written,
+// unit-tested in isolation, and never actually wired to the DOM event that is
+// supposed to trigger it. locateMe's own tests above call it directly; this
+// test instead mounts a real map island and dispatches a real click on
+// chrome.locateButton, so a mutation that drops the addEventListener call in
+// mount() (or points it at the wrong element) fails here even though every
+// locateMe test above still passes.
+describe('mount() wires the locate button to a real click', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests() })
+  afterEach(() => { clearCache(); resetViewStateForTests() })
+
+  function stubOkFetch() {
+    return vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }))
+  }
+
+  it('reaches locateMe, surfaced through the real hint banner', async () => {
+    vi.stubGlobal('fetch', stubOkFetch())
+    history.replaceState(null, '', '/#metric=P2')
+
+    const el = document.createElement('div')
+    el.dataset.metric = 'P2'
+    el.dataset.metrics = 'P1,P2'
+    el.dataset.zoom = '7'
+    el.dataset.lon = '25.4858'
+    el.dataset.lat = '42.7339'
+    el.dataset.noDataColour = '#9ca3af'
+    el.dataset.unscaledColour = '#94a3b8'
+    el.dataset.markerStrokeColour = '#ffffff'
+    el.dataset.emptyBasemapColour = '#eef2f5'
+    el.dataset.zoomCity = '9'
+    el.dataset.zoomSensor = '11'
+    // Distinct from every other cfg.t string in this test file, so a false
+    // pass from some OTHER hint text (e.g. the tier hint) is not possible.
+    el.dataset.tLocateDenied = 'LOCATE DENIED MARKER'
+
+    const { map, chrome } = mount(el)
+    map.handlers.load()
+    await vi.waitFor(() => expect(map.setPaintProperty).toHaveBeenCalled())
+
+    const originalDescriptor = Object.getOwnPropertyDescriptor(navigator, 'geolocation')
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: { getCurrentPosition: (_onSuccess, onError) => onError({ code: 1 }) },
+    })
+
+    try {
+      chrome.locateButton.click()
+    } finally {
+      if (originalDescriptor) Object.defineProperty(navigator, 'geolocation', originalDescriptor)
+      else delete navigator.geolocation
+    }
+
+    const hint = el.querySelector('.map-hint')
+    expect(hint.textContent).toBe('LOCATE DENIED MARKER')
+    expect(hint.hidden).toBe(false)
   })
 })

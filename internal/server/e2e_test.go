@@ -10,21 +10,16 @@ package server_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
-	"airbg.org/internal/area"
 	"airbg.org/internal/db"
 	"airbg.org/internal/httpx"
-	"airbg.org/internal/i18n"
 	"airbg.org/internal/server"
-	"airbg.org/internal/snapshot"
 	"airbg.org/internal/store"
 	"airbg.org/internal/testsupport"
 )
@@ -106,12 +101,19 @@ func seedReading(t *testing.T, st *store.Store, sensorID int64, lon, lat float64
 	}
 }
 
-// runningWith assigns the seeded sensors to their areas, builds one real
-// snapshot from the store (the same way the collector's Publisher does after
-// every ingest cycle), and starts a full server.Server backed by that store
-// and snapshot. It returns the public and private listener addresses, exactly
-// like server_test.go's running(t), but against real data instead of a fixed
-// fixture snapshot.
+// runningWith builds one real snapshot from the store (the same way the
+// collector's Publisher does after every ingest cycle) and starts a full
+// server.Server backed by that store and snapshot. It returns the public and
+// private listener addresses, exactly like server_test.go's running(t), but
+// against real data instead of a fixed fixture snapshot.
+//
+// The actual construction — AssignSensors, holder, Publisher, i18n, free
+// ports, server.New, run, graceful shutdown — lives in
+// testsupport.StartServer, which internal/e2e's Playwright driver also calls.
+// Keeping it there means exactly one copy of the container-backed server
+// setup exists; testsupport.StartServer's doc comment explains why that
+// matters.
+//
 // configure, when supplied, is applied to the Options after the fields above
 // are set and before server.New runs — the seam TestConfiguredBasemapReachesTheResponsePolicy
 // uses to set Options.CSP without every other e2e test needing to know that
@@ -119,60 +121,7 @@ func seedReading(t *testing.T, st *store.Store, sensorID int64, lon, lat float64
 // rather than a required parameter.
 func runningWith(t *testing.T, st *store.Store, configure ...func(*server.Options)) (public, private string) {
 	t.Helper()
-	ctx := context.Background()
-
-	cfg := testConfig(t)
-	if _, _, err := area.AssignSensors(ctx, st.Pool(), cfg.Database.StatementTimeouts.Assign); err != nil {
-		t.Fatalf("AssignSensors: %v", err)
-	}
-
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	holder := snapshot.NewHolder(cfg.Series)
-	pub := server.NewPublisher(st, holder, log)
-	if err := pub.Publish(ctx, time.Now().UTC()); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
-
-	cat, err := i18n.Load()
-	if err != nil {
-		t.Fatalf("i18n.Load: %v", err)
-	}
-
-	public, private = free(t), free(t)
-	cfg.Listen.Addr = public
-	cfg.Listen.MetricsAddr = private
-	cfg.Listen.BaseURL = "http://" + public
-
-	opts := server.Options{
-		Config:    cfg,
-		Catalogue: cat, Snapshots: holder, Store: st, Publisher: pub,
-		Logger: log,
-	}
-	for _, fn := range configure {
-		fn(&opts)
-	}
-	srv, err := server.New(opts)
-	if err != nil {
-		t.Fatalf("server.New: %v", err)
-	}
-
-	runCtx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- srv.Run(runCtx) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				t.Errorf("Run: %v", err)
-			}
-		case <-time.After(10 * time.Second):
-			t.Error("Run did not return within 10s of cancellation")
-		}
-	})
-
-	waitReady(t, private)
-	return public, private
+	return testsupport.StartServer(t, st, testConfig(t), configure...)
 }
 
 // readAll drains and returns a response body as a string.

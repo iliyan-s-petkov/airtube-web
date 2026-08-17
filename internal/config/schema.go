@@ -176,6 +176,7 @@ type rawBackfill struct {
 
 type rawFrontend struct {
 	NoDataColour       *string `yaml:"no_data_colour"`
+	UnscaledColour     *string `yaml:"unscaled_colour"`
 	MarkerStrokeColour *string `yaml:"marker_stroke_colour"`
 	EmptyBasemapColour *string `yaml:"empty_basemap_colour"`
 	ChartLineColour    *string `yaml:"chart_line_colour"`

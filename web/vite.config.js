@@ -69,4 +69,18 @@ export default {
     manifest: true,
     rollupOptions: { input: 'src/main.js' },
   },
+  // Svelte's package.json exports a separate build per condition: 'browser'
+  // resolves to the client runtime (the one with a working mount()/$effect),
+  // the default/node condition resolves to the server-rendering runtime,
+  // whose mount() only throws lifecycle_function_unavailable. Vite sets the
+  // 'browser' condition itself for `vite build`/`vite dev`, but Vitest runs
+  // under plain Node with no bundler-set condition, so a component test
+  // importing 'svelte' silently got the server build and every mount() call
+  // failed. Forced here only under `vitest` (`process.env.VITEST`) so the
+  // real build keeps Vite's own resolution untouched.
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
+  // Vitest's default include glob (**/*.{test,spec}.*) also matches
+  // web/e2e/*.spec.js — Playwright's own test files, run only by
+  // `npx playwright test` from internal/e2e's Go driver, never by Vitest.
+  test: { exclude: ['**/node_modules/**', 'e2e/**'] },
 }

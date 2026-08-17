@@ -31,6 +31,10 @@ func runValidateConfig(stdout, stderr io.Writer) int {
 	fmt.Fprintf(w, "ratelimit.enumerate\t%d areas, %d sensors per %v\n",
 		cfg.RateLimit.Enumerate.AreasPerWindow, cfg.RateLimit.Enumerate.SensorsPerWindow, cfg.RateLimit.Enumerate.Window)
 	fmt.Fprintf(w, "store.coverage_threshold\t%d\n", cfg.Store.CoverageThreshold)
+	// A paint value handed to a GL layer, not a secret — printed like every
+	// other operational value so an operator debugging an unscaled-metric
+	// colour on the map sees at a glance what shipped.
+	fmt.Fprintln(w, "frontend.unscaled_colour\t"+cfg.Frontend.UnscaledColour)
 	// Not secrets, and empty is a supported, shipped value (no basemap, two
 	// listeners) — print them like every other operational key, so an operator
 	// debugging a blank map sees at a glance whether the basemap is configured

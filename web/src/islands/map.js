@@ -9,6 +9,11 @@ import { Protocol } from 'pmtiles'
 import { tierFor } from '../lib/tier.js'
 import { colourFor } from '../lib/colour.js'
 import { getJSON } from '../lib/api.js'
+import { parseMetricList, hasScale } from '../lib/metrics.js'
+import { getViewState } from '../lib/viewstate.svelte.js'
+import { setSensors, setScales } from '../lib/sensors.svelte.js'
+import { applyLocate } from '../lib/locate.js'
+import { nearestArea } from '../lib/nearest.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
@@ -22,6 +27,11 @@ export function mount(el) {
   const cfg = readConfig(el)
   registerProtocols()
   const chrome = mountChrome(el, cfg)
+
+  // Shared with the switcher island through the module-level singleton (see
+  // getViewState's own doc comment) — the same store, so a metric picked
+  // there is the metric this map follows.
+  const vs = getViewState({ metrics: cfg.metrics, defaultMetric: cfg.metric })
 
   const map = new MapLibreMap({
     container: el,
@@ -39,7 +49,27 @@ export function mount(el) {
   // is only ever set by a deliberate click — never derived from the viewport,
   // which would be a client-side bbox query and is exactly what the API's
   // no-bbox rule forbids.
-  const state = { slug: cfg.slug, tier: null, scales: null }
+  //
+  // areas: the raw {slug, lon, lat, zoom, ...} area payload (see refresh's own
+  // comment on why it must be the raw body, not the lossy GeoJSON features
+  // areaFeatures produces), retained here for locateMe below. null until the
+  // first country/city-tier response lands — on an area page opened straight
+  // at the sensor tier (fixed data-slug), that may never happen unless the
+  // visitor zooms out, so locateMe's "outside coverage" branch can fire
+  // before there is anything to compare against. Accepted: fetching the
+  // overview solely to populate this would be the extra request the brief
+  // rules out ("no new request").
+  const state = { slug: cfg.slug, tier: null, scales: null, areas: null }
+
+  chrome.locateButton.addEventListener('click', () => locateMe(state, cfg, chrome))
+
+  // unsubscribe is assigned inside the 'load' handler (see below) and read by
+  // the returned `stop`. No call site in this app ever invokes `stop` today —
+  // islands mount once at page load and are never explicitly unmounted (there
+  // is no SPA router, see main.js's runIsland) — so this subscription is
+  // intentionally page-lifetime. Exposed anyway, the same way $effect.root's
+  // teardown would be, for test hygiene and in case that ever changes.
+  let unsubscribe = null
 
   map.on('load', async () => {
     map.addSource(SOURCE_ID, { type: 'geojson', data: emptyCollection() })
@@ -47,22 +77,97 @@ export function mount(el) {
       id: LAYER_ID,
       type: 'circle',
       source: SOURCE_ID,
-      paint: markerPaint(cfg),
+      paint: layerPaint(cfg),
     })
 
+    // Registered synchronously, right here — after addLayer so setPaintProperty
+    // always has a real layer to act on, but deliberately BEFORE awaiting
+    // initData below, not after: islands/map.js is plain .js, not .svelte.js,
+    // so $effect.root cannot be used here (runes only compile in
+    // .svelte/.svelte.js — see the task brief's own note on this). vs.metric
+    // is an ordinary getter backed by a rune defined in viewstate.svelte.js,
+    // so reading it needs no rune; reacting to it changing does, which is why
+    // onMetricChange (a plain callback list, see that file) exists instead of
+    // a second, invented store API — it already had to exist for the reason
+    // documented there (window 'hashchange' does not fire for our own
+    // pushState/replaceState writes, so it cannot substitute either).
+    //
+    // A metric change arriving before state.scales has loaded is handled, not
+    // ignored: markerPaint treats "no scales yet" the same as "no band
+    // table" (hasScale(null, metric) is false), so it paints unscaledColour
+    // rather than throwing or silently dropping the change — and the explicit
+    // call below self-corrects it the moment initData's own scales arrive.
+    unsubscribe = vs.onMetricChange((metric) => onMetricChange(map, state, cfg, chrome, metric))
+
     await initData(map, state, cfg, chrome)
+
+    // Explicit first call for the metric the page opened on: the STORE
+    // method registered above only notifies on a CHANGE, and this is
+    // deliberately AFTER initData so the FIRST real paint has state.scales to
+    // work with, rather than racing it.
+    onMetricChange(map, state, cfg, chrome, vs.metric)
+
+    // Home page only: an area page's map island carries a fixed data-slug
+    // (cfg.slug is non-null there), so its opening view is already the
+    // area's own centre and there is nothing for /api/v1/locate to improve.
+    // Fired after the first paint above, not before it, so a slow or failed
+    // lookup never delays the map the visitor already sees.
+    if (!cfg.slug) await locateVisitor(map, state, cfg, chrome)
   })
 
   map.on('moveend', debounce(() => refresh(map, state, cfg, chrome), MOVE_DEBOUNCE_MS))
 
-  // Clicking an aggregate marker is what selects an area — the deliberate act
-  // the enumeration budget is denominated in.
+  // One layer, two kinds of feature (see sensorFeatures/areaFeatures): an
+  // aggregate marker carries `slug` and clicking it is what selects an area
+  // — the deliberate act the enumeration budget is denominated in. A sensor
+  // marker carries `id` instead and clicking it opens the panel via the
+  // shared viewstate; the map does not render the panel itself (see
+  // islands/panel.js), only publishes the click as a destination.
   map.on('click', LAYER_ID, (e) => {
-    const slug = e.features?.[0]?.properties?.slug
-    if (!slug) return
-    state.slug = slug
-    refresh(map, state, cfg, chrome)
+    const props = e.features?.[0]?.properties
+    if (!props) return
+    if (props.slug) {
+      state.slug = props.slug
+      refresh(map, state, cfg, chrome)
+      return
+    }
+    // Number(): the click path already carries a number in production (see
+    // sensorFeatures, which sets properties.id = ids[i] straight from the
+    // JSON int64 column), but GeoJSON feature properties are not guaranteed
+    // by the spec to preserve type across every producer, and
+    // lib/sensors.svelte.js's own lookup applies the same coercion — so this
+    // stays a defensive match to that contract rather than an assumption
+    // about MapLibre's internals.
+    if (props.id !== undefined) vs.openSensor(Number(props.id))
   })
+
+  return { map, chrome, stop: () => unsubscribe?.() }
+}
+
+// onMetricChange is what runs on every metric switch (and once, explicitly,
+// for the metric the page opened on): repaint the layer via setPaintProperty
+// — cheap, synchronous, and needs neither a new map nor a network round trip
+// — show or clear the unscaled-metric note, and catch up the ALREADY-loaded
+// features' stale `value`/`colour` (computed for the PREVIOUS metric) by
+// forcing refresh() to recompute them.
+//
+// That forced refresh is NOT a network request in practice: urlFor never
+// takes a metric (the aggregate/sensor endpoints return every metric's values
+// in one payload — see sensorFeatures/areaFeatures, which merely pick a
+// column), so it is the exact same URL as before and getJSON's cache serves
+// it. `force` exists only to bypass refresh()'s own tier:slug dedup key,
+// which does not change when just the metric does and would otherwise make
+// this a silent no-op.
+function onMetricChange(map, state, cfg, chrome, metric) {
+  cfg.metric = metric
+  const scaled = hasScale(state.scales, metric)
+  map.setPaintProperty(LAYER_ID, 'circle-color', markerPaint(bandsFor(state.scales, metric), {
+    noDataColour: cfg.noDataColour,
+    unscaledColour: cfg.unscaledColour,
+    scaled,
+  }))
+  chrome.showNote(metricNote(state.scales, metric, cfg.t.unscaled))
+  refresh(map, state, cfg, chrome, true)
 }
 
 // initData is the whole body of the MapLibre 'load' handler after the source and
@@ -76,6 +181,10 @@ export function mount(el) {
 // between the two functions, so the test has to span both.
 export async function initData(map, state, cfg, chrome) {
   state.scales = await loadScales(chrome, cfg)
+  // Published into the registry the moment it resolves (null included, on a
+  // failed fetch) — see lib/sensors.svelte.js's own comment on why the panel
+  // reads scales from there rather than calling loadScales a second time.
+  setScales(state.scales)
   await refresh(map, state, cfg, chrome)
 }
 
@@ -102,7 +211,13 @@ export async function loadScales(chrome, cfg, fetchJSON = getJSON) {
 }
 
 // refresh fetches the tier the current zoom permits and repaints.
-async function refresh(map, state, cfg, chrome) {
+//
+// `force` bypasses the tier:slug dedup key below. Ordinary callers (moveend,
+// a marker click) never need it: those genuinely change the tier or the slug.
+// onMetricChange does — the tier and slug are untouched by a metric switch,
+// so without `force` the dedup key would make repainting for the new metric a
+// silent no-op.
+async function refresh(map, state, cfg, chrome, force = false) {
   const tier = tierFor(map.getZoom(), cfg.zoomCity, cfg.zoomSensor)
 
   // The sensor tier needs a slug and must not invent one. With none selected,
@@ -116,7 +231,7 @@ async function refresh(map, state, cfg, chrome) {
   // Unchanged tier and slug: nothing to do. getJSON would serve from cache
   // anyway, but repainting the same features on every moveend is visible churn.
   const key = `${effective}:${state.slug ?? ''}`
-  if (key === state.tier) return
+  if (!force && key === state.tier) return
 
   let body
   try {
@@ -128,10 +243,111 @@ async function refresh(map, state, cfg, chrome) {
   }
   state.tier = key
 
+  // Published for the panel to read (see lib/sensors.svelte.js) whenever
+  // this fetch actually carried sensor coordinates. Left untouched on a
+  // city/country tier response: those responses have no sensor columns at
+  // all (see areaPayload), and clearing the registry here would blank an
+  // already-open panel the instant a visitor zooms out past the sensor
+  // tier, rather than leaving its last-known content on screen.
+  if (effective === 'sensors') {
+    setSensors(body)
+  } else {
+    // The raw payload, not areaFeatures' output: features drop `zoom`
+    // entirely and fold lon/lat into GeoJSON geometry, but locateMe needs
+    // exactly {slug, lon, lat, zoom} per area (see nearestArea's signature).
+    state.areas = body?.areas ?? []
+  }
+
   const features = effective === 'sensors'
     ? sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
     : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
   map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
+}
+
+// locateVisitor asks the server where the visitor is and, only for a genuine
+// "geoip" placement (see applyLocate's own comment on why "default" must
+// never move the map or adopt a slug), jumps the map straight there and
+// adopts the slug so refresh()'s next call may use the per-area sensor tier.
+//
+// map.jumpTo, never map.easeTo: a multi-second flight away from the national
+// view on first paint reads as a bug, not a feature, on a page the visitor
+// has been looking at for less than a second.
+//
+// The fetch is wrapped so a rejected promise (network failure, an endpoint
+// that does not exist in a given environment) lands in applyLocate's own
+// "stay put" branch rather than throwing out of this async 'load' handler.
+export async function locateVisitor(map, state, cfg, chrome, fetchJSON = getJSON) {
+  const body = await fetchJSON('/api/v1/locate').catch(() => null)
+  const located = applyLocate(body, { defaultView: { lon: cfg.lon, lat: cfg.lat, zoom: cfg.zoom } })
+  if (!located.move) return
+  map.jumpTo({ center: located.centre, zoom: located.zoom })
+  state.slug = located.slug
+  await refresh(map, state, cfg, chrome, true)
+}
+
+// locateMe is the PRECISE, user-initiated path to an area page — distinct
+// from locateVisitor's coarse, server-side placement above. The coordinate
+// itself never reaches the network: nearestArea resolves it against the
+// already-loaded area list entirely in the browser, and only the resulting
+// slug becomes a request, as an ordinary page navigation. See nearest.js's
+// own comment for why: there is no server endpoint that accepts a point, by
+// design, because one would be a bounding-box query in disguise.
+//
+// geolocation/navigate are injected (default: the real browser APIs) so a
+// test can drive both the success and every error branch without a real
+// location prompt or a real page navigation.
+export function locateMe(state, cfg, chrome, { geolocation = navigator.geolocation, navigate = defaultNavigate } = {}) {
+  if (!geolocation) {
+    chrome.showHint(cfg.t.locateFailed)
+    return
+  }
+  geolocation.getCurrentPosition(
+    (pos) => {
+      // nearestArea has no distance cutoff: any non-empty areas array always
+      // yields SOME nearest match, however far away it actually is. So its
+      // own null return only ever means "the area list itself is empty or
+      // unknown" (state.areas hasn't loaded — see state.areas's own comment
+      // above), never "you are genuinely outside coverage". Checked here,
+      // BEFORE calling nearestArea, so that distinction reaches the right
+      // message: locateFailed ("we don't know"), not locateOutside ("you're
+      // outside") — a claim this implementation cannot actually make true.
+      // locateOutside is therefore currently unreachable; kept in the
+      // catalogue as a plan-mandated key and an open question for whether
+      // nearestArea should grow a real cutoff (see the task report).
+      if (!state.areas || state.areas.length === 0) {
+        chrome.showHint(cfg.t.locateFailed)
+        return
+      }
+      const area = nearestArea([pos.coords.longitude, pos.coords.latitude], state.areas)
+      if (!area) {
+        chrome.showHint(cfg.t.locateOutside)
+        return
+      }
+      navigate(areaPath(area.slug))
+    },
+    (err) => {
+      // PERMISSION_DENIED === 1 is the Geolocation API's own constant
+      // (GeolocationPositionError.PERMISSION_DENIED); every other error
+      // (POSITION_UNAVAILABLE, TIMEOUT, or none of the above) gets the
+      // generic message.
+      chrome.showHint(err?.code === 1 ? cfg.t.locateDenied : cfg.t.locateFailed)
+    },
+  )
+}
+
+function defaultNavigate(url) {
+  window.location.href = url
+}
+
+// areaPath builds the area URL under whatever language prefix the visitor is
+// currently on (see internal/web/pages.go's Routes: "" and "/en" are the only
+// two, each area route registered once per prefix) — a plain "/area/{slug}"
+// would silently switch an /en/ visitor back to the default language on
+// click.
+export function areaPath(slug) {
+  const p = window.location.pathname
+  const prefix = p === '/en' || p.startsWith('/en/') ? '/en' : ''
+  return `${prefix}/area/${encodeURIComponent(slug)}`
 }
 
 export function urlFor(tier, slug) {
@@ -213,12 +429,21 @@ export function readConfig(el) {
     // renders data-metric now (see internal/web/render.go), so a missing
     // attribute must surface as undefined, not a quiet default.
     metric: d.metric,
+    // The full metric list (upstream.CanonicalMetrics, server-rendered) that
+    // getViewState needs to validate a metric before adopting it — same
+    // attribute, same parseMetricList, as the switcher island reads. No
+    // fallback beyond what parseMetricList itself already gives a blank/
+    // missing attribute ([]): a second default list here would be the
+    // duplicated-constant problem series.default_metric's comment above is
+    // about, one metric list instead of one metric.
+    metrics: parseMetricList(d.metrics),
     basemap: d.basemap || '',
     // Paint values and zoom thresholds: configuration, arriving as data-*
     // attributes, no fallback here — a hardcoded fallback that numerically
     // agrees with today's airbg.yaml is exactly the duplicated constant this
     // phase removes.
     noDataColour: d.noDataColour,
+    unscaledColour: d.unscaledColour,
     markerStrokeColour: d.markerStrokeColour,
     emptyBasemapColour: d.emptyBasemapColour,
     zoomCity: Number(d.zoomCity),
@@ -230,6 +455,11 @@ export function readConfig(el) {
       hint: d.tHint || '',
       rateLimited: d.tRateLimited || '',
       unavailable: d.tUnavailable || '',
+      unscaled: d.tUnscaled || '',
+      locateButton: d.tLocateButton || '',
+      locateDenied: d.tLocateDenied || '',
+      locateFailed: d.tLocateFailed || '',
+      locateOutside: d.tLocateOutside || '',
     },
   }
 }
@@ -293,21 +523,71 @@ export function installErrorHandler(map, warn = console.warn) {
   })
 }
 
-// markerPaint is the circle layer's paint object. Pulled out of mount()'s
-// map.on('load', ...) callback, which is unreachable from a test (it needs a
-// real MapLibre map), so the paint values it reads from cfg can be proven
-// directly.
-export function markerPaint(cfg) {
+// layerPaint is the circle layer's INITIAL paint object, set once at
+// map.addLayer time. Pulled out of mount()'s map.on('load', ...) callback,
+// which is unreachable from a test (it needs a real MapLibre map), so the
+// paint values it reads from cfg can be proven directly.
+//
+// Named layerPaint, not markerPaint (its name before this task): 'circle-
+// color' here is only ever a placeholder — the source is empty at addLayer
+// time (see emptyCollection), and by the time features exist, onMetricChange
+// has already replaced 'circle-color' via setPaintProperty with the real,
+// metric-aware expression from markerPaint below. Two functions named
+// markerPaint, one returning a full paint object and one returning a single
+// paint VALUE, would have been the same kind of silent ambiguity this file's
+// other comments warn about elsewhere.
+export function layerPaint(cfg) {
   return {
-    // Colour is resolved per feature in JS and carried on the feature, so
-    // the band table stays the server's business. A MapLibre `step`
-    // expression built from the scales would work too, but it would put the
-    // band thresholds into the style — a second place they could drift.
     'circle-color': ['get', 'colour'],
     'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 5, 12, 9],
     'circle-stroke-width': 1,
     'circle-stroke-color': cfg.markerStrokeColour,
   }
+}
+
+// markerPaint is the circle layer's 'circle-color' paint VALUE for one
+// metric — recomputed on every metric switch and applied via
+// map.setPaintProperty, never at layer-creation time (see layerPaint above).
+//
+// Three different facts must not share one colour: "no reading" (grey,
+// noDataColour), "this metric has no band table" (unscaledColour), and a
+// real band value. An unscaled metric still distinguishes the first two —
+// only the third collapses, because there is no per-value meaning left to
+// draw once there are no bands. A flat unscaledColour return for the whole
+// !scaled branch was tried and rejected: it paints "no reading" and "has a
+// reading" identically, so on a metric most sensors don't report (e.g.
+// temperature), the map reads as full coverage when it is not — the same
+// class of defect this file's colourFor/noDataColour split exists to
+// prevent for scaled metrics. ['has', 'value'] (the shape this task's brief
+// originally suggested) is ALSO wrong here, for a reason worth stating
+// loudly: areaFeatures and sensorFeatures always set the `value` key, even
+// when its content is null (`value: a.covered ? ... : null` /
+// `column[i] ?? null`), so `has` is true unconditionally and that branch
+// would be dead code, always taking the "has a reading" side.
+export function markerPaint(bands, { noDataColour, unscaledColour, scaled }) {
+  if (!scaled) return ['case', ['==', ['get', 'value'], null], noDataColour, unscaledColour]
+
+  // Mirrors colourFor's own rule (bands ascending, upper INCLUSIVE, upper ==
+  // null is the open top band) but as a MapLibre `step` expression instead of
+  // a JS loop, because this runs in the paint property, not against a feature
+  // array — deliberately duplicated rather than shared with colourFor: the
+  // whole point of computing colour here, instead of recomputing every
+  // feature's `colour` property through colourFor again, is that switching
+  // metric must not re-walk every feature. See onMetricChange's comment.
+  const steps = []
+  for (let i = 0; i < bands.length - 1; i++) steps.push(bands[i].upper, bands[i + 1].colour)
+  return [
+    'case',
+    ['==', ['get', 'value'], null], noDataColour,
+    ['step', ['get', 'value'], bands[0]?.colour ?? noDataColour, ...steps],
+  ]
+}
+
+// The note is the only thing telling a reader why every dot on an unscaled
+// metric's map is the same colour. Returned rather than rendered here so the
+// caller (onMetricChange) owns the DOM, through chrome.showNote.
+export function metricNote(scales, metric, text) {
+  return hasScale(scales, metric) ? '' : text
 }
 
 // hintController owns the ONE rule about the hint banner: an error outranks the
@@ -370,10 +650,42 @@ function mountChrome(el, cfg) {
   hint.hidden = true
   el.appendChild(hint)
 
+  // The unscaled-metric explanation. A separate element from the hint/error
+  // banner above, on purpose: hintController's whole reason to exist is the
+  // precedence rule between a routine hint and a sticky error, and a note
+  // about the CURRENT metric having no band table is neither of those — it is
+  // not routine (it does not come and go with the viewport) and it is not an
+  // error (nothing failed). Conflating it with hint/error would either let a
+  // real error hide the note or let the note block a real error from showing.
+  const note = document.createElement('div')
+  note.className = 'map-note'
+  note.hidden = true
+  el.appendChild(note)
+
+  // The find-me button: precise, user-initiated geolocation (see locateMe in
+  // this file). textContent, never innerHTML — same CSP constraint as
+  // everything else in this container. The click handler itself is wired by
+  // mount(), which is where `state` (the loaded area list locateMe reads)
+  // and the real `map` first exist; mountChrome only owns the DOM.
+  const locateButton = document.createElement('button')
+  locateButton.type = 'button'
+  locateButton.className = 'map-locate'
+  locateButton.textContent = cfg.t.locateButton
+  el.appendChild(locateButton)
+
   // The precedence rule lives in hintController; this is only the wiring from
   // its decision to the banner. textContent, never innerHTML.
-  return hintController((text) => {
+  const hintCtl = hintController((text) => {
     hint.textContent = text
     hint.hidden = !text
   })
+
+  return {
+    ...hintCtl,
+    showNote(text) {
+      note.textContent = text
+      note.hidden = !text
+    },
+    locateButton,
+  }
 }

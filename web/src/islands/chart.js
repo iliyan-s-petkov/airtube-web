@@ -1,78 +1,25 @@
-// The chart island: one series, one metric, one period (24h PM2.5 today;
-// period/metric selectors are Phase 3b). Mounted beside the server-rendered
-// aggregate on /area/{slug}, never replacing it — a failed fetch here leaves
-// a complete page rather than a hole.
-import uPlot from 'uplot'
-import 'uplot/dist/uPlot.min.css'
-import { toUplotData } from '../lib/series.js'
-import { getJSON } from '../lib/api.js'
+// The chart island is now only a mount point: every decision lives in
+// Chart.svelte, and the URL is built here because the dataset is the island's
+// business, not the component's.
+import { mount as mountComponent } from 'svelte'
+import Chart from '../components/Chart.svelte'
 
-export async function mount(el) {
-  const cfg = {
-    slug: el.dataset.slug,
-    // No fallback: the server always renders both attributes now, so a
-    // missing one must surface as a visible failure, not a quiet
-    // substitution for a config value that lives in airbg.yaml.
-    metric: el.dataset.metric,
-    period: el.dataset.period,
-    lineColour: el.dataset.lineColour,
-    title: el.dataset.tTitle || '',
-    empty: el.dataset.tEmpty || '',
-    valueLabel: el.dataset.tValue || '',
-    unavailable: el.dataset.tUnavailable || '',
-  }
-  if (!cfg.slug) return // nothing to draw; leave the server-rendered aggregate
-
-  const url = `/api/v1/area/${encodeURIComponent(cfg.slug)}/series` +
-    `?metric=${encodeURIComponent(cfg.metric)}&period=${encodeURIComponent(cfg.period)}`
-
-  let body
-  try {
-    body = await getJSON(url)
-  } catch (err) {
-    // The area page already shows the current aggregate value server-side, so a
-    // failed chart leaves a complete page rather than a hole — but an empty div
-    // is not a hole a reader can interpret. A 429 or a 5xx used to leave this
-    // container blank, which on an air-quality page is indistinguishable from
-    // "nothing to report", i.e. from clean air. Say the data is unavailable.
-    //
-    // textContent, never innerHTML: the string is server-rendered copy and the
-    // CSP has no 'unsafe-inline', so this is both the safe and the only working
-    // way to write it.
-    el.textContent = cfg.unavailable
-    console.error('chart data:', err)
-    return
-  }
-
-  const data = toUplotData(body)
-  if (data[0].length === 0) {
-    // uPlot given [[], []] renders an empty frame rather than throwing, but an
-    // empty frame with no explanation reads as a broken chart. Say why.
-    el.textContent = cfg.empty
-    return
-  }
-
-  const chart = new uPlot({
-    title: cfg.title,
-    width: el.clientWidth || 600,
-    height: 240,
-    // Epoch SECONDS — see lib/series.js. uPlot's default x scale is time, so
-    // handing it milliseconds plots every point in 1970 with no error.
-    series: [
-      {},
-      { label: cfg.valueLabel, stroke: cfg.lineColour, width: 2 },
-    ],
-    scales: { x: { time: true } },
-  }, data, el)
-
-  // Redrawn on resize rather than left at its initial width: the container is
-  // fluid, and a chart that keeps its first-paint width is visibly wrong after
-  // a phone rotates. uPlot's setSize is cheap (it does not re-fetch or
-  // re-process `data`), so calling it straight from the observer callback is
-  // fine with no extra debouncing.
-  const observer = new ResizeObserver(() => {
-    const width = el.clientWidth
-    if (width > 0) chart.setSize({ width, height: 240 })
+export function mount(el) {
+  const d = el.dataset
+  if (!d.slug) return // nothing to draw; leave the server-rendered aggregate
+  // No fallbacks: the server always renders data-metric and data-period, so a
+  // missing one must surface as a visible failure, not a quiet substitution.
+  const url = `/api/v1/area/${encodeURIComponent(d.slug)}/series` +
+    `?metric=${encodeURIComponent(d.metric)}&period=${encodeURIComponent(d.period)}`
+  mountComponent(Chart, {
+    target: el,
+    props: {
+      url,
+      lineColour: d.lineColour,
+      title: d.tTitle || '',
+      valueLabel: d.tValue || '',
+      empty: d.tEmpty || '',
+      unavailable: d.tUnavailable || '',
+    },
   })
-  observer.observe(el)
 }
