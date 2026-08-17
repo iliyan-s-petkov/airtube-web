@@ -43,7 +43,16 @@ Run these in order. Each step depends on the one before it.
    `/var/backups/airbg` must exist before the first nightly backup job runs —
    `ofelia`'s backup job bind-mounts it and does not create it.
 
-2. Install the firewall floor:
+2. Install the firewall floor. Check the syntax before loading it into the
+   kernel — this needs `NET_ADMIN`, or `nft` fails with "Operation not
+   permitted", a capability problem, not a syntax error:
+
+   ```bash
+   docker run --rm --cap-add=NET_ADMIN -v "$PWD/deploy/nftables.conf:/etc/nftables.conf:ro" \
+     alpine sh -c "apk add --no-cache nftables >/dev/null && nft -c -f /etc/nftables.conf"
+   ```
+
+   Then install it:
 
    ```bash
    cp deploy/nftables.conf /etc/nftables.conf
@@ -83,6 +92,14 @@ Run these in order. Each step depends on the one before it.
    the `airbg.org` vhost only. A packet filter can't do this job because
    `tiles.airbg.org` shares port 443 and must stay public — SNI is above the
    layer a filter operates at.
+
+   If you run `caddy validate --config deploy/Caddyfile` with only the
+   Caddyfile mounted (no `/srv/airbg/tls`), it will fail, complaining that
+   `origin.pem`, `origin.key` or `cloudflare-origin-pull-ca.pem` cannot be
+   found. That is expected — those files only exist on the host once this
+   step is done — and is not a sign the Caddyfile itself is wrong. Validate
+   it for real by pointing it at a checkout with the certs already in place,
+   or defer validation to `docker compose up -d` in step 12.
 
 5. `cp deploy/.env.example /srv/airbg/.env`, fill in every value (database
    credentials, `AIRBG_IMAGE_TAG`, `AIRBG_TILES_ARCHIVE`), then:
@@ -172,10 +189,25 @@ Run every item below. Do not announce the site until all of them pass.
 - The collector has run:
 
   ```bash
-  docker logs $(docker ps -q --filter ancestor=airbg:latest) 2>&1 | tail -20
+  docker logs airbg-ofelia-1 --since 10m 2>&1 | grep -i collect
   ```
 
   and the site itself shows recent sensor readings, not stale ones.
+
+  Check `ofelia`'s own container, not the `collect` job's: `deploy/ofelia.ini`
+  sets `delete = true` on the `collect` job, so it runs as a fresh container
+  every 5 minutes (`schedule = @every 5m`) and is torn down immediately after
+  — `docker ps` without `-a` only lists running containers, so outside the
+  brief window the job actually executes, there is nothing for `docker ps` to
+  find and `docker logs` on an empty substitution just errors with a usage
+  message. `ofelia` itself is `restart: unless-stopped` in
+  `deploy/docker-compose.prod.yml`, with no `container_name:` set, so Compose
+  names it `<project>-<service>-<replica>` — `airbg-ofelia-1`, since the
+  compose file's top-level `name:` is `airbg`. That container is long-lived
+  and streams each job's output to its own stdout as it runs each job, so its
+  logs are readable at any time, not just during the few seconds a job
+  container exists — which is what makes this check survive the gap between
+  runs.
 
 ## 4. Releases
 
