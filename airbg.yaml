@@ -126,12 +126,14 @@ ratelimit:
   # one client can enumerate. Anti-extraction here is tiering plus rate
   # limiting, not authentication.
   enumerate:
-    # Bulgaria has 28 oblasti and comparing them is the site's obvious use, so
-    # this covers the whole set in one sitting plus a couple of repeats. It was
-    # 12, which turned an ordinary browsing session into a 15-minute wall at the
-    # 13th area page. Areas are a bounded set: 30/hour still hard-stops
-    # sustained extraction, which is what breadth limiting is for.
-    areas_per_window: 30
+    # Was 12, which turned an ordinary browsing session into a 15-minute wall at
+    # the 13th area page — Bulgaria has 28 oblasti and comparing them is the
+    # site's obvious use. 20 covers a long comparison session while still
+    # costing a scraper real time: the corpus is roughly 80 area pages (27
+    # cities + 28 oblasti + 24 Sofia districts + the country), so one address
+    # needs about four hours to sweep it. Breadth limiting slows extraction; it
+    # does not prevent it, and should not be described as if it did.
+    areas_per_window: 20
     sensors_per_window: 40
     window: "1h"
     retry_after: "900s"

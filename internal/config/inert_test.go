@@ -104,10 +104,13 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			{"ratelimit.series.burst", cfg.RateLimit.Series.Burst, 10},
 			// The one deliberate divergence from Phase 2 behaviour: raised from
 			// 12 because Bulgaria has 28 oblasti and comparing them is the
-			// site's obvious use. See
+			// site's obvious use. Set to 30 during the deployment branch, then
+			// settled at 20 by the owner once the review put a number on the
+			// trade — 30 let one address sweep the whole ~80-page corpus in
+			// under three hours. See
 			// docs/superpowers/specs/2026-08-17-airbg-deployment-design.md.
 			// Every other row in this table still means "unchanged since Phase 2".
-			{"ratelimit.enumerate.areas_per_window", float64(cfg.RateLimit.Enumerate.AreasPerWindow), 30},
+			{"ratelimit.enumerate.areas_per_window", float64(cfg.RateLimit.Enumerate.AreasPerWindow), 20},
 			{"ratelimit.enumerate.sensors_per_window", float64(cfg.RateLimit.Enumerate.SensorsPerWindow), 40},
 			{"ratelimit.shard_count", float64(cfg.RateLimit.ShardCount), 32},
 			{"upstream.max_payload_bytes", float64(cfg.Upstream.MaxPayloadBytes), 64 << 20},
