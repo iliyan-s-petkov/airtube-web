@@ -163,6 +163,27 @@ func TestEvictRemovesIdleBreadthKeys(t *testing.T) {
 	}
 }
 
+// TestEvictKeepsKeysSilentForOneWindow pins the margin Evict documents: entries
+// go after TWO windows of silence, not one. Nothing else in this package can
+// tell the two apart — TestEvictRemovesIdleBreadthKeys advances three hours, so
+// it passes at either setting, and every other test sweeps inside one window.
+//
+// The margin is what stops a client being handed a clean slate while its own
+// window is still open. A key last seen just over one window ago may still have
+// a partially-elapsed window's slug set that has to be preserved to mean
+// anything.
+func TestEvictKeepsKeysSilentForOneWindow(t *testing.T) {
+	b, c := breadth(t, 5, 5)
+
+	b.ObserveArea("quiet", "x")
+	c.advance(time.Hour + time.Minute) // one window of silence, plus a little
+	b.Evict()
+
+	if got := b.Len(); got != 1 {
+		t.Errorf("Len() = %d, want 1; a key silent for only one window was evicted", got)
+	}
+}
+
 // TestSetSizeIsBoundedWhenTripped: after tripping, the sets must stop growing.
 // A tripped client that kept inserting every new slug it asked for would let an
 // attacker who has ALREADY been flagged keep allocating memory — turning a

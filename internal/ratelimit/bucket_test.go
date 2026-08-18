@@ -164,6 +164,44 @@ func TestEvictKeepsActiveKeys(t *testing.T) {
 	}
 }
 
+// TestEvictKeepsThrottledKeys covers the case TestEvictKeepsActiveKeys cannot:
+// there, the call that touches the key just before the sweep is ALLOWED (11
+// minutes of refill at 1/s), so the test passes whether lastSeen is updated on
+// every call or only on allowed ones.
+//
+// The throttled client is the one that matters. It is the client the limiter
+// exists to hold back, and if its denied requests do not count as activity, the
+// sweep reads it as idle, drops its bucket, and hands it a full one — so being
+// refused is what buys it a reset. The limiter would be weakest against exactly
+// the traffic it is aimed at.
+//
+// PerSecond is 0 so nothing ever refills: once the single burst token is spent,
+// every later call is a denial, and any allowance can only have come from a
+// fresh bucket. The final Allow is the real assertion — Len() alone would still
+// pass if the key survived as an entry but with its tokens reset.
+func TestEvictKeepsThrottledKeys(t *testing.T) {
+	l, c := limiter(t, testBucket(0, 1, 10*time.Minute))
+
+	if ok, _ := l.Allow("hammer"); !ok {
+		t.Fatal("the first request was denied with a burst of 1")
+	}
+
+	// Well past the TTL, still knocking — and still being refused.
+	c.advance(11 * time.Minute)
+	if ok, _ := l.Allow("hammer"); ok {
+		t.Fatal("a second request was allowed with no refill configured")
+	}
+
+	l.Evict()
+
+	if got := l.Len(); got != 1 {
+		t.Errorf("Len() = %d, want 1; a throttled-but-active key was evicted", got)
+	}
+	if ok, _ := l.Allow("hammer"); ok {
+		t.Error("a throttled client was allowed after the sweep, so it was handed a fresh bucket by being refused")
+	}
+}
+
 // TestConcurrentAllowIsRaceFree is run under -race and also checks the total:
 // a limiter that lost increments under contention would let a distributed client
 // exceed the limit by simply being concurrent, which is the normal case.
