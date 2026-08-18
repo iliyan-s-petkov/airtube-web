@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"airbg.org/internal/tiles"
@@ -82,6 +83,52 @@ func TestServesTheThreeArtefacts(t *testing.T) {
 		resp := do(t, h, http.MethodGet, path, nil)
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, resp.StatusCode)
+		}
+	}
+}
+
+// TestCacheLifetimeMatchesHowEachArtefactIsAddressed.
+//
+// `immutable` is a promise that the bytes at a URL will never change, and it is
+// unrevocable: a browser holding one does not ask again, so no server-side
+// change can reach it. It is therefore only ever true of a URL that changes
+// when its content does. Of the three artefacts, exactly one is like that.
+//
+//   - The archive is addressed by its dated, configured name, so a regeneration
+//     produces a URL nobody has cached. Immutable is honest, and load-bearing:
+//     without it every visitor re-fetches hundreds of megabytes of ranges.
+//   - style.json has a FIXED name and is the artefact a regeneration rewrites —
+//     it is what points at the new archive name. Marked immutable, a returning
+//     visitor keeps a style document naming an archive the handler no longer
+//     serves (the allowlist admits only the configured name), so the map is
+//     blank for up to a year with no way to clear it. That is why this test
+//     exists: the bug is invisible at deploy time and surfaces days later, on
+//     other people's machines.
+//   - Glyph paths are fixed too, so a font rebuild reuses them. Long, but not
+//     immutable: a day bounds how long a stale atlas can outlive its rebuild.
+//
+// Asserted as exact strings rather than "contains immutable", so that widening
+// any of the three has to be a deliberate edit to this table.
+func TestCacheLifetimeMatchesHowEachArtefactIsAddressed(t *testing.T) {
+	h := handler(t)
+	for path, want := range map[string]string{
+		"/style.json":                        "public, max-age=300, must-revalidate",
+		"/" + archive:                        "public, max-age=31536000, immutable",
+		"/glyphs/NotoSans-Regular/0-255.pbf": "public, max-age=86400",
+	} {
+		resp := do(t, h, http.MethodGet, path, nil)
+		if got := resp.Header.Get("Cache-Control"); got != want {
+			t.Errorf("GET %s: Cache-Control = %q, want %q", path, got, want)
+		}
+	}
+
+	// The discriminator: everything except the dated archive must be
+	// revalidatable. A future edit that reinstates one header for all three
+	// would satisfy any single-path assertion above depending on which value it
+	// picked; this fails for both directions of that mistake.
+	for _, path := range []string{"/style.json", "/glyphs/NotoSans-Regular/0-255.pbf"} {
+		if got := do(t, h, http.MethodGet, path, nil).Header.Get("Cache-Control"); strings.Contains(got, "immutable") {
+			t.Errorf("GET %s: Cache-Control = %q — only the dated archive name may be immutable", path, got)
 		}
 	}
 }
@@ -172,7 +219,6 @@ func TestCORSHeaders(t *testing.T) {
 		"Access-Control-Allow-Origin":   origin,
 		"Access-Control-Allow-Headers":  "Range",
 		"Access-Control-Expose-Headers": "Content-Range",
-		"Cache-Control":                 "public, max-age=31536000, immutable",
 		"X-Content-Type-Options":        "nosniff",
 	} {
 		if got := resp.Header.Get(header); got != want {

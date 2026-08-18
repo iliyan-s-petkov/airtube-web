@@ -33,15 +33,53 @@ const styleFile = "style.json"
 
 const glyphsDir = "glyphs"
 
-// cacheControl asks browsers to keep an artefact for a year and never
-// revalidate it. That is only honest because the archive is addressed by a
+// Cache lifetimes, one per artefact, because the three artefacts are not
+// addressed the same way and a single header cannot be honest about all of
+// them.
+//
+// immutableCacheControl asks browsers to keep an artefact for a year and never
+// revalidate it. That is honest ONLY for the archive, which is addressed by a
 // configured, dated filename (tiles.archive, e.g. bulgaria-20260815.pmtiles):
 // regenerating the basemap produces a new name, style.json points at the new
 // name, and the old URL is simply never requested again. A fixed archive name
 // would make this header a lie — returning visitors would keep serving
 // themselves last year's map for up to a year. Without the header every visitor
 // re-fetches hundreds of megabytes of ranges.
-const cacheControl = "public, max-age=31536000, immutable"
+//
+// styleCacheControl is short and revalidating because style.json is the one
+// artefact whose NAME is fixed (see styleFile) and whose CONTENT changes on
+// every regeneration — it is what points at the new archive name. Marked
+// immutable it would strand every returning visitor on a cached style document
+// naming an archive this handler no longer serves: the allowlist 404s any name
+// but the configured one, so the map goes blank, for up to a year, and no
+// server-side change can clear it. That failure arrives days after the
+// regeneration that caused it, on other people's machines, which is precisely
+// the kind nobody connects back to the deploy.
+//
+// glyphCacheControl is long but not immutable. Glyph paths are fixed too
+// (glyphs/{fontstack}/{range}.pbf), so a font rebuild reuses the URLs; a day
+// bounds how long a stale atlas can outlive it, while still collapsing the
+// hundreds of glyph fetches a browsing session makes into one per range.
+const (
+	immutableCacheControl = "public, max-age=31536000, immutable"
+	styleCacheControl     = "public, max-age=300, must-revalidate"
+	glyphCacheControl     = "public, max-age=86400"
+)
+
+// cacheControlFor picks the lifetime for one request path. Called after the
+// allowlist, so p is already known to be the style document, the configured
+// archive, or a glyph range — the default arm is unreachable and returns the
+// safest of the three rather than the loudest.
+func (h *handler) cacheControlFor(p string) string {
+	switch strings.TrimPrefix(p, "/") {
+	case styleFile:
+		return styleCacheControl
+	case h.archive:
+		return immutableCacheControl
+	default:
+		return glyphCacheControl
+	}
+}
 
 // NewHandler serves dir's basemap artefacts, allowing cross-origin reads from
 // allowOrigin. archive is the PMTiles filename — the one artefact whose name
@@ -127,7 +165,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	head.Set("Cache-Control", cacheControl)
+	head.Set("Cache-Control", h.cacheControlFor(r.URL.Path))
 	h.files.ServeHTTP(w, r)
 }
 

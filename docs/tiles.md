@@ -20,8 +20,19 @@ this design exists to remove.
 - Java 21 or newer
 - `font-maker` git tag `v0.0.1` (commit `46fac6c`, `maplibre/font-maker`) — this
   is the tool's only tagged release; it has no npm package or semver line, so
-  the pin is the git tag, built from a `git clone --recursive` checkout via
-  `cmake . && make` per the repository's `CONTRIBUTING.md`
+  the pin is the git tag, built from a `git clone --recursive` checkout. The
+  `cmake . && make` in the repository's `CONTRIBUTING.md` **does not compile on
+  a current clang**: the vendored `sdf-glyph-foundry` triggers six
+  `-Wc++11-narrowing-const-reference` errors, which are warnings-as-errors in
+  newer toolchains and were not in the one this tag was released against.
+  Configure with them demoted:
+
+      cmake . -DCMAKE_CXX_FLAGS="-Wno-c++11-narrowing -Wno-c++11-narrowing-const-reference"
+      make
+
+  Demoting them is safe here — the narrowing is in glyph metric arithmetic that
+  the upstream tool has always performed — and it is preferable to unpinning,
+  since the pin is what keeps glyph output reproducible.
 - Noto Sans, release tag `NotoSans-v2.015` from `notofonts/latin-greek-cyrillic`
   — the Latin/Greek/Cyrillic split covers both the interface's English and the
   Cyrillic `name:bg` labels; a plain "Google Fonts" download is not a pin,
@@ -45,7 +56,14 @@ Download the Bulgaria extract from Geofabrik:
     java -Xmx8g -jar planetiler.jar \
       --osm-path=bulgaria-latest.osm.pbf \
       --output=bulgaria-YYYYMMDD.pmtiles \
+      --download \
       --force
+
+`--download` is required, not optional. Without it the run fails immediately
+with `IllegalArgumentException: data/sources/lake_centerline.shp.zip does not
+exist. Run with --download to fetch it` — the profile pulls several auxiliary
+sources (lake centerlines, Natural Earth, water polygons) that are not in the
+OSM extract. They are cached under `data/sources/`, so later runs re-use them.
 
 The date suffix is what keeps `Cache-Control: immutable` honest: regeneration
 changes the filename, so a cached copy can never be stale. Deploy by writing the
@@ -53,38 +71,46 @@ new file, updating `style.json`'s source URL, and only then removing the old one
 
 ## 3. The glyphs
 
-    font-maker --name "NotoSans-Regular" glyph-out-regular Noto_Sans/NotoSans-Regular.ttf
-    font-maker --name "NotoSans-Medium"  glyph-out-medium  Noto_Sans/NotoSans-Medium.ttf
+    ./font-maker glyph-out-regular Noto_Sans/NotoSans-Regular.ttf
+    ./font-maker glyph-out-medium  Noto_Sans/NotoSans-Medium.ttf
     mkdir -p glyphs
-    mv glyph-out-regular/NotoSans-Regular glyphs/
-    mv glyph-out-medium/NotoSans-Medium   glyphs/
+    mv "glyph-out-regular/Noto Sans Regular" glyphs/
+    mv "glyph-out-medium/Noto Sans Medium"   glyphs/
     rm -rf glyph-out-regular glyph-out-medium
 
 `font-maker`'s real signature, verified against `main.cpp` in the pinned
 checkout (`CONTRIBUTING.md` only shows one example line, so the source is the
 authority here) is:
 
-    font-maker [--name FONTSTACK] <OUTPUT_DIR> <FONT.ttf> [FONT2.ttf ...]
+    font-maker <OUTPUT_DIR> <FONT.ttf> [FONT2.ttf ...]
+
+**There is no `--name` flag** at this pin — passing one aborts with
+`cxxopts::option_not_exists_exception`. The fontstack name is not an operator
+choice at all: `main.cpp` derives it with `fontstack_name(f)` from the font's
+own internal family and style records. For the pinned Noto Sans release that
+yields **`Noto Sans Regular`** and **`Noto Sans Medium`** — with spaces, not
+the hyphenated filenames. Quote them in every shell command, and note that a
+URL path segment containing spaces is percent-encoded by the browser and
+decoded by the handler, so the on-disk name is the one with spaces.
 
 `OUTPUT_DIR` must **not** already exist — the tool exits with an error
 ("output directory X exists") rather than merging into it — and it writes
 `OUTPUT_DIR/<FONTSTACK>/<start>-<end>.pbf` for every 256-codepoint range the
-input font(s) cover. `<FONTSTACK>` is the `--name` value copied verbatim, with
-no sanitising (no space-to-dash, no case change) — it is exactly the on-disk
-directory name and exactly what `style.json`'s `text-font` must name,
-character for character. Passing several font files to one invocation merges
-them into a **single** fontstack as fallback faces, which is not what two
-separate weights need, so Regular and Medium are two separate invocations.
-Because `OUTPUT_DIR` can't already exist, the two runs can't both target
-`glyphs` directly; each goes to its own throwaway staging directory and is
-then moved into the shared `glyphs/` tree that `internal/tiles` serves —
-`glyphs/{fontstack}/{range}.pbf`, exactly that depth, or the handler's
-allowlist 404s it.
+input font(s) cover. `<FONTSTACK>` is exactly the on-disk directory name and
+exactly what `style.json`'s `text-font` must name, character for character.
+Passing several font files to one invocation merges them into a **single**
+fontstack as fallback faces, which is not what two separate weights need, so
+Regular and Medium are two separate invocations. Because `OUTPUT_DIR` can't
+already exist, the two runs can't both target `glyphs` directly; each goes to
+its own throwaway staging directory and is then moved into the shared `glyphs/`
+tree that `internal/tiles` serves — `glyphs/{fontstack}/{range}.pbf`, exactly
+that depth, or the handler's allowlist 404s it.
 
 Generate a fontstack for every `text-font` the style references, and no more.
-If a style layer's `text-font` doesn't match one of these `--name` values
-exactly, the glyph fetch 404s and the label silently disappears rather than
-erroring — there is no visible failure to debug from.
+Since the names come from the font rather than from a flag, the way to learn
+them is to run the tool and list `OUTPUT_DIR`; guessing produces a style whose
+`text-font` doesn't match, and then the glyph fetch 404s and the label silently
+disappears rather than erroring — there is no visible failure to debug from.
 
 ## 4. The style
 
@@ -108,7 +134,8 @@ Lay the three artefacts out under `tiles.dir`, keeping the dated archive name:
     /var/lib/airbg/tiles/
       style.json
       bulgaria-20260815.pmtiles
-      glyphs/NotoSans-Regular/0-255.pbf
+      glyphs/Noto Sans Regular/0-255.pbf
+      glyphs/Noto Sans Medium/0-255.pbf
       ...
 
 Then set `tiles.archive` to that filename:
@@ -122,11 +149,18 @@ tiles:
 ```
 
 Do **not** rename or symlink the archive to a fixed name. The handler serves
-exactly one archive name — the configured one — and responses carry
+exactly one archive name — the configured one — and the archive alone carries
 `Cache-Control: public, max-age=31536000, immutable`. That header is only
 truthful because regeneration produces a new filename and therefore a new URL:
 reuse the name and every returning visitor keeps serving themselves the old
 basemap for up to a year, with no way to invalidate it.
+
+The other two artefacts have fixed names, so they get revalidating lifetimes
+instead: `style.json` 5 minutes (it is the file a regeneration rewrites, and a
+visitor holding an immutable copy of it would keep asking for an archive the
+handler no longer serves — a blank map for a year), glyphs one day. The bound
+on how long a deploy takes to reach returning visitors is therefore the
+`style.json` lifetime, not the archive's.
 
 Three names must agree: the file on disk, `tiles.archive`, and the
 `pmtiles://` URL inside `style.json` (§4). The first two are checked at
