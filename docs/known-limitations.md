@@ -1,8 +1,16 @@
 # Known limitations
 
-What the map does not tell you on the page. Everything here is a property of
-the data, not a bug to be fixed by a code change, and each one can change how a
-number should be read.
+Everything here is a property of the data, not a bug to be fixed by a code
+change, and each one can change how a number should be read.
+
+The reader-facing half of this document is served at `/{lang}/about-the-data`
+(`internal/web/templates/about.gohtml`, copy in `internal/i18n/*.json`), linked
+from the footer of every page. **The two are not generated from each other**:
+this file is the fuller technical account, the page is what a visitor needs.
+`internal/web/about_test.go` pins the one part that must not drift — the list
+of cities whose boundary is a whole municipality is compared against the table
+below, because a wrong city name in a translation string looks exactly as
+correct as a right one.
 
 ## City areas are not all the same kind of thing
 

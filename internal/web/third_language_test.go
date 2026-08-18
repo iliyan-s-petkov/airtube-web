@@ -72,7 +72,7 @@ func trilingualRenderer(t *testing.T, snap *snapshot.Snapshot, extra map[string]
 func TestThirdLanguageIsRoutedAndRendered(t *testing.T) {
 	rr := trilingualRenderer(t, fixture(t), nil)
 
-	for _, path := range []string{"/de/", "/de/areas", "/de/area/sofia"} {
+	for _, path := range []string{"/de/", "/de/areas", "/de/area/sofia", "/de/about-the-data"} {
 		rec := fetch(t, rr, path)
 		if rec.Code != 200 {
 			t.Fatalf("GET %s = %d, want 200", path, rec.Code)

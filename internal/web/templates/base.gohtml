@@ -27,7 +27,11 @@
 </main>
 
 <footer>
-  <p class="disclaimer">{{.T "disclaimer"}}</p>
+  {{/* The disclaimer states the limitation in one line; the link is where the
+       rest of it lives. Placed immediately after, and on every page, because
+       the caveats apply to every number the site shows — a reader who has
+       just misread a city average is looking at this footer, not at a menu. */}}
+  <p class="disclaimer">{{.T "disclaimer"}} <a href="{{.Path "/about-the-data"}}">{{.T "about.title"}}</a></p>
   <p>{{.T "footer.data"}}</p>
   <p>{{.T "footer.boundaries"}}</p>
   {{if .HasBasemap}}<p>{{.T "footer.basemap"}}</p>{{end}}

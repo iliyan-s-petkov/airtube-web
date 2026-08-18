@@ -5,6 +5,18 @@
 
 <h1>{{.Area.Name}}</h1>
 
+{{/* Shown on city pages only, because this is the page where the misreading
+     happens: a reader comparing two cities has no way to know that 14 of the
+     27 are whole municipalities and the rest are the city proper. It is
+     unconditional across cities rather than shown only for the 14, because
+     nothing in the data marks which is which — the split is a property of
+     OpenStreetMap's tagging, recorded in docs/known-limitations.md, not a
+     column. Naming the counts keeps the sentence honest for both halves. */}}
+{{if eq .Area.Kind "city"}}
+<p class="notice-inline">{{.T "area.city_boundary_note"}}
+  <a href="{{.Path "/about-the-data"}}">{{.T "about.title"}}</a></p>
+{{end}}
+
 {{if .Area.Covered}}
   <p>{{.Area.SensorCount}} {{.T "area.sensors"}}</p>
   {{/* The chart island: one series, one metric (P2), one period (24h) — period

@@ -10,6 +10,11 @@ a { color: var(--accent); }
 .uncovered { color: var(--warn); }
 .notice { border-left: 4px solid var(--warn); padding: .5rem 1rem; background: var(--notice-bg); }
 .disclaimer { color: var(--muted); }
+/* A caveat, not a warning: muted like .disclaimer rather than boxed like
+   .notice, because it qualifies a number that is fine rather than telling the
+   reader something is wrong. .notice's warning bar next to every city name
+   would read as an error state on 27 healthy pages. */
+.notice-inline { color: var(--muted); font-size: .875rem; }
 footer { border-top: 1px solid var(--border); color: var(--muted); font-size: .875rem; }
 #map, #area-map { position: relative; height: 24rem; background: var(--map-placeholder-bg); border: 1px solid var(--border); }
 #chart { min-height: 12rem; }

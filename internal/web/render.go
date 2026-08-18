@@ -88,7 +88,7 @@ func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, cfg config.Config
 	// no <script> tag rather than failing.
 	rr.assets, _ = LoadAssets()
 
-	for _, page := range []string{"index", "area", "error"} {
+	for _, page := range []string{"index", "area", "about", "error"} {
 		t, err := template.New("base.gohtml").ParseFS(templateFS,
 			"templates/base.gohtml", "templates/"+page+".gohtml")
 		if err != nil {

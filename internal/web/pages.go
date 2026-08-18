@@ -6,6 +6,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
@@ -63,6 +64,7 @@ func (rr *Renderer) Routes() *http.ServeMux {
 		mux.HandleFunc("GET "+root, rr.handleIndex)
 		mux.HandleFunc("GET "+prefix+"/areas", rr.handleIndex)
 		mux.HandleFunc("GET "+prefix+"/area/{slug}", rr.handleArea)
+		mux.HandleFunc("GET "+prefix+"/about-the-data", rr.handleAbout)
 	}
 
 	// Content-hashed bundles: cacheable forever, because the name changes when
@@ -119,6 +121,29 @@ func (rr *Renderer) handleArea(w http.ResponseWriter, r *http.Request) {
 	row := rr.rowFrom(meta, lang)
 	data.Area = &row
 	rr.render(w, http.StatusOK, "area", data)
+}
+
+// handleAbout serves the data caveats — what the map does not tell you on the
+// page: that 14 of the 27 city boundaries are whole municipalities, that
+// coverage is uneven, that these are low-cost sensors and not reference
+// instruments. Every one of those changes how a number on this site should be
+// read, and until now they lived only in docs/known-limitations.md, a repo
+// file no visitor will ever open.
+//
+// Unlike every other page here it does NOT 503 when the snapshot is missing.
+// The content is static prose that needs no snapshot, and the moment a reader
+// is most likely to go looking for "is this site trustworthy" is the moment
+// the data is not loading. Returning the timestamp when a snapshot happens to
+// exist keeps the footer consistent with the rest of the site; a zero time
+// renders no timestamp line at all (see base.gohtml).
+func (rr *Renderer) handleAbout(w http.ResponseWriter, r *http.Request) {
+	var generatedAt time.Time
+	if snap := rr.holder.Load(); snap != nil {
+		generatedAt = snap.GeneratedAt
+	}
+
+	lang, path := rr.cat.LangFromPath(r.URL.Path)
+	rr.render(w, http.StatusOK, "about", rr.newPageData(lang, path, generatedAt))
 }
 
 func (rr *Renderer) areaRows(snap *snapshot.Snapshot, lang, kind string) []AreaRow {

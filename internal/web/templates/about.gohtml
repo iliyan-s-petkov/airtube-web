@@ -1,0 +1,29 @@
+{{define "title"}}{{.T "about.title"}} — {{.T "site.title"}}{{end}}
+
+{{/* Static prose, no islands and no data attributes: everything on this page
+     is a property of the data that does not change between requests. It is
+     also the one page that must render when there is no snapshot — see
+     handleAbout — so it may not depend on .Areas or .Area. */}}
+{{define "main"}}
+<h1>{{.T "about.title"}}</h1>
+<p>{{.T "about.intro"}}</p>
+
+<h2>{{.T "about.sensors.heading"}}</h2>
+<p>{{.T "about.sensors.body"}}</p>
+
+<h2>{{.T "about.cities.heading"}}</h2>
+<p>{{.T "about.cities.body"}}</p>
+<p>{{.T "about.cities.list"}}</p>
+<p>{{.T "about.cities.reading"}}</p>
+
+<h2>{{.T "about.coverage.heading"}}</h2>
+<p>{{.T "about.coverage.body"}}</p>
+
+<h2>{{.T "about.borders.heading"}}</h2>
+<p>{{.T "about.borders.body"}}</p>
+
+<h2>{{.T "about.sources.heading"}}</h2>
+<p>{{.T "about.sources.body"}}</p>
+
+<p><a href="{{.Path "/"}}">{{.T "area.back_to_map"}}</a></p>
+{{end}}
