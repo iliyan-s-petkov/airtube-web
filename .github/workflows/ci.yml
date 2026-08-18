@@ -18,9 +18,18 @@ jobs:
       # it needs the same two extra runs. Proven by mutation rather than
       # assumed: an S1039 defect planted in internal/e2e/e2e_test.go leaves the
       # untagged run silent at exit 0 and is caught by the tagged one.
-      - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
-      - run: go run honnef.co/go/tools/cmd/staticcheck@latest -tags integration ./...
-      - run: go run honnef.co/go/tools/cmd/staticcheck@latest -tags e2e ./...
+      #
+      # Both analysers are pinned to an exact version, never @latest. @latest
+      # resolves and EXECUTES whatever the module proxy serves that morning,
+      # inside a job with the repository checked out -- a supply-chain surface
+      # go.sum does not cover, since these tools are not module dependencies.
+      # It also makes a run unreproducible: the same commit goes red when
+      # upstream adds a check, at a moment unrelated to anything in this repo,
+      # which trains people to re-run CI instead of reading it. Bump these
+      # deliberately, in a commit of their own. internal/ci enforces it.
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 -tags integration ./...
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 -tags e2e ./...
       # -test is what makes the tagged govulncheck runs mean anything: it
       # defaults to FALSE, so govulncheck opens no _test.go file at all and
       # -tags on its own would be an inert flag that looks like coverage.
@@ -28,9 +37,15 @@ jobs:
       # ships none of this; these two cover the test-only dependency surface
       # (testcontainers and the docker client it pulls in) that still executes
       # on CI runners and developer machines.
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest -test -tags integration ./...
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest -test -tags e2e ./...
+      #
+      # Pinning govulncheck does NOT stale its findings, which is the obvious
+      # objection to pinning a security tool: govulncheck queries the live
+      # vulnerability database (vuln.go.dev) at run time, so a pinned binary
+      # still learns about a CVE published this morning. The pin freezes the
+      # analyser, not the advisories.
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -test -tags integration ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -test -tags e2e ./...
       - run: go test ./... -race
 
   web:
