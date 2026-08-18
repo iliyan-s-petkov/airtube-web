@@ -292,6 +292,45 @@ func TestDatabaseURLFileMissingIsAnError(t *testing.T) {
 	}
 }
 
+// An empty credential file must say so. Before this, an operator who created
+// /srv/airbg/airbg_database_url but never wrote the DSN into it got
+// "AIRBG_DATABASE_URL is not set in the environment; it is required" from
+// Validate — describing a variable they had never touched, not the empty file
+// they had just made. The message must name AIRBG_DATABASE_URL_FILE, name the
+// path, and say the file is empty; and it must not send the reader after
+// AIRBG_DATABASE_URL, which was not the problem.
+func TestDatabaseURLFileEmptyIsAnErrorNamingTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "airbg_database_url")
+	// Whitespace only: TrimSpace makes this indistinguishable from truly empty,
+	// and it is the likelier real-world mistake (an editor leaving a newline).
+	if err := os.WriteFile(path, []byte("  \n\t\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(DatabaseURLEnv, "")
+	t.Setenv(DatabaseURLFileEnv, path)
+
+	_, err := databaseURLFromEnv()
+	if err == nil {
+		t.Fatal("databaseURLFromEnv error = nil, want an error for an empty credential file")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, DatabaseURLFileEnv) {
+		t.Errorf("error %q does not mention %s, so it does not point at the variable that was actually set", msg, DatabaseURLFileEnv)
+	}
+	if !strings.Contains(msg, path) {
+		t.Errorf("error %q does not mention the path %s, so the operator cannot tell which file is empty", msg, path)
+	}
+	if !strings.Contains(msg, "empty") {
+		t.Errorf("error %q does not say the file is empty; that is the one fact the operator needs", msg)
+	}
+	// The old message blamed AIRBG_DATABASE_URL for being unset. Mentioning it
+	// alone is not wrong (AIRBG_DATABASE_URL_FILE contains it as a prefix), so
+	// this checks for the misleading claim itself.
+	if strings.Contains(msg, "is not set") {
+		t.Errorf("error %q still claims something is not set; %s was set, and it named a file that exists", msg, DatabaseURLFileEnv)
+	}
+}
+
 // LoadFile must actually wire databaseURLFromEnv in, not just have it
 // available unused — this proves AIRBG_DATABASE_URL_FILE reaches Config
 // through the real entry point ofelia's collect job invokes.

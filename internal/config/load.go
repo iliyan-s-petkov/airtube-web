@@ -269,10 +269,12 @@ const (
 // databaseURLFromEnv resolves the database credential from the environment:
 // the literal value if set, otherwise the contents of the file named by
 // DatabaseURLFileEnv, otherwise empty (Validate reports that as a startup
-// error). A file that cannot be read is a hard error rather than a silent
-// empty credential — the same reasoning as PGPASSFILE's permission
-// requirement in deploy/ofelia.ini: a misconfigured secret must fail loudly,
-// not connect as nobody.
+// error). A file that cannot be read, or that is empty, is a hard error
+// rather than a silent empty credential — the same reasoning as PGPASSFILE's
+// permission requirement in deploy/ofelia.ini: a misconfigured secret must
+// fail loudly, not connect as nobody. The file must hold the DSN on a single
+// line; only surrounding whitespace is trimmed, so a stray second line ends up
+// inside the DSN.
 func databaseURLFromEnv() (string, error) {
 	if v := os.Getenv(DatabaseURLEnv); v != "" {
 		return v, nil
@@ -285,7 +287,17 @@ func databaseURLFromEnv() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("config: cannot read %s (naming %s): %w", DatabaseURLFileEnv, path, err)
 	}
-	return strings.TrimSpace(string(data)), nil
+	url := strings.TrimSpace(string(data))
+	// An empty file is its own failure, reported here rather than left to
+	// Validate. Falling through with "" would make Validate say the credential
+	// "is not set in the environment", which is the opposite of what happened:
+	// it was set, it named a file, and the file was blank. An operator who
+	// created the file but never wrote the DSN into it would go looking for a
+	// missing variable instead of at the file they just made.
+	if url == "" {
+		return "", fmt.Errorf("config: %s names %s, but that file is empty; it must contain the database DSN on a single line", DatabaseURLFileEnv, path)
+	}
+	return url, nil
 }
 
 // Load reads the configuration named by AIRBG_CONFIG. There is no fallback

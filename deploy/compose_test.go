@@ -93,6 +93,30 @@ func TestDatabaseIsNotReachable(t *testing.T) {
 	}
 }
 
+// db must not be able to open a connection *outward* either. Reachability and
+// egress are separate properties and this one has been lost once already: a
+// non-internal `collect` network was added so an ofelia job could reach the
+// internet, db was joined to it so the same job could also reach the database,
+// and db silently gained real internet access as a side effect. Every network
+// db sits on must be internal: true.
+func TestDatabaseHasNoRouteToTheInternet(t *testing.T) {
+	c := loadCompose(t)
+	attached := service(t, c, "db").Networks
+	if len(attached) == 0 {
+		t.Fatal("db is attached to no network at all")
+	}
+	for name := range attached {
+		net, ok := c.Networks[name]
+		if !ok {
+			t.Errorf("db is attached to network %q, which is not declared in the networks: section", name)
+			continue
+		}
+		if !net.Internal {
+			t.Errorf("db is attached to network %q, which is not internal: true — the database has a route to the public internet", name)
+		}
+	}
+}
+
 // Exactly one service faces the internet, and it faces it on exactly two
 // ports. Anything else acquiring a ports: key is the regression this catches.
 func TestOnlyCaddyPublishesPorts(t *testing.T) {
@@ -421,28 +445,47 @@ func TestCollectJobHasADatabaseCredential(t *testing.T) {
 	}
 }
 
-// airbg.yaml points the collector at https://data.sensor.community, so the
-// collect job needs a route out. back is internal: true precisely to deny
-// this to everything on it, app included, so the job cannot simply reuse
-// back — see the comment above [job-run "collect"] in ofelia.ini for why a
-// second `network =` line does not add a second network (ofelia keeps only
-// the last one). This asserts the job is not attached to an internal-only
-// network, i.e. it actually has a route to the public internet.
-func TestCollectJobHasARouteToTheInternet(t *testing.T) {
+// Every job in ofelia.ini names a network that must (a) exist in the compose
+// file and (b) be internal: true. (b) is the point. It is tempting to think a
+// job needing the internet — collect does, for https://data.sensor.community —
+// justifies a non-internal network; it does not, because ofelia attaches every
+// job-run container to Docker's default bridge as well, so the job has egress
+// regardless. A non-internal network here would buy nothing and would hand
+// egress to whichever long-lived service was joined to it to make the job
+// reachable — which is exactly how db acquired internet access once already.
+func TestEveryOfeliaJobRunsOnAnInternalNetwork(t *testing.T) {
+	c := loadCompose(t)
+	for _, job := range []string{"collect", "backup", "backup-prune"} {
+		lines := ofeliaJobLines(t, `job-run "`+job+`"`)
+		network, ok := ofeliaValue(lines, "network")
+		if !ok {
+			t.Errorf("%s job sets no network =; ofelia would attach it to the Docker default bridge only, so it could not reach db", job)
+			continue
+		}
+		name := strings.TrimPrefix(network, "airbg_")
+		net, ok := c.Networks[name]
+		if !ok {
+			t.Errorf("%s job's network = %s does not correspond to any network in docker-compose.prod.yml (looked for %q)", job, network, name)
+			continue
+		}
+		if !net.Internal {
+			t.Errorf("%s job runs on network %s, which is not internal: true — a job-run container already gets internet from Docker's default bridge, so the only thing a non-internal network here adds is egress for the services joined to it", job, network)
+		}
+	}
+}
+
+// The collect job writes what it fetches, so it has to reach db. It gets one
+// network from ofelia (the INI keeps only the last `network =` line), so that
+// one network is the only route it has to the database — db must be on it.
+func TestCollectJobCanReachTheDatabase(t *testing.T) {
 	lines := ofeliaJobLines(t, `job-run "collect"`)
 	network, ok := ofeliaValue(lines, "network")
 	if !ok {
-		t.Fatal("collect job sets no network =; ofelia would attach it to the Docker default bridge only, undocumented and untested here")
+		t.Fatal("collect job sets no network =")
 	}
-
-	c := loadCompose(t)
 	name := strings.TrimPrefix(network, "airbg_")
-	net, ok := c.Networks[name]
-	if !ok {
-		t.Fatalf("collect job's network = %s does not correspond to any network in docker-compose.prod.yml (looked for %q)", network, name)
-	}
-	if net.Internal {
-		t.Errorf("collect job runs on network %s, which is internal: true — it has no route to https://data.sensor.community", network)
+	if _, on := service(t, loadCompose(t), "db").Networks[name]; !on {
+		t.Errorf("collect job runs on network %s but db is not attached to %q; the job has exactly one network and cannot reach the database from it", network, name)
 	}
 }
 

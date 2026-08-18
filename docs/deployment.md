@@ -16,7 +16,7 @@ document safe to follow: **only `caddy` publishes ports.**
 |---|---|---|
 | `caddy` | The only service the internet can open a socket to. Terminates TLS for both vhosts and reverse-proxies to `app`. Publishes `80` and `443`. | `edge` |
 | `app` | The Go application: serves `airbg.org` on `:8080`, `tiles.airbg.org` on `:8082`, and Prometheus metrics on `:9090`. Publishes **no port**, in this file or any other, in any environment. | `edge`, `back` |
-| `db` | TimescaleDB (Postgres). Publishes no port; reachable only from `app`, the one-shot backup jobs, and the one-shot `collect` job. | `back` (`internal: true`), `collect` |
+| `db` | TimescaleDB (Postgres). Publishes no port; reachable only from `app`, the one-shot backup jobs, and the one-shot `collect` job — all of which sit on `back`. Has no route to the internet. | `back` (`internal: true`) |
 | `socket-proxy` | `tecnativa/docker-socket-proxy`, holding the real Docker socket read-only and exposing only container creation (`CONTAINERS=1`, `POST=1`; every other endpoint group explicit `0`). | `sched` (`internal: true`) |
 | `ofelia` | Scheduler. Runs `airbg collect` every 5 minutes and `pg_dump` nightly as one-shot containers, talking only to `socket-proxy`, never to the Docker daemon directly. | `sched` (`internal: true`) |
 
@@ -25,20 +25,39 @@ has a route to the internet or to each other's neighbours: `ofelia` and
 `socket-proxy` cannot reach `edge` or `back` except where `db` sits on `back`
 for the app and the backup jobs to reach it, and `app` is not on `sched`.
 
-`collect` is deliberately **not** `internal: true` — it exists only so the
-`collect` job (run by `ofelia`, on the schedule in `deploy/ofelia.ini`) can
-reach both `db` and `https://data.sensor.community` (`airbg.yaml`'s
-`upstream.url`) from the same one-shot container. `back` can't do this job:
-it's internal by design, so a container on it alone has no route out.
-Widening `back` itself to grant that route was rejected — it's shared with
-`app`, and `app` should keep the same no-egress posture `db` has. `ofelia`'s
-INI format holds exactly one `network =` value per job (a second line
-silently replaces the first instead of adding to it — see the comment above
-the `collect` job in `deploy/ofelia.ini`), so a job can't simply list both
-`back` and `collect`; `db` joining `collect` in addition to `back` is what
-lets one job container reach both from one network. `caddy`, `app` and
-`ofelia`/`socket-proxy` never join `collect` — only `db` and the transient
-`collect` job containers do.
+That holds for Compose-managed services — `caddy`, `app`, `db`, `ofelia`,
+`socket-proxy`. It does **not** hold for the one-shot job containers ofelia
+starts.
+
+### `internal: true` does not deny ofelia's jobs egress
+
+**ofelia attaches every `job-run` container to Docker's default `bridge`
+network in addition to the network named by `network =` in
+`deploy/ofelia.ini`.** A job declared on an `internal: true` network therefore
+still has full outbound internet access, via `bridge`. This is undocumented
+ofelia behaviour, established by experiment on the pinned image
+(`mcuadros/ofelia:0.3.20`) — a job on an `--internal` network came up with
+`NETWORKS=bridge probe_back` and reached `data.sensor.community:443`.
+
+This applies to all three jobs — `collect`, `backup` and `backup-prune`. All
+three say `network = airbg_back`; all three have internet egress anyway.
+`backup` and `backup-prune` do not use it, but do not assume they cannot.
+
+It is why `collect` can sit on the internal `back` network and still reach
+`https://data.sensor.community` (`airbg.yaml`'s `upstream.url`) while also
+reaching `db`. An earlier revision instead added a non-internal `collect`
+network and joined `db` to it so one container could reach both; that has been
+reverted, because ofelia's bridge attachment already provided the egress and
+the only lasting effect was giving `db` real internet access it had never had.
+
+A dedicated non-internal network carrying the job but *not* `db` is not an
+option: ofelia's INI holds exactly one `network =` value per job (a second line
+silently replaces the first — verified on 0.3.20), so such a job would reach
+the internet and lose the database.
+
+The dependency runs the other way now: if a future ofelia stops bridge-attaching
+job containers, `collect` silently loses its upstream fetch. Re-check this
+whenever the ofelia image pin moves.
 
 Because `app` publishes nothing, there is no URL and no port on the host that
 reaches it directly. The only way to talk to the running container from a
@@ -136,6 +155,15 @@ Run these in order. Each step depends on the one before it.
    chmod 600 /srv/airbg/airbg_database_url
    chown root:root /srv/airbg/airbg_database_url
    ```
+
+   **The file must contain exactly one line: the DSN and nothing else.** The
+   whole file is read and only *surrounding* whitespace is trimmed — there is
+   no "first line wins". A second line, a comment, or a stray `export ...` is
+   spliced into the middle of the connection string, and you get a confusing
+   parse or authentication error naming a host you never typed rather than a
+   complaint about the file. `printf '%s' "$DSN" > /srv/airbg/airbg_database_url`
+   avoids even the trailing newline; a single trailing newline is fine, since
+   it is trimmed. An empty file is rejected by name at startup.
 
    Skipping this step doesn't fail loudly at `docker compose up -d` — the
    long-lived services all start fine. It fails quietly, every 5 minutes,
