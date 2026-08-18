@@ -1,5 +1,13 @@
 # Boundary data
 
+This file documents what these files **are**. Two companions:
+
+- `docs/boundary-regeneration.md` — how to **rebuild** them: the Overpass
+  queries, the PostGIS cleaning pipeline, the slug rule as an executable test,
+  and the acceptance checks. Read it before regenerating anything.
+- `docs/known-limitations.md` — the consequences a **reader of the map** should
+  know, chiefly the 13/14 city-proper vs. municipality split below.
+
 ## `bulgaria.geojson`
 
 The national boundary. Importing it is a **hard prerequisite for ingesting

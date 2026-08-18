@@ -363,3 +363,15 @@ What remains, that an operator should be aware of:
 
 - Sensor data: [sensor.community](https://sensor.community/)
 - Boundaries: © OpenStreetMap contributors, ODbL
+
+**[`docs/known-limitations.md`](docs/known-limitations.md)** records what the
+map does not tell you on the page — above all that 13 of the 27 cities are
+city-proper polygons and the other 14 are whole municipalities, so two cities
+on the map are not always the same kind of area. Read it before drawing a
+conclusion from a comparison.
+
+**[`docs/boundary-regeneration.md`](docs/boundary-regeneration.md)** is how the
+boundary files are rebuilt: the Overpass queries, the PostGIS cleaning
+pipeline, and the slug rule. Read it before regenerating anything — slugs are
+URLs, and a regeneration that drops the `-oblast` suffix changes every oblast
+slug and 404s every inbound link.
