@@ -6,7 +6,7 @@ hundreds of megabytes and the cadence is seasonal.
 
 | File | What it is |
 |---|---|
-| `bulgaria-YYYYMMDD.pmtiles` | Protomaps basemap, Bulgaria extract, ~150–300 MB. The date is part of the name, and the name goes in `tiles.archive`. |
+| `bulgaria-YYYYMMDD.pmtiles` | OpenMapTiles-schema basemap built from the OSM Bulgaria extract, ~150–300 MB. The date is part of the name, and the name goes in `tiles.archive`. |
 | `glyphs/{fontstack}/{range}.pbf` | Font atlases MapLibre needs to render labels |
 | `style.json` | References the `pmtiles://` source, the glyphs, and the layer styling |
 
@@ -114,18 +114,35 @@ disappears rather than erroring — there is no visible failure to debug from.
 
 ## 4. The style
 
-Start from a pinned Protomaps theme and set:
+**The archive is OpenMapTiles schema, not Protomaps.** planetiler's default
+profile emits the OpenMapTiles layer set — `water`, `waterway`, `landcover`,
+`landuse`, `park`, `boundary`, `transportation`, `transportation_name`,
+`building`, `place`, `poi`, `housenumber`, `aeroway`, `aerodrome_label`,
+`water_name`, `mountain_peak`. Earlier revisions of this document, and the
+Phase 1 design, said Protomaps; that was wrong about what the §2 command
+produces. A Protomaps theme names layers that do not exist in this archive, so
+it renders a **blank map with no error** — every layer simply matches nothing.
 
-- `sources.protomaps.url` to `pmtiles://<tiles.public_url>/<tiles.archive>` — the
-  same dated filename you generated in §1, e.g.
-  `pmtiles://https://tiles.airbg.org/bulgaria-20260815.pmtiles`
-- `glyphs` to `<tiles.public_url>/glyphs/{fontstack}/{range}.pbf`
+Style against the OpenMapTiles layer names, and set:
+
+- `sources.<name>.url` to `pmtiles://<tiles.public_url>/<tiles.archive>` — the
+  same dated filename you generated in §2, e.g.
+  `pmtiles://https://tiles.airbg.org/bulgaria-20260815.pmtiles` — with each
+  layer's `source-layer` naming one of the layers above
+- `glyphs` to `<tiles.public_url>/glyphs/{fontstack}/{range}.pbf`, and every
+  layer's `text-font` to a fontstack name §3 actually produced (`Noto Sans
+  Regular`, `Noto Sans Medium` — with the spaces)
 - every label layer's `text-field` to `["coalesce", ["get", "name:bg"], ["get", "name"]]`,
   so the basemap follows the interface language
-- `attribution` to `© OpenStreetMap contributors, © Protomaps`
+- `attribution` to `© OpenStreetMap contributors`
 
-The attribution is a licence obligation, not presentation: OpenStreetMap data is
-ODbL. The page footer must carry the same credit.
+The attribution is a licence obligation, not presentation: the data is
+OpenStreetMap under ODbL, and that is the whole of the obligation. Credit no one
+else — planetiler processed the data, it did not contribute any, and an
+attribution line naming a party with no claim misstates provenance rather than
+erring on the generous side. The page footer carries the same credit
+(`footer.basemap` in `internal/i18n/*.json`), pinned by
+`internal/web/render_test.go`'s `TestBasemapAttribution`.
 
 ## 5. Install
 

@@ -32,7 +32,7 @@
   "disclaimer": "Low-cost sensor readings are indicative and are not reference-method measurements.",
   "footer.data": "Data from sensor.community contributors, ODbL 1.0",
   "footer.boundaries": "Boundaries © OpenStreetMap contributors, ODbL 1.0",
-  "footer.basemap": "Basemap © OpenStreetMap contributors, ODbL 1.0, tiles by Protomaps",
+  "footer.basemap": "Basemap © OpenStreetMap contributors, ODbL 1.0",
   "about.title": "About the data",
   "about.intro": "This page covers what the map does not tell you on the page itself. Everything here is a property of the data rather than a bug waiting to be fixed, and each one can change how a number should be read.",
   "about.sensors.heading": "The sensors are not reference instruments",

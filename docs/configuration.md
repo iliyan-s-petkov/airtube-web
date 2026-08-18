@@ -192,8 +192,8 @@ not one restart at a time.
 a map that renders sensor markers over `frontend.empty_basemap_colour`. Local
 development needs no vendor account and no 300 MB file.
 
-Setting all four keys starts a third listener serving the self-hosted
-Protomaps artefacts. It holds no database pool, no snapshot, no rate limiter
+Setting all four keys starts a third listener serving the self-hosted basemap
+artefacts. It holds no database pool, no snapshot, no rate limiter
 and no admission semaphore — that is what makes it safe to expose directly
 while the application port accepts only Cloudflare's ranges. Generating the
 artefacts: `docs/tiles.md`.

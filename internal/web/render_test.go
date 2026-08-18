@@ -684,13 +684,41 @@ func TestNoTilesRendersAnEmptyBasemapAttribute(t *testing.T) {
 // TestBasemapAttribution. ODbL requires the credit wherever the tiles are
 // shown — and requires it nowhere when no tiles are shown, so the footer does
 // not claim a basemap the page does not render.
+//
+// The credit names OpenStreetMap and no one else. It used to end "tiles by
+// Protomaps", which was true of the basemap the design assumed and false of
+// the one the documented procedure actually builds: planetiler's default
+// profile emits the OpenMapTiles schema, so the archive is generated from OSM
+// data by a tool, with no Protomaps artefact anywhere in it. A credit to a
+// party that contributed nothing is not a harmless extra — it misstates
+// provenance, which is the one thing an attribution line exists to state.
+// planetiler is not credited in its place: the obligation follows the DATA
+// licence, and the tool that processed it has no claim on it.
+//
+// The credit is read out of the catalogue rather than written here as a
+// literal: "/" renders in Bulgarian, so an English literal would be absent from
+// both pages and the presence half would fail while the absence half passed
+// vacuously. Reading the key also means a copy edit does not break the test —
+// what is pinned is that the basemap credit tracks the basemap, not its wording.
+// It is the whole string rather than "OpenStreetMap": the footer also credits
+// OpenStreetMap for the BOUNDARIES, which render with or without tiles, so the
+// bare name is present either way and the absence half would prove nothing.
 func TestBasemapAttribution(t *testing.T) {
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+	credit := cat.T("bg", "footer.basemap")
+
 	with := fetch(t, newTestRendererWithTiles(t, "https://tiles.airbg.org"), "/").Body.String()
-	if !strings.Contains(with, "Protomaps") {
-		t.Errorf("page with a basemap does not credit Protomaps:\n%s", with)
+	if !strings.Contains(with, credit) {
+		t.Errorf("page with a basemap does not carry the basemap credit:\n%s", with)
+	}
+	if strings.Contains(with, "Protomaps") {
+		t.Errorf("basemap credit names Protomaps, which contributed nothing to this archive:\n%s", with)
 	}
 	without := fetch(t, newTestRendererWithTiles(t, ""), "/").Body.String()
-	if strings.Contains(without, "Protomaps") {
-		t.Error("page with no basemap credits Protomaps anyway")
+	if strings.Contains(without, credit) {
+		t.Error("page with no basemap carries the basemap credit anyway")
 	}
 }
