@@ -474,6 +474,75 @@ func TestEveryOfeliaJobRunsOnAnInternalNetwork(t *testing.T) {
 	}
 }
 
+// A failing backup is silent by construction: the backup job's `&&`
+// short-circuits, delete = true removes the exited container before anyone
+// could read its status, and last night's dump stays where it was — so the
+// backup directory keeps looking healthy while its newest file quietly stops
+// advancing. On a single VPS with no replica that is discovered during a
+// restore, which is the worst possible moment.
+//
+// The prune job carries the alarm because it already runs daily against the
+// same directory. This asserts all four moving parts, because dropping any one
+// of them restores the silence: the freshness window, the marker file an
+// operator sees by running ls, the non-zero exit that reaches ofelia's log,
+// and the cleanup that lets the marker clear itself once backups resume.
+//
+// The glob check is not style. A bare airbg-*.dump is expanded by sh against
+// the container's working directory before find runs; one stray file of that
+// shape rewrites the search into a single literal name that matches nothing,
+// and the staleness check then fires every night against a healthy backup
+// directory. It cannot be fixed with quotes — see the no-double-quote test
+// below — so it is backslash-escaped.
+func TestBackupPruneAlarmsWhenBackupsGoStale(t *testing.T) {
+	lines := ofeliaJobLines(t, `job-run "backup-prune"`)
+	command, ok := ofeliaValue(lines, "command")
+	if !ok {
+		t.Fatal(`backup-prune job has no command =`)
+	}
+
+	for _, part := range []struct{ substr, why string }{
+		{`-mtime -2`, "no freshness window: nothing detects that the newest dump has stopped advancing"},
+		{`BACKUP-IS-STALE`, "no marker file: the only signal would be ofelia's log, not the directory an operator actually looks at"},
+		{`exit 1`, "no non-zero exit: the failure never reaches ofelia's log"},
+		{`rm -f /backups/BACKUP-IS-STALE`, "the marker never clears, so it keeps crying wolf after backups resume and is learned to be ignored"},
+		{`airbg-\*.dump`, "the glob is not backslash-escaped: sh expands it against the container's working directory before find sees it"},
+	} {
+		if !strings.Contains(command, part.substr) {
+			t.Errorf("backup-prune command is missing %q — %s\ngot: %s", part.substr, part.why, command)
+		}
+	}
+}
+
+// ofelia's INI parser strips every double-quote character from a command
+// value — established empirically against the pinned image and documented at
+// the top of ofelia.ini. The failure that follows is not a parse error: the
+// command still runs, with different meaning. `[ -z "$(find ...)" ]` reaches
+// sh as `[ -z ]`, a one-argument test that is always true, so a staleness
+// alarm written that way fires every night regardless of the backups.
+//
+// This is a whole-file invariant rather than a per-job one, because the trap
+// is that a double-quoted command LOOKS correct in review and in local shell
+// testing — the stripping happens only inside ofelia, where nothing is
+// watching. The header comment stating the rule is not enough on its own; a
+// comment cannot fail a build.
+func TestNoOfeliaCommandUsesDoubleQuotes(t *testing.T) {
+	const wantJobs = 3 // positive control: a header typo must not silently scan zero jobs
+	var checked int
+	for _, job := range []string{"collect", "backup", "backup-prune"} {
+		command, ok := ofeliaValue(ofeliaJobLines(t, `job-run "`+job+`"`), "command")
+		if !ok {
+			continue // collect's command is a bare argv, not every job needs sh -c
+		}
+		checked++
+		if strings.Contains(command, `"`) {
+			t.Errorf("%s job's command contains a double quote, which ofelia strips before sh sees it — the command will run with different meaning than it reads here\ngot: %s", job, command)
+		}
+	}
+	if checked != wantJobs {
+		t.Fatalf("scanned %d job commands, want %d — the job names or the command key changed and this test is checking nothing", checked, wantJobs)
+	}
+}
+
 // The collect job writes what it fetches, so it has to reach db. It gets one
 // network from ofelia (the INI keeps only the last `network =` line), so that
 // one network is the only route it has to the database — db must be on it.
