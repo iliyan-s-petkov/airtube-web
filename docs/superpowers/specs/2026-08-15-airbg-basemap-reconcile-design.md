@@ -4,6 +4,11 @@
 **Status:** approved, ready for planning
 **Supersedes:** the vendor-basemap assumption in `airbg.yaml` (`basemap.style_url`, `AIRBG_BASEMAP_KEY`)
 
+> **Superseded** for its firewall/origin-protection section by
+> `docs/superpowers/specs/2026-08-17-airbg-deployment-design.md`, which
+> replaces the IP-allowlist approach discussed below with Cloudflare
+> Authenticated Origin Pulls.
+
 ## Why this exists
 
 The Phase 1 design chose a self-hosted Protomaps PMTiles basemap, Bulgaria extract, served

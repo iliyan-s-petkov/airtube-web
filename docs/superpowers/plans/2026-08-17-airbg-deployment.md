@@ -25,6 +25,7 @@
 - **`gofmt` clean.** Run `gofmt -l .` and expect no output.
 - **Compose files in `deploy/` use map-form `networks:` and list-form `environment:`** so the test structs stay simple and unambiguous. This is a rule the test relies on.
 - **`git log` needs `--no-show-signature`** on this repo (gitsign/Sigstore) or it hangs.
+- **`docker compose config` needs `deploy/.env` to exist.** Compose v5.4.0 validates `env_file` at parse time, not at `up`. Create an empty `deploy/.env` before any `docker compose config` check and delete it afterwards — it must never be staged. Verified in Task 2.
 
 ---
 

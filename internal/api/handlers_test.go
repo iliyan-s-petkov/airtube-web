@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -171,9 +172,11 @@ func TestAreaSensorsEnumerationTrips(t *testing.T) {
 	fix := fixture(t)
 	cfg := testConfig(t)
 	limit := cfg.RateLimit.Enumerate.AreasPerWindow
-	// Populate enough known areas that the limit is reachable.
+	// Populate enough known areas that the limit is reachable. Slugs are
+	// zero-padded decimal, not letters, so this stays valid for any limit
+	// (letters run out past 'z' - i.e. past a limit of 26).
 	for i := 0; i < limit+2; i++ {
-		slug := "area-" + string(rune('a'+i))
+		slug := fmt.Sprintf("area-%02d", i)
 		fix.KnownSlugs[slug] = fix.KnownSlugs["sofia"]
 		fix.AreaSensors[slug] = fix.AreaSensors["sofia"]
 	}
@@ -186,7 +189,7 @@ func TestAreaSensorsEnumerationTrips(t *testing.T) {
 
 	allowed, refused := 0, 0
 	for i := 0; i < limit+2; i++ {
-		slug := "area-" + string(rune('a'+i))
+		slug := fmt.Sprintf("area-%02d", i)
 		rec := serve(t, d, get("/api/v1/area/"+slug+"/sensors", "203.0.113.10"))
 		switch rec.Code {
 		case http.StatusOK:
@@ -246,7 +249,7 @@ func TestUnknownSlugDoesNotConsumeAreaBudget(t *testing.T) {
 	// Fire more distinct UNKNOWN slugs than the area budget allows. If an
 	// unknown slug consumed budget, this alone would exhaust it.
 	for i := 0; i < limit+2; i++ {
-		slug := "unknown-" + string(rune('a'+i))
+		slug := fmt.Sprintf("unknown-%02d", i)
 		rec := serve(t, d, get("/api/v1/area/"+slug+"/sensors", "203.0.113.12"))
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s: status = %d, want 404", slug, rec.Code)

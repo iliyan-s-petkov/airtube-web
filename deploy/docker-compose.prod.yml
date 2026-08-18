@@ -1,0 +1,170 @@
+# Production deployment for airbg.org. One VPS, one environment.
+#
+# The security properties of this file are asserted by compose_test.go in this
+# directory; read it before changing anything here.
+#
+# The application publishes NO port, in this file or any other. It is reachable
+# only from caddy across the edge network. Direct access for development is an
+# SSH local forward to the container address (docs/deployment.md), never a
+# published port — so there is no line here to accidentally ship.
+name: airbg
+
+services:
+  # The only service the internet can open a socket to. Two vhosts: airbg.org,
+  # which requires Cloudflare's client certificate, and tiles.airbg.org, which
+  # is public. See Caddyfile.
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /srv/airbg/tls:/etc/caddy/tls:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      edge: {}
+    depends_on:
+      - app
+    logging: &journal
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  app:
+    image: airbg:${AIRBG_IMAGE_TAG}
+    restart: unless-stopped
+    env_file: [.env]
+    # Binding 0.0.0.0 inside this container is correct AND safe: nothing is
+    # published, so the only reachable route is caddy across edge.
+    # ipv4_address is pinned so the SSH forward in docs/deployment.md has a
+    # stable target; Docker's default allocator would move it on every up.
+    networks:
+      edge:
+        ipv4_address: 172.28.0.10
+      back:
+        ipv4_address: 172.29.0.10
+    volumes:
+      - /var/lib/airbg/tiles:/var/lib/airbg/tiles:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    logging: *journal
+
+  db:
+    image: timescale/timescaledb-ha:pg18
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - db_data:/home/postgres/pgdata
+    # back only, and back is `internal: true`. db has no route to the public
+    # internet and nothing outside back can open a socket to it. An earlier
+    # revision of this file also put db on a second, non-internal network so
+    # the ofelia `collect` job could reach db and the internet from one
+    # container; that was reverted, because it gave db real egress it never
+    # needed (see the networks: section below).
+    networks:
+      back: {}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *journal
+
+  # ofelia needs to start containers, which means the Docker socket, which is
+  # root-equivalent on the host. It never gets it: this proxy holds the socket
+  # read-only and exposes container creation and nothing else. Widening the
+  # environment below re-creates the risk the proxy exists to remove —
+  # compose_test.go fails if it happens.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1
+      - POST=1
+      - EXEC=0
+      - IMAGES=0
+      - NETWORKS=0
+      - VOLUMES=0
+      - INFO=0
+      - SWARM=0
+      - SYSTEM=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      sched: {}
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    logging: *journal
+
+  # Runs `airbg collect` on the poll interval and pg_dump nightly, each as a
+  # one-shot container from the same image. Talks to the proxy, never to the
+  # daemon.
+  ofelia:
+    image: mcuadros/ofelia:0.3.20
+    restart: unless-stopped
+    command: ["daemon", "--config=/etc/ofelia/config.ini"]
+    environment:
+      - DOCKER_HOST=tcp://socket-proxy:2375
+    volumes:
+      - ./ofelia.ini:/etc/ofelia/config.ini:ro
+    networks:
+      sched: {}
+    depends_on:
+      - socket-proxy
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    logging: *journal
+
+networks:
+  # Subnets are explicit so AIRBG_LISTEN_TRUSTED_PROXY_CIDRS is a value you can
+  # write down. Trusting the wrong CIDR means CF-Connecting-IP is ignored and
+  # every visitor shares one rate-limit bucket.
+  edge:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+  back:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+  sched:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  # There is deliberately no fourth, non-internal network here. An earlier
+  # revision added one (`collect`) so ofelia's `collect` job could reach
+  # https://data.sensor.community, and put `db` on it so the same one-shot
+  # container could also reach the database. Both halves of that were wrong:
+  #
+  #   ofelia attaches every `job-run` container to Docker's DEFAULT BRIDGE in
+  #   addition to the network named by `network =`. `internal: true` therefore
+  #   does NOT deny a job-run container egress — it never did. Verified on
+  #   this repo's ofelia pin (mcuadros/ofelia:0.3.20) with a job on an
+  #   `--internal` network:
+  #     NETWORKS=bridge probe_back
+  #     data.sensor.community:443 reachable
+  #
+  # So the `collect` job already had internet from `back`, and the extra
+  # network bought nothing but real egress for `db`. `db` is back-only again.
+  # See deploy/ofelia.ini for the full reasoning and for why the alternative
+  # — a non-internal network carrying the job but not db — cannot work.
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:

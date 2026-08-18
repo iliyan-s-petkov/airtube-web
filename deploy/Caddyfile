@@ -1,0 +1,38 @@
+# Two vhosts on one port, with opposite trust rules — which is exactly why the
+# enforcement is a certificate and not a packet filter. A filter cannot tell
+# these apart: SNI is above the layer it operates at.
+#
+# deploy/compose_test.go asserts the client_auth block below is present, is
+# require_and_verify, and is in THIS block rather than the tiles one.
+
+{
+	# No ACME account email is configured for the site vhost: its certificate
+	# comes from Cloudflare's origin CA, not from Let's Encrypt. The tiles
+	# vhost below does use ACME, so an address is required for expiry notices.
+	email admin@airbg.org
+}
+
+airbg.org {
+	# The Cloudflare Origin CA certificate is trusted by Cloudflare and by
+	# nothing else — correct here precisely because only Cloudflare ever
+	# connects. client_auth is the other half: Cloudflare's edge presents a
+	# certificate the public does not have, so a direct connection to the
+	# origin IP fails the handshake regardless of its source address.
+	tls /etc/caddy/tls/origin.pem /etc/caddy/tls/origin.key {
+		client_auth {
+			mode require_and_verify
+			trust_pool file /etc/caddy/tls/cloudflare-origin-pull-ca.pem
+		}
+	}
+
+	# CF-Connecting-IP passes through untouched: it is the rate-limit bucket
+	# key, and the app trusts it only from this container's subnet.
+	reverse_proxy app:8080
+}
+
+tiles.airbg.org {
+	# DNS-only (grey cloud) per docs/tiles.md: browsers connect straight here,
+	# so this needs a publicly trusted certificate and must NOT require a
+	# client one. Caddy obtains and renews it automatically.
+	reverse_proxy app:8082
+}

@@ -239,3 +239,113 @@ func TestApplyEnvSuppliesAbsentKey(t *testing.T) {
 		t.Errorf("listen.addr was supplied by the environment but still reported missing:\n%s", err)
 	}
 }
+
+// AIRBG_DATABASE_URL_FILE exists for ofelia's one-shot `collect` job, which is
+// started fresh through the Docker API and inherits no compose env_file. It
+// must actually deliver the credential, not just be accepted.
+func TestDatabaseURLFileIsRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pgpass")
+	if err := os.WriteFile(path, []byte("postgres://user:pass@db:5432/airbg\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+	t.Setenv(DatabaseURLFileEnv, path)
+	got, err := databaseURLFromEnv()
+	if err != nil {
+		t.Fatalf("databaseURLFromEnv error = %v, want nil", err)
+	}
+	if want := "postgres://user:pass@db:5432/airbg"; got != want {
+		t.Errorf("databaseURLFromEnv() = %q, want %q (trailing whitespace must be trimmed)", got, want)
+	}
+}
+
+// AIRBG_DATABASE_URL is the credential itself, not a path, so it must win over
+// AIRBG_DATABASE_URL_FILE when both happen to be set — the direct value is
+// never shadowed by a stale or wrong file path.
+func TestDatabaseURLEnvTakesPrecedenceOverFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pgpass")
+	if err := os.WriteFile(path, []byte("postgres://from-file/db\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+	t.Setenv(DatabaseURLFileEnv, path)
+	t.Setenv(DatabaseURLEnv, "postgres://from-env/db")
+	got, err := databaseURLFromEnv()
+	if err != nil {
+		t.Fatalf("databaseURLFromEnv error = %v, want nil", err)
+	}
+	if want := "postgres://from-env/db"; got != want {
+		t.Errorf("databaseURLFromEnv() = %q, want %q", got, want)
+	}
+}
+
+// A configured file that cannot be read must be a startup error naming both
+// the variable and the path — the same reasoning as PGPASSFILE's permission
+// requirement in deploy/ofelia.ini: a broken secret must fail loudly, not
+// silently start the collector with an empty credential.
+func TestDatabaseURLFileMissingIsAnError(t *testing.T) {
+	t.Setenv(DatabaseURLFileEnv, filepath.Join(t.TempDir(), "does-not-exist"))
+	_, err := databaseURLFromEnv()
+	if err == nil {
+		t.Fatal("databaseURLFromEnv error = nil, want an error for an unreadable file")
+	}
+	if !strings.Contains(err.Error(), DatabaseURLFileEnv) {
+		t.Errorf("error %q does not mention %s", err, DatabaseURLFileEnv)
+	}
+}
+
+// An empty credential file must say so. Before this, an operator who created
+// /srv/airbg/airbg_database_url but never wrote the DSN into it got
+// "AIRBG_DATABASE_URL is not set in the environment; it is required" from
+// Validate — describing a variable they had never touched, not the empty file
+// they had just made. The message must name AIRBG_DATABASE_URL_FILE, name the
+// path, and say the file is empty; and it must not send the reader after
+// AIRBG_DATABASE_URL, which was not the problem.
+func TestDatabaseURLFileEmptyIsAnErrorNamingTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "airbg_database_url")
+	// Whitespace only: TrimSpace makes this indistinguishable from truly empty,
+	// and it is the likelier real-world mistake (an editor leaving a newline).
+	if err := os.WriteFile(path, []byte("  \n\t\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(DatabaseURLEnv, "")
+	t.Setenv(DatabaseURLFileEnv, path)
+
+	_, err := databaseURLFromEnv()
+	if err == nil {
+		t.Fatal("databaseURLFromEnv error = nil, want an error for an empty credential file")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, DatabaseURLFileEnv) {
+		t.Errorf("error %q does not mention %s, so it does not point at the variable that was actually set", msg, DatabaseURLFileEnv)
+	}
+	if !strings.Contains(msg, path) {
+		t.Errorf("error %q does not mention the path %s, so the operator cannot tell which file is empty", msg, path)
+	}
+	if !strings.Contains(msg, "empty") {
+		t.Errorf("error %q does not say the file is empty; that is the one fact the operator needs", msg)
+	}
+	// The old message blamed AIRBG_DATABASE_URL for being unset. Mentioning it
+	// alone is not wrong (AIRBG_DATABASE_URL_FILE contains it as a prefix), so
+	// this checks for the misleading claim itself.
+	if strings.Contains(msg, "is not set") {
+		t.Errorf("error %q still claims something is not set; %s was set, and it named a file that exists", msg, DatabaseURLFileEnv)
+	}
+}
+
+// LoadFile must actually wire databaseURLFromEnv in, not just have it
+// available unused — this proves AIRBG_DATABASE_URL_FILE reaches Config
+// through the real entry point ofelia's collect job invokes.
+func TestLoadFileAcceptsDatabaseURLFile(t *testing.T) {
+	clearAmbientEnv(t)
+	path := filepath.Join(t.TempDir(), "pgpass")
+	if err := os.WriteFile(path, []byte("postgres://user:pass@db:5432/airbg\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+	t.Setenv(DatabaseURLFileEnv, path)
+	cfg, err := LoadFile(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile error = %v, want nil", err)
+	}
+	if want := "postgres://user:pass@db:5432/airbg"; cfg.Database.URL != want {
+		t.Errorf("cfg.Database.URL = %q, want %q", cfg.Database.URL, want)
+	}
+}
