@@ -1,0 +1,256 @@
+{
+  "version": 8,
+  "name": "airbg",
+  "metadata": {
+    "airbg:schema": "openmaptiles",
+    "airbg:note": "sources.basemap.url carries the dated archive name; regenerating the basemap changes it here and in tiles.archive. See docs/tiles.md."
+  },
+  "glyphs": "https://tiles.airbg.org/glyphs/{fontstack}/{range}.pbf",
+  "sources": {
+    "basemap": {
+      "type": "vector",
+      "url": "pmtiles://https://tiles.airbg.org/bulgaria-20260827.pmtiles",
+      "attribution": "© OpenStreetMap contributors"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#f5f3ef" }
+    },
+    {
+      "id": "landcover",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "landcover",
+      "paint": { "fill-color": "#e4ebe0", "fill-opacity": 0.7 }
+    },
+    {
+      "id": "landuse",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "landuse",
+      "paint": { "fill-color": "#ece9e2" }
+    },
+    {
+      "id": "park",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "park",
+      "paint": { "fill-color": "#dcebd3", "fill-opacity": 0.8 }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "water",
+      "filter": ["!=", ["get", "brunnel"], "tunnel"],
+      "paint": { "fill-color": "#a8c8e0" }
+    },
+    {
+      "id": "waterway",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "waterway",
+      "minzoom": 8,
+      "paint": {
+        "line-color": "#a8c8e0",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 16, 2.5]
+      }
+    },
+    {
+      "id": "building",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "building",
+      "minzoom": 13,
+      "paint": {
+        "fill-color": "#e0dbd2",
+        "fill-outline-color": "#d3cdc3",
+        "fill-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0, 15, 1]
+      }
+    },
+    {
+      "id": "boundary-country",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "boundary",
+      "filter": ["<=", ["get", "admin_level"], 2],
+      "paint": {
+        "line-color": "#9a9086",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 3, 0.7, 10, 2]
+      }
+    },
+    {
+      "id": "boundary-region",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "boundary",
+      "filter": [
+        "all",
+        [">", ["get", "admin_level"], 2],
+        ["<=", ["get", "admin_level"], 4]
+      ],
+      "minzoom": 6,
+      "paint": {
+        "line-color": "#b5aca1",
+        "line-width": 0.6,
+        "line-dasharray": [3, 2]
+      }
+    },
+    {
+      "id": "transportation-minor",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "transportation",
+      "filter": ["in", ["get", "class"], ["literal", ["minor", "service", "track", "path"]]],
+      "minzoom": 12,
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 18, 6]
+      }
+    },
+    {
+      "id": "transportation-secondary",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "transportation",
+      "filter": ["in", ["get", "class"], ["literal", ["secondary", "tertiary"]]],
+      "minzoom": 8,
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.6, 18, 10]
+      }
+    },
+    {
+      "id": "transportation-primary",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "transportation",
+      "filter": ["in", ["get", "class"], ["literal", ["motorway", "trunk", "primary"]]],
+      "paint": {
+        "line-color": "#f6d9a0",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.8, 18, 14]
+      }
+    },
+    {
+      "id": "transportation-rail",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "transportation",
+      "filter": ["==", ["get", "class"], "rail"],
+      "minzoom": 9,
+      "paint": {
+        "line-color": "#c3bdb4",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 9, 0.5, 18, 2.5]
+      }
+    },
+    {
+      "id": "transportation-name",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "transportation_name",
+      "minzoom": 13,
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": ["coalesce", ["get", "name:bg"], ["get", "name"]],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11
+      },
+      "paint": {
+        "text-color": "#6b6459",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2
+      }
+    },
+    {
+      "id": "water-name",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "water_name",
+      "minzoom": 9,
+      "layout": {
+        "text-field": ["coalesce", ["get", "name:bg"], ["get", "name"]],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11
+      },
+      "paint": {
+        "text-color": "#4b7ba0",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2
+      }
+    },
+    {
+      "id": "mountain-peak",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "mountain_peak",
+      "minzoom": 11,
+      "layout": {
+        "text-field": ["coalesce", ["get", "name:bg"], ["get", "name"]],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 10,
+        "text-offset": [0, 0.6]
+      },
+      "paint": {
+        "text-color": "#7a6a55",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2
+      }
+    },
+    {
+      "id": "place-village",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "place",
+      "filter": ["in", ["get", "class"], ["literal", ["village", "hamlet", "suburb", "neighbourhood"]]],
+      "minzoom": 11,
+      "layout": {
+        "text-field": ["coalesce", ["get", "name:bg"], ["get", "name"]],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11
+      },
+      "paint": {
+        "text-color": "#59524a",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "place-town",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "place",
+      "filter": ["==", ["get", "class"], "town"],
+      "minzoom": 8,
+      "layout": {
+        "text-field": ["coalesce", ["get", "name:bg"], ["get", "name"]],
+        "text-font": ["Noto Sans Medium"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 8, 11, 14, 14]
+      },
+      "paint": {
+        "text-color": "#463f38",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "place-city",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "place",
+      "filter": ["in", ["get", "class"], ["literal", ["city", "state", "country"]]],
+      "layout": {
+        "text-field": ["coalesce", ["get", "name:bg"], ["get", "name"]],
+        "text-font": ["Noto Sans Medium"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 4, 12, 12, 18]
+      },
+      "paint": {
+        "text-color": "#332e29",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.6
+      }
+    }
+  ]
+}

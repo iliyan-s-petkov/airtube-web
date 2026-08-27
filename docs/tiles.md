@@ -27,8 +27,19 @@ this design exists to remove.
   newer toolchains and were not in the one this tag was released against.
   Configure with them demoted:
 
-      cmake . -DCMAKE_CXX_FLAGS="-Wno-c++11-narrowing -Wno-c++11-narrowing-const-reference"
+      cmake . -DCMAKE_CXX_FLAGS="-include cstdint -Wno-c++11-narrowing -Wno-c++11-narrowing-const-reference"
       make
+
+  `-include cstdint` is the second half of the same problem: the vendored
+  `glyph_foundry.hpp` spells `uint32_t` without including `<cstdint>`, which
+  compiled while libstdc++ still pulled that header in transitively and stopped
+  compiling at libstdc++ 13. The failure is `unknown type name 'uint32_t'` in a
+  header you did not write.
+
+  `CMakeLists.txt` hardcodes `/usr/bin/clang` and `/usr/bin/clang++` and does
+  `find_package` on Boost (headers only, ≥1.73) and Freetype. On Ubuntu 24.04
+  that is `clang libboost-dev libfreetype-dev` — all three are configure-time
+  failures, so none of them is optional.
 
   Demoting them is safe here — the narrowing is in glyph metric arithmetic that
   the upstream tool has always performed — and it is preferable to unpinning,
@@ -44,6 +55,11 @@ the glyph half of the procedure: a different `font-maker` build or a different
 Noto Sans release can shift which codepoints exist or how they're shaped,
 which surfaces as labels rendering wrong or not at all — silently, the same
 failure class the startup couplings exist to prevent.
+
+`tools/basemap/build.sh` runs §1 through §3 on a Debian-family host, idempotently
+— each stage is skipped if its output already exists. `tools/basemap/style.json`
+is the §4 style. Both are the record of what was actually run; the sections below
+are why.
 
 ## 1. The extract
 
