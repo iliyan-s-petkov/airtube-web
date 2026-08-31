@@ -119,6 +119,31 @@ expires in 90 days rather than 15 years, so a stalled `certbot.timer` is an outa
 valid for anyone, not just Cloudflare, so the client-certificate requirement below is the
 *only* thing separating the origin from the internet.
 
+## Caddyfile.dev: the dev Caddyfile
+
+`Caddyfile.dev` is `Caddyfile` without the `client_auth` block. It exists for one
+situation: the host has no public IP and no port forward, and the site has to be browsed
+from the LAN before anything is exposed. The role installs it only when run with
+`-e airbg_open_origin=true`, prints a warning task when it does, and installs the
+production file otherwise.
+
+It must be the real hostnames. `AIRBG_LISTEN_BASE_URL` is `https://airbg.org` and the CSP
+allows `connect-src 'self' https://tiles.airbg.org`, so browsing the VM by IP or by any
+other name loads a page whose tile requests the browser then blocks — an empty map that
+looks like a tiles bug. LAN DNS answers both names locally; see the OPNsense repo's
+README, "airbg.org on the LAN".
+
+What is genuinely lost while this file is installed: the origin accepts any client that
+can reach port 443. Rate limiting, the tiering, and every application-level control still
+apply, but the certificate wall does not — so this is safe only while no route from the
+internet exists. Before cutover, re-deploy without the flag and confirm a direct
+`openssl s_client` to the origin fails the handshake.
+
+`compose_test.go` asserts the production file still requires `require_and_verify`, and
+separately that this file carries its banner and does *not* require a client certificate.
+Adding `client_auth` back here does not make the deployment safer; it removes the dev path
+and fails the tests.
+
 ## nftables.conf: never `flush ruleset`
 
 `flush ruleset` is not scoped to this file's table. It destroys Docker's

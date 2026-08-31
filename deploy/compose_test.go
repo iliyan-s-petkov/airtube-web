@@ -315,11 +315,11 @@ func stripCaddyComment(line string) string {
 // match configuration could be satisfied, or defeated, by documentation
 // instead. A comment must never be able to stand in for the directive it
 // describes.
-func caddyBlocks(t *testing.T) map[string]string {
+func caddyBlocks(t *testing.T, name string) map[string]string {
 	t.Helper()
-	data, err := os.ReadFile("Caddyfile")
+	data, err := os.ReadFile(name)
 	if err != nil {
-		t.Fatalf("ReadFile(Caddyfile) error = %v, want nil", err)
+		t.Fatalf("ReadFile(%s) error = %v, want nil", name, err)
 	}
 	blocks := map[string]string{}
 	var current string
@@ -339,7 +339,7 @@ func caddyBlocks(t *testing.T) map[string]string {
 		}
 	}
 	if current != "" {
-		t.Fatalf("Caddyfile block %q is never closed at column 0", current)
+		t.Fatalf("%s block %q is never closed at column 0", name, current)
 	}
 	return blocks
 }
@@ -353,7 +353,7 @@ func caddyBlocks(t *testing.T) map[string]string {
 // Checked per block, not per file: `client_auth` in the tiles block would
 // satisfy a whole-file substring check while leaving the API wide open.
 func TestOnlyTheSiteVhostRequiresCloudflaresCertificate(t *testing.T) {
-	blocks := caddyBlocks(t)
+	blocks := caddyBlocks(t, "Caddyfile")
 
 	site, ok := blocks["airbg.org"]
 	if !ok {
@@ -372,6 +372,44 @@ func TestOnlyTheSiteVhostRequiresCloudflaresCertificate(t *testing.T) {
 	}
 	if strings.Contains(tiles, "client_auth") {
 		t.Error("the tiles block requires a client certificate; browsers connect to it directly and would all fail")
+	}
+}
+
+// Caddyfile.dev deliberately drops the enforcement above so a LAN browser can
+// reach an airgapped host. That makes it dangerous by design, and the danger is
+// only acceptable while it is impossible to install by accident and impossible
+// to mistake for the production file. Both properties are asserted here:
+// the banner (an operator reading the file on the host sees what it is) and the
+// absence of client_auth (if someone "fixes" this file by adding it back, the
+// role has two production Caddyfiles and no dev path, which should fail loudly
+// rather than silently).
+//
+// The role installs it only under airbg_open_origin=true; see README.md,
+// "the dev Caddyfile".
+func TestTheDevCaddyfileIsUnmistakableAndOpen(t *testing.T) {
+	data, err := os.ReadFile("Caddyfile.dev")
+	if err != nil {
+		t.Fatalf("ReadFile(Caddyfile.dev) error = %v, want nil", err)
+	}
+	if first, _, _ := strings.Cut(string(data), "\n"); !strings.Contains(first, "DEVELOPMENT ONLY") {
+		t.Errorf("Caddyfile.dev first line = %q, want it to open with a DEVELOPMENT ONLY banner", first)
+	}
+
+	blocks := caddyBlocks(t, "Caddyfile.dev")
+	site, ok := blocks["airbg.org"]
+	if !ok {
+		t.Fatalf("Caddyfile.dev has no airbg.org site block; found %v", keysOf(blocks))
+	}
+	if strings.Contains(site, "client_auth") {
+		t.Error("Caddyfile.dev requires a client certificate, which is the one thing it exists not to do")
+	}
+	if !strings.Contains(site, "reverse_proxy app:8080") {
+		t.Error("Caddyfile.dev does not proxy the app; it would serve nothing")
+	}
+	if tiles, ok := blocks["tiles.airbg.org"]; !ok {
+		t.Errorf("Caddyfile.dev has no tiles.airbg.org site block; the map renders empty without it, found %v", keysOf(blocks))
+	} else if !strings.Contains(tiles, "reverse_proxy app:8082") {
+		t.Error("Caddyfile.dev tiles block does not proxy the tiles listener")
 	}
 }
 
