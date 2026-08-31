@@ -492,7 +492,10 @@ func TestEveryOfeliaJobRunsOnAnInternalNetwork(t *testing.T) {
 // shape rewrites the search into a single literal name that matches nothing,
 // and the staleness check then fires every night against a healthy backup
 // directory. It cannot be fixed with quotes — see the no-double-quote test
-// below — so it is backslash-escaped.
+// below — and it cannot be fixed with a backslash either: ofelia's INI parser
+// rejects the file outright with "unquoted '\' must be followed by new line or
+// double quote", so the daemon never starts and NO job runs. `set -f` is the
+// one escape that survives both parsers, because it is plain words.
 func TestBackupPruneAlarmsWhenBackupsGoStale(t *testing.T) {
 	lines := ofeliaJobLines(t, `job-run "backup-prune"`)
 	command, ok := ofeliaValue(lines, "command")
@@ -505,7 +508,7 @@ func TestBackupPruneAlarmsWhenBackupsGoStale(t *testing.T) {
 		{`BACKUP-IS-STALE`, "no marker file: the only signal would be ofelia's log, not the directory an operator actually looks at"},
 		{`exit 1`, "no non-zero exit: the failure never reaches ofelia's log"},
 		{`rm -f /backups/BACKUP-IS-STALE`, "the marker never clears, so it keeps crying wolf after backups resume and is learned to be ignored"},
-		{`airbg-\*.dump`, "the glob is not backslash-escaped: sh expands it against the container's working directory before find sees it"},
+		{`set -f`, "pathname expansion is still on: sh expands airbg-*.dump against the container's working directory before find sees it"},
 	} {
 		if !strings.Contains(command, part.substr) {
 			t.Errorf("backup-prune command is missing %q — %s\ngot: %s", part.substr, part.why, command)
@@ -540,6 +543,24 @@ func TestNoOfeliaCommandUsesDoubleQuotes(t *testing.T) {
 	}
 	if checked != wantJobs {
 		t.Fatalf("scanned %d job commands, want %d — the job names or the command key changed and this test is checking nothing", checked, wantJobs)
+	}
+}
+
+// A backslash anywhere in this file is fatal in a way the double-quote trap is
+// not: ofelia's INI parser rejects the config before any job is scheduled
+// ("unquoted '\' must be followed by new line or double quote"), the daemon
+// crash-loops, and collection and backups both stop. The whole file is checked,
+// not just command values, because the parser fails on the character wherever
+// it appears. Reach for `set -f` instead — see the header of ofelia.ini.
+func TestOfeliaConfigContainsNoBackslash(t *testing.T) {
+	raw, err := os.ReadFile("ofelia.ini")
+	if err != nil {
+		t.Fatalf("reading ofelia.ini: %v", err)
+	}
+	for n, line := range strings.Split(string(raw), "\n") {
+		if strings.Contains(line, `\`) {
+			t.Errorf("ofelia.ini:%d contains a backslash — ofelia will refuse the whole config and run no jobs at all\ngot: %s", n+1, line)
+		}
 	}
 }
 

@@ -104,6 +104,12 @@ services:
     networks:
       sched: {}
     read_only: true
+    # The entrypoint generates haproxy.cfg from the CONTAINERS/POST/... vars on
+    # every start, so read_only alone crash-loops it. tmpfs keeps the filesystem
+    # non-persistent without giving the image a writable layer.
+    tmpfs:
+      - /usr/local/etc/haproxy
+      - /run
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     logging: *journal
