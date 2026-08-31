@@ -121,6 +121,11 @@ type Holder struct {
 	// every request would reopen the question this holder exists to close.
 	metric string
 	window time.Duration
+
+	// bucket is the resolution of the precomputed series. It must equal the
+	// bucket the database-backed fall-through uses for the same period, or one
+	// chart changes shape depending on whether the snapshot was warm.
+	bucket time.Duration
 }
 
 // NewHolder takes the series configuration because the snapshot serves the
@@ -128,7 +133,16 @@ type Holder struct {
 // api.parsePeriod derives from the configured periods — config.Validate
 // enforces it, which is why this constructor can simply trust it.
 func NewHolder(cfg config.Series) *Holder {
-	return &Holder{metric: cfg.DefaultMetric, window: cfg.DefaultWindow}
+	h := &Holder{metric: cfg.DefaultMetric, window: cfg.DefaultWindow}
+	// Matched on window rather than on the DefaultSeriesPeriod name, because
+	// the window is what config.Validate guarantees a period exists for.
+	for _, p := range cfg.Periods {
+		if p.Window == cfg.DefaultWindow {
+			h.bucket = p.Bucket
+			break
+		}
+	}
+	return h
 }
 
 // DefaultMetric is the metric of the one series combination Build precomputes.

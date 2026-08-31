@@ -187,16 +187,30 @@ type Point struct {
 	Value float64
 }
 
-const rawSeriesSQL = `
-SELECT time, value FROM reading
+// bucketExpr is time_bucket with the width supplied as a query parameter rather
+// than a literal. make_interval takes the seconds because pgx has no unambiguous
+// mapping from time.Duration to interval, and an interval built from seconds is
+// fixed-width — which is what time_bucket needs for a stable origin.
+const bucketExpr = `time_bucket(make_interval(secs => $%d::double precision), %s)`
+
+func bucketed(col string, param int) string {
+	return fmt.Sprintf(bucketExpr, param, col)
+}
+
+var (
+	rawSeriesSQL = `
+SELECT ` + bucketed("time", 5) + ` AS b, avg(value) FROM reading
  WHERE sensor_id = $1 AND metric = $2 AND time >= $3
    AND quality = ANY($4::quality_flag[])
- ORDER BY time`
+ GROUP BY b
+ ORDER BY b`
 
-const hourlySeriesSQL = `
-SELECT bucket, avg_value FROM reading_hourly
+	hourlySeriesSQL = `
+SELECT ` + bucketed("bucket", 4) + ` AS b, avg(avg_value) FROM reading_hourly
  WHERE sensor_id = $1 AND metric = $2 AND bucket >= $3
- ORDER BY bucket`
+ GROUP BY b
+ ORDER BY b`
+)
 
 // SensorSeries returns a time series for one sensor and metric. hourly selects
 // reading_hourly instead of reading.
@@ -205,7 +219,9 @@ SELECT bucket, avg_value FROM reading_hourly
 // requested period, not of the data: raw readings are retained 30 days
 // (migration 00003), so any window reaching further back must come from
 // reading_hourly or it silently returns a truncated series that looks complete.
-func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool) ([]Point, error) {
+// bucket is the resolution, a separate decision from hourly: hourly picks the
+// table, bucket picks how many points come back.
+func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool, bucket time.Duration) ([]Point, error) {
 	// A transaction only so statement_timeout can be scoped: set_config's local
 	// flag is transaction-scoped, and this read must not inherit the pool-wide
 	// 15s. Rolled back rather than committed — nothing is written, and a rollback
@@ -222,9 +238,9 @@ func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string,
 
 	var rows pgx.Rows
 	if hourly {
-		rows, err = tx.Query(ctx, hourlySeriesSQL, sensorID, metric, since)
+		rows, err = tx.Query(ctx, hourlySeriesSQL, sensorID, metric, since, bucket.Seconds())
 	} else {
-		rows, err = tx.Query(ctx, rawSeriesSQL, sensorID, metric, since, usableQuality)
+		rows, err = tx.Query(ctx, rawSeriesSQL, sensorID, metric, since, usableQuality, bucket.Seconds())
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: sensor series: %w", err)
@@ -245,17 +261,19 @@ func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string,
 	return out, nil
 }
 
-// areaRawSeriesSQL averages across the area's sensors at each timestamp.
+// areaRawSeriesSQL averages across the area's sensors within each time bucket.
 //
-// Grouped by time so two sensors reporting at the same instant produce ONE
-// point. Without the grouping the result is every sensor's reading in
-// timestamp order, which renders as a sawtooth that a reader would interpret as
-// rapid air-quality swings rather than as sensors disagreeing.
+// The bucket is what makes this an aggregate. Grouping on the raw timestamp
+// instead collapses nothing: sensors report asynchronously at second
+// resolution, so equality on r.time almost never matches two rows and every
+// avg() averages a single sensor. The result is one point per sensor per
+// report, in timestamp order, which renders as a sawtooth a reader interprets
+// as rapid air-quality swings rather than as sensors disagreeing.
 //
 // area_sensor carries area_slug directly (migration 00004) — there is no
 // numeric area.id to join through.
-const areaRawSeriesSQL = `
-SELECT r.time, avg(r.value)
+var areaRawSeriesSQL = `
+SELECT ` + bucketed("r.time", 5) + ` AS b, avg(r.value)
   FROM reading r
   JOIN area_sensor asx ON asx.sensor_id = r.sensor_id
   JOIN area a          ON a.slug = asx.area_slug
@@ -263,22 +281,22 @@ SELECT r.time, avg(r.value)
    AND r.metric = $2
    AND r.time  >= $3
    AND r.quality = ANY($4::quality_flag[])
- GROUP BY r.time
- ORDER BY r.time`
+ GROUP BY b
+ ORDER BY b`
 
 // areaHourlySeriesSQL is the same over the rollup. reading_hourly carries no
 // quality column — the rollup is built from readings that already passed the
 // filter, so re-filtering here would be impossible AND unnecessary.
-const areaHourlySeriesSQL = `
-SELECT h.bucket, avg(h.avg_value)
+var areaHourlySeriesSQL = `
+SELECT ` + bucketed("h.bucket", 4) + ` AS b, avg(h.avg_value)
   FROM reading_hourly h
   JOIN area_sensor asx ON asx.sensor_id = h.sensor_id
   JOIN area a          ON a.slug = asx.area_slug
  WHERE a.slug   = $1
    AND h.metric = $2
    AND h.bucket >= $3
- GROUP BY h.bucket
- ORDER BY h.bucket`
+ GROUP BY b
+ ORDER BY b`
 
 // allAreaRawSeriesSQL is areaRawSeriesSQL for EVERY area in one round trip.
 //
@@ -288,33 +306,37 @@ SELECT h.bucket, avg(h.avg_value)
 // ingest cycle — hundreds once neighbourhood boundaries are imported — against
 // the collector pool's four connections.
 //
-// Grouped by (slug, time), so a sensor belonging to two areas contributes to
-// both means, and two sensors reporting at the same instant produce one point.
-// Ordered by slug then time, so the scan below can rely on time order within
+// Grouped by (slug, bucket), so a sensor belonging to two areas contributes to
+// both means, and sensors reporting within one bucket produce one point.
+// Ordered by slug then bucket, so the scan below can rely on time order within
 // each slug without sorting afterwards.
-const allAreaRawSeriesSQL = `
-SELECT a.slug, r.time, avg(r.value)
+//
+// It must bucket on the same rule as areaRawSeriesSQL. The snapshot is built
+// from this query and the fall-through is served by that one; if they disagree
+// the same chart changes shape depending on whether the cache was warm.
+var allAreaRawSeriesSQL = `
+SELECT a.slug, ` + bucketed("r.time", 4) + ` AS b, avg(r.value)
   FROM reading r
   JOIN area_sensor asx ON asx.sensor_id = r.sensor_id
   JOIN area a          ON a.slug = asx.area_slug
  WHERE r.metric = $1
    AND r.time  >= $2
    AND r.quality = ANY($3::quality_flag[])
- GROUP BY a.slug, r.time
- ORDER BY a.slug, r.time`
+ GROUP BY a.slug, b
+ ORDER BY a.slug, b`
 
 // allAreaHourlySeriesSQL is the same over the rollup. reading_hourly carries no
 // quality column: the rollup is built from readings that already passed the
 // filter.
-const allAreaHourlySeriesSQL = `
-SELECT a.slug, h.bucket, avg(h.avg_value)
+var allAreaHourlySeriesSQL = `
+SELECT a.slug, ` + bucketed("h.bucket", 3) + ` AS b, avg(h.avg_value)
   FROM reading_hourly h
   JOIN area_sensor asx ON asx.sensor_id = h.sensor_id
   JOIN area a          ON a.slug = asx.area_slug
  WHERE h.metric = $1
    AND h.bucket >= $2
- GROUP BY a.slug, h.bucket
- ORDER BY a.slug, h.bucket`
+ GROUP BY a.slug, b
+ ORDER BY a.slug, b`
 
 // AllAreaSeries returns the area-mean series for one metric, for every area
 // that has data in the window, keyed by slug.
@@ -323,15 +345,15 @@ SELECT a.slug, h.bucket, avg(h.avg_value)
 // empty slice. snapshot.Build iterates its known slugs and looks each one up, so
 // a missing key is the correct representation of "no data" there — and a caller
 // that needs an entry per area must iterate its own slug set, not this map.
-func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Time, hourly bool) (map[string][]Point, error) {
+func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Time, hourly bool, bucket time.Duration) (map[string][]Point, error) {
 	var (
 		rows pgx.Rows
 		err  error
 	)
 	if hourly {
-		rows, err = s.pool.Query(ctx, allAreaHourlySeriesSQL, metric, since)
+		rows, err = s.pool.Query(ctx, allAreaHourlySeriesSQL, metric, since, bucket.Seconds())
 	} else {
-		rows, err = s.pool.Query(ctx, allAreaRawSeriesSQL, metric, since, usableQuality)
+		rows, err = s.pool.Query(ctx, allAreaRawSeriesSQL, metric, since, usableQuality, bucket.Seconds())
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: all area series for %q: %w", metric, err)
@@ -358,7 +380,7 @@ func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Tim
 // the requested window — and raw readings are retained for 30 days, so a longer
 // window queried against `reading` returns a silently truncated series rather
 // than an error.
-func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool) ([]Point, error) {
+func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool, bucket time.Duration) ([]Point, error) {
 	// A transaction only so statement_timeout can be scoped: set_config's local
 	// flag is transaction-scoped, and this read must not inherit the pool-wide
 	// 15s. Rolled back rather than committed — nothing is written, and a rollback
@@ -375,9 +397,9 @@ func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.
 
 	var rows pgx.Rows
 	if hourly {
-		rows, err = tx.Query(ctx, areaHourlySeriesSQL, slug, metric, since)
+		rows, err = tx.Query(ctx, areaHourlySeriesSQL, slug, metric, since, bucket.Seconds())
 	} else {
-		rows, err = tx.Query(ctx, areaRawSeriesSQL, slug, metric, since, usableQuality)
+		rows, err = tx.Query(ctx, areaRawSeriesSQL, slug, metric, since, usableQuality, bucket.Seconds())
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: area series for %q: %w", slug, err)

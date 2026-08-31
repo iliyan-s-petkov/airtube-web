@@ -94,9 +94,9 @@ func AdmissionRejectedCountForTesting(route string) int64 {
 // readings are retained for 30 days, so a 1-year window against `reading`
 // silently returns the last 30 days under a "1 year" label — a chart that is
 // wrong without being empty.
-func parsePeriod(cfg config.Series, v string) (time.Duration, bool, bool) {
+func parsePeriod(cfg config.Series, v string) (config.Period, bool) {
 	p, ok := cfg.Periods[v]
-	return p.Window, p.Hourly, ok
+	return p, ok
 }
 
 // maxAgeFor is per period because each value needs its own justification: a 24h
@@ -117,12 +117,13 @@ func maxAgeFor(cfg config.Config, period string) int {
 // asserted directly. Testing it only through the handler would leave the
 // hourly flag verified by nothing — the stub returns the same points either way.
 func ParsePeriodForTesting(cfg config.Series, v string) (time.Duration, bool, bool) {
-	return parsePeriod(cfg, v)
+	p, ok := parsePeriod(cfg, v)
+	return p.Window, p.Hourly, ok
 }
 
 // seriesRequest validates everything a series endpoint takes from the caller.
 // Returning ok=false means a response has already been written.
-func seriesRequest(w http.ResponseWriter, r *http.Request, cfg config.Series) (metric, period string, since time.Time, hourly, ok bool) {
+func seriesRequest(w http.ResponseWriter, r *http.Request, cfg config.Series) (metric, period string, since time.Time, pd config.Period, ok bool) {
 	metric = r.URL.Query().Get("metric")
 	// Validated against the canonical set. The value reaches a WHERE clause, so
 	// this is also what guarantees no caller string is ever interpolated —
@@ -134,18 +135,18 @@ func seriesRequest(w http.ResponseWriter, r *http.Request, cfg config.Series) (m
 	if !upstream.IsCanonicalMetric(metric) {
 		writeError(w, http.StatusBadRequest, "bad_request",
 			"Unknown metric. Valid metrics are: "+joinComma(upstream.CanonicalMetrics())+".")
-		return "", "", time.Time{}, false, false
+		return "", "", time.Time{}, config.Period{}, false
 	}
 
 	period = r.URL.Query().Get("period")
-	window, hourly, valid := parsePeriod(cfg, period)
+	pd, valid := parsePeriod(cfg, period)
 	if !valid {
 		writeError(w, http.StatusBadRequest, "bad_request",
 			`The "period" parameter must be one of: 24h, 7d, 30d, 1y.`)
-		return "", "", time.Time{}, false, false
+		return "", "", time.Time{}, config.Period{}, false
 	}
 
-	return metric, period, time.Now().UTC().Add(-window), hourly, true
+	return metric, period, time.Now().UTC().Add(-pd.Window), pd, true
 }
 
 func joinComma(items []string) string {
@@ -281,7 +282,7 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metric, period, since, hourly, ok := seriesRequest(w, r, d.Config.Series)
+	metric, period, since, pd, ok := seriesRequest(w, r, d.Config.Series)
 	if !ok {
 		return
 	}
@@ -302,7 +303,7 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	points, err := d.Store.SensorSeries(r.Context(), id, metric, since, hourly)
+	points, err := d.Store.SensorSeries(r.Context(), id, metric, since, pd.Hourly, pd.Bucket)
 	release()
 	if err != nil {
 		// Logged with the detail, answered without it. A pgx error carries the
@@ -313,7 +314,7 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeSeries(w, d.Config, snapshot.SeriesPayload{
-		SensorID: &id, Metric: metric, Period: period, Hourly: hourly,
+		SensorID: &id, Metric: metric, Period: period, Hourly: pd.Hourly,
 	}, points)
 }
 
@@ -330,7 +331,7 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metric, period, since, hourly, ok := seriesRequest(w, r, d.Config.Series)
+	metric, period, since, pd, ok := seriesRequest(w, r, d.Config.Series)
 	if !ok {
 		return
 	}
@@ -369,7 +370,7 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	points, err := d.Store.AreaSeries(r.Context(), slug, metric, since, hourly)
+	points, err := d.Store.AreaSeries(r.Context(), slug, metric, since, pd.Hourly, pd.Bucket)
 	release()
 	if err != nil {
 		slog.Error("area series query failed", "slug", slug, "metric", metric, "error", err)
@@ -377,7 +378,7 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSeries(w, d.Config, snapshot.SeriesPayload{Slug: slug, Metric: metric, Period: period, Hourly: hourly}, points)
+	writeSeries(w, d.Config, snapshot.SeriesPayload{Slug: slug, Metric: metric, Period: period, Hourly: pd.Hourly}, points)
 }
 
 func writeSeries(w http.ResponseWriter, cfg config.Config, body snapshot.SeriesPayload, points []store.Point) {

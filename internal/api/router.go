@@ -27,8 +27,8 @@ import (
 // the snapshot).
 type DataSource interface {
 	AreaAtPoint(ctx context.Context, lon, lat float64) (string, error)
-	SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool) ([]store.Point, error)
-	AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool) ([]store.Point, error)
+	SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool, bucket time.Duration) ([]store.Point, error)
+	AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool, bucket time.Duration) ([]store.Point, error)
 }
 
 type Deps struct {

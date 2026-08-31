@@ -78,10 +78,10 @@ func TestResolvePeriods(t *testing.T) {
 	}
 	cfg := resolve(r)
 	want := map[string]Period{
-		"24h": {24 * time.Hour, false, 150 * time.Second},
-		"7d":  {7 * 24 * time.Hour, false, 600 * time.Second},
-		"30d": {30 * 24 * time.Hour, false, 1800 * time.Second},
-		"1y":  {365 * 24 * time.Hour, true, 10800 * time.Second},
+		"24h": {24 * time.Hour, false, 5 * time.Minute, 150 * time.Second},
+		"7d":  {7 * 24 * time.Hour, false, time.Hour, 600 * time.Second},
+		"30d": {30 * 24 * time.Hour, false, 6 * time.Hour, 1800 * time.Second},
+		"1y":  {365 * 24 * time.Hour, true, 24 * time.Hour, 10800 * time.Second},
 	}
 	for name, w := range want {
 		got, ok := cfg.Series.Periods[name]

@@ -32,11 +32,11 @@ func (s *blockingSource) AreaAtPoint(_ context.Context, _, _ float64) (string, e
 	return "", nil
 }
 
-func (s *blockingSource) SensorSeries(_ context.Context, _ int64, _ string, _ time.Time, _ bool) ([]store.Point, error) {
+func (s *blockingSource) SensorSeries(_ context.Context, _ int64, _ string, _ time.Time, _ bool, _ time.Duration) ([]store.Point, error) {
 	return nil, nil
 }
 
-func (s *blockingSource) AreaSeries(_ context.Context, _, _ string, _ time.Time, _ bool) ([]store.Point, error) {
+func (s *blockingSource) AreaSeries(_ context.Context, _, _ string, _ time.Time, _ bool, _ time.Duration) ([]store.Point, error) {
 	return nil, nil
 }
 

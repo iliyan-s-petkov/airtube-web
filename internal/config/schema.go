@@ -130,6 +130,7 @@ type rawPeriod struct {
 	Name   *string   `yaml:"name"`
 	Window *Duration `yaml:"window"`
 	Hourly *bool     `yaml:"hourly"`
+	Bucket *Duration `yaml:"bucket"`
 	MaxAge *Duration `yaml:"max_age"`
 }
 

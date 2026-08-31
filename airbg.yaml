@@ -181,22 +181,32 @@ series:
   # 24h chart of raw readings is a live view whose right edge moves every few
   # minutes, while a 1-year chart is hourly rollups where re-running the
   # heaviest query in the service repaints a single pixel.
+  #
+  # bucket is the chart's resolution, and is not the same decision as hourly:
+  # sensors report asynchronously at second resolution, so without a bucket an
+  # area series returns one point per sensor per report. Each value below is
+  # chosen to land the series near 300 points, which is roughly the horizontal
+  # pixel budget of the chart and also caps what a single request can extract.
   periods:
     - name: "24h"
       window: "24h"
       hourly: false
+      bucket: "5m"
       max_age: "150s"
     - name: "7d"
       window: "168h"
       hourly: false
+      bucket: "1h"
       max_age: "600s"
     - name: "30d"
       window: "720h"
       hourly: false
+      bucket: "6h"
       max_age: "1800s"
     - name: "1y"
       window: "8760h"
       hourly: true
+      bucket: "24h"
       max_age: "10800s"
 
 quality:

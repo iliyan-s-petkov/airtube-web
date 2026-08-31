@@ -419,11 +419,11 @@ func (b *blockingSeriesStore) AreaAtPoint(ctx context.Context, lon, lat float64)
 	return "", errors.New("blockingSeriesStore: AreaAtPoint unexpectedly called")
 }
 
-func (b *blockingSeriesStore) SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool) ([]store.Point, error) {
+func (b *blockingSeriesStore) SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool, _ time.Duration) ([]store.Point, error) {
 	return nil, errors.New("blockingSeriesStore: SensorSeries unexpectedly called")
 }
 
-func (b *blockingSeriesStore) AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool) ([]store.Point, error) {
+func (b *blockingSeriesStore) AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool, _ time.Duration) ([]store.Point, error) {
 	b.startOnce.Do(func() { close(b.started) })
 	<-b.release
 	return []store.Point{}, nil

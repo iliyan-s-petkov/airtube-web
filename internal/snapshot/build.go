@@ -112,7 +112,7 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	// One query for every area, not one per area: Build runs on the collector
 	// pool (4 connections) and the neighbourhood import multiplies the area
 	// count by an order of magnitude.
-	seriesBySlug, err := s.AllAreaSeries(ctx, h.metric, now.Add(-h.window), false)
+	seriesBySlug, err := s.AllAreaSeries(ctx, h.metric, now.Add(-h.window), false, h.bucket)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: area series: %w", err)
 	}

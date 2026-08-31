@@ -118,9 +118,14 @@ type Series struct {
 	PeriodNames []string
 }
 
+// Hourly picks the table, Bucket picks the resolution; they are independent.
+// Sensors report asynchronously at second resolution, so a series that does not
+// bucket returns one point per sensor per report rather than one point per
+// instant in time.
 type Period struct {
 	Window time.Duration
 	Hourly bool
+	Bucket time.Duration
 	MaxAge time.Duration
 }
 
@@ -343,6 +348,7 @@ func resolve(r *raw) Config {
 		cfg.Series.Periods[*p.Name] = Period{
 			Window: p.Window.Std(),
 			Hourly: *p.Hourly,
+			Bucket: p.Bucket.Std(),
 			MaxAge: p.MaxAge.Std(),
 		}
 		cfg.Series.PeriodNames = append(cfg.Series.PeriodNames, *p.Name)

@@ -246,7 +246,18 @@ func (c Config) validateStoreAndSeries(p *problems) {
 			p.addf("series.periods has an entry with an empty name")
 		}
 		p.positive(fmt.Sprintf("series.periods[%s].window", name), pd.Window)
+		p.positive(fmt.Sprintf("series.periods[%s].bucket", name), pd.Bucket)
 		p.positive(fmt.Sprintf("series.periods[%s].max_age", name), pd.MaxAge)
+		// A bucket at least as wide as the window collapses the chart to a
+		// single point, which renders as an empty plot rather than an error.
+		if pd.Bucket > 0 && pd.Window > 0 && pd.Bucket >= pd.Window {
+			p.addf("series.periods[%s].bucket (%v) is not smaller than its window (%v)", name, pd.Bucket, pd.Window)
+		}
+		// An hourly period reads the hourly rollup, so a sub-hour bucket cannot
+		// add resolution — it only splits one row per hour across empty buckets.
+		if pd.Hourly && pd.Bucket > 0 && pd.Bucket < time.Hour {
+			p.addf("series.periods[%s].bucket (%v) is under an hour but hourly is true", name, pd.Bucket)
+		}
 	}
 	// The snapshot serves the default window without touching the database, so
 	// the default window must equal the window api.parsePeriod derives from one

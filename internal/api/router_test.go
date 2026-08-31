@@ -59,11 +59,11 @@ func (s *stubSource) AreaAtPoint(_ context.Context, _, _ float64) (string, error
 	return s.slug, s.err
 }
 
-func (s *stubSource) SensorSeries(_ context.Context, _ int64, _ string, _ time.Time, _ bool) ([]store.Point, error) {
+func (s *stubSource) SensorSeries(_ context.Context, _ int64, _ string, _ time.Time, _ bool, _ time.Duration) ([]store.Point, error) {
 	return s.points, s.err
 }
 
-func (s *stubSource) AreaSeries(_ context.Context, _, _ string, _ time.Time, _ bool) ([]store.Point, error) {
+func (s *stubSource) AreaSeries(_ context.Context, _, _ string, _ time.Time, _ bool, _ time.Duration) ([]store.Point, error) {
 	s.areaSeriesCalls++
 	return s.points, s.err
 }

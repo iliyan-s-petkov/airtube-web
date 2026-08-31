@@ -306,7 +306,7 @@ func TestSensorSeriesUsesRawBelowThirtyDays(t *testing.T) {
 		t.Fatalf("seed hourly: %v", err)
 	}
 
-	pts, err := s.SensorSeries(ctx, 20, "P2", now.Add(-24*time.Hour), false)
+	pts, err := s.SensorSeries(ctx, 20, "P2", now.Add(-24*time.Hour), false, time.Second)
 	if err != nil {
 		t.Fatalf("SensorSeries: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestSensorSeriesUsesHourlyAboveThirtyDays(t *testing.T) {
 		t.Fatalf("seed hourly: %v", err)
 	}
 
-	pts, err := s.SensorSeries(ctx, 21, "P2", bucket.Add(-time.Hour), true)
+	pts, err := s.SensorSeries(ctx, 21, "P2", bucket.Add(-time.Hour), true, time.Hour)
 	if err != nil {
 		t.Fatalf("SensorSeries: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestAreaSeriesAveragesAcrossSensors(t *testing.T) {
 	}
 	assignAreas(t, ctx, pool)
 
-	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false)
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false, time.Second)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}
@@ -407,6 +407,60 @@ func TestAreaSeriesAveragesAcrossSensors(t *testing.T) {
 	}
 	if points[0].Value != 20 {
 		t.Errorf("value = %v, want 20 (the mean of 10 and 30)", points[0].Value)
+	}
+}
+
+// TestAreaSeriesBucketsAsynchronousReports: the one above seeds both sensors at
+// the SAME instant, which is the assumption that hid a real defect — grouping on
+// the raw timestamp passed it while aggregating nothing in production, because
+// real sensors report asynchronously at second resolution and equality on
+// r.time almost never matches two rows.
+//
+// This seeds them a second apart, which is what the network actually does. It
+// fails against a query that groups on r.time (two points, 10 and 30) and
+// passes only against one that groups on a bucket.
+func TestAreaSeriesBucketsAsynchronousReports(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	seedSensorReading(t, ctx, pool, 710, 23.3219, 42.6977, "P2", 10, "ok", base)
+	seedSensorReading(t, ctx, pool, 711, 23.3229, 42.6977, "P2", 30, "ok", base.Add(time.Second))
+	assignAreas(t, ctx, pool)
+
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("got %d points, want 1 (two sensors one second apart share a 5-minute bucket)", len(points))
+	}
+	if points[0].Value != 20 {
+		t.Errorf("value = %v, want 20 (the mean of 10 and 30)", points[0].Value)
+	}
+}
+
+// TestAreaSeriesSeparatesDistinctBuckets is the other half of the one above: a
+// bucket that merged everything would pass that test for the wrong reason.
+func TestAreaSeriesSeparatesDistinctBuckets(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	seedSensorReading(t, ctx, pool, 720, 23.3219, 42.6977, "P2", 10, "ok", base)
+	seedSensorReading(t, ctx, pool, 721, 23.3229, 42.6977, "P2", 30, "ok", base.Add(20*time.Minute))
+	assignAreas(t, ctx, pool)
+
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 2 {
+		t.Fatalf("got %d points, want 2 (readings 20 minutes apart are different 5-minute buckets)", len(points))
 	}
 }
 
@@ -425,7 +479,7 @@ func TestAreaSeriesExcludesFlaggedReadings(t *testing.T) {
 	seedSensorReading(t, ctx, pool, 801, 23.3229, 42.6977, "P2", 1000, "stuck", base)
 	assignAreas(t, ctx, pool)
 
-	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false)
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false, time.Second)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}
@@ -447,14 +501,17 @@ func seedAreaSeriesFixture(t *testing.T, ctx contextT, pool poolT) {
 	seedArea(t, ctx, pool, "series-b", "oblast", 25.0, 43.0)
 
 	base := time.Now().UTC().Truncate(time.Minute)
-	// Two sensors in series-a reporting at the SAME instant.
+	// Two sensors in series-a reporting a second apart, the way the network
+	// actually behaves. Seeding both at one instant would let a query that
+	// grouped on the raw timestamp pass this parity test while aggregating
+	// nothing, which is exactly how the defect this fixture now guards survived.
 	seedSensorReading(t, ctx, pool, 200, 23.0, 42.0, "P2", 10, "ok", base)
-	seedSensorReading(t, ctx, pool, 201, 23.001, 42.001, "P2", 20, "ok", base)
+	seedSensorReading(t, ctx, pool, 201, 23.001, 42.001, "P2", 20, "ok", base.Add(time.Second))
 	// A flagged reading in series-a. If the quality filter were dropped, this
 	// would move AllAreaSeries's mean away from AreaSeries's, and the parity
 	// test would fail on the point value rather than passing by accident
 	// because the fixture had nothing bad in it.
-	seedSensorReading(t, ctx, pool, 203, 23.002, 42.002, "P2", 999, "out_of_range", base)
+	seedSensorReading(t, ctx, pool, 203, 23.002, 42.002, "P2", 999, "out_of_range", base.Add(2*time.Second))
 	// One sensor in series-b.
 	seedSensorReading(t, ctx, pool, 202, 25.0, 43.0, "P2", 30, "ok", base)
 
@@ -488,7 +545,7 @@ func TestAllAreaSeriesMatchesThePerAreaQuery(t *testing.T) {
 	seedAreaSeriesFixture(t, ctx, pool)
 
 	since := time.Now().UTC().Add(-24 * time.Hour)
-	all, err := s.AllAreaSeries(ctx, "P2", since, false)
+	all, err := s.AllAreaSeries(ctx, "P2", since, false, 5*time.Minute)
 	if err != nil {
 		t.Fatalf("AllAreaSeries: %v", err)
 	}
@@ -497,7 +554,7 @@ func TestAllAreaSeriesMatchesThePerAreaQuery(t *testing.T) {
 	}
 
 	for slug, batched := range all {
-		single, err := s.AreaSeries(ctx, slug, "P2", since, false)
+		single, err := s.AreaSeries(ctx, slug, "P2", since, false, 5*time.Minute)
 		if err != nil {
 			t.Fatalf("AreaSeries(%q): %v", slug, err)
 		}
@@ -525,7 +582,7 @@ func TestAllAreaSeriesGroupsSensorsAtTheSameInstant(t *testing.T) {
 
 	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20) // one area, one timestamp, values 10 and 20
 
-	points, err := s.AllAreaSeries(ctx, "P2", at.Add(-time.Hour), false)
+	points, err := s.AllAreaSeries(ctx, "P2", at.Add(-time.Hour), false, time.Second)
 	if err != nil {
 		t.Fatalf("AllAreaSeries: %v", err)
 	}
@@ -556,7 +613,7 @@ func TestAreaSeriesExcludesOutOfRangeNaN(t *testing.T) {
 	seedSensorReading(t, ctx, pool, 901, 23.501, 42.5, "P2", math.NaN(), "out_of_range", base)
 	assignAreas(t, ctx, pool)
 
-	points, err := s.AreaSeries(ctx, "nan-area", "P2", base.Add(-time.Hour), false)
+	points, err := s.AreaSeries(ctx, "nan-area", "P2", base.Add(-time.Hour), false, time.Second)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}
@@ -605,7 +662,7 @@ func TestAreaSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, err = s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false)
+	_, err = s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false, time.Second)
 	elapsed := time.Since(start)
 
 	var pgErr *pgconn.PgError
@@ -642,7 +699,7 @@ func TestSensorSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, err = s.SensorSeries(ctx, 950, "P2", now.Add(-time.Hour), false)
+	_, err = s.SensorSeries(ctx, 950, "P2", now.Add(-time.Hour), false, time.Second)
 	elapsed := time.Since(start)
 
 	var pgErr *pgconn.PgError
@@ -664,7 +721,7 @@ func TestAreaSeriesStillReturnsDataInsideItsTransaction(t *testing.T) {
 
 	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20)
 
-	points, err := s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false)
+	points, err := s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false, time.Second)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}
