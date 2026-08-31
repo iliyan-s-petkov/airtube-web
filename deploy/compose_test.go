@@ -429,6 +429,29 @@ func ofeliaValue(lines []string, key string) (string, bool) {
 	return "", false
 }
 
+// ofelia pulls a job's image before every run unless told not to, and this
+// deployment cannot pull: the socket proxy sets IMAGES=0 on purpose, so the
+// attempt comes back `API error (403): Request forbidden by administrative
+// rules` and the job never starts. Nothing watches a job-run's exit code, so
+// the collector fails every five minutes in silence — observed on the host
+// before `pull = false` was added.
+//
+// Not pulling costs nothing here. airbg:latest is built on the host by the
+// deploy and exists in no registry, so a pull could only ever fail; the
+// database image is already local because the db service runs it. The
+// alternative fix — IMAGES=1 — would let the scheduler stage arbitrary
+// images, which is the power the proxy exists to withhold, and
+// TestSocketProxyGrantsOnlyContainerCreation refuses it.
+func TestEveryOfeliaJobDisablesTheImagePull(t *testing.T) {
+	for _, job := range []string{"collect", "backup", "backup-prune"} {
+		lines := ofeliaJobLines(t, `job-run "`+job+`"`)
+		v, ok := ofeliaValue(lines, "pull")
+		if !ok || v != "false" {
+			t.Errorf("job %s sets pull=%q (present=%v), want \"false\" — the socket proxy forbids image pulls, so this job would 403 on every run and fail silently", job, v, ok)
+		}
+	}
+}
+
 // The collect job is started fresh through the Docker API by ofelia's
 // job-run, which — unlike a Compose service — inherits no env_file and no
 // mounts from anything else in this deployment. Without a database
