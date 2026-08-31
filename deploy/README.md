@@ -96,6 +96,29 @@ The Ansible role runs bootstrap commands and area imports with plain
 `docker run` on the back network instead, the same shape ofelia's job-run
 containers use.
 
+## Caddyfile: the origin certificate
+
+`origin.pem` / `origin.key` are a **Let's Encrypt** certificate, not a Cloudflare Origin CA
+one — the design documents in `../docs/superpowers/` describe the Origin CA route and were
+not followed. Reaffirmed 2026-08-31.
+
+`certbot` on the host issues it over DNS-01 against Cloudflare and installs it through a
+deploy hook; the Ansible role `home.apps.airbg` (`tasks/certificate.yml`) sets that up and
+`certbot.timer` renews it. Caddy itself never runs ACME here — DNS-01 needs neither a public
+A record nor port 80, which is what lets the origin stay unreachable except through
+Cloudflare.
+
+One certificate covers all three names (`airbg.org`, `www.airbg.org`, `tiles.airbg.org` as
+SANs), and it is loaded once, by the `tls` directive in the `airbg.org` block. The
+`tiles.airbg.org` block has no `tls` directive of its own: Caddy indexes loaded certificates
+by SAN and matches this one. **Dropping a name from the certbot lineage therefore breaks the
+tiles vhost, with nothing in this file mentioning it.**
+
+Two consequences of using a publicly trusted certificate rather than an Origin CA one: it
+expires in 90 days rather than 15 years, so a stalled `certbot.timer` is an outage; and it is
+valid for anyone, not just Cloudflare, so the client-certificate requirement below is the
+*only* thing separating the origin from the internet.
+
 ## nftables.conf: never `flush ruleset`
 
 `flush ruleset` is not scoped to this file's table. It destroys Docker's

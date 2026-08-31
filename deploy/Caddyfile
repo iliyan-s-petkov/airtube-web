@@ -6,18 +6,15 @@
 # require_and_verify, and is in THIS block rather than the tiles one.
 
 {
-	# No ACME account email is configured for the site vhost: its certificate
-	# comes from Cloudflare's origin CA, not from Let's Encrypt. The tiles
-	# vhost below does use ACME, so an address is required for expiry notices.
 	email admin@airbg.org
 }
 
 airbg.org {
-	# The Cloudflare Origin CA certificate is trusted by Cloudflare and by
-	# nothing else — correct here precisely because only Cloudflare ever
-	# connects. client_auth is the other half: Cloudflare's edge presents a
-	# certificate the public does not have, so a direct connection to the
-	# origin IP fails the handshake regardless of its source address.
+	# One Let's Encrypt certificate, issued by certbot over DNS-01 outside this
+	# container and covering all three names. See README.md, "the origin
+	# certificate". client_auth is what closes the origin: Cloudflare's edge
+	# presents a certificate the public does not have, so a direct connection to
+	# the origin IP fails the handshake regardless of its source address.
 	tls /etc/caddy/tls/origin.pem /etc/caddy/tls/origin.key {
 		client_auth {
 			mode require_and_verify
@@ -32,7 +29,7 @@ airbg.org {
 
 tiles.airbg.org {
 	# DNS-only (grey cloud) per docs/tiles.md: browsers connect straight here,
-	# so this needs a publicly trusted certificate and must NOT require a
-	# client one. Caddy obtains and renews it automatically.
+	# so this must NOT require a client certificate. It is served the same
+	# certificate as above, which carries this name. README.md.
 	reverse_proxy app:8082
 }

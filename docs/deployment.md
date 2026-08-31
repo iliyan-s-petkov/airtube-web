@@ -104,11 +104,22 @@ Run these in order. Each step depends on the one before it.
 3. In Cloudflare DNS: `airbg.org` proxied (orange cloud), `tiles.airbg.org`
    DNS-only (grey cloud), both pointing at the host's public IP.
 
-4. Issue a Cloudflare Origin CA certificate for `airbg.org` (Cloudflare
-   dashboard → SSL/TLS → Origin Server). Save the two halves as
-   `/srv/airbg/tls/origin.pem` and `/srv/airbg/tls/origin.key` — those are the
-   exact filenames `deploy/Caddyfile` references. Download Cloudflare's
-   origin-pull CA certificate and save it as
+4. The origin certificate is **Let's Encrypt, issued by certbot over DNS-01**,
+   not a Cloudflare Origin CA certificate — the Ansible role
+   `home.apps.airbg` (`tasks/certificate.yml`) installs certbot and the
+   Cloudflare DNS plugin, requests one certificate covering `airbg.org`,
+   `www.airbg.org` and `tiles.airbg.org`, and a deploy hook writes it to
+   `/srv/airbg/tls/origin.pem` and `/srv/airbg/tls/origin.key` — the exact
+   filenames `deploy/Caddyfile` references. `certbot.timer` renews it. DNS-01
+   is what makes this possible without a public A record or port 80 open.
+
+   By hand on a host the role has not touched: install `certbot` and
+   `python3-certbot-dns-cloudflare`, put a Cloudflare DNS-edit API token in
+   `/etc/letsencrypt/cloudflare.ini` (`chmod 600` — certbot refuses a
+   group-readable one), then `certbot certonly --dns-cloudflare -d airbg.org
+   -d www.airbg.org -d tiles.airbg.org`.
+
+   Download Cloudflare's origin-pull CA certificate and save it as
    `/srv/airbg/tls/cloudflare-origin-pull-ca.pem`. Then:
 
    ```bash
@@ -117,9 +128,10 @@ Run these in order. Each step depends on the one before it.
    ```
 
    Finally, enable **Authenticated Origin Pulls** for the zone in the
-   Cloudflare dashboard (SSL/TLS → Origin Server). This certificate is the one
-   long-lived secret this design adds: it is valid for 15 years and lives on
-   the box. Losing control of the host means rotating it.
+   Cloudflare dashboard (SSL/TLS → Origin Server). A publicly trusted
+   certificate is valid for anyone, not only for Cloudflare, so that client
+   certificate is the whole of the origin's protection — and the certificate
+   expires in 90 days, which makes a stalled `certbot.timer` an outage.
 
    This is the actual enforcement, not the firewall: `deploy/Caddyfile`
    requires this client certificate (`client_auth`, `require_and_verify`) on

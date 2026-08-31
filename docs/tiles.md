@@ -261,7 +261,10 @@ Both questions this section used to leave open are settled in
   mounted read-only into the app container. The image stays ~27 MB and
   regenerating the basemap is an scp rather than a rebuild — which matters
   because releases ship the whole image over the wire.
-- `tiles.airbg.org` gets **its own Let's Encrypt certificate**, obtained and
-  renewed by Caddy. Not a wildcard, and specifically not a Cloudflare Origin CA
-  certificate: browsers do not trust one, and this hostname is deliberately not
-  proxied.
+- `tiles.airbg.org` is served a **publicly trusted Let's Encrypt certificate**,
+  not a Cloudflare Origin CA one: browsers connect straight here, and they do
+  not trust an Origin CA certificate. As built it is not a certificate of its
+  own — the design called for Caddy to obtain one, but the host runs certbot
+  over DNS-01 and `tiles.airbg.org` is a SAN on the single certificate that also
+  covers `airbg.org`. Dropping the name from that lineage breaks this vhost.
+  See `deploy/README.md`, "the origin certificate".
