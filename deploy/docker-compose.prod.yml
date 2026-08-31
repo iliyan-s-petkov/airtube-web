@@ -66,12 +66,8 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - db_data:/home/postgres/pgdata
-    # back only, and back is `internal: true`. db has no route to the public
-    # internet and nothing outside back can open a socket to it. An earlier
-    # revision of this file also put db on a second, non-internal network so
-    # the ofelia `collect` job could reach db and the internet from one
-    # container; that was reverted, because it gave db real egress it never
-    # needed (see the networks: section below).
+    # back only, and back is internal: db has no route out, and nothing
+    # outside back can open a socket to it.
     networks:
       back: {}
     healthcheck:
@@ -93,19 +89,8 @@ services:
       - CONTAINERS=1
       - POST=1
       - EXEC=0
-      # IMAGES=1 is required, not convenient: ofelia checks that a job's image
-      # exists before creating a container — GET /images/json — even with
-      # `pull = false` set on every job. With IMAGES=0 the proxy answered 403
-      # and no scheduled job ever ran, silently, because nothing watches a
-      # job-run's exit code.
-      #
-      # It does re-permit POST /images/create, so a compromised ofelia could
-      # fetch an image and run it. Weighed against what this proxy already
-      # grants: CONTAINERS=1 with POST=1 is container creation with arbitrary
-      # binds and command, which is already host root. The increase is real
-      # but smaller than the line looks. The alternative that removes the
-      # surface rather than narrowing it is host systemd timers instead of
-      # ofelia, which would delete this service and the scheduler with it.
+      # Required: ofelia checks a job's image exists even with pull = false,
+      # and IMAGES=0 403s that, so no job runs. Trade-off in README.md.
       - IMAGES=1
       - NETWORKS=0
       - VOLUMES=0
@@ -116,17 +101,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       sched: {}
-    # Alone among these services, socket-proxy is NOT read_only, and cannot be.
-    # Its entrypoint seds /usr/local/etc/haproxy/haproxy.cfg.template into
-    # haproxy.cfg in that same directory on every start, using the
-    # CONTAINERS/POST/... vars above. read_only crash-loops it outright, and a
-    # tmpfs over that directory crash-loops it more confusingly — the mount
-    # hides the image's template, so the loop reads
-    # `sed: /usr/local/etc/haproxy/haproxy.cfg.template: No such file or
-    # directory` rather than a permissions error. Both were tried on the host.
-    # What actually contains this service is unchanged and is what the tests
-    # assert: the socket is mounted :ro, every capability is dropped, no new
-    # privileges, and the endpoint allowlist stays narrow.
+    # The one service that is not read_only: its entrypoint writes haproxy.cfg
+    # at every start. Both failed attempts are in README.md.
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     logging: *journal
@@ -169,23 +145,8 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
-  # There is deliberately no fourth, non-internal network here. An earlier
-  # revision added one (`collect`) so ofelia's `collect` job could reach
-  # https://data.sensor.community, and put `db` on it so the same one-shot
-  # container could also reach the database. Both halves of that were wrong:
-  #
-  #   ofelia attaches every `job-run` container to Docker's DEFAULT BRIDGE in
-  #   addition to the network named by `network =`. `internal: true` therefore
-  #   does NOT deny a job-run container egress — it never did. Verified on
-  #   this repo's ofelia pin (mcuadros/ofelia:0.3.20) with a job on an
-  #   `--internal` network:
-  #     NETWORKS=bridge probe_back
-  #     data.sensor.community:443 reachable
-  #
-  # So the `collect` job already had internet from `back`, and the extra
-  # network bought nothing but real egress for `db`. `db` is back-only again.
-  # See deploy/ofelia.ini for the full reasoning and for why the alternative
-  # — a non-internal network carrying the job but not db — cannot work.
+  # No fourth, non-internal network on purpose: ofelia's jobs already have
+  # egress via Docker's default bridge. README.md, "what a job inherits".
 
 volumes:
   db_data:

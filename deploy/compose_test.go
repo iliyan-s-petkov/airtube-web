@@ -250,19 +250,9 @@ func TestSocketProxyGrantsOnlyContainerCreation(t *testing.T) {
 	}
 }
 
-// The app container is the one the internet's traffic reaches, so a write it
-// can perform is a write an attacker may be able to direct. It stays
-// read_only.
-//
-// socket-proxy is the documented exception, and this test pins the exception
-// so nobody re-adds the hardening in good faith and takes the scheduler down
-// with it. Its entrypoint renders haproxy.cfg from a template next to it on
-// every start: read_only crash-loops the container, and a tmpfs over
-// /usr/local/etc/haproxy crash-loops it too, hiding the image's own template
-// so the log says "haproxy.cfg.template: No such file or directory" instead of
-// anything about permissions. Both were tried against the running host. The
-// properties that actually contain this service are asserted by the two tests
-// above and are untouched by it being writable.
+// app is internet-facing and stays read_only. socket-proxy cannot be — it
+// writes haproxy.cfg at every start — so the exception is pinned here to stop
+// the hardening being re-added in good faith. See README.md.
 func TestAppIsReadOnlyAndTheSocketProxyIsTheDocumentedException(t *testing.T) {
 	c := loadCompose(t)
 	if !service(t, c, "app").ReadOnly {
@@ -433,19 +423,8 @@ func ofeliaValue(lines []string, key string) (string, bool) {
 	return "", false
 }
 
-// ofelia pulls a job's image before every run unless told not to, and this
-// deployment cannot pull: the socket proxy sets IMAGES=0 on purpose, so the
-// attempt comes back `API error (403): Request forbidden by administrative
-// rules` and the job never starts. Nothing watches a job-run's exit code, so
-// the collector fails every five minutes in silence — observed on the host
-// before `pull = false` was added.
-//
-// Not pulling costs nothing here. airbg:latest is built on the host by the
-// deploy and exists in no registry, so a pull could only ever fail; the
-// database image is already local because the db service runs it. The
-// alternative fix — IMAGES=1 — would let the scheduler stage arbitrary
-// images, which is the power the proxy exists to withhold, and
-// TestSocketProxyGrantsOnlyContainerCreation refuses it.
+// Both images are local, so a pull can only fail — and a failed pull fails the
+// job silently, since nothing watches a job-run's exit code.
 func TestEveryOfeliaJobDisablesTheImagePull(t *testing.T) {
 	for _, job := range []string{"collect", "backup", "backup-prune"} {
 		lines := ofeliaJobLines(t, `job-run "`+job+`"`)
@@ -532,28 +511,8 @@ func TestEveryOfeliaJobRunsOnAnInternalNetwork(t *testing.T) {
 	}
 }
 
-// A failing backup is silent by construction: the backup job's `&&`
-// short-circuits, delete = true removes the exited container before anyone
-// could read its status, and last night's dump stays where it was — so the
-// backup directory keeps looking healthy while its newest file quietly stops
-// advancing. On a single VPS with no replica that is discovered during a
-// restore, which is the worst possible moment.
-//
-// The prune job carries the alarm because it already runs daily against the
-// same directory. This asserts all four moving parts, because dropping any one
-// of them restores the silence: the freshness window, the marker file an
-// operator sees by running ls, the non-zero exit that reaches ofelia's log,
-// and the cleanup that lets the marker clear itself once backups resume.
-//
-// The glob check is not style. A bare airbg-*.dump is expanded by sh against
-// the container's working directory before find runs; one stray file of that
-// shape rewrites the search into a single literal name that matches nothing,
-// and the staleness check then fires every night against a healthy backup
-// directory. It cannot be fixed with quotes — see the no-double-quote test
-// below — and it cannot be fixed with a backslash either: ofelia's INI parser
-// rejects the file outright with "unquoted '\' must be followed by new line or
-// double quote", so the daemon never starts and NO job runs. `set -f` is the
-// one escape that survives both parsers, because it is plain words.
+// A failing backup is silent by construction, so the prune job carries the
+// alarm. All four parts are asserted: dropping any one restores the silence.
 func TestBackupPruneAlarmsWhenBackupsGoStale(t *testing.T) {
 	lines := ofeliaJobLines(t, `job-run "backup-prune"`)
 	command, ok := ofeliaValue(lines, "command")
@@ -574,16 +533,8 @@ func TestBackupPruneAlarmsWhenBackupsGoStale(t *testing.T) {
 	}
 }
 
-// A semicolon in a command value is a comment to ofelia's INI parser, and
-// these values cannot be quoted to protect it (the double-quote test below
-// explains why), so everything from the first `;` onward is dropped. The
-// failure is total and silent: the backup-prune job was registered on the host
-// as `sh -c 'set -f`, ran on schedule every night, and did no prune and raised
-// no alarm — while ofelia's log and `docker ps` both looked entirely healthy.
-// `#` is the parser's other comment character and would do the same thing.
-//
-// Write the command with `&&`, `||` and subshells instead. It reads worse than
-// `if ... then ... else ... fi`; it is the version that runs.
+// `;` and `#` start an INI comment, silently truncating the command — the
+// prune job was registered as `sh -c 'set -f`. Use `&&`/`||` and subshells.
 func TestNoOfeliaCommandUsesACommentCharacter(t *testing.T) {
 	for _, job := range []string{"collect", "backup", "backup-prune"} {
 		command, ok := ofeliaValue(ofeliaJobLines(t, `job-run "`+job+`"`), "command")
@@ -598,18 +549,8 @@ func TestNoOfeliaCommandUsesACommentCharacter(t *testing.T) {
 	}
 }
 
-// ofelia's INI parser strips every double-quote character from a command
-// value — established empirically against the pinned image and documented at
-// the top of ofelia.ini. The failure that follows is not a parse error: the
-// command still runs, with different meaning. `[ -z "$(find ...)" ]` reaches
-// sh as `[ -z ]`, a one-argument test that is always true, so a staleness
-// alarm written that way fires every night regardless of the backups.
-//
-// This is a whole-file invariant rather than a per-job one, because the trap
-// is that a double-quoted command LOOKS correct in review and in local shell
-// testing — the stripping happens only inside ofelia, where nothing is
-// watching. The header comment stating the rule is not enough on its own; a
-// comment cannot fail a build.
+// ofelia strips every double quote from a command value, so the command runs
+// with a different meaning than it reads. Not a parse error — nothing warns.
 func TestNoOfeliaCommandUsesDoubleQuotes(t *testing.T) {
 	const wantJobs = 3 // positive control: a header typo must not silently scan zero jobs
 	var checked int
@@ -628,12 +569,8 @@ func TestNoOfeliaCommandUsesDoubleQuotes(t *testing.T) {
 	}
 }
 
-// A backslash anywhere in this file is fatal in a way the double-quote trap is
-// not: ofelia's INI parser rejects the config before any job is scheduled
-// ("unquoted '\' must be followed by new line or double quote"), the daemon
-// crash-loops, and collection and backups both stop. The whole file is checked,
-// not just command values, because the parser fails on the character wherever
-// it appears. Reach for `set -f` instead — see the header of ofelia.ini.
+// A backslash makes ofelia reject the whole config and schedule no job at all.
+// The whole file is checked: the parser fails on it wherever it appears.
 func TestOfeliaConfigContainsNoBackslash(t *testing.T) {
 	raw, err := os.ReadFile("ofelia.ini")
 	if err != nil {
