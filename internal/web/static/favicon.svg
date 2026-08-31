@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Dusty Map">
+  <!-- Colours are literal, not var(--accent): an <img>-referenced SVG is a
+       separate document and never sees theme.css. Keep in step with it by hand.
+       #0b6 = --accent, #1a1a1a = --fg. -->
+  <rect width="32" height="32" rx="7" fill="#1a1a1a"/>
+  <!-- A map dot, which is the site's whole idiom. One disc, no detail: at 16 px
+       a favicon has about 12 usable pixels across and anything finer is mud. -->
+  <circle cx="16" cy="16" r="7.5" fill="#0b6"/>
+</svg>

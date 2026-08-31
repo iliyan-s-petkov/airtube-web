@@ -40,6 +40,17 @@
         // default, so milliseconds would plot every point in 1970 silently.
         series: [{}, { label: valueLabel, stroke: lineColour, width: 2 }],
         scales: { x: { time: true } },
+        // uPlot's legend IS the hover readout, and with no cursor on the plot
+        // it renders the series labels beside em-dash placeholders. Switching
+        // it off would take the readout away with it, so it is hidden by CSS
+        // (see below) and revealed only while the cursor is over a point.
+        //
+        // idx != null, not a truthy test: index 0 is the leftmost point of
+        // every chart, and `if (idx)` would leave it the one value nobody can
+        // read.
+        hooks: {
+          setCursor: [(u) => host.classList.toggle('chart-live', u.cursor.idx != null)],
+        },
       }, data, host)
 
       // The container is fluid; a chart left at its first-paint width is
@@ -58,3 +69,16 @@
 <div bind:this={host} class="chart-host"></div>
 {#if status === 'unavailable'}<p class="chart-message">{unavailable}</p>{/if}
 {#if status === 'empty'}<p class="chart-message">{empty}</p>{/if}
+
+<style>
+  /* Fully :global on both sides, deliberately. uPlot builds .u-legend itself at
+     runtime so compile-time scoping never reaches it — and `chart-live` is added
+     by the setCursor hook, never by this template, so Svelte prunes any selector
+     mentioning it as unused and the rule silently never ships. (It did: the
+     build warned "Unused CSS selector".)
+
+     visibility, not display: the legend keeps its box either way, so revealing
+     it does not shift the page under the pointer that is reading it. */
+  :global(.chart-host .u-legend) { visibility: hidden; }
+  :global(.chart-host.chart-live .u-legend) { visibility: visible; }
+</style>

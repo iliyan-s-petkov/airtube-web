@@ -99,6 +99,34 @@ func TestHandWrittenStaticIsCacheableButNotImmutable(t *testing.T) {
 	}
 }
 
+// TestFaviconIsServedAndDeclared. A missing favicon was the only console error
+// on the home page, and a browser only stops guessing /favicon.ico once the
+// document declares an icon itself — so both halves are asserted here: the file
+// is reachable, and every page points at it. Asserting only one would let the
+// other regress silently.
+func TestFaviconIsServedAndDeclared(t *testing.T) {
+	rr := renderer(t, nil)
+
+	rec := fetch(t, rr, "/static/favicon.svg")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /static/favicon.svg: status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "image/svg+xml") {
+		t.Errorf("Content-Type = %q, want image/svg+xml", got)
+	}
+
+	// The about page, not "/": the home page needs a warm snapshot and answers
+	// 503 without one. The declaration lives in base.gohtml, so any page that
+	// renders proves it for all of them.
+	page := fetch(t, rr, "/about-the-data")
+	if page.Code != http.StatusOK {
+		t.Fatalf("GET /about-the-data: status = %d, want 200", page.Code)
+	}
+	if want := `<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">`; !strings.Contains(page.Body.String(), want) {
+		t.Errorf("home page head does not contain %s", want)
+	}
+}
+
 // TestMapLibreWorkerFilesAreNotImmutablyCached. These two files are unhashed
 // by necessity (MapLibre resolves them itself at runtime, so their URL must
 // stay fixed across a version bump), which means the usual immutable header

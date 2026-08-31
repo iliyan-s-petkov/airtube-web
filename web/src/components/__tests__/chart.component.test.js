@@ -94,4 +94,38 @@ describe('Chart.svelte', () => {
     expect(uplotCalls[0].opts.title).toBe('PM2.5, Sofia')
     expect(uplotCalls[0].opts.series[1].stroke).toBe('#2563eb')
   })
+
+  // uPlot's legend IS its hover readout, and at rest it renders the series
+  // label beside a literal em-dash placeholder — "µg/m³ --" under a chart
+  // nobody has touched yet, which reads as unfinished markup rather than as
+  // "hover me". Hiding the legend outright would take the readout with it, so
+  // the component gates its visibility on the cursor instead.
+  //
+  // Asserted through the hook rather than through a real mouse event: uPlot is
+  // stubbed here (it needs layout jsdom does not have), so the hook is the only
+  // honest seam. It is also the thing that would break — a mutation dropping
+  // the hook, or inverting the idx test, fails this.
+  it('shows the hover readout only while the cursor is on the plot', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+    )
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    render()
+
+    await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
+    const { opts, el } = uplotCalls[0]
+    const setCursor = opts.hooks.setCursor[0]
+
+    // At rest — which is the state the reader sees on page load.
+    setCursor({ cursor: { idx: null } })
+    expect(el.classList.contains('chart-live')).toBe(false)
+
+    setCursor({ cursor: { idx: 0 } })
+    expect(el.classList.contains('chart-live')).toBe(true)
+
+    // idx 0 is a real point, not "no point": a truthiness test instead of a
+    // null test would leave the leftmost point of every chart unreadable.
+    setCursor({ cursor: { idx: null } })
+    expect(el.classList.contains('chart-live')).toBe(false)
+  })
 })
