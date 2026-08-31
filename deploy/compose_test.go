@@ -217,8 +217,9 @@ func TestOnlyTheSocketProxyHoldsTheDockerSocket(t *testing.T) {
 
 // A socket proxy is only worth having while it stays narrow. These are the
 // endpoint groups that would turn it back into a root-equivalent socket:
-// EXEC lets you run commands in the running app container, VOLUMES and IMAGES
-// let you stage a payload, SWARM and SYSTEM reconfigure the daemon itself.
+// EXEC lets you run commands in the running app container, VOLUMES lets you
+// stage a payload, SWARM and SYSTEM reconfigure the daemon itself. IMAGES is
+// not among them — see the required list below for why it has to be granted.
 // Each forbidden key must be explicitly "0", not merely absent: the proxy
 // image happens to deny undeclared endpoints by default today, but a line
 // deleted in a future edit would silently fall back to that default instead
@@ -233,12 +234,15 @@ func TestSocketProxyGrantsOnlyContainerCreation(t *testing.T) {
 			env[k] = v
 		}
 	}
-	for _, required := range []string{"CONTAINERS", "POST"} {
+	// IMAGES is here rather than below because ofelia checks that a job's
+	// image exists before creating its container, and does so even with
+	// `pull = false`. Denying it 403s every scheduled job, silently.
+	for _, required := range []string{"CONTAINERS", "POST", "IMAGES"} {
 		if env[required] != "1" {
 			t.Errorf("socket-proxy sets %s=%q, want \"1\" — ofelia cannot start jobs without it", required, env[required])
 		}
 	}
-	for _, forbidden := range []string{"EXEC", "IMAGES", "NETWORKS", "VOLUMES", "INFO", "SWARM", "SYSTEM"} {
+	for _, forbidden := range []string{"EXEC", "NETWORKS", "VOLUMES", "INFO", "SWARM", "SYSTEM"} {
 		v, set := env[forbidden]
 		if !set || v != "0" {
 			t.Errorf("socket-proxy sets %s=%q (present=%v), want an explicit \"0\" — an absent key relies on the image's default instead of the config saying so", forbidden, v, set)

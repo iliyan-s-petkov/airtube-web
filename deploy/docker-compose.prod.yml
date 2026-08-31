@@ -93,7 +93,20 @@ services:
       - CONTAINERS=1
       - POST=1
       - EXEC=0
-      - IMAGES=0
+      # IMAGES=1 is required, not convenient: ofelia checks that a job's image
+      # exists before creating a container — GET /images/json — even with
+      # `pull = false` set on every job. With IMAGES=0 the proxy answered 403
+      # and no scheduled job ever ran, silently, because nothing watches a
+      # job-run's exit code.
+      #
+      # It does re-permit POST /images/create, so a compromised ofelia could
+      # fetch an image and run it. Weighed against what this proxy already
+      # grants: CONTAINERS=1 with POST=1 is container creation with arbitrary
+      # binds and command, which is already host root. The increase is real
+      # but smaller than the line looks. The alternative that removes the
+      # surface rather than narrowing it is host systemd timers instead of
+      # ofelia, which would delete this service and the scheduler with it.
+      - IMAGES=1
       - NETWORKS=0
       - VOLUMES=0
       - INFO=0
