@@ -103,13 +103,17 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       sched: {}
-    read_only: true
-    # The entrypoint generates haproxy.cfg from the CONTAINERS/POST/... vars on
-    # every start, so read_only alone crash-loops it. tmpfs keeps the filesystem
-    # non-persistent without giving the image a writable layer.
-    tmpfs:
-      - /usr/local/etc/haproxy
-      - /run
+    # Alone among these services, socket-proxy is NOT read_only, and cannot be.
+    # Its entrypoint seds /usr/local/etc/haproxy/haproxy.cfg.template into
+    # haproxy.cfg in that same directory on every start, using the
+    # CONTAINERS/POST/... vars above. read_only crash-loops it outright, and a
+    # tmpfs over that directory crash-loops it more confusingly — the mount
+    # hides the image's template, so the loop reads
+    # `sed: /usr/local/etc/haproxy/haproxy.cfg.template: No such file or
+    # directory` rather than a permissions error. Both were tried on the host.
+    # What actually contains this service is unchanged and is what the tests
+    # assert: the socket is mounted :ro, every capability is dropped, no new
+    # privileges, and the endpoint allowlist stays narrow.
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     logging: *journal

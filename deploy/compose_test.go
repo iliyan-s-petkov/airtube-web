@@ -33,6 +33,8 @@ type composeService struct {
 	Environment []string                 `yaml:"environment"`
 	Volumes     []string                 `yaml:"volumes"`
 	NetworkMode string                   `yaml:"network_mode"`
+	ReadOnly    bool                     `yaml:"read_only"`
+	Tmpfs       []string                 `yaml:"tmpfs"`
 }
 
 type composeAttach struct {
@@ -240,6 +242,35 @@ func TestSocketProxyGrantsOnlyContainerCreation(t *testing.T) {
 		v, set := env[forbidden]
 		if !set || v != "0" {
 			t.Errorf("socket-proxy sets %s=%q (present=%v), want an explicit \"0\" — an absent key relies on the image's default instead of the config saying so", forbidden, v, set)
+		}
+	}
+}
+
+// The app container is the one the internet's traffic reaches, so a write it
+// can perform is a write an attacker may be able to direct. It stays
+// read_only.
+//
+// socket-proxy is the documented exception, and this test pins the exception
+// so nobody re-adds the hardening in good faith and takes the scheduler down
+// with it. Its entrypoint renders haproxy.cfg from a template next to it on
+// every start: read_only crash-loops the container, and a tmpfs over
+// /usr/local/etc/haproxy crash-loops it too, hiding the image's own template
+// so the log says "haproxy.cfg.template: No such file or directory" instead of
+// anything about permissions. Both were tried against the running host. The
+// properties that actually contain this service are asserted by the two tests
+// above and are untouched by it being writable.
+func TestAppIsReadOnlyAndTheSocketProxyIsTheDocumentedException(t *testing.T) {
+	c := loadCompose(t)
+	if !service(t, c, "app").ReadOnly {
+		t.Error("app is not read_only; the internet-facing container must not be able to write to its own filesystem")
+	}
+	proxy := service(t, c, "socket-proxy")
+	if proxy.ReadOnly {
+		t.Error("socket-proxy is read_only, which crash-loops it: its entrypoint must write haproxy.cfg at startup")
+	}
+	for _, mount := range proxy.Tmpfs {
+		if strings.HasPrefix(mount, "/usr/local/etc/haproxy") {
+			t.Errorf("socket-proxy mounts a tmpfs at %q, which hides the image's haproxy.cfg.template and crash-loops it", mount)
 		}
 	}
 }
