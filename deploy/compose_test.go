@@ -570,6 +570,30 @@ func TestBackupPruneAlarmsWhenBackupsGoStale(t *testing.T) {
 	}
 }
 
+// A semicolon in a command value is a comment to ofelia's INI parser, and
+// these values cannot be quoted to protect it (the double-quote test below
+// explains why), so everything from the first `;` onward is dropped. The
+// failure is total and silent: the backup-prune job was registered on the host
+// as `sh -c 'set -f`, ran on schedule every night, and did no prune and raised
+// no alarm — while ofelia's log and `docker ps` both looked entirely healthy.
+// `#` is the parser's other comment character and would do the same thing.
+//
+// Write the command with `&&`, `||` and subshells instead. It reads worse than
+// `if ... then ... else ... fi`; it is the version that runs.
+func TestNoOfeliaCommandUsesACommentCharacter(t *testing.T) {
+	for _, job := range []string{"collect", "backup", "backup-prune"} {
+		command, ok := ofeliaValue(ofeliaJobLines(t, `job-run "`+job+`"`), "command")
+		if !ok {
+			continue
+		}
+		for _, char := range []string{";", "#"} {
+			if strings.Contains(command, char) {
+				t.Errorf("%s job's command contains %q, which ofelia treats as the start of a comment — everything after it is silently discarded and the job runs truncated\ngot: %s", job, char, command)
+			}
+		}
+	}
+}
+
 // ofelia's INI parser strips every double-quote character from a command
 // value — established empirically against the pinned image and documented at
 // the top of ofelia.ini. The failure that follows is not a parse error: the
