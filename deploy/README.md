@@ -119,6 +119,22 @@ expires in 90 days rather than 15 years, so a stalled `certbot.timer` is an outa
 valid for anyone, not just Cloudflare, so the client-certificate requirement below is the
 *only* thing separating the origin from the internet.
 
+## docker-compose.prod.yml: single-file bind mounts
+
+`./Caddyfile` and `./ofelia.ini` are mounted one file at a time, and a file bind mount
+follows the **inode**, not the path. Any writer that replaces the file — which is what an
+atomic write, `mv`, and Ansible's `copy` all do — leaves the container reading the old
+inode forever. Restarting the container does not help; only recreating it does.
+
+The failure is silent in the worst way: the host file reads correctly, `caddy reload`
+re-parses the stale content and reports success, and ofelia restarts happily on config it
+already had. The role therefore writes both files with `unsafe_writes: true`, which writes
+through the existing inode. That trades atomicity for the mount actually working; a
+truncated write fails Caddy's config validation and the running config survives.
+
+If you edit either file on the host by hand, edit in place (`sed -i` without a suffix is
+not in place on all platforms — check). Do not `mv` a new file over it.
+
 ## Caddyfile.dev: the dev Caddyfile
 
 `Caddyfile.dev` is `Caddyfile` without the `client_auth` block. It exists for one
