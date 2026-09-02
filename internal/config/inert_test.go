@@ -187,6 +187,13 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 				t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
 			}
 		}
+		// Not in the table above because it is a list, and because what it pins
+		// is different: listen.base_url may read the basemap without being
+		// listed, so a non-empty shipped list would be a second origin nobody
+		// asked for.
+		if got := cfg.Tiles.AllowedOrigins; len(got) != 0 {
+			t.Errorf("tiles.allowed_origins = %q, want empty; the site's own origin is allowed without being listed", got)
+		}
 	})
 
 	t.Run("csp", func(t *testing.T) {

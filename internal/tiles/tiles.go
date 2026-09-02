@@ -82,14 +82,19 @@ func (h *handler) cacheControlFor(p string) string {
 }
 
 // NewHandler serves dir's basemap artefacts, allowing cross-origin reads from
-// allowOrigin. archive is the PMTiles filename — the one artefact whose name
-// changes with every basemap build, which is what keeps cacheControl honest.
+// each origin in allowOrigins. archive is the PMTiles filename — the one
+// artefact whose name changes with every basemap build, which is what keeps
+// cacheControl honest.
+//
+// A list rather than the single origin this took before: the design kit renders
+// the same basemap the app does, from a different host, and the alternative to
+// naming it here is either "*" or a second copy of the archive.
 //
 // It returns an error rather than serving 404s if dir is not a tile directory,
 // so a mis-set path — or a tiles.archive naming a file that is not there —
 // fails at startup instead of producing a blank map in production that looks
 // like a tile-generation mistake.
-func NewHandler(dir string, archive string, allowOrigin string) (http.Handler, error) {
+func NewHandler(dir string, archive string, allowOrigins []string) (http.Handler, error) {
 	if dir == "" {
 		return nil, errors.New("tiles: dir is empty")
 	}
@@ -104,10 +109,23 @@ func NewHandler(dir string, archive string, allowOrigin string) (http.Handler, e
 	if strings.ContainsAny(archive, `/\`) || archive == "." || archive == ".." {
 		return nil, fmt.Errorf("tiles: archive = %q must be a plain filename", archive)
 	}
-	if allowOrigin == "" {
+	if len(allowOrigins) == 0 {
 		// Not defaulted to "*": that would let any page on the internet read
-		// the tiles, and the value we want is already known at startup.
-		return nil, errors.New("tiles: allowOrigin is empty")
+		// the tiles, and the values we want are already known at startup.
+		return nil, errors.New("tiles: allowOrigins is empty")
+	}
+	origins := make(map[string]bool, len(allowOrigins))
+	for _, o := range allowOrigins {
+		if o == "" {
+			return nil, errors.New("tiles: allowOrigins contains an empty origin")
+		}
+		// "*" is refused here as well as in config validation, because this
+		// constructor is the only thing between a caller and the wildcard —
+		// and a wildcard is not a wider allowlist, it is no allowlist.
+		if o == "*" {
+			return nil, errors.New(`tiles: allowOrigins contains "*"; name each origin`)
+		}
+		origins[o] = true
 	}
 
 	fsys := os.DirFS(dir)
@@ -125,24 +143,40 @@ func NewHandler(dir string, archive string, allowOrigin string) (http.Handler, e
 	}
 
 	files := http.FileServerFS(fsys)
-	return &handler{files: files, archive: archive, allowOrigin: allowOrigin}, nil
+	return &handler{files: files, archive: archive, origins: origins}, nil
 }
 
 type handler struct {
-	files       http.Handler
-	archive     string
-	allowOrigin string
+	files   http.Handler
+	archive string
+	origins map[string]bool
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set before any branch: a 404 and a 405 are cross-origin responses too,
 	// and a browser that cannot read the status learns nothing from it.
 	head := w.Header()
-	head.Set("Access-Control-Allow-Origin", h.allowOrigin)
-	head.Set("Access-Control-Allow-Headers", "Range")
-	head.Set("Access-Control-Expose-Headers", "Content-Range")
+	// Vary unconditionally, including on the requests that get no CORS headers
+	// at all. The body is the same for every origin but the headers are not, so
+	// a shared cache keyed without Origin would hand an allowed origin's
+	// response — ACAO included — to one that is not on the list, and the
+	// allowlist would stop meaning anything. It has to be set on the misses
+	// too, or the miss is the response that gets cached and replayed.
 	head.Set("Vary", "Origin")
 	head.Set("X-Content-Type-Options", "nosniff")
+	// Echo the request's own origin rather than a configured one. A browser
+	// compares ACAO to the Origin it sent, byte for byte, so returning some
+	// other allowed origin is the same as returning nothing — and returning
+	// nothing is exactly what an origin off the list gets. No empty header, no
+	// fallback to a default: an absent ACAO is the unambiguous refusal.
+	if o := r.Header.Get("Origin"); h.origins[o] {
+		head.Set("Access-Control-Allow-Origin", o)
+		head.Set("Access-Control-Allow-Headers", "Range")
+		// Content-Length as well as Content-Range: PMTiles reads the archive by
+		// range, and a range response the script can receive but not measure is
+		// not one it can parse.
+		head.Set("Access-Control-Expose-Headers", "Content-Range, Content-Length")
+	}
 
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:

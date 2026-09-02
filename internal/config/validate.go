@@ -366,6 +366,12 @@ func (c Config) validateTiles(p *problems) {
 			filled = append(filled, path)
 		}
 	}
+	// Checked before the all-or-nothing gate below, and outside it: the origins
+	// are optional, so a list on its own is not a half-configured basemap — but
+	// a malformed entry in one is still worth refusing at startup rather than
+	// letting it sit in the allowlist matching nothing.
+	c.validateTileOrigins(p)
+
 	if len(filled) == 0 {
 		// No basemap configured. Legal: the map renders markers over
 		// frontend.empty_basemap_colour, and local development needs neither a
@@ -458,6 +464,52 @@ func (c Config) validateTiles(p *problems) {
 		}
 		if !found {
 			p.addf("listen.csp's connect-src must list %q literally (as %q or %q); wildcard sources are not recognised here even though browsers honour them, so widen the CSP or add the exact host", u.Host, origin, u.Host)
+		}
+	}
+}
+
+// validateTileOrigins checks each extra origin allowed to read the basemap.
+//
+// The handler compares these to the browser's Origin header byte for byte, so
+// every one of the shapes refused below — a trailing slash, a path, a wildcard
+// — produces an entry that can never match anything. That failure is silent and
+// looks exactly like the bug it was meant to fix: the other host still cannot
+// read the tiles, and nothing on either side says why. Refusing at startup, by
+// value, is the only place it is visible.
+func (c Config) validateTileOrigins(p *problems) {
+	for _, o := range c.Tiles.AllowedOrigins {
+		const key = "tiles.allowed_origins"
+		if o == "" {
+			p.addf("%s contains an empty entry; remove it or name an origin", key)
+			continue
+		}
+		// Named ahead of the parse because "*" parses cleanly as a path and
+		// would otherwise be reported as the wrong problem entirely.
+		if strings.Contains(o, "*") {
+			p.addf("%s contains %q; wildcards are not matched, name each origin in full", key, o)
+			continue
+		}
+		u, err := url.Parse(o)
+		switch {
+		case err != nil:
+			p.addf("%s contains %q, which is not a URL: %s", key, o, parseErrorReason(err))
+		case u.Scheme != "http" && u.Scheme != "https":
+			p.addf("%s contains %q; an origin must use http or https", key, o)
+		case u.User != nil:
+			p.addf("%s contains %q; an origin must not contain userinfo", key, o)
+		case u.Host == "":
+			p.addf("%s contains %q, which names no host", key, o)
+		case len(u.Host) > maxHostLength:
+			p.addf("%s contains %q, whose host is %d bytes, must be at most %d", key, o, len(u.Host), maxHostLength)
+		case !hostPattern.MatchString(u.Host):
+			p.addf("%s contains %q, whose host is not a valid hostname", key, o)
+		case u.Path != "":
+			// Covers the trailing slash too: url.Parse gives "https://x/" a
+			// Path of "/". A browser's Origin header never carries either, so
+			// both are entries that match nothing.
+			p.addf("%s contains %q; an origin is scheme and host only, with no path or trailing slash", key, o)
+		case u.RawQuery != "" || u.Fragment != "":
+			p.addf("%s contains %q; an origin must not carry a query or fragment", key, o)
 		}
 	}
 }

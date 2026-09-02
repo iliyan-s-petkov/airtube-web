@@ -212,6 +212,59 @@ can stay on disk for as long as you like — the handler will not serve it once
 `tiles.archive` names the new one — and should be deleted once no cached page
 still references it.
 
+## 5b. Who may read the tiles
+
+The tiles are on their own host, so every fetch of them is cross-origin and
+the browser will only hand the bytes to a page whose origin the listener names
+back. `listen.base_url` is always allowed and is **not** listed — the site
+being unable to read its own basemap is not a state worth being able to
+configure. `tiles.allowed_origins` adds to that list; empty is the shipped
+setting and means the site alone.
+
+```yaml
+tiles:
+  # ...the four keys above...
+  allowed_origins:
+    - "https://kit.example"
+```
+
+Scheme and host only. No trailing slash, no path, no `*`. A browser's `Origin`
+header carries none of those, and the listener compares byte for byte, so any
+of them is an entry that matches nothing — which looks exactly like the problem
+you added it to solve. Startup validation rejects them by value rather than
+letting them sit there silently, and `"*"` is refused outright: it is not a
+wider allowlist, it is no allowlist.
+
+Three things are part of the contract, not incidental:
+
+- **The requesting origin is echoed back**, not the first configured one. A
+  browser compares `Access-Control-Allow-Origin` to the `Origin` it sent.
+- **`Vary: Origin` is on every response**, including the ones with no CORS
+  headers at all. Without it a shared cache can replay an allowed origin's
+  response — header included — to one that is not on the list, and the
+  allowlist stops meaning anything.
+- **An origin that is not on the list gets no `Access-Control-Allow-Origin`
+  header**, not an empty one. The status is still `200`: the bytes are public,
+  and it is the browser that declines to hand them to the page.
+
+`Range` is preflighted, so `OPTIONS` is answered here with
+`Access-Control-Allow-Headers: Range`; `Content-Range` and `Content-Length` are
+exposed, because PMTiles must read a range response, not merely receive it.
+
+Adding an origin needs no basemap regeneration and no change to the app's CSP —
+`connect-src` governs what the *site* may fetch, and the other host has a CSP
+of its own.
+
+**The design kit is deliberately not in this list.** It is served from
+`https://airbg.org/design-kit/`, so its fetches come from an origin that is
+already allowed, and the preview it renders is the one production renders. The
+alternative considered and rejected was a loopback origin: the kit's dev server
+picks its port per install, so the committed value would name one machine and
+rot on the next. Because the kit is same-origin, the app's `connect-src` is what
+governs its tile fetches — the deployed policy already names
+`tiles.public_url`'s origin, and startup validation fails loudly if it stops
+doing so.
+
 ## 6. The firewall rule
 
 This is load-bearing, not advisory. Serving tiles from the origin means a

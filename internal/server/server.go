@@ -151,10 +151,14 @@ func New(opts Options) (*Server, error) {
 	}
 
 	if opts.Config.Tiles.Enabled() {
-		// The application's own origin, not "*": the tiles are on a different
-		// host, so every fetch is cross-origin, and "*" would let any page on
-		// the internet read them.
-		h, err := tiles.NewHandler(opts.Config.Tiles.Dir, opts.Config.Tiles.Archive, opts.Config.Listen.BaseURL)
+		// Named origins, not "*": the tiles are on a different host, so every
+		// fetch is cross-origin, and "*" would let any page on the internet
+		// read them. listen.base_url leads and is not configurable here — the
+		// site being unable to read its own basemap is not a state worth
+		// letting an operator configure — and tiles.allowed_origins appends
+		// whatever else may read it, normally a design or preview host.
+		origins := append([]string{opts.Config.Listen.BaseURL}, opts.Config.Tiles.AllowedOrigins...)
+		h, err := tiles.NewHandler(opts.Config.Tiles.Dir, opts.Config.Tiles.Archive, origins)
 		if err != nil {
 			return nil, fmt.Errorf("server: tiles: %w", err)
 		}

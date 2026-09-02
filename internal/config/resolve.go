@@ -197,6 +197,12 @@ type Tiles struct {
 	// reuse the URL a visitor already has cached. Validate requires a plain
 	// filename.
 	Archive string
+	// AllowedOrigins are the origins, besides listen.base_url, permitted to
+	// read the basemap cross-origin. Empty is the shipped setting and means
+	// the site alone. Additive rather than a replacement, and deliberately
+	// outside the all-or-nothing rule above: it is optional, so an empty list
+	// must not read as a half-configured tiles block.
+	AllowedOrigins []string
 }
 
 // I18n points at operator-supplied message overrides.
@@ -332,10 +338,11 @@ func resolve(r *raw) Config {
 			DefaultLat:         *r.Frontend.DefaultLat,
 		},
 		Tiles: Tiles{
-			Addr:      *r.Tiles.Addr,
-			Dir:       *r.Tiles.Dir,
-			PublicURL: *r.Tiles.PublicURL,
-			Archive:   *r.Tiles.Archive,
+			Addr:           *r.Tiles.Addr,
+			Dir:            *r.Tiles.Dir,
+			PublicURL:      *r.Tiles.PublicURL,
+			Archive:        *r.Tiles.Archive,
+			AllowedOrigins: *r.Tiles.AllowedOrigins,
 		},
 		I18n: I18n{
 			Dir: *r.I18n.Dir,

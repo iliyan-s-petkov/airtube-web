@@ -326,6 +326,58 @@ func TestTilesArchiveShape(t *testing.T) {
 	}
 }
 
+// TestTilesAllowedOriginsShape. Every entry here is compared to a browser's
+// Origin header byte for byte, so any of these shapes produces an allowlist
+// entry that matches nothing — and the symptom is identical to the problem the
+// operator added it to fix: the other host still cannot read the tiles, and no
+// message anywhere says why. Startup is the only place that is visible.
+func TestTilesAllowedOriginsShape(t *testing.T) {
+	for name, tc := range map[string]struct{ origin, want string }{
+		"plain https":     {"https://kit.example", ""},
+		"http":            {"http://localhost:5173", ""},
+		"with a port":     {"https://kit.example:8443", ""},
+		"no scheme":       {"kit.example", "must use http or https"},
+		"ftp":             {"ftp://kit.example", "must use http or https"},
+		"userinfo":        {"https://user:pass@kit.example", "must not contain userinfo"},
+		"empty host":      {"https:///", "names no host"},
+		"empty entry":     {"", "empty entry"},
+		"wildcard":        {"*", "wildcards are not matched"},
+		"scheme wildcard": {"https://*.example", "wildcards are not matched"},
+		// The two that look right and are not. url.Parse gives a trailing
+		// slash a Path of "/", and an Origin header carries neither.
+		"trailing slash": {"https://kit.example/", "no path or trailing slash"},
+		"path":           {"https://kit.example/preview", "no path or trailing slash"},
+		"query":          {"https://kit.example?a=b", "query or fragment"},
+		"fragment":       {"https://kit.example#f", "query or fragment"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// No tiles.* scalars: the origins are optional and validated
+			// independently, so this also proves a list on its own does not
+			// trip the all-or-nothing rule.
+			cfg := validConfig(t)
+			cfg.Tiles = Tiles{AllowedOrigins: []string{tc.origin}}
+			err := cfg.Validate()
+			if tc.want == "" {
+				if err != nil {
+					t.Errorf("Validate with tiles.allowed_origins = [%q] returned %v, want nil", tc.origin, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate with tiles.allowed_origins = [%q] returned nil, want an error mentioning %q", tc.origin, tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Validate with tiles.allowed_origins = [%q] returned %v, want a message mentioning %q", tc.origin, err, tc.want)
+			}
+			// The bad value must be named. An operator with a five-entry list
+			// and "one of these is wrong" is no better off than before.
+			if tc.origin != "" && !strings.Contains(err.Error(), tc.origin) {
+				t.Errorf("Validate error %v does not name the offending value %q", err, tc.origin)
+			}
+		})
+	}
+}
+
 // TestTilesPublicURLShape. The host reaches a Content-Security-Policy header
 // assembled by concatenation, so anything but a plain absolute http(s) URL is
 // rejected — the same rule the deleted basemap.style_url carried.

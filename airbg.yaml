@@ -342,6 +342,11 @@ tiles:
   dir: ""         # e.g. "/var/lib/airbg/tiles" — holds the archive, style.json, glyphs/
   public_url: ""  # e.g. "https://tiles.airbg.org"
   archive: ""     # e.g. "bulgaria-20260815.pmtiles" — regeneration changes this
+  # Extra origins allowed to read the basemap cross-origin; listen.base_url is
+  # always allowed and is not listed here. See docs/tiles.md.
+  # Empty on purpose: the design kit is served from the site's own origin, so it
+  # needs no entry. See docs/tiles.md §5b.
+  allowed_origins: []
 
 # Message overrides. The site's copy lives in the embedded catalogues
 # (internal/i18n/bg.json and en.json); this points at a directory of

@@ -16,6 +16,11 @@ import (
 
 const origin = "https://airbg.org"
 
+// kitOrigin stands for the design kit, the second origin the allowlist exists
+// for. Deliberately not a subdomain of origin: a substring test would pass one
+// of those by accident.
+const kitOrigin = "https://kit.example"
+
 // archive is testdata's PMTiles filename. Dated, like the ones docs/tiles.md
 // has the operator generate, and passed in rather than compiled into the
 // package — which is the whole point of tiles.archive.
@@ -23,7 +28,7 @@ const archive = "bulgaria-20260815.pmtiles"
 
 func handler(t *testing.T) http.Handler {
 	t.Helper()
-	h, err := tiles.NewHandler("testdata", archive, origin)
+	h, err := tiles.NewHandler("testdata", archive, []string{origin, kitOrigin})
 	if err != nil {
 		t.Fatalf("NewHandler error = %v, want nil", err)
 	}
@@ -60,6 +65,11 @@ func copyTestdata(t *testing.T) string {
 	return dst
 }
 
+// do issues one request. It supplies Origin when the caller does not, because
+// every request this handler exists to answer is a cross-origin one — the tiles
+// are on their own host — and the CORS headers are now conditional on that
+// header being present and allowed. The tests that care which origin asked
+// pass their own; see TestCORSAllowlist.
 func do(t *testing.T, h http.Handler, method, target string, hdr http.Header) *http.Response {
 	t.Helper()
 	req := httptest.NewRequest(method, target, nil)
@@ -67,6 +77,11 @@ func do(t *testing.T, h http.Handler, method, target string, hdr http.Header) *h
 		for _, v := range vs {
 			req.Header.Add(k, v)
 		}
+	}
+	// Presence, not value: TestCORSAllowlist sets Origin to "" deliberately to
+	// exercise the no-origin case, and a Get()-based test would overwrite it.
+	if _, ok := req.Header["Origin"]; !ok {
+		req.Header.Set("Origin", origin)
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -146,7 +161,7 @@ func TestRejectsAnythingOutsideTheAllowlist(t *testing.T) {
 		t.Fatalf("seeding notes.txt: %v", err)
 	}
 
-	h, err := tiles.NewHandler(dir, archive, origin)
+	h, err := tiles.NewHandler(dir, archive, []string{origin})
 	if err != nil {
 		t.Fatalf("NewHandler error = %v, want nil", err)
 	}
@@ -218,7 +233,7 @@ func TestCORSHeaders(t *testing.T) {
 	for header, want := range map[string]string{
 		"Access-Control-Allow-Origin":   origin,
 		"Access-Control-Allow-Headers":  "Range",
-		"Access-Control-Expose-Headers": "Content-Range",
+		"Access-Control-Expose-Headers": "Content-Range, Content-Length",
 		"X-Content-Type-Options":        "nosniff",
 	} {
 		if got := resp.Header.Get(header); got != want {
@@ -287,6 +302,167 @@ func TestVaryOriginOnASuccess(t *testing.T) {
 	}
 }
 
+// TestCORSAllowlist is the whole point of the list: each allowed origin gets
+// its OWN origin echoed back, and anything else gets no header at all.
+//
+// Echoing the request's origin is not cosmetic. A browser compares ACAO to the
+// Origin it sent, byte for byte, so a handler that always returned the first
+// configured origin would work for that one host and fail for every other on
+// the list — while passing any test that only checked the header is non-empty.
+// The kitOrigin case is what separates those two implementations.
+//
+// The refusal case asserts ABSENCE, not an empty value: an empty
+// Access-Control-Allow-Origin is a header the browser must parse and reject,
+// and it invites a later edit to "fix" it by supplying a default. The absent
+// header is the unambiguous no.
+func TestCORSAllowlist(t *testing.T) {
+	h := handler(t)
+	for _, tc := range []struct {
+		name     string
+		origin   string
+		wantACAO string
+	}{
+		{"the site itself", origin, origin},
+		{"the second allowed origin", kitOrigin, kitOrigin},
+		{"an origin that is not on the list", "https://example.invalid", ""},
+		// A prefix of an allowed origin, and an allowed origin with something
+		// appended. Both match under a strings.HasPrefix or Contains test and
+		// neither may match here.
+		{"a prefix of an allowed origin", "https://kit.exam", ""},
+		{"an allowed origin with a suffix", kitOrigin + ".evil.test", ""},
+		{"no Origin header at all", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hdr := http.Header{}
+			if tc.origin != "" {
+				hdr.Set("Origin", tc.origin)
+			} else {
+				// do() fills in a default Origin when none is set, which is
+				// right for every other test and wrong for this one case.
+				hdr.Set("Origin", "")
+			}
+			resp := do(t, h, http.MethodGet, "/style.json", hdr)
+
+			if got := resp.Header.Get("Access-Control-Allow-Origin"); got != tc.wantACAO {
+				t.Errorf("Origin %q: Access-Control-Allow-Origin = %q, want %q", tc.origin, got, tc.wantACAO)
+			}
+			if tc.wantACAO == "" {
+				if _, ok := resp.Header["Access-Control-Allow-Origin"]; ok {
+					t.Errorf("Origin %q: Access-Control-Allow-Origin is present; a refusal must omit it entirely", tc.origin)
+				}
+			}
+			// Vary belongs on every response including the refusals, or a
+			// shared cache replays one origin's answer to another and the
+			// allowlist above stops meaning anything.
+			if got := resp.Header.Get("Vary"); got != "Origin" {
+				t.Errorf("Origin %q: Vary = %q, want %q", tc.origin, got, "Origin")
+			}
+			// The refusal is a CORS refusal, not a 403: the bytes are public,
+			// and it is the browser that must decline to hand them to a page.
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("Origin %q: status = %d, want 200", tc.origin, resp.StatusCode)
+			}
+		})
+	}
+}
+
+// TestNeverAllowsCredentials is a negative assertion, and the only kind that
+// can hold: nothing sets this header today, so the test exists to stop it being
+// added.
+//
+// Echoing the requesting origin is safe precisely because credentials are not
+// allowed. Together they are the combination that turns an allowlist slip — one
+// over-broad entry, one validation gap — from "the wrong site can read public
+// map tiles" into "the wrong site can act as a logged-in visitor". The tiles
+// listener holds no session and needs no cookie, so the header has no use here
+// and its absence is worth pinning.
+//
+// Asserted on the preflight as well as the read: Allow-Credentials on an
+// OPTIONS response is what a browser consults before sending the credentialled
+// request at all, so a mutation that set it only there would be invisible to a
+// GET-only check.
+func TestNeverAllowsCredentials(t *testing.T) {
+	h := handler(t)
+	for _, tc := range []struct {
+		name   string
+		method string
+		hdr    http.Header
+	}{
+		{"read", http.MethodGet, http.Header{"Origin": []string{origin}}},
+		{"read from the second origin", http.MethodGet, http.Header{"Origin": []string{kitOrigin}}},
+		{"preflight", http.MethodOptions, http.Header{
+			"Origin":                         []string{kitOrigin},
+			"Access-Control-Request-Method":  []string{"GET"},
+			"Access-Control-Request-Headers": []string{"Range"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := do(t, h, tc.method, "/style.json", tc.hdr)
+			if _, ok := resp.Header["Access-Control-Allow-Credentials"]; ok {
+				t.Errorf("Access-Control-Allow-Credentials = %q; it must never be set — this handler holds no session, and with an echoed origin it would make an allowlist slip a credential leak",
+					resp.Header.Get("Access-Control-Allow-Credentials"))
+			}
+		})
+	}
+}
+
+// TestOneHandlerServesAllThreeArtefacts. MapLibre and PMTiles fetch three
+// different things — the style, the glyph atlases and byte ranges of the
+// archive — and all three must clear the same allowlist. If any were served by
+// a second handler or a bare file server, the map would fail with a font error
+// or a tile error rather than a CORS one, which reads as a different bug
+// entirely and sends the reader looking at the wrong thing.
+//
+// server.go mounts this handler as the tiles listener's whole Handler, with no
+// mux and nothing to fall through to, so proving it here proves it end to end.
+func TestOneHandlerServesAllThreeArtefacts(t *testing.T) {
+	h := handler(t)
+	for _, path := range []string{
+		"/style.json",
+		"/" + archive,
+		"/glyphs/NotoSans-Regular/0-255.pbf",
+	} {
+		t.Run(path, func(t *testing.T) {
+			allowed := do(t, h, http.MethodGet, path, http.Header{"Origin": []string{kitOrigin}})
+			if got := allowed.Header.Get("Access-Control-Allow-Origin"); got != kitOrigin {
+				t.Errorf("GET %s from %q: Access-Control-Allow-Origin = %q, want %q", path, kitOrigin, got, kitOrigin)
+			}
+			refused := do(t, h, http.MethodGet, path, http.Header{"Origin": []string{"https://example.invalid"}})
+			if _, ok := refused.Header["Access-Control-Allow-Origin"]; ok {
+				t.Errorf("GET %s from an origin off the list: Access-Control-Allow-Origin is present, want absent", path)
+			}
+		})
+	}
+}
+
+// TestRangeReadIsReadable. A range response the script receives but cannot
+// measure is not one PMTiles can parse, so both headers have to be exposed.
+func TestRangeReadIsReadable(t *testing.T) {
+	h := handler(t)
+	resp := do(t, h, http.MethodGet, "/"+archive, http.Header{
+		"Origin": []string{kitOrigin},
+		"Range":  []string{"bytes=0-15"},
+	})
+	if resp.StatusCode != http.StatusPartialContent {
+		t.Fatalf("ranged GET %s = %d, want 206", archive, resp.StatusCode)
+	}
+	want := "Content-Range, Content-Length"
+	if got := resp.Header.Get("Access-Control-Expose-Headers"); got != want {
+		t.Errorf("Access-Control-Expose-Headers = %q, want %q", got, want)
+	}
+}
+
+// TestConstructorRejectsAWildcardOrigin. "*" is not a wider allowlist, it is no
+// allowlist, and it would survive config validation if it ever reached the
+// handler by another route.
+func TestConstructorRejectsAWildcardOrigin(t *testing.T) {
+	for _, origins := range [][]string{{"*"}, {origin, "*"}, {origin, ""}} {
+		if _, err := tiles.NewHandler("testdata", archive, origins); err == nil {
+			t.Errorf("NewHandler with allowOrigins = %q returned nil error, want an error", origins)
+		}
+	}
+}
+
 func TestPreflight(t *testing.T) {
 	h := handler(t)
 	resp := do(t, h, http.MethodOptions, "/"+archive, http.Header{
@@ -306,14 +482,14 @@ func TestPreflight(t *testing.T) {
 // guards against.
 func TestConstructorRejectsAnIncompleteDirectory(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := tiles.NewHandler(dir, archive, origin); err == nil {
+	if _, err := tiles.NewHandler(dir, archive, []string{origin}); err == nil {
 		t.Fatal("NewHandler on an empty directory returned nil error, want an error")
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "style.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := tiles.NewHandler(dir, archive, origin)
+	_, err := tiles.NewHandler(dir, archive, []string{origin})
 	if err == nil {
 		t.Fatal("NewHandler with style.json but no archive returned nil error, want an error")
 	}
@@ -338,7 +514,7 @@ func TestServesTheConfiguredArchiveAndNoOther(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, err := tiles.NewHandler(dir, archive, origin)
+	h, err := tiles.NewHandler(dir, archive, []string{origin})
 	if err != nil {
 		t.Fatalf("NewHandler error = %v, want nil", err)
 	}
@@ -352,7 +528,7 @@ func TestServesTheConfiguredArchiveAndNoOther(t *testing.T) {
 	// The converse, so this cannot be satisfied by an allowlist that happens to
 	// accept any *.pmtiles: point the config at the other file and the two
 	// answers must swap.
-	h2, err := tiles.NewHandler(dir, other, origin)
+	h2, err := tiles.NewHandler(dir, other, []string{origin})
 	if err != nil {
 		t.Fatalf("NewHandler(%q) error = %v, want nil", other, err)
 	}
@@ -370,7 +546,7 @@ func TestServesTheConfiguredArchiveAndNoOther(t *testing.T) {
 // whole reason this constructor validates at all.
 func TestConstructorRejectsAnArchiveThatIsNotThere(t *testing.T) {
 	dir := copyTestdata(t)
-	if _, err := tiles.NewHandler(dir, "bulgaria-19990101.pmtiles", origin); err == nil {
+	if _, err := tiles.NewHandler(dir, "bulgaria-19990101.pmtiles", []string{origin}); err == nil {
 		t.Fatal("NewHandler with an archive name that names no file returned nil error, want an error")
 	}
 }
@@ -386,20 +562,20 @@ func TestConstructorRejectsANonPlainArchiveName(t *testing.T) {
 		".",
 		"..",
 	} {
-		if _, err := tiles.NewHandler("testdata", name, origin); err == nil {
+		if _, err := tiles.NewHandler("testdata", name, []string{origin}); err == nil {
 			t.Errorf("NewHandler with archive = %q returned nil error, want an error", name)
 		}
 	}
 }
 
 func TestConstructorRejectsEmptyArguments(t *testing.T) {
-	if _, err := tiles.NewHandler("testdata", "", origin); err == nil {
+	if _, err := tiles.NewHandler("testdata", "", []string{origin}); err == nil {
 		t.Error("NewHandler with an empty archive returned nil error, want an error")
 	}
-	if _, err := tiles.NewHandler("", archive, origin); err == nil {
+	if _, err := tiles.NewHandler("", archive, []string{origin}); err == nil {
 		t.Error("NewHandler with an empty dir returned nil error, want an error")
 	}
-	if _, err := tiles.NewHandler("testdata", archive, ""); err == nil {
+	if _, err := tiles.NewHandler("testdata", archive, nil); err == nil {
 		t.Error("NewHandler with an empty allowOrigin returned nil error, want an error")
 	}
 }
