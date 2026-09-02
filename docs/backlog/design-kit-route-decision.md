@@ -84,12 +84,40 @@ in depth, not a substitute for pointing at the right directory.
   `createObjectURL`. Recorded, because the obvious "tidy-up" of dropping
   `blob:` would break the map at runtime with no build-time signal.
 
-## Still needed from Iliyan
+## Built
 
-The kit's repo path or clone URL — it is not on this machine.
+`5caebf2`. `internal/designkit` serves `design_kit.dir` under `/design-kit/`,
+registered on the public mux inside the middleware chain. `design_kit.dir` is
+`""` in the committed `airbg.yaml`, so the route does not exist in production.
+
+Decisions that turned out to matter, all mutation-verified (8 mutations, 8
+caught):
+
+- **The dotfile guard checks every segment, not the first.** A first-segment
+  check passes every `.git/...` case at the served root and still serves
+  `app/.env`. That mutation survived the first round of tests for exactly that
+  reason — the fixture had no dotted names below the root.
+- **Directories are never listed.** `http.ServeFileFS` produces a listing when
+  told not to redirect, so this is a real default being overridden.
+- **The entry redirect sets `Location` directly.** `http.Redirect` resolves a
+  relative target against the request path, and under `StripPrefix` that path
+  is `/` — it emitted `/app/`, outside the route. Relative `app/` resolves
+  against the full request URI, so the handler never needs to know its mount.
+- **Route inside the chain.** Registering it outside still serves the kit, with
+  no CSP and no rate limit and no other symptom. Pinned by a server-level test
+  asserting the response carries the configured CSP.
+
+`airbg.yaml` ships inside the image (`roles/airbg/tasks/artefacts.yml:58`), so
+the new required key needs no Ansible change and cannot drift on the host.
+
+## Still needed
+
+The kit tree itself — it is not on this machine, and `design_kit.dir` has
+nowhere to point yet. It goes below a repo root, not at one (see the objection
+above). Where it should live given it is this project's own web UI is open.
 
 ## State
 
-App repo clean at `2016a68`; both suites green; stack deployed and verified on
+App repo clean at `5caebf2`; both suites green; stack deployed and verified on
 the wire. Rate limiting and the enumeration guard mutation-verified: 17
 mutations, 16 caught, the survivor fixed in `2016a68`.
