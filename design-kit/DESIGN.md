@@ -1262,6 +1262,18 @@ the tile camera without a single call site knowing a second camera exists. The
 same trick §5.2b used for the province view, one level up. Verified: a marker
 draws at the exact pixel the tile camera projects its coordinate to.
 
+**And the gate for that was set from the wrong state.** It read `zoom >= 9`,
+a number taken from where a reader ends up after zooming in. Measured on the
+deployed kit, every province page opens *below* it — Пловдив at 6,94,
+София-град at 7,99 — so the archive was fetched, drawn, and immediately
+covered by 19 solid fills at the one moment that matters, the load. The
+condition is now the **framing**: a province view outlines, the country view
+fills, and the zoom number only still applies to a reader who has zoomed the
+country map in. Third time this system has set a threshold above what the
+surface can reach (the district gate at 12, `ZMAX` at 8, this one) — **set a
+threshold from the state the page opens in, not from the one it can be driven
+to.**
+
 **The choropleth yields once the basemap is the subject.** A solid fill hides
 the streets the reader zoomed in for, and the obvious fix — dropping its
 opacity — is the re-tint §2.1 forbids. So the served colour moves from `fill`
@@ -2276,6 +2288,9 @@ in §1 make likely. Committing one is a defect, not a preference.
   with no nonce the browser refuses it and says so in the console, so the page
   is styled everywhere except the one place readers see it. Put the rules in a
   served stylesheet; the review harness gets them too.
+- ❌ A detail gate keyed on a zoom number when the page's framing already
+  states the answer. Every province opens below the number, so the layer it
+  guards is hidden at load and appears only if the reader happens to zoom.
 - ❌ Mounting a second camera without telling it what the page is about. The
   framing the renderer computed is discarded, every line of it still correct,
   and a detail page opens on the whole country.

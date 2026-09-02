@@ -759,7 +759,16 @@
          * for an outline in the same band colour once the basemap is (city
          * scale). The reading does not leave the screen: the value label and
          * every marker still carry the served band. */
-        sh.outlineOnly = tiled() && window.AIRBG_MAP_PROJECT.zoom >= 9;
+        /* Keyed on the FRAMING, not on a zoom number. A gate at zoom 9 was
+         * set from what a reader reaches after zooming, and every province
+         * page opens below it — Пловдив at 6.9, София-град at 8.0 — so the
+         * archive was fetched, drawn, and then covered by 19 solid fills at
+         * exactly the moment the page loaded. Third time this system has set a
+         * threshold above what the surface can actually reach (the district
+         * gate at 12, ZMAX at 8, this): set it from the state the page OPENS
+         * in, not from the one it can be driven to. */
+        sh.outlineOnly = tiled() &&
+          (view.mode === 'province' || window.AIRBG_MAP_PROJECT.zoom >= 9);
         /* A province is a way into its own page from ANY map, so it is a real
          * `<a>` — focusable, middle-clickable, shown in the status bar on
          * hover, none of which a click handler on a `<path>` gives.
