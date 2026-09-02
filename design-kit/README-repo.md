@@ -29,12 +29,13 @@ working tree is dirty — so committing is the gate, not a person. Nothing left
 uncommitted can reach the host, and a passing local page proves nothing about
 what is being served.
 
-Reviewing it in a browser works today only because the origin currently accepts
-any client — see `docs/backlog/origin-is-open-and-enumeration-mutations.md`.
-Once the origin requires Cloudflare's client certificate, https://airbg.org/design-kit/
-stops loading from the LAN, and reviewing a change will mean opening the files
-locally instead. Nothing about the kit changes; the route just stops being
-reachable from here.
+**https://airbg.org/design-kit/ no longer loads from the LAN.** As of
+2026-09-03 the origin requires Cloudflare's client certificate, so a direct
+connection to the host fails the TLS handshake — see
+`docs/backlog/origin-is-open-and-enumeration-mutations.md` for why it accepted
+anyone until then. Nothing about the kit changed and the route is still served;
+it is just no longer reachable from here. Review a change by opening the files
+locally, or through the SSH forward in `docs/deployment.md`.
 
 ## What the app actually serves
 
