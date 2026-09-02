@@ -21,44 +21,55 @@ deployable output. Everything below is rewritten around that.
 Same shape as `tiles.dir`, which the config, the Ansible role and the tests
 already understand.
 
-## Blocking objection: do not point `design_kit.dir` at a repo root
+## Correction: the kit is not a repository, and the root is the served root
 
-The kit session asks for `design_kit.dir` to be the **kit repo root**, because
-there is no `dist/`. As specified that serves `.git/` over HTTPS.
+The earlier version of this file raised a `.git` exposure objection and
+recommended pointing `design_kit.dir` at `ui_kits/` rather than a repo root.
+Both halves were wrong, and the second would have broken the kit.
 
-A static file server rooted at a working tree exposes `.git/config`,
-`.git/HEAD`, and every object in `.git/objects/` — which is the full history,
-not just the current tree. Anything ever committed and later removed is
-retrievable. That is a standard, actively scanned-for exposure, and it is worse
-here than the usual case because this route would be reachable from the public
-site rather than an internal tool.
+The kit lives at:
 
-It is not hypothetical for a no-build kit specifically: with a build step the
-served directory is generated output that never contains a `.git`. Dropping the
-build is what creates the exposure.
+```
+/Users/iliyan/Library/Application Support/Open Design/namespaces/release-stable/data/projects/2bd1e8df-2fb5-4be2-b61c-52d0eb1e3030
+```
 
-Two ways to resolve it, both fine by me. **Kit session picks, since it owns the
-layout:**
+Note the spaces — quote it in Ansible and rsync. `git rev-parse --show-toplevel`
+reports it is not a git repository. It is an OpenDesign project directory,
+managed by the editor.
 
-1. **Serve `ui_kits/`, not the repo root.** `design_kit.dir` points one level
-   in. The `../../tokens.css` references still resolve, because `ui_kits/app/`
-   is still two levels below the served root — the nesting the kit says is
-   load-bearing is preserved exactly. This is my recommendation: it needs no
-   code in the handler and no denylist to get right.
-2. **Keep the repo root and have the handler refuse dotted path segments.**
-   Workable, but it is a denylist, and a denylist is the thing that is wrong
-   the first time someone adds `.env.example` or a `.well-known` directory.
+- **The `.git` exposure does not exist in this tree.** There is no `.git`. The
+  objection was raised against an assumption, and the kit session corrected it.
+- **`ui_kits/` cannot be the served root.** `ui_kits/app/index.html` references
+  `../../tokens.css`, `../../colors_and_type.css`, `../../components.css` and
+  `../../assets/`. From `ui_kits/app/` that is the PROJECT ROOT, not `ui_kits/`.
+  Serving `ui_kits/` gives a page with every stylesheet missing — an unstyled
+  render, not an error, which is the failure mode nobody investigates quickly.
 
-Whichever is chosen, the handler will refuse dotfile segments anyway — defence
-in depth, not a substitute for pointing at the right directory.
+So `design_kit.dir` is the project root. What that exposes is not a repository
+but an editor's working directory: `CLAUDE.md`, `DESIGN.md`, `SKILL.md`,
+`README.md`, `image*.png`, a working screenshot, `examples/`, `preview/`,
+`context/`, `node-compile-cache/`, and `.file-versions/` — the editor's
+per-file revision history.
+
+**Resolved with an allowlist on the first path segment**, the same pattern
+`internal/tiles` uses: `ui_kits`, `assets`, `tokens.css`, `colors_and_type.css`,
+`components.css`. An allowlist rather than a denylist because the tree is
+written by a tool that creates files nobody decided to create — the set that
+must not be served grows on its own; the set that must is five entries.
+
+The dotted-segment refusal is kept alongside it, not replaced by it: the
+allowlist bounds the first segment, the dotted refusal bounds every segment
+below, where `ui_kits/.file-versions/` also lives.
 
 ## Contract
 
 - Files are served under `/design-kit/` from `design_kit.dir`.
-- **The entry is `app/index.html`** (relative to the served root under option 1
-  above), not an `index.html` at the served root. `/design-kit/` will redirect
-  to it at the route layer. Agreed the kit should not add a root-level
-  launcher: one page, one owner.
+- **The entry is `ui_kits/app/index.html`**, not an `index.html` at the served
+  root. `/design-kit/` redirects to it at the route layer. Agreed the kit should
+  not add a root-level launcher: one page, one owner.
+- **Only five roots are reachable**: `ui_kits/`, `assets/`, `tokens.css`,
+  `colors_and_type.css`, `components.css`. All five verified present. Adding a
+  sixth means editing `allowedRoots` in `internal/designkit`.
 - **Relative references only.** Confirmed already satisfied.
 - **No inline `<script>` or `<style>`.** The site's CSP is `script-src 'self';
   style-src 'self'` with no `'unsafe-inline'` and no nonce, and it is not being
@@ -86,38 +97,65 @@ in depth, not a substitute for pointing at the right directory.
 
 ## Built
 
-`5caebf2`. `internal/designkit` serves `design_kit.dir` under `/design-kit/`,
-registered on the public mux inside the middleware chain. `design_kit.dir` is
-`""` in the committed `airbg.yaml`, so the route does not exist in production.
+`5caebf2`, hardened in the follow-up commit. `internal/designkit` serves
+`design_kit.dir` under `/design-kit/`, registered on the public mux inside the
+middleware chain. `design_kit.dir` is `""` in the committed `airbg.yaml`, so
+the route does not exist in production.
 
-Decisions that turned out to matter, all mutation-verified (8 mutations, 8
-caught):
+Mutation-verified: **11 mutations, 11 caught.** The ones worth remembering:
 
-- **The dotfile guard checks every segment, not the first.** A first-segment
-  check passes every `.git/...` case at the served root and still serves
-  `app/.env`. That mutation survived the first round of tests for exactly that
-  reason — the fixture had no dotted names below the root.
+- **The root allowlist, and its degradation into a dotfile denylist.** Both
+  mutations are caught only because the fixture is shaped like the real project
+  directory — `CLAUDE.md`, scratch dirs and `.file-versions/` included. A
+  fixture holding only the kit cannot fail either.
+- **The dotfile guard checks every segment, not the first.** This survived the
+  first round: every dotted case in the original fixture sat at the served root,
+  so a first-segment check passed all of them while still serving nested ones.
+- **The entry redirect pointing one level too shallow** — the exact mis-set the
+  `../../` nesting punishes, and it renders as an unstyled page rather than an
+  error.
+- **The entry redirect made absolute.** `http.Redirect` resolves a relative
+  target against the request path; under `StripPrefix` that path is `/`, so it
+  emitted `/ui_kits/app/`, outside the route. `Location` is set directly.
 - **Directories are never listed.** `http.ServeFileFS` produces a listing when
-  told not to redirect, so this is a real default being overridden.
-- **The entry redirect sets `Location` directly.** `http.Redirect` resolves a
-  relative target against the request path, and under `StripPrefix` that path
-  is `/` — it emitted `/app/`, outside the route. Relative `app/` resolves
-  against the full request URI, so the handler never needs to know its mount.
+  told not to redirect — a real default being overridden.
 - **Route inside the chain.** Registering it outside still serves the kit, with
   no CSP and no rate limit and no other symptom. Pinned by a server-level test
   asserting the response carries the configured CSP.
 
+Two of the eleven survived their first round, and both share a shape: the
+mutation leaves the feature working and changes only an invisible property.
+
 `airbg.yaml` ships inside the image (`roles/airbg/tasks/artefacts.yml:58`), so
 the new required key needs no Ansible change and cannot drift on the host.
 
-## Still needed
+## The open blocker: the kit has no reachable source
 
-The kit tree itself — it is not on this machine, and `design_kit.dir` has
-nowhere to point yet. It goes below a repo root, not at one (see the objection
-above). Where it should live given it is this project's own web UI is open.
+The route is finished. What it has no answer for is how the kit reaches the
+host. The tree is unversioned and lives in one directory on one laptop, so
+"sync the allowlisted paths into `design_kit.dir`" has no source a deploy can
+pull from. `rsync` from a laptop is not a deploy step — it is a person
+remembering, and the first time they forget, `/design-kit/` is silently stale
+while looking correct.
+
+There is a second cost, independent of this route: `DESIGN.md` is the design
+contract, including every correction made this week, and it currently exists in
+exactly one place with no history beyond the editor's own `.file-versions/`.
+
+Options, in the kit session's order and mine:
+
+1. **Put the kit under version control, deploy from a git source.** Fixes both
+   problems. The kit session can prepare the tree with excludes for
+   `.file-versions/`, `node-compile-cache/` and the preview scratch.
+2. **Publish a tarball of the five allowlisted paths as a release artefact.**
+   Versionable, but someone still builds the tarball.
+3. **Copy from the laptop by hand.** Works once; rots immediately.
+
+This is Iliyan's call — it is a question of where the kit should live, not a
+technical one.
 
 ## State
 
-App repo clean at `5caebf2`; both suites green; stack deployed and verified on
-the wire. Rate limiting and the enumeration guard mutation-verified: 17
+App repo clean; both suites green; stack deployed and verified on the wire.
+Rate limiting and the enumeration guard mutation-verified separately: 17
 mutations, 16 caught, the survivor fixed in `2016a68`.
