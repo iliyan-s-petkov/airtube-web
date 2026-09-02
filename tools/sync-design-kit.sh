@@ -27,6 +27,7 @@ rsync -a --delete \
 	--exclude 'CLAUDE.md' \
 	--exclude '.gitignore' \
 	--exclude 'SERVED.md' \
+	--exclude 'README-repo.md' \
 	-- "$src/" "$dst/"
 
 echo "synced to $dst; review with: git status --short design-kit"
