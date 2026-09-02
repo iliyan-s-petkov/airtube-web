@@ -129,35 +129,39 @@ mutation leaves the feature working and changes only an invisible property.
 `airbg.yaml` ships inside the image (`roles/airbg/tasks/artefacts.yml:58`), so
 the new required key needs no Ansible change and cannot drift on the host.
 
-## The kit is now a git repository
+## The kit lives in this repo
 
-Decided and done. `git init` in place in the OpenDesign project directory, one
-import commit, 66 files. In place rather than a copy, because the editor keeps
-writing there and a repo it does not write to is a repo that drifts.
+Decided by Iliyan, and simpler than the standalone repository I had proposed.
+The kit is 3 MB and 65 files; it goes in `design-kit/` here, and the deploy
+needs no second remote and no clone step.
 
-`.gitignore` excludes what the editor generates rather than what anyone wrote —
-`.file-versions/`, `node-compile-cache/`, `context/`, `preview/`,
-`*.artifact.json`, working screenshots and `image*.png`. None of it is served by
-the allowlist, and none of it is a decision anyone made. `CLAUDE.md` is excluded
-deliberately, matching this repo's rule.
+This is the stronger fix, not just the cheaper one. A separate source still has
+to be synced to the host, and a sync someone forgets leaves `/design-kit/`
+stale while rendering correctly. Committed here, the host can only ever receive
+what was committed — the stale-kit failure is structurally impossible rather
+than something a deploy step has to prevent.
 
-`README-repo.md` in the kit records why the directory is versioned, that
-`design_kit.dir` must be the project root and not `ui_kits/`, and that adding a
-sixth served root means editing `allowedRoots` rather than adding a file.
+The kit is still authored in the OpenDesign project directory, which the editor
+writes to in place. `tools/sync-design-kit.sh` copies it in; `git status` then
+shows exactly what a design session changed. `--delete`, so a page the designer
+removed stops being served. The excludes are what the editor generates rather
+than what anyone wrote.
 
-Note: the import commit is gitsign-signed under the `dojobits.io` identity from
-the global git config. This is not a DojoBits project. Worth resetting before a
-remote is added, if that identity matters on the eventual host.
+`Dockerfile` copies `design-kit/` to `/design-kit`, and `design_kit.dir` names
+it, so the route is ON in production. That is the deliberate change: it was
+shipped off while the kit had nowhere to point. Turning it off again is one line
+back to `dir: ""`, and should happen before the site is reachable from outside
+the LAN.
 
-## Still needed
+Those two paths are the new drift risk, and it is invisible: `testConfig`
+repoints `design_kit.dir` at the repo copy, so editing the Dockerfile or the
+config alone leaves every Go test passing and the IMAGE failing at startup.
+Pinned by `TestTheDockerfileCopiesTheKitWhereTheConfigLooksForIt`, which reads
+both files.
 
-1. **A remote.** The repo is local-only. Creating it is not mine to do — no
-   credentials, and where the kit should live is the same kind of question as
-   whether it should be versioned at all.
-2. **Ansible wiring.** Once a remote exists, the role clones or fetches it to a
-   path on the host and sets `design_kit.dir` to that path. Until then the
-   shipped `design_kit.dir: ""` keeps the route non-existent, which is the
-   correct state.
+Verified in the built image, not only in tests: `/design-kit/` → 302 to
+`ui_kits/app/`; the entry 200s carrying the site's CSP and the revalidating
+cache header; `tokens.css` 200s; `DESIGN.md` 404s.
 
 ## State
 
