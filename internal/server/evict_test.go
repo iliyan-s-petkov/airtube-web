@@ -37,6 +37,10 @@ func TestSeriesLimiterEvictsOnItsOwnInterval(t *testing.T) {
 		t.Fatalf("LoadFile error = %v, want nil", err)
 	}
 
+	// The shipped design_kit.dir is the in-image path, which does not exist here
+	// and is nothing to do with the limiter.
+	cfg.DesignKit.Dir = ""
+
 	// The API interval is the value the reverted wiring would use. An hour is
 	// far longer than this test's deadline, so a sweep that fires at all within
 	// the deadline can only have come from the series interval.

@@ -48,19 +48,56 @@ func noRedirect() *http.Client {
 	}}
 }
 
-// The shipped configuration leaves design_kit.dir empty, so the route must not
-// exist by default. This is the whole reason the kit is a disk path rather than
-// go:embed: an embedded kit cannot be switched off, and "off in production" is
-// the state that matters.
-func TestTheDesignKitRouteIsAbsentByDefault(t *testing.T) {
+// designKitInRepo is where the kit is committed; designKitInImage is where the
+// Dockerfile copies it to and what the shipped design_kit.dir names. Two paths
+// for one tree, which is exactly the pair that can drift.
+const (
+	designKitInRepo  = "design-kit"
+	designKitInImage = "/design-kit"
+)
+
+// The shipped configuration enables the route, so the committed kit must be
+// servable as committed. A kit that only works from a hand-curated directory is
+// one nobody notices is broken until they open it.
+func TestTheShippedConfigurationServesTheCommittedKit(t *testing.T) {
 	public, _ := running(t)
-	resp, err := noRedirect().Get("http://" + public + "/design-kit/")
+	resp, err := noRedirect().Get("http://" + public + "/design-kit/ui_kits/app/")
 	if err != nil {
-		t.Fatalf("GET /design-kit/: %v", err)
+		t.Fatalf("GET: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusOK {
-		t.Errorf("status = %d; the design-kit route exists on the shipped configuration, which leaves design_kit.dir empty", resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; the committed design-kit/ is not servable at the shipped design_kit.dir", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), "<html") {
+		t.Errorf("body = %.80q, want the kit's entry page", body)
+	}
+}
+
+// The one thing the Go tests cannot otherwise see: design_kit.dir names a path
+// that exists only because the Dockerfile puts the kit there. Editing either
+// side alone leaves a startup failure that appears in the image and nowhere
+// else — every Go test would still pass, because testConfig repoints the path.
+func TestTheDockerfileCopiesTheKitWhereTheConfigLooksForIt(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+	want := "COPY " + designKitInRepo + " " + designKitInImage
+	if !strings.Contains(string(raw), want) {
+		t.Errorf("Dockerfile has no %q", want)
+	}
+
+	// Loaded raw rather than through testConfig, which repoints design_kit.dir
+	// at the repo copy — the whole point here is what the file actually says.
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if cfg.DesignKit.Dir != designKitInImage {
+		t.Errorf("shipped design_kit.dir = %q, want %q — the Dockerfile copies the kit there", cfg.DesignKit.Dir, designKitInImage)
 	}
 }
 

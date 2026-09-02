@@ -388,7 +388,7 @@ i18n:
 # colors_and_type.css, components.css — and refuses any path segment beginning
 # with a dot at any depth. See docs/backlog/design-kit-route-decision.md.
 #
-# Empty means the route does not exist, which is the shipped setting: the kit
-# is a review surface, not part of the site.
+# Empty means the route does not exist. Set to "" before the site is reachable
+# from outside the LAN: the kit is a review surface, not part of the site.
 design_kit:
-  dir: ""  # the OpenDesign project root, holding ui_kits/app/index.html
+  dir: "/design-kit"  # design-kit/ in the repo, copied in by the Dockerfile

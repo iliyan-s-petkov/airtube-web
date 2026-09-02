@@ -35,6 +35,13 @@ func testConfig(t *testing.T) config.Config {
 	if err != nil {
 		t.Fatalf("LoadFile error = %v, want nil", err)
 	}
+	// The shipped design_kit.dir is where the Dockerfile copies design-kit/ TO,
+	// so it only exists inside the image. Repointing at the same tree in the
+	// repo keeps the route enabled here exactly as it is in production —
+	// clearing it instead would silently stop testing the shipped state.
+	if cfg.DesignKit.Dir == designKitInImage {
+		cfg.DesignKit.Dir = filepath.Join("..", "..", designKitInRepo)
+	}
 	return cfg
 }
 

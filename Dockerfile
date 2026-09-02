@@ -44,6 +44,10 @@ COPY --from=build /out/airbg /airbg
 # must carry a config file and AIRBG_CONFIG must name it.
 COPY airbg.yaml /etc/airbg/airbg.yaml
 ENV AIRBG_CONFIG=/etc/airbg/airbg.yaml
+# The design kit, served read-only at /design-kit/. Copied from the repo rather
+# than fetched, so the running kit is exactly the committed one and the route
+# fails at startup — not at first request — if design_kit.dir goes wrong.
+COPY design-kit /design-kit
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/airbg"]
