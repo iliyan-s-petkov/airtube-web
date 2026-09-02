@@ -129,30 +129,35 @@ mutation leaves the feature working and changes only an invisible property.
 `airbg.yaml` ships inside the image (`roles/airbg/tasks/artefacts.yml:58`), so
 the new required key needs no Ansible change and cannot drift on the host.
 
-## The open blocker: the kit has no reachable source
+## The kit is now a git repository
 
-The route is finished. What it has no answer for is how the kit reaches the
-host. The tree is unversioned and lives in one directory on one laptop, so
-"sync the allowlisted paths into `design_kit.dir`" has no source a deploy can
-pull from. `rsync` from a laptop is not a deploy step — it is a person
-remembering, and the first time they forget, `/design-kit/` is silently stale
-while looking correct.
+Decided and done. `git init` in place in the OpenDesign project directory, one
+import commit, 66 files. In place rather than a copy, because the editor keeps
+writing there and a repo it does not write to is a repo that drifts.
 
-There is a second cost, independent of this route: `DESIGN.md` is the design
-contract, including every correction made this week, and it currently exists in
-exactly one place with no history beyond the editor's own `.file-versions/`.
+`.gitignore` excludes what the editor generates rather than what anyone wrote —
+`.file-versions/`, `node-compile-cache/`, `context/`, `preview/`,
+`*.artifact.json`, working screenshots and `image*.png`. None of it is served by
+the allowlist, and none of it is a decision anyone made. `CLAUDE.md` is excluded
+deliberately, matching this repo's rule.
 
-Options, in the kit session's order and mine:
+`README-repo.md` in the kit records why the directory is versioned, that
+`design_kit.dir` must be the project root and not `ui_kits/`, and that adding a
+sixth served root means editing `allowedRoots` rather than adding a file.
 
-1. **Put the kit under version control, deploy from a git source.** Fixes both
-   problems. The kit session can prepare the tree with excludes for
-   `.file-versions/`, `node-compile-cache/` and the preview scratch.
-2. **Publish a tarball of the five allowlisted paths as a release artefact.**
-   Versionable, but someone still builds the tarball.
-3. **Copy from the laptop by hand.** Works once; rots immediately.
+Note: the import commit is gitsign-signed under the `dojobits.io` identity from
+the global git config. This is not a DojoBits project. Worth resetting before a
+remote is added, if that identity matters on the eventual host.
 
-This is Iliyan's call — it is a question of where the kit should live, not a
-technical one.
+## Still needed
+
+1. **A remote.** The repo is local-only. Creating it is not mine to do — no
+   credentials, and where the kit should live is the same kind of question as
+   whether it should be versioned at all.
+2. **Ansible wiring.** Once a remote exists, the role clones or fetches it to a
+   path on the host and sets `design_kit.dir` to that path. Until then the
+   shipped `design_kit.dir: ""` keeps the route non-existent, which is the
+   correct state.
 
 ## State
 
