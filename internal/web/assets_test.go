@@ -135,3 +135,44 @@ func TestAppCSSHasNoLiteralColours(t *testing.T) {
 		t.Errorf("app.css contains literal colours %v; they belong in theme.css as custom properties", found)
 	}
 }
+
+var (
+	cssVarUse = regexp.MustCompile(`var\(\s*(--[a-zA-Z0-9-]+)`)
+	cssVarDef = regexp.MustCompile(`(?m)^\s*(--[a-zA-Z0-9-]+)\s*:`)
+)
+
+// The other half of the theme split: TestAppCSSHasNoLiteralColours stops a
+// colour from escaping the palette, and this stops a token from being consumed
+// that the palette never defines. Neither failure is visible in a browser — an
+// undefined custom property with no fallback makes the whole declaration
+// invalid, so the rule is dropped silently and the element renders unstyled
+// rather than wrong. That is the failure mode a retheme is most likely to hit,
+// because dropping a token is invisible in the diff of the file that defines it.
+func TestEveryCSSVarUsedIsDefinedInTheme(t *testing.T) {
+	theme, err := staticFS.ReadFile("static/theme.css")
+	if err != nil {
+		t.Fatalf("ReadFile theme.css error = %v", err)
+	}
+	defined := map[string]bool{}
+	for _, m := range cssVarDef.FindAllStringSubmatch(string(theme), -1) {
+		defined[m[1]] = true
+	}
+	if len(defined) == 0 {
+		t.Fatal("theme.css defines no custom properties; the definition regexp no longer matches the file")
+	}
+
+	// Every hand-written stylesheet the server embeds, not just app.css:
+	// theme.css itself is included so a token defined in terms of another
+	// token cannot reference one that does not exist.
+	for _, name := range []string{"static/app.css", "static/theme.css"} {
+		data, err := staticFS.ReadFile(name)
+		if err != nil {
+			t.Fatalf("ReadFile %s error = %v", name, err)
+		}
+		for _, m := range cssVarUse.FindAllStringSubmatch(string(data), -1) {
+			if !defined[m[1]] {
+				t.Errorf("%s uses %s, which theme.css does not define", name, m[1])
+			}
+		}
+	}
+}

@@ -19,3 +19,10 @@ web/node_modules/
 web/test-results/
 web/playwright-report/
 web/blob-report/
+
+# Scratch from tooling, not artefacts: an empty vite cache npm leaves in the
+# repo root, and the browser-automation MCP's captures. Untracked was not
+# enough — `git add -A` would have committed node_modules wholesale.
+node_modules/
+.playwright-mcp/
+audit-home-full.png

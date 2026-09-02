@@ -1,30 +1,73 @@
 * { box-sizing: border-box; }
-body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
-header, main, footer { max-width: 60rem; margin: 0 auto; padding: 1rem; }
-header { display: flex; gap: 1rem; align-items: baseline; justify-content: space-between; border-bottom: 1px solid var(--border); }
-nav a { margin-left: 1rem; }
+body {
+  margin: 0;
+  font: var(--weight-body) var(--text-body)/1.5 var(--font-body);
+  color: var(--fg);
+  background: var(--bg);
+}
+/* Two containers, without a wrapper element per page: main is allowed the wide
+   --frame, its children are pulled back to the reading --measure, and the data
+   surfaces opt back out. Prose stays at a reading width, the map and the table
+   get the width they need, and neither needs markup that knows about layout. */
+main { max-width: var(--frame); margin: 0 auto; padding: var(--space-4) var(--gutter); }
+main > * { max-width: var(--measure); margin-inline: auto; }
+main > #map, main > #area-map, main > .frame { max-width: var(--frame); }
+footer { max-width: var(--measure); margin: 0 auto; padding: var(--space-4) var(--gutter); }
+
+/* Scoped to body > header so it cannot also catch .sensor-panel header. */
+body > header {
+  display: flex; gap: var(--space-4); align-items: center; justify-content: space-between;
+  min-height: var(--control-height); padding: 0 var(--gutter);
+  background: var(--fg); color: var(--accent-on);
+}
+body > header a { color: var(--border); }
+body > header a:hover { color: var(--accent-on); }
+body > header [aria-current] { color: var(--accent-on); box-shadow: inset 0 -2px 0 currentColor; }
+nav a { margin-left: var(--space-4); font-size: var(--text-compact); letter-spacing: var(--track-compact); }
+
+h1 { font-size: var(--text-page); font-weight: var(--weight-display); line-height: 1.19; }
+h2 { font-size: var(--text-section); font-weight: var(--weight-body); line-height: 1.25; }
+h3 { font-size: var(--text-sub); font-weight: var(--weight-body); line-height: 1.33; }
 a { color: var(--accent); }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
 .areas { list-style: none; padding: 0; }
-.areas li { display: flex; justify-content: space-between; padding: .4rem 0; border-bottom: 1px solid var(--border-faint); }
-.count { color: var(--muted); }
-.uncovered { color: var(--warn); }
-.notice { border-left: 4px solid var(--warn); padding: .5rem 1rem; background: var(--notice-bg); }
-.disclaimer { color: var(--muted); }
+.areas li { display: flex; justify-content: space-between; padding: var(--space-2) 0; border-bottom: 1px solid var(--border-faint); }
+.count { color: var(--fg-2); font-variant-numeric: tabular-nums; }
+/* Not a warning: these oblasti have no recent readings, which is an ordinary
+   state of the world. Colouring it read as eight failures on one page. */
+.uncovered { color: var(--muted); }
+.notice { border-left: 4px solid var(--warn); padding: var(--space-2) var(--space-4); background: var(--notice-bg); }
+.disclaimer { color: var(--fg-2); }
 /* A caveat, not a warning: muted like .disclaimer rather than boxed like
    .notice, because it qualifies a number that is fine rather than telling the
    reader something is wrong. .notice's warning bar next to every city name
    would read as an error state on 27 healthy pages. */
-.notice-inline { color: var(--muted); font-size: .875rem; }
-footer { border-top: 1px solid var(--border); color: var(--muted); font-size: .875rem; }
+.notice-inline { color: var(--muted); font-size: var(--text-compact); letter-spacing: var(--track-compact); }
+footer { border-top: 1px solid var(--border); background: var(--surface); color: var(--meta); font-size: var(--text-caption); letter-spacing: var(--track-caption); }
+/* The one footer line that must actually be read. */
+footer .disclaimer { font-size: var(--text-body); letter-spacing: 0; color: var(--fg-2); }
+
 #map, #area-map { position: relative; height: 24rem; background: var(--map-placeholder-bg); border: 1px solid var(--border); }
 #chart { min-height: 12rem; }
 .map-legend, .map-hint, .map-note {
-  position: absolute; z-index: 1; left: .5rem;
-  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: .25rem;
-  padding: .25rem .5rem; font-size: .8rem; color: var(--fg);
+  position: absolute; z-index: 1; left: var(--space-2);
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg);
 }
-.map-legend { top: .5rem; }
-.map-hint { bottom: .5rem; color: var(--warn); }
+.map-legend { top: var(--space-2); max-width: 15rem; }
+.legend-title { font-weight: var(--weight-emphasis); margin: 0 0 var(--space-1); }
+.legend-ramp { list-style: none; margin: 0; padding: 0; }
+.legend-ramp li { display: flex; align-items: center; gap: var(--space-2); }
+/* The swatch carries a server-defined band colour as an SVG fill attribute, so
+   it needs a size here and nothing else — see renderLegend on why a styled
+   span cannot work under the CSP. */
+.legend-swatch { width: 8px; height: 8px; flex: none; }
+.legend-range { margin-left: auto; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+/* What a dot aggregates at this zoom. Separated from the ramp by a rule because
+   it answers a different question than the colours above it. */
+.legend-tier { margin: var(--space-1) 0 0; padding-top: var(--space-1); border-top: 1px solid var(--border-faint); color: var(--fg-2); }
+.map-hint { bottom: var(--space-2); color: var(--fg-2); }
 .map-hint[hidden] { display: none; }
 /* Below the legend, not the hint: the hint is about the viewport (comes and
    goes with pan/zoom), the note is about the selected metric (comes and goes
@@ -37,23 +80,25 @@ footer { border-top: 1px solid var(--border); color: var(--muted); font-size: .8
    below) whenever it is open — bottom-right is the one spot nothing else
    claims. */
 .map-locate {
-  position: absolute; z-index: 1; bottom: .5rem; right: .5rem;
-  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: .25rem;
-  padding: .25rem .5rem; font-size: .8rem; color: var(--fg); cursor: pointer;
+  position: absolute; z-index: 1; bottom: var(--space-2); right: var(--space-2);
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg); cursor: pointer;
 }
+.map-locate:hover { background: var(--surface); }
 /* Positioned over the map (absolute within #map/#area-map, both position:
    relative above) rather than pushing layout: a click target under the panel
    must stay reachable by panning, not get reflowed off the page. */
 .sensor-panel {
-  position: absolute; z-index: 2; top: .5rem; right: .5rem; width: 16rem; max-width: calc(100% - 1rem);
-  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: .25rem;
-  padding: .5rem .75rem; font-size: .875rem; color: var(--fg);
+  position: absolute; z-index: 2; top: var(--space-2); right: var(--space-2); width: 16rem; max-width: calc(100% - var(--space-4));
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3); font-size: var(--text-compact); letter-spacing: var(--track-compact); color: var(--fg);
+  box-shadow: var(--elev-float);
 }
-.sensor-panel header { border-bottom: none; padding: 0 0 .25rem; margin: 0 0 .25rem; }
-.sensor-panel h2 { font-size: 1rem; margin: 0; }
-.panel-flag { color: var(--warn); margin: 0 0 .5rem; }
-.sensor-panel dl { display: grid; grid-template-columns: auto 1fr; gap: .1rem .5rem; margin: 0; }
-.sensor-panel dt { color: var(--muted); }
-.sensor-panel dd { margin: 0; text-align: right; }
+.sensor-panel header { border-bottom: none; padding: 0 0 var(--space-1); margin: 0 0 var(--space-1); }
+.sensor-panel h2 { font-size: var(--text-card); font-weight: var(--weight-emphasis); line-height: 1.4; margin: 0; }
+.panel-flag { color: var(--muted); margin: 0 0 var(--space-2); }
+.sensor-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space-2); margin: 0; }
+.sensor-panel dt { color: var(--fg-2); }
+.sensor-panel dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 /* Honour the reduced-motion preference before Phase 3 adds any transitions. */
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

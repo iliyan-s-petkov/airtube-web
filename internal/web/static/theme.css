@@ -1,15 +1,86 @@
-/* The site palette, and nothing else. No selectors, no layout: this file exists
-   so a retheme is one file, and so the CSP never needs a style-src allowance
-   for an inline <style> block or a style= attribute. */
+/* Design tokens: colour, type, space, geometry. No selectors, no layout — this
+   file exists so a retheme is one file, and so the CSP never needs a style-src
+   allowance for an inline <style> block or a style= attribute.
+   The contract these values answer to is docs/design/DESIGN.md. */
 :root {
-  --fg: #1a1a1a;
-  --muted: #666;
-  --bg: #fff;
-  --accent: #0b6;
-  --warn: #a40;
-  --border: #ddd;
-  --border-faint: #eee;
-  --notice-bg: #fff8f0;
-  --map-placeholder-bg: #f2f2f2;
+  /* Surfaces, layered for depth. There are no shadows on cards; --elev-float
+     is only for things that genuinely float. */
+  --bg: #ffffff;
+  --surface: #f4f4f4;
+  --surface-2: #e0e0e0;
+  --surface-sel: #edf5ff;
+
+  /* Text */
+  --fg: #161616;
+  --fg-2: #525252;
+  --muted: #6f6f6f;
+  --meta: #8d8d8d;
+
+  /* Lines */
+  --border: #c6c6c6;
+  --border-faint: #e0e0e0;
+
+  /* The one chromatic UI colour. Blue, not green: green belongs to the air. */
+  --accent: #0f62fe;
+  --accent-on: #ffffff;
+  --accent-hover: #0043ce;
+  --accent-active: #002d9c;
+
+  /* System messaging only. These hues are the air-quality ramp, so they are
+     forbidden on the map, in the legend, on a chart series, or in a readout. */
+  --danger: #da1e28;
+  --warn: #f1c21b;
+  --success: #24a148;
+  --notice-bg: #fcf4d6;
+
+  /* Map chrome */
+  --map-placeholder-bg: #f4f4f4;
   --overlay-bg: rgba(255, 255, 255, .9);
+
+  /* Type. Self-hosted: the CSP has no third-party allowance, and a font CDN is
+     a third party watching our readers. Weight 700 does not exist here. */
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --weight-display: 300;
+  --weight-body: 400;
+  --weight-emphasis: 600;
+
+  --text-caption: 12px;
+  --text-compact: 14px;
+  --text-body: 16px;
+  --text-card: 1.25rem;
+  --text-sub: 1.5rem;
+  --text-section: 2rem;
+  --text-page: 2.63rem;
+
+  /* Tracking exists only below 16px. Display type gets none. */
+  --track-compact: .16px;
+  --track-caption: .32px;
+
+  /* 8px grid; 4px for optical nudges only. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Two containers: prose reads at --measure, data wants --frame. */
+  --measure: 60rem;
+  --frame: 78rem;
+  --gutter: 16px;
+
+  --radius: 0;
+  --radius-pill: 24px;
+  --elev-float: 0 2px 6px rgba(0, 0, 0, .12);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  --control-height: 48px;
+}
+
+@media (min-width: 672px) {
+  :root { --gutter: 24px; }
+}
+
+@media (min-width: 1056px) {
+  :root { --gutter: 32px; }
 }
