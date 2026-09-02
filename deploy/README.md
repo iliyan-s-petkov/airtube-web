@@ -58,6 +58,16 @@ container, and does so even with `pull = false` on every job. With `IMAGES=0`
 the proxy answered 403 and no scheduled job ever ran — no backup, and no error
 anyone would see.
 
+`IMAGES=1` also re-permits `POST /images/create`, so a compromised ofelia could
+fetch an image and run it. That was accepted deliberately, weighed against what
+the proxy already grants: `CONTAINERS=1` with `POST=1` is container creation
+with arbitrary binds and command, which is already host root. The alternative
+that removes the surface instead of narrowing it is host systemd timers in
+place of ofelia, which would delete both this service and the scheduler.
+
+`pull = false` stays regardless: `airbg:latest` is built on the host and exists
+in no registry, so a pull could only ever fail.
+
 ## Why there is no collect job
 
 `airbg serve` polls upstream in-process, because the snapshot the server
@@ -74,16 +84,6 @@ swap, and answered ssh too slowly for Ansible's 10-second timeout — so the
 deploy that would have fixed it could not run either. `TestNoOfeliaJobRunsTheCollector`
 pins this by command rather than by job name, since the same leak reappears
 under any name.
-
-`IMAGES=1` also re-permits `POST /images/create`, so a compromised ofelia could
-fetch an image and run it. That was accepted deliberately, weighed against what
-the proxy already grants: `CONTAINERS=1` with `POST=1` is container creation
-with arbitrary binds and command, which is already host root. The alternative
-that removes the surface instead of narrowing it is host systemd timers in
-place of ofelia, which would delete both this service and the scheduler.
-
-`pull = false` stays regardless: `airbg:latest` is built on the host and exists
-in no registry, so a pull could only ever fail.
 
 ## socket-proxy: why it is not read_only
 
