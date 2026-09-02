@@ -418,9 +418,8 @@ func TestTheDevCaddyfileIsUnmistakableAndOpen(t *testing.T) {
 // lines dropped. Deliberately simple, same spirit as caddyBlocks: sections
 // start at column 0 with a `[...]` header and run until the next one. A key
 // like `environment` or `volume` can appear more than once in a real section
-// — ofelia treats repeats of those as a slice, not a last-wins scalar, see
-// the comment above [job-run "collect"] in ofelia.ini — so every occurrence
-// is returned, not just the last.
+// — ofelia treats repeats of those as a slice, not a last-wins scalar — so
+// every occurrence is returned, not just the last.
 func ofeliaJobLines(t *testing.T, header string) []string {
 	t.Helper()
 	data, err := os.ReadFile("ofelia.ini")
@@ -464,7 +463,7 @@ func ofeliaValue(lines []string, key string) (string, bool) {
 // Both images are local, so a pull can only fail — and a failed pull fails the
 // job silently, since nothing watches a job-run's exit code.
 func TestEveryOfeliaJobDisablesTheImagePull(t *testing.T) {
-	for _, job := range []string{"collect", "backup", "backup-prune"} {
+	for _, job := range []string{"backup", "backup-prune"} {
 		lines := ofeliaJobLines(t, `job-run "`+job+`"`)
 		v, ok := ofeliaValue(lines, "pull")
 		if !ok || v != "false" {
@@ -473,50 +472,49 @@ func TestEveryOfeliaJobDisablesTheImagePull(t *testing.T) {
 	}
 }
 
-// The collect job is started fresh through the Docker API by ofelia's
-// job-run, which — unlike a Compose service — inherits no env_file and no
-// mounts from anything else in this deployment. Without a database
-// credential reaching that spawned container, internal/config.Validate makes
-// startup fail, silently, every 5 minutes, because delete = true leaves no
-// exited container behind to notice. This asserts the credential mechanism
-// is actually wired: AIRBG_DATABASE_URL_FILE is set, and a read-only volume
-// is bind-mounted at the exact path it names — the two halves of the
-// PGPASSFILE-style pattern the backup job already uses.
-func TestCollectJobHasADatabaseCredential(t *testing.T) {
-	lines := ofeliaJobLines(t, `job-run "collect"`)
-
-	var fileEnv string
-	var found bool
-	for _, line := range lines {
-		if !strings.HasPrefix(line, "environment =") {
+// ofelia's job-run only reaps a container when the job finishes, so a command
+// that does not return is a container that is never deleted, however plainly
+// `delete = true` is written above it. Scheduling one every 5 minutes leaked
+// 531 immortal collectors onto the host before anyone looked: the VM sat at
+// load 750 with 116 MB free and no swap, and ssh took longer to answer than
+// Ansible's 10-second timeout allows, so the deployment that would have fixed
+// it could not run either.
+//
+// `airbg collect` is the command that does not return — it runs its own poll
+// loop (cmd/airbg/main.go:83). It also never needed a schedule: `airbg serve`
+// polls in-process, and the comment at cmd/airbg/main.go:261 says why a
+// separately deployed collector cannot do the job at all, since the snapshot
+// the server reads lives in the server's own memory. Every one of those 531
+// containers was doing work whose main effect it structurally could not have.
+//
+// Asserted by command rather than by section name: reintroducing this under
+// any other job name would leak exactly the same way.
+func TestNoOfeliaJobRunsTheCollector(t *testing.T) {
+	data, err := os.ReadFile("ofelia.ini")
+	if err != nil {
+		t.Fatalf("ReadFile(ofelia.ini) error = %v, want nil", err)
+	}
+	section := ""
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, ";") {
 			continue
 		}
-		v := strings.TrimSpace(strings.TrimPrefix(line, "environment ="))
-		k, val, ok := strings.Cut(v, "=")
-		if ok && k == "AIRBG_DATABASE_URL_FILE" {
-			fileEnv, found = val, true
-		}
-	}
-	if !found {
-		t.Fatal(`collect job sets no environment = AIRBG_DATABASE_URL_FILE=...; the collector has no way to reach the database and dies at startup every run`)
-	}
-
-	var mounted bool
-	for _, line := range lines {
-		if !strings.HasPrefix(line, "volume =") {
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = line
 			continue
 		}
-		v := strings.TrimSpace(strings.TrimPrefix(line, "volume ="))
-		parts := strings.Split(v, ":")
-		if len(parts) >= 2 && parts[1] == fileEnv {
-			mounted = true
-			if !strings.HasSuffix(v, ":ro") {
-				t.Errorf("collect job mounts the credential file %q writable, want :ro", v)
+		v, ok := ofeliaValue([]string{line}, "command")
+		if !ok {
+			continue
+		}
+		// Whole-word, so a backup command mentioning the word in a path or a
+		// message does not trip this.
+		for _, field := range strings.Fields(v) {
+			if field == "collect" {
+				t.Errorf("%s runs command = %q; `airbg collect` never returns, so ofelia never reaps its container and this leaks one every run. `airbg serve` already polls in-process — see cmd/airbg/main.go:261", section, v)
 			}
 		}
-	}
-	if !mounted {
-		t.Errorf("collect job sets AIRBG_DATABASE_URL_FILE=%s but mounts no volume at that path — the file the job expects to read never exists inside the container", fileEnv)
 	}
 }
 
@@ -530,7 +528,7 @@ func TestCollectJobHasADatabaseCredential(t *testing.T) {
 // reachable — which is exactly how db acquired internet access once already.
 func TestEveryOfeliaJobRunsOnAnInternalNetwork(t *testing.T) {
 	c := loadCompose(t)
-	for _, job := range []string{"collect", "backup", "backup-prune"} {
+	for _, job := range []string{"backup", "backup-prune"} {
 		lines := ofeliaJobLines(t, `job-run "`+job+`"`)
 		network, ok := ofeliaValue(lines, "network")
 		if !ok {
@@ -574,7 +572,7 @@ func TestBackupPruneAlarmsWhenBackupsGoStale(t *testing.T) {
 // `;` and `#` start an INI comment, silently truncating the command — the
 // prune job was registered as `sh -c 'set -f`. Use `&&`/`||` and subshells.
 func TestNoOfeliaCommandUsesACommentCharacter(t *testing.T) {
-	for _, job := range []string{"collect", "backup", "backup-prune"} {
+	for _, job := range []string{"backup", "backup-prune"} {
 		command, ok := ofeliaValue(ofeliaJobLines(t, `job-run "`+job+`"`), "command")
 		if !ok {
 			continue
@@ -590,12 +588,12 @@ func TestNoOfeliaCommandUsesACommentCharacter(t *testing.T) {
 // ofelia strips every double quote from a command value, so the command runs
 // with a different meaning than it reads. Not a parse error — nothing warns.
 func TestNoOfeliaCommandUsesDoubleQuotes(t *testing.T) {
-	const wantJobs = 3 // positive control: a header typo must not silently scan zero jobs
+	const wantJobs = 2 // positive control: a header typo must not silently scan zero jobs
 	var checked int
-	for _, job := range []string{"collect", "backup", "backup-prune"} {
+	for _, job := range []string{"backup", "backup-prune"} {
 		command, ok := ofeliaValue(ofeliaJobLines(t, `job-run "`+job+`"`), "command")
 		if !ok {
-			continue // collect's command is a bare argv, not every job needs sh -c
+			continue // not every job needs a command
 		}
 		checked++
 		if strings.Contains(command, `"`) {
@@ -621,18 +619,19 @@ func TestOfeliaConfigContainsNoBackslash(t *testing.T) {
 	}
 }
 
-// The collect job writes what it fetches, so it has to reach db. It gets one
-// network from ofelia (the INI keeps only the last `network =` line), so that
-// one network is the only route it has to the database — db must be on it.
-func TestCollectJobCanReachTheDatabase(t *testing.T) {
-	lines := ofeliaJobLines(t, `job-run "collect"`)
-	network, ok := ofeliaValue(lines, "network")
-	if !ok {
-		t.Fatal("collect job sets no network =")
-	}
-	name := strings.TrimPrefix(network, "airbg_")
-	if _, on := service(t, loadCompose(t), "db").Networks[name]; !on {
-		t.Errorf("collect job runs on network %s but db is not attached to %q; the job has exactly one network and cannot reach the database from it", network, name)
+// The backup jobs write to and read from db, so each has to reach it. A job
+// gets one network from ofelia (the INI keeps only the last `network =` line),
+// so that one network is its only route to the database — db must be on it.
+func TestOfeliaJobsCanReachTheDatabase(t *testing.T) {
+	for _, job := range []string{"backup", "backup-prune"} {
+		network, ok := ofeliaValue(ofeliaJobLines(t, `job-run "`+job+`"`), "network")
+		if !ok {
+			continue
+		}
+		name := strings.TrimPrefix(network, "airbg_")
+		if _, on := service(t, loadCompose(t), "db").Networks[name]; !on {
+			t.Errorf("%s job runs on network %s but db is not attached to %q; the job has exactly one network and cannot reach the database from it", job, network, name)
+		}
 	}
 }
 

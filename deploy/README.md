@@ -39,10 +39,11 @@ DSN into this file would put a credential in configuration management.
 
 ofelia attaches every job-run container to Docker's default bridge in addition
 to the network named by `network =`. A job on the internal `airbg_back` network
-therefore still has internet egress, which is how `collect` reaches
-data.sensor.community while `db` stays isolated. This is empirical, not
-documented behaviour — verified against the pinned image. Re-check it after any
-version bump; if it ever changes, `collect` fails at the upstream fetch.
+therefore still has internet egress while `db` stays isolated. This is
+empirical, not documented behaviour — verified against the pinned image, and
+worth re-checking after any version bump. No job here needs egress today: both
+backup jobs talk only to `db`. Upstream collection is not a job at all — see
+below.
 
 `network =` holds exactly one network per job. A second line replaces the first
 rather than adding to it, so "one job on two networks" is not available.
@@ -54,8 +55,25 @@ silent.
 
 ofelia checks that a job's image exists (`GET /images/json`) before creating its
 container, and does so even with `pull = false` on every job. With `IMAGES=0`
-the proxy answered 403 and no scheduled job ever ran — no collection, no
-backup, no error anyone would see.
+the proxy answered 403 and no scheduled job ever ran — no backup, and no error
+anyone would see.
+
+## Why there is no collect job
+
+`airbg serve` polls upstream in-process, because the snapshot the server
+returns lives in that process's memory and no separate container can swap the
+pointer to it — `cmd/airbg/main.go:261` has the reasoning. Scheduling
+`airbg collect` alongside it is therefore redundant, and actively harmful:
+that command runs its own poll loop and never returns, so ofelia never reaps
+its container. `delete = true` does not help, because the deletion happens when
+the job *finishes*.
+
+Left running, it leaked one immortal container every five minutes. By the time
+it was found the host held 531 of them, sat at load 750 with 116 MB free and no
+swap, and answered ssh too slowly for Ansible's 10-second timeout — so the
+deploy that would have fixed it could not run either. `TestNoOfeliaJobRunsTheCollector`
+pins this by command rather than by job name, since the same leak reappears
+under any name.
 
 `IMAGES=1` also re-permits `POST /images/create`, so a compromised ofelia could
 fetch an image and run it. That was accepted deliberately, weighed against what
