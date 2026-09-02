@@ -10,9 +10,13 @@ directory is not a deployable source: a host cannot pull from a laptop path, and
 an rsync someone remembers to run is not a deploy step. The first time it is
 forgotten, `/design-kit/` is silently stale while still rendering correctly.
 
-Committing the kit here makes the drift visible instead. `tools/sync-design-kit.sh`
-copies the editor's output in; `git status` then shows exactly what a design
-session changed, and the host only ever receives what was committed.
+So the kit was imported here, and **this copy is now the source of truth** —
+edited directly, and committed like any other part of the app. The host only
+ever receives what was committed.
+
+`tools/sync-design-kit.sh` was the import path. It runs the wrong way now, with
+`--delete`, so it refuses unless `SYNC_FROM_EDITOR=1` is set. Use it only for a
+deliberate re-import, and read `git status` before committing the result.
 
 ## What the app actually serves
 

@@ -1,11 +1,27 @@
 #!/bin/sh
-# Copy the design kit out of the OpenDesign editor's project directory into
-# design-kit/. Run it after a design session; `git status` then shows what
-# changed. See design-kit/README-repo.md.
+# One-way re-import of the design kit from the OpenDesign editor's project
+# directory into design-kit/. See design-kit/README-repo.md.
 set -eu
 
 src="${1:-$HOME/Library/Application Support/Open Design/namespaces/release-stable/data/projects/2bd1e8df-2fb5-4be2-b61c-52d0eb1e3030}"
 dst="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/design-kit"
+
+# design-kit/ is the source of truth and is edited directly, so this import runs
+# the wrong way: --delete would revert anything committed here but not present
+# in the editor's copy, silently and completely. Gated rather than removed
+# because a deliberate re-import is still occasionally right.
+[ "${SYNC_FROM_EDITOR:-}" = "1" ] || {
+	cat >&2 <<-EOF
+		refusing to run: design-kit/ in this repo is the source of truth.
+
+		This copies the editor's directory OVER it, with --delete, so work
+		committed here and absent there would be lost.
+
+		For a deliberate re-import: SYNC_FROM_EDITOR=1 $0
+		Then check \`git status --short design-kit\` before committing.
+	EOF
+	exit 1
+}
 
 [ -f "$src/ui_kits/app/index.html" ] || {
 	echo "not a design kit: $src" >&2
