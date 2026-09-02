@@ -115,6 +115,53 @@ func TestDistinctSensorsTripSeparately(t *testing.T) {
 	}
 }
 
+// The independence checked at the end of TestDistinctSensorsTripSeparately is
+// real but cannot fail: that test runs with an area limit of 100, so three
+// sensors leaking into the area set still leave 97 of budget and the assertion
+// passes either way. Making an observation of one kind consume the other kind's
+// budget survived mutation testing for exactly that reason.
+//
+// The limits here are sized so any leak is fatal rather than absorbed: more
+// observations of the first kind than the second kind's limit allows.
+//
+// The failure this prevents is a lockout of ordinary users, not a hole a
+// scraper walks through — click five markers and the map refuses to open an
+// oblast — and it is silent, because a breadth counter has no per-request
+// symptom until the moment it refuses.
+func TestOneKindOfObservationDoesNotSpendTheOtherKindsBudget(t *testing.T) {
+	t.Run("sensors do not spend the area budget", func(t *testing.T) {
+		b, _ := breadth(t, 3, 10)
+
+		for _, id := range []int64{1, 2, 3, 4, 5} {
+			if !b.ObserveSensor("client", id) {
+				t.Fatalf("sensor %d refused below the sensor limit of 10", id)
+			}
+		}
+		// Five sensors seen, area limit three: if the sensors were recorded
+		// against areas, the first area is already over.
+		for _, slug := range []string{"sofia", "plovdiv", "varna"} {
+			if !b.ObserveArea("client", slug) {
+				t.Errorf("area %q refused within a limit of 3 after 5 sensor views; sensor observations are being counted against the area budget", slug)
+			}
+		}
+	})
+
+	t.Run("areas do not spend the sensor budget", func(t *testing.T) {
+		b, _ := breadth(t, 10, 3)
+
+		for _, slug := range []string{"sofia", "plovdiv", "varna", "burgas", "ruse"} {
+			if !b.ObserveArea("client", slug) {
+				t.Fatalf("area %q refused below the area limit of 10", slug)
+			}
+		}
+		for _, id := range []int64{1, 2, 3} {
+			if !b.ObserveSensor("client", id) {
+				t.Errorf("sensor %d refused within a limit of 3 after 5 area views; area observations are being counted against the sensor budget", id)
+			}
+		}
+	})
+}
+
 func TestKeysAreIndependentForBreadth(t *testing.T) {
 	b, _ := breadth(t, 1, 1)
 
