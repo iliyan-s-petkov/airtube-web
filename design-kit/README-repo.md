@@ -18,6 +18,17 @@ ever receives what was committed.
 `--delete`, so it refuses unless `SYNC_FROM_EDITOR=1` is set. Use it only for a
 deliberate re-import, and read `git status` before committing the result.
 
+## Shipping a change
+
+    go test ./internal/server/ ./internal/designkit/
+    git add design-kit && git commit
+    tools/deploy-airbg.sh
+
+The deploy builds the image from `git archive HEAD` and refuses outright if the
+working tree is dirty — so committing is the gate, not a person. Nothing left
+uncommitted can reach the host, and a passing local page proves nothing about
+what is being served.
+
 ## What the app actually serves
 
 `internal/designkit` allowlists five entries at the root and refuses everything
