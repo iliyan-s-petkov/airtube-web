@@ -95,6 +95,21 @@ describe('Chart.svelte', () => {
     expect(uplotCalls[0].opts.series[1].stroke).toBe('#2563eb')
   })
 
+  // The x series carried no label, so uPlot supplied its own built-in English
+  // "Time" — visible in the hover readout (the legend above IS that readout) on
+  // an otherwise Bulgarian page. A default in someone else's library is still a
+  // string this site shows its readers, so it comes from the catalogue.
+  it('labels the time axis from the catalogue rather than letting uPlot default to English', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+    )
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    render({ timeLabel: 'Време' })
+
+    await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
+    expect(uplotCalls[0].opts.series[0].label).toBe('Време')
+  })
+
   // uPlot's legend IS its hover readout, and at rest it renders the series
   // label beside a literal em-dash placeholder — "µg/m³ --" under a chart
   // nobody has touched yet, which reads as unfinished markup rather than as

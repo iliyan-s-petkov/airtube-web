@@ -4,7 +4,7 @@
   import { toUplotData } from '../lib/series.js'
   import { getJSON } from '../lib/api.js'
 
-  let { url, lineColour, title, valueLabel, empty, unavailable } = $props()
+  let { url, lineColour, title, valueLabel, timeLabel, empty, unavailable } = $props()
 
   // Three states, one variable: the reader must always be told which one they
   // are in. 'loading' renders nothing rather than a spinner — the panel around
@@ -38,7 +38,11 @@
         height: 240,
         // Epoch SECONDS — see lib/series.js. uPlot's x scale is time by
         // default, so milliseconds would plot every point in 1970 silently.
-        series: [{}, { label: valueLabel, stroke: lineColour, width: 2 }],
+        //
+        // The x series carries a label because uPlot supplies its own English
+        // "Time" when it has none, and that label is visible in the hover
+        // readout below — the one English word on a Bulgarian page.
+        series: [{ label: timeLabel }, { label: valueLabel, stroke: lineColour, width: 2 }],
         scales: { x: { time: true } },
         // uPlot's legend IS the hover readout, and with no cursor on the plot
         // it renders the series labels beside em-dash placeholders. Switching

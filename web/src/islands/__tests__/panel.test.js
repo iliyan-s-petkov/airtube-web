@@ -50,6 +50,7 @@ const PANEL_ATTR_FIXTURES = {
   tFlagSpatialOutlier: 'This reading disagrees with nearby sensors.',
   tChartTitle: 'Chart',
   tChartValue: 'Value',
+  tChartTime: 'Time',
   tChartEmpty: 'empty',
   tChartUnavailable: 'unavailable',
 }

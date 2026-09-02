@@ -7,6 +7,7 @@ import { Map as MapLibreMap, addProtocol } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Protocol } from 'pmtiles'
 import { tierFor } from '../lib/tier.js'
+import { legendRows, renderLegend } from '../lib/legend.js'
 import { colourFor } from '../lib/colour.js'
 import { getJSON } from '../lib/api.js'
 import { parseMetricList, hasScale } from '../lib/metrics.js'
@@ -227,6 +228,13 @@ async function refresh(map, state, cfg, chrome, force = false) {
   const effective = tier === 'sensors' && !state.slug ? 'city' : tier
   chrome.showHint(effective !== tier ? cfg.t.hint : '')
 
+  // EFFECTIVE, not tier: on an area page opened at the sensor zoom with no slug
+  // adopted, the dots are city aggregates while the page prints a sensor count.
+  // Naming the raw tier here would restate that contradiction instead of
+  // resolving it. Placed before the dedup return below so the legend is correct
+  // even on the passes that fetch nothing.
+  chrome.showLegend({ bands: bandsFor(state.scales, cfg.metric), tier: effective })
+
   const url = urlFor(effective, state.slug)
   // Unchanged tier and slug: nothing to do. getJSON would serve from cache
   // anyway, but repainting the same features on every moveend is visible churn.
@@ -442,6 +450,12 @@ export function readConfig(el) {
     // areaPath). Empty is a legitimate value, so the fallback is only for a
     // missing attribute on the default-language page.
     langPrefix: d.langPrefix || '',
+    // Which of the band table's two shipped label languages to show. Read off
+    // <html lang>, which base.gohtml already renders, rather than derived from
+    // langPrefix — the default language has an empty prefix.
+    // ownerDocument ?? document because readConfig is duck-typed on `dataset`
+    // and its tests pass a plain object rather than a mounted element.
+    lang: (el.ownerDocument ?? document).documentElement.lang,
     // Paint values and zoom thresholds: configuration, arriving as data-*
     // attributes, no fallback here — a hardcoded fallback that numerically
     // agrees with today's airbg.yaml is exactly the duplicated constant this
@@ -456,6 +470,14 @@ export function readConfig(el) {
     // catalogue, and a second copy here would drift on the first edit.
     t: {
       legend: d.tLegend || '',
+      legendNoData: d.tLegendNoData || '',
+      // Keyed by the tier names tierFor returns, so the lookup in showLegend is
+      // a direct index rather than a branch that could drift from tier.js.
+      tier: {
+        country: d.tTierCountry || '',
+        city: d.tTierCity || '',
+        sensors: d.tTierSensors || '',
+      },
       hint: d.tHint || '',
       rateLimited: d.tRateLimited || '',
       unavailable: d.tUnavailable || '',
@@ -645,7 +667,6 @@ export function debounce(fn, ms) {
 function mountChrome(el, cfg) {
   const legend = document.createElement('div')
   legend.className = 'map-legend'
-  legend.textContent = cfg.t.legend
   el.appendChild(legend)
 
   const hint = document.createElement('div')
@@ -683,12 +704,28 @@ function mountChrome(el, cfg) {
     hint.hidden = !text
   })
 
+  const showLegend = ({ bands, tier }) => renderLegend(legend, {
+    title: cfg.t.legend,
+    rows: legendRows(bands, {
+      noDataColour: cfg.noDataColour,
+      noDataLabel: cfg.t.legendNoData,
+      lang: cfg.lang,
+    }),
+    tierText: cfg.t.tier[tier] ?? '',
+  })
+
+  // Drawn once at mount, before any scales have loaded, so the box is never an
+  // empty bordered rectangle: with no bands that is the title and the no-data
+  // row, both of which are true at that moment.
+  showLegend({ bands: [], tier: null })
+
   return {
     ...hintCtl,
     showNote(text) {
       note.textContent = text
       note.hidden = !text
     },
+    showLegend,
     locateButton,
   }
 }

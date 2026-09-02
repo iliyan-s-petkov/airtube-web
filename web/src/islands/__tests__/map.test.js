@@ -236,6 +236,10 @@ describe('readConfig', () => {
     const cfg = readConfig({
       dataset: {
         tLegend: 'Air quality', tHint: 'Select an area',
+        tLegendNoData: 'Not enough data',
+        tTierCountry: 'Each dot is an oblast average',
+        tTierCity: 'Each dot is a city average',
+        tTierSensors: 'Each dot is a single sensor',
         tRateLimited: 'Retrying', tUnavailable: 'Unavailable',
         tUnscaled: 'No air-quality scale for this metric',
         tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
@@ -249,6 +253,12 @@ describe('readConfig', () => {
     })
     expect(cfg.t).toEqual({
       legend: 'Air quality', hint: 'Select an area',
+      legendNoData: 'Not enough data',
+      tier: {
+        country: 'Each dot is an oblast average',
+        city: 'Each dot is a city average',
+        sensors: 'Each dot is a single sensor',
+      },
       rateLimited: 'Retrying', unavailable: 'Unavailable',
       unscaled: 'No air-quality scale for this metric',
       locateButton: 'Find me', locateDenied: 'Location access was denied.',
@@ -371,6 +381,7 @@ describe('loadScales', () => {
       calls,
       showHint: (text) => calls.push(['hint', text]),
       showError: (text) => calls.push(['error', text]),
+      showLegend: () => {},
     }
   }
 
@@ -455,7 +466,7 @@ describe('initData ordering', () => {
   it('still explains the grey map after refresh has run', async () => {
     vi.stubGlobal('fetch', stubFetch({ scalesOk: false }))
     const rendered = []
-    const chrome = hintController((t) => rendered.push(t))
+    const chrome = { ...hintController((t) => rendered.push(t)), showLegend: () => {} }
     const map = fakeMap()
     const state = { slug: null, tier: null, scales: null }
 
@@ -474,7 +485,7 @@ describe('initData ordering', () => {
   it('leaves the banner empty when everything loads', async () => {
     vi.stubGlobal('fetch', stubFetch({ scalesOk: true }))
     const rendered = []
-    const chrome = hintController((t) => rendered.push(t))
+    const chrome = { ...hintController((t) => rendered.push(t)), showLegend: () => {} }
     const map = fakeMap()
 
     await initData(map, { slug: null, tier: null, scales: null }, cfg, chrome)
@@ -509,7 +520,7 @@ describe('initData ordering', () => {
       }
     }))
     const offThresholdCfg = { ...cfg, zoomCity: 3, zoomSensor: 20 }
-    const chrome = hintController(() => {})
+    const chrome = { ...hintController(() => {}), showLegend: () => {} }
     const map = fakeMap(7) // country under the old 9/11; city under 3/20
 
     await initData(map, { slug: null, tier: null, scales: null }, offThresholdCfg, chrome)
@@ -818,7 +829,7 @@ describe('locateVisitor', () => {
   }
 
   function fakeChrome() {
-    return { showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn() }
+    return { showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn(), showLegend: vi.fn() }
   }
 
   const cfg = {
@@ -926,7 +937,7 @@ describe('locateMe', () => {
   }
 
   function fakeChrome() {
-    return { showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn() }
+    return { showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn(), showLegend: vi.fn() }
   }
 
   const areas = [{ slug: 'sofia', lon: 23.32, lat: 42.7, zoom: 11 }]

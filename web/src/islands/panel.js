@@ -127,6 +127,7 @@ function buildChartSnippet(id, d) {
           lineColour: d.lineColour,
           title: d.tChartTitle || '',
           valueLabel: d.tChartValue || '',
+          timeLabel: d.tChartTime || '',
           empty: d.tChartEmpty || '',
           unavailable: d.tChartUnavailable || '',
         },

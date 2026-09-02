@@ -18,6 +18,7 @@ export function mount(el) {
       lineColour: d.lineColour,
       title: d.tTitle || '',
       valueLabel: d.tValue || '',
+      timeLabel: d.tTime || '',
       empty: d.tEmpty || '',
       unavailable: d.tUnavailable || '',
     },
