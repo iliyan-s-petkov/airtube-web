@@ -119,14 +119,17 @@ the kit index. Adding a component means editing `components.css` with a `DESIGN.
   `--muted` at body size; `--danger` appears only on a genuinely failed request.
 - **The chart is filled,** never an outline: `.series-area` at 12% `--accent` plus a
   2px `.series-line`. One series, one colour.
-- **No inline styles in the screens.** The consuming app's CSP forbids them. Only
-  `index.html` carries a scoped `<style>`, for standalone review rendering.
+- **No inline styles anywhere, including the launcher.** The site's CSP is
+  `style-src 'self'` with no nonce and is not relaxed for the kit, so a `<style>`
+  block is refused on the host while rendering fine locally. `index.html` carried
+  one for standalone review; its rules moved into `app.css`.
 
 ## Source basis
 
 Written from the airbg.org `DESIGN.md` specification (§5 components, §6 responsive),
-preserved unmodified at `../../context/source-DESIGN.md`. The source project handed
-over no HTML, so these screens are an implementation of the written contract rather
-than a copy of a running page — see `../../context/provenance.md`. Copy, oblast names,
+preserved unmodified in the authoring project's `context/`, which is deliberately
+not committed here and not served. The source project handed over no HTML, so these
+screens are an implementation of the written contract rather than a copy of a
+running page. Copy, oblast names,
 sensor counts and the 585-vs-25 legend reconciliation come from facts stated in that
 specification; the numeric values are sample data and are labelled as such on screen.

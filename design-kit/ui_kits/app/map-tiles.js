@@ -18,12 +18,22 @@
  * still drawn by map-render.js, over the tiles, from the served scales. The
  * basemap says where you are; it never says what the air is doing.
  *
- * THE TWO THINGS THAT CAN GO WRONG, AND WHAT HAPPENS THEN
- * -------------------------------------------------------
- * 1. The origin refuses this reader. `tiles.airbg.org` answers
- *    `Access-Control-Allow-Origin: https://airbg.org`, so a kit opened from
- *    `file://` or a preview host cannot read the style, the glyphs or the
- *    archive until that origin is allowed too.
+ * WHERE THIS RUNS, AND WHY THAT SETTLES CORS
+ * ------------------------------------------
+ * The kit ships inside the app repo and is served by the app itself at
+ * `https://airbg.org/design-kit/ui_kits/app/`. Its origin is therefore
+ * `https://airbg.org` — exactly the origin `tiles.airbg.org` already answers
+ * with in `Access-Control-Allow-Origin`. Nothing was widened to make this
+ * work: the kit moved to the origin that was already allowed, which is why
+ * the CORS prompt written for the app repo was never needed.
+ *
+ * Opened any OTHER way — `file://`, a preview daemon on loopback, a copy on
+ * some other host — the origin does not match, the style read fails, and the
+ * SVG basemap draws instead. That is a supported state, not a fault.
+ *
+ * THE THINGS THAT CAN GO WRONG, AND WHAT HAPPENS THEN
+ * --------------------------------------------------
+ * 1. The origin refuses this reader (see above).
  * 2. WebGL is unavailable (headless export, an old machine, a blocked
  *    context).
  *
@@ -134,10 +144,43 @@
         });
       }
 
+      /* THE CAMERA HAS TO BE TOLD WHAT THE PAGE IS ABOUT.
+       *
+       * A province page opens on its subject (§5.2b). The SVG renderer works
+       * that framing out for itself — but under the tiles every coordinate is
+       * projected by THIS camera, so the fit it computed is discarded and the
+       * page opened on the whole country with София-град somewhere inside it.
+       * The framing was correct in the code and absent on the screen, which is
+       * exactly the class of defect only a browser catches.
+       *
+       * The renderer publishes the box it wants in lon/lat and never moves the
+       * camera; this applies it once per SUBJECT. Keyed that way, a reader who
+       * has zoomed in keeps their view — the camera only re-fits when the
+       * province itself changes (`airbg:oblastchange`). */
+      var fittedKey = null;
+      function fitSubject() {
+        var b = frame.__airbgWantBounds, k = frame.__airbgWantKey || 'country';
+        if (k === fittedKey) return;
+        fittedKey = k;
+        if (!b) return;
+        map.fitBounds(b, { padding: 32, animate: false, maxZoom: 13 });
+      }
+
       map.on('load', function () {
         frame.setAttribute('data-basemap', 'tiles');
         publish();
+        /* Draw first: the renderer publishes the wanted box as it draws, so
+         * there is nothing to fit to until one pass has run. */
+        if (window.AIRBG_DATA && window.AIRBG_MAP_DRAW) window.AIRBG_MAP_DRAW();
+        fitSubject();
         repaint();
+      });
+
+      /* The province can change in place, without a navigation (§5.2b). The
+       * renderer redraws on the same event and rewrites the wanted box; this
+       * runs after it, so the camera follows the new subject. */
+      document.addEventListener('airbg:oblastchange', function () {
+        setTimeout(fitSubject, 0);
       });
       map.on('move', repaint);
       map.on('resize', repaint);

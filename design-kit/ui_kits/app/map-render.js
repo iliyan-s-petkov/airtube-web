@@ -485,13 +485,26 @@
                  provinces.provinces[provinces._alias && provinces._alias[fen]];
         if (pr) {
           var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+          /* The same box in lon/lat, kept alongside the projected one. Under
+           * the tiles the fit below is computed and then thrown away — the
+           * camera decides where every coordinate lands — so the framing has
+           * to be handed to the camera in ITS units, or a province page opens
+           * on the whole country with the subject somewhere inside it. */
+          var lo0 = 1e9, la0 = 1e9, lo1 = -1e9, la1 = -1e9;
           pr.rings.forEach(function (r) {
             r.forEach(function (c) {
               var px = bx(c[0]), py = by(c[1]);
               if (px < x0) x0 = px; if (px > x1) x1 = px;
               if (py < y0) y0 = py; if (py > y1) y1 = py;
+              if (c[0] < lo0) lo0 = c[0]; if (c[0] > lo1) lo1 = c[0];
+              if (c[1] < la0) la0 = c[1]; if (c[1] > la1) la1 = c[1];
             });
           });
+          /* Published, not applied: the renderer never moves the camera. The
+           * key is the subject, so the camera re-fits when the province
+           * changes and never fights a zoom the reader set themselves. */
+          frame.__airbgWantBounds = [[lo0, la0], [lo1, la1]];
+          frame.__airbgWantKey = 'province:' + fen;
           // Fit the province the same way the country is fitted, then apply
           // whatever the reader has zoomed since.
           var bw = Math.max(x1 - x0, 1), bh = Math.max(y1 - y0, 1);
@@ -500,6 +513,10 @@
         } else {
           view.mode = 'country';                        // unknown province: no invented framing
         }
+      }
+      if (view.mode !== 'province') {
+        frame.__airbgWantBounds = null;
+        frame.__airbgWantKey = 'country';
       }
       view.fit = vk;              // the framing's own scale, before the reader's zoom
       vk *= view.k;

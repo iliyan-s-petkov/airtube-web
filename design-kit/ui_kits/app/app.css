@@ -200,11 +200,18 @@
 .msg--error { background: var(--surface); color: var(--danger); border: 1px solid var(--danger); }
 .msg--loading { color: var(--muted); }
 
-.kit-index { display: grid; gap: 1px; background: var(--border-soft); border: 1px solid var(--border-soft); margin-block-start: var(--space-6); }
+.kit-index { display: grid; gap: 1px; background: var(--border-soft); border: 1px solid var(--border-soft); margin-block: var(--space-6); }
 .kit-index a { background: var(--bg); padding: var(--space-4); text-decoration: none; display: grid; gap: var(--space-1); transition: background-color var(--dur-base) var(--ease-standard); }
 .kit-index a:hover { background: var(--surface-hover); }
 .kit-index strong { color: var(--accent); font-weight: var(--weight-emphasis); }
 .kit-index span { color: var(--fg-2); font-size: var(--text-compact); letter-spacing: var(--track-compact); }
+/* The launcher's own rules. They were an inline <style> in index.html, which
+   renders locally and is REFUSED by the site's own CSP — `style-src 'self'`,
+   no nonce, not being relaxed for the kit (§1). A launcher that only styles
+   itself off-host is a launcher nobody sees styled. */
+.kit-index a { min-height: var(--control-height); align-content: center; }
+.kit-index code { font-family: var(--font-mono); font-size: var(--text-caption); }
+.meta { display: block; max-width: 70ch; margin-block-start: var(--space-6); }
 
 /* Table controls: search leads, the data filter sits beside it. The search
    field is capped at a name's length — a full-width input for a 14-character

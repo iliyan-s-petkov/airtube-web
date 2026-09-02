@@ -63,6 +63,7 @@ rejected, not negotiated.
 | Air-quality colours are server-defined | `/api/v1/scales`, `web/src/lib/colour.js` | The ramp is data, not brand. Design never restates or overrides it. |
 | Map tiers are an anti-enumeration control | Phase 1 §7.1, `tierFor()` | Design may explain the tiers. It may not widen what a tier returns. |
 | Country fit has ~3.4 % latitude margin | measured at `data-zoom=7`, 926×382 | The fit is a **maximum aspect ratio of 926∶382**, not a pixel height. Wider than that crops the country top and bottom; **taller is always safe** — it simply shows more latitude around it. ~6 px of slack. |
+| The kit is served by the app, under its CSP | `internal/designkit`, `/design-kit/` | Five allowlisted roots only — `ui_kits/ assets/ tokens.css colors_and_type.css components.css`. A sixth root is a code change, not a new file. References are relative (`../../tokens.css`); an absolute `/tokens.css` breaks under the mount point. Anything the repo does not carry — `context/`, `preview/`, `image*.png` — 404s on the host while working locally. |
 | No new runtime dependency | project rule | No icon font, no CSS framework, no webfont CDN. **One exception, taken deliberately:** MapLibre GL + PMTiles, vendored under `assets/vendor/`, to draw the app's own vector basemap (§5.2b path A). Vendored, not hotlinked — the rule against a CDN is about third parties watching readers, and that reason is untouched. |
 
 ---
@@ -1275,13 +1276,44 @@ not draw at all — the archive has all four, in the same projection and better.
 They stay in the repository because they are still what renders when the tiles
 are unreachable, which today is every host except airbg.org itself.
 
-**And that is the one thing still blocking it: CORS.** `tiles.airbg.org`
-answers `Access-Control-Allow-Origin: https://airbg.org`, so a kit opened from
-`file://` or a preview host cannot read the style, the glyphs or the archive.
-Until that origin is allowed, `map-tiles.js` stands down and the frame carries
-`data-basemap="local"`. Verified in that exact state: the SVG basemap draws as
-it always did, 28 provinces, context layer present, and the console says which
-of the two the reader is looking at.
+**CORS was the last blocker, and it was solved by moving rather than by
+widening.** `tiles.airbg.org` answers `Access-Control-Allow-Origin:
+https://airbg.org`, so the kit could not read the style, the glyphs or the
+archive from `file://` or a preview host — and a whole prompt was written
+asking the app to add a second origin to an allowlist. None of it was needed.
+The kit now lives in the app repository and is served **by the app**, at
+`https://airbg.org/design-kit/ui_kits/app/`. Its origin is therefore the origin
+that was already allowed. **The narrower fix was to move the reader onto the
+allowed origin, not to allow one more reader**; nothing about who may read the
+tiles changed.
+
+**Verified in a real browser, on the host, which no jsdom pass could do.**
+`data-basemap="tiles"`, a MapLibre canvas mounted, **151 tile features
+rendered** from the PMTiles archive, `© OpenStreetMap contributors` in the
+attribution control, and the hand-built basemap correctly stood down — zero
+roads, zero district outlines, zero street names in the SVG. Over it the data
+layer drew 28 provinces and 57 label nodes. Zero console errors.
+
+**And the same load exposed a defect that was invisible in the code.** A
+province page opens on its subject (§5.2b) — but the tile camera was mounted
+at a hard-coded country centre and zoom, and under the tiles it is the camera,
+not the renderer, that decides where every coordinate lands. So the renderer
+computed София-град's fit exactly as it always had, and then had it discarded:
+the page opened on the whole country with 25 city markers piled into it. Every
+line of the framing code was correct and none of it reached the screen.
+
+**So the renderer publishes the framing and the camera applies it.** The
+province's lon/lat box is written to the frame as the pass runs; `map-tiles.js`
+fits the camera to it **once per subject**, keyed by province name — so a
+reader who has zoomed keeps their view, and only `airbg:oblastchange` re-frames.
+The renderer still never moves the camera and the camera still never computes a
+fit: the same one-owner seam as `X`/`Y`, one level up.
+
+**The kit's own stand-down still exists and is still the normal case
+elsewhere.** Opened from `file://`, from a preview daemon on loopback, or from
+any other host, the origin does not match, the style read fails, and the SVG
+basemap draws as it always did. That is why the hand-built geometry stays in
+the repository rather than being deleted the moment the tiles worked once.
 
 **Fall back visibly, never silently.** Three separate paths stand the module
 down — libraries absent, WebGL refused, style unreachable — and a fourth
@@ -2240,6 +2272,17 @@ in §1 make likely. Committing one is a defect, not a preference.
 - ❌ **Two elements sharing one `data-od-id`.** `querySelector` returns the ancestor,
   the script throws on its first property access, and every control on the page dies
   silently. Scope the selector to the element type and fail loudly when it misses.
+- ❌ A `<style>` block kept for "standalone review". Under `style-src 'self'`
+  with no nonce the browser refuses it and says so in the console, so the page
+  is styled everywhere except the one place readers see it. Put the rules in a
+  served stylesheet; the review harness gets them too.
+- ❌ Mounting a second camera without telling it what the page is about. The
+  framing the renderer computed is discarded, every line of it still correct,
+  and a detail page opens on the whole country.
+- ❌ Asking for a permission when moving to the side that already has it would
+  do. An allowlist entry for a preview origin was drafted and unnecessary: the
+  kit moved onto the allowed origin instead, and nothing about who may read the
+  tiles changed.
 - ❌ A component that sets `display` without a `[hidden]` reset above it. A class
   rule beats the UA's `[hidden] { display: none }`, so JS that hides an element
   silently does nothing. `[hidden] { display: none !important }` is in the reset.
