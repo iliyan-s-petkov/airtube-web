@@ -15,15 +15,18 @@ import (
 	"airbg.org/internal/i18n"
 )
 
-// kitDir writes a miniature design kit: the entry point at the nesting the real
-// one uses, and a .git beside it, which is what a kit with no build step
-// plausibly ships and the reason the route refuses dotted segments.
+// kitDir writes a miniature design kit shaped like the real OpenDesign project
+// directory: the entry point at the nesting its ../../tokens.css depends on,
+// and beside it the working files the editor keeps there — which is what the
+// root allowlist and the dotted-segment refusal exist to keep unreachable.
 func kitDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	for name, body := range map[string]string{
-		"app/index.html": "<h1>kit</h1>",
-		".git/config":    "[core]\n\trepositoryformatversion = 0\n",
+		"ui_kits/app/index.html": "<h1>kit</h1>",
+		"tokens.css":             ":root{}",
+		"CLAUDE.md":              "instructions that are never committed",
+		".file-versions/x/1":     "an earlier revision",
 	} {
 		full := filepath.Join(dir, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -81,13 +84,13 @@ func TestTheDesignKitRouteServesTheKitWhenConfigured(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Location: %v", err)
 		}
-		if loc.Path != "/design-kit/app/" {
-			t.Errorf("Location = %q, want %q", loc.Path, "/design-kit/app/")
+		if loc.Path != "/design-kit/ui_kits/app/" {
+			t.Errorf("Location = %q, want %q", loc.Path, "/design-kit/ui_kits/app/")
 		}
 	})
 
 	t.Run("the entry point is served", func(t *testing.T) {
-		resp, err := client.Get("http://" + public + "/design-kit/app/")
+		resp, err := client.Get("http://" + public + "/design-kit/ui_kits/app/")
 		if err != nil {
 			t.Fatalf("GET: %v", err)
 		}
@@ -107,7 +110,7 @@ func TestTheDesignKitRouteServesTheKitWhenConfigured(t *testing.T) {
 	// would still serve the kit — and would serve it with no CSP, no
 	// X-Frame-Options and no rate limit, with no other symptom.
 	t.Run("the route is inside the middleware chain", func(t *testing.T) {
-		resp, err := client.Get("http://" + public + "/design-kit/app/")
+		resp, err := client.Get("http://" + public + "/design-kit/ui_kits/app/")
 		if err != nil {
 			t.Fatalf("GET: %v", err)
 		}
@@ -127,8 +130,12 @@ func TestTheDesignKitRouteServesTheKitWhenConfigured(t *testing.T) {
 	// Checked here as well as in internal/designkit because the guard is only
 	// worth anything if it survives the real mount, prefix stripping and mux
 	// path cleaning that sit in front of it.
-	t.Run("git is not reachable through the route", func(t *testing.T) {
-		for _, path := range []string{"/design-kit/.git/config", "/design-kit/app/../.git/config"} {
+	t.Run("only the allowlisted roots are reachable", func(t *testing.T) {
+		for _, path := range []string{
+			"/design-kit/CLAUDE.md",
+			"/design-kit/.file-versions/x/1",
+			"/design-kit/ui_kits/../.file-versions/x/1",
+		} {
 			resp, err := client.Get("http://" + public + path)
 			if err != nil {
 				t.Fatalf("GET %s: %v", path, err)
@@ -136,10 +143,10 @@ func TestTheDesignKitRouteServesTheKitWhenConfigured(t *testing.T) {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				t.Errorf("GET %s status = 200; the repository is served over HTTPS", path)
+				t.Errorf("GET %s status = 200; something outside the allowlist is served over HTTPS", path)
 			}
-			if strings.Contains(string(body), "repositoryformatversion") {
-				t.Errorf("GET %s served git config", path)
+			if strings.Contains(string(body), "never committed") || strings.Contains(string(body), "earlier revision") {
+				t.Errorf("GET %s served a file that is not part of the kit", path)
 			}
 		}
 	})
@@ -153,7 +160,7 @@ func TestABadDesignKitDirIsAStartupError(t *testing.T) {
 		t.Fatalf("i18n.Load: %v", err)
 	}
 	cfg := testConfig(t)
-	cfg.DesignKit.Dir = t.TempDir() // exists, but holds no app/index.html
+	cfg.DesignKit.Dir = t.TempDir() // exists, but holds no ui_kits/app/index.html
 	holder := snapshot.NewHolder(cfg.Series)
 
 	if _, err := server.New(server.Options{Config: cfg, Catalogue: cat, Snapshots: holder}); err == nil {

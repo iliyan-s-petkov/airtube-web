@@ -224,11 +224,10 @@ type DesignKit struct {
 	// Dir is served under /design-kit/. Empty means the route does not exist,
 	// which is the shipped setting — see rawDesignKit.
 	//
-	// It must point BELOW a repo root, not at one: the kit has no build step, so
-	// the tree that ships is a working tree, and a static server rooted at one
-	// serves .git/objects/ — the full history, not just what is checked out. The
-	// handler refuses dotted segments as a second line, but the first line is
-	// this value.
+	// It is the OpenDesign project root, not ui_kits/ inside it: the entry page
+	// resolves ../../tokens.css to the root. That root is an editor's working
+	// directory rather than a curated public tree, which is why the handler
+	// serves an allowlist of five roots rather than everything it finds.
 	Dir string
 }
 

@@ -33,7 +33,42 @@ import (
 // It is also the startup existence check: pointing design_kit.dir at the wrong
 // level of the kit tree is the likely mis-set, and it is silent otherwise (a
 // 404 on a page nobody loads until they need it).
-const entry = "app/index.html"
+//
+// The two-level nesting is not incidental. ui_kits/app/index.html references
+// ../../tokens.css, which resolves to the PROJECT ROOT — so design_kit.dir must
+// be the project root and nothing below it. Pointing it at ui_kits/ instead
+// serves this page and breaks every token, colour and component sheet it loads,
+// which renders as an unstyled page rather than an error.
+const entry = "ui_kits/app/index.html"
+
+// entryDir is where the served root redirects. Kept beside entry because they
+// must move together: a redirect to a directory whose index.html is not the
+// entry point is a 404 that looks like a missing kit.
+const entryDir = "ui_kits/app/"
+
+// allowedRoots is the allowlist, applied to the first path segment.
+//
+// It exists because the served root has to be the project root (see entry), and
+// that directory holds a great deal that is not the kit: CLAUDE.md, the 162 KB
+// DESIGN.md contract, SKILL.md, working screenshots, an examples/ and a
+// preview/ scratch directory, and the editor's own caches. None of it is a
+// credential, and none of it is intended to be published either.
+//
+// An allowlist rather than a denylist for the reason denylists always fail: the
+// kit is edited by a tool that creates files nobody chose, so the set of things
+// that should NOT be served grows without anyone deciding to grow it. The set
+// that SHOULD be served is five entries and changes when someone means it to.
+//
+// This subsumes the dotted-segment refusal for anything at the root — the
+// editor's .file-versions/ revision history is excluded by not being listed.
+// The dotted refusal is kept anyway, because it also covers every depth below.
+var allowedRoots = map[string]bool{
+	"ui_kits":             true,
+	"assets":              true,
+	"tokens.css":          true,
+	"colors_and_type.css": true,
+	"components.css":      true,
+}
 
 // indexFile is what a directory request resolves to. Requests for a directory
 // WITHOUT one are refused rather than listed: a listing enumerates the kit's
@@ -79,17 +114,18 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The served root itself. Redirect rather than serve, so the kit's relative
-	// references resolve against /design-kit/app/ — the two-level nesting the
-	// kit's ../../tokens.css depends on.
+	// references resolve against /design-kit/ui_kits/app/ — the two-level
+	// nesting the kit's ../../tokens.css depends on.
 	if r.URL.Path == "" || r.URL.Path == "/" {
 		// Set directly rather than via http.Redirect, which resolves a relative
-		// target against the request path and would emit "/app/". The handler
-		// runs under StripPrefix and so cannot see its own mount point: after
-		// stripping, the request path IS "/", and an absolute Location built
-		// from it points outside the route. A relative Location is valid (RFC
-		// 9110 §10.2.2) and the browser resolves it against the full request
-		// URI, giving /design-kit/app/ without the handler knowing the prefix.
-		w.Header().Set("Location", "app/")
+		// target against the request path and would emit "/ui_kits/app/". The
+		// handler runs under StripPrefix and so cannot see its own mount point:
+		// after stripping, the request path IS "/", and an absolute Location
+		// built from it points outside the route. A relative Location is valid
+		// (RFC 9110 §10.2.2) and the browser resolves it against the full
+		// request URI, giving /design-kit/ui_kits/app/ without the handler
+		// knowing the prefix.
+		w.Header().Set("Location", entryDir)
 		w.WriteHeader(http.StatusFound)
 		return
 	}
@@ -119,15 +155,22 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // resolve turns a request path into a name inside the served root, or reports
 // that it is not one this handler will serve.
 //
-// The dotted-segment refusal is the load-bearing part. os.DirFS already makes
-// escaping dir structurally impossible, so this is not about traversal: it is
-// about what sits INSIDE a kit directory. The kit has no build step — the
-// source tree is the deployable output — so a .git directory is a plausible
-// neighbour of the files being served, and serving .git/objects/ over HTTPS
-// discloses the entire history, including anything ever committed and later
-// removed. Pointing design_kit.dir below any repo root is the primary control;
-// this is the second one, because the primary control is a thing a human gets
-// right.
+// Two independent bounds meet here, and neither is about traversal — os.DirFS
+// already makes escaping dir structurally impossible. Both are about what sits
+// INSIDE the served directory, which is an editor's working project rather than
+// a curated public tree:
+//
+//   - allowedRoots bounds the first segment, so nothing at the root is reachable
+//     unless it was named. This is the stronger of the two.
+//   - the dotted-segment refusal bounds every segment at every depth, which is
+//     where the editor also writes revision history (ui_kits/.file-versions/).
+//
+// Kept separate rather than merged because they fail differently. The allowlist
+// is wrong when someone adds a kit directory and forgets to list it — a missing
+// page, noticed immediately. The dotted refusal is wrong when a kit legitimately
+// needs a dotted path — which has not happened and would be noticed the same
+// way. Neither failure is silent, which is the property that makes two guards
+// cheaper than one clever one.
 func resolve(p string) (string, bool) {
 	// The trailing slash is meaningful here and path.Clean removes it, so it is
 	// preserved across the comparison rather than compared away. Without this
@@ -147,7 +190,11 @@ func resolve(p string) (string, bool) {
 	if trimmed == "" || trimmed == "." {
 		return "", false
 	}
-	for _, seg := range strings.Split(trimmed, "/") {
+	segs := strings.Split(trimmed, "/")
+	if !allowedRoots[segs[0]] {
+		return "", false
+	}
+	for _, seg := range segs {
 		if seg == "" || strings.HasPrefix(seg, ".") {
 			return "", false
 		}

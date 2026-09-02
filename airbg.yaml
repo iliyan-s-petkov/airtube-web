@@ -378,13 +378,17 @@ i18n:
 # under /design-kit/ from this directory, same origin as the site so the site's
 # CSP covers it without being relaxed.
 #
-# Point this BELOW a repo root, never at one. The kit has no build step, so the
-# tree that ships is a working tree, and a static server rooted at a working
-# tree serves .git/objects/ — the whole history, including anything ever
-# committed and later removed. The handler refuses dotted path segments as a
-# second line of defence, but this value is the first.
+# This must be the OpenDesign PROJECT ROOT, not ui_kits/ inside it. The entry
+# page ui_kits/app/index.html references ../../tokens.css, which resolves to the
+# project root; pointing one level in serves the page with every stylesheet
+# missing, which renders unstyled rather than erroring.
+#
+# That root is an editor's working directory, not a curated public tree, so the
+# handler serves only five allowlisted roots — ui_kits/, assets/, tokens.css,
+# colors_and_type.css, components.css — and refuses any path segment beginning
+# with a dot at any depth. See docs/backlog/design-kit-route-decision.md.
 #
 # Empty means the route does not exist, which is the shipped setting: the kit
 # is a review surface, not part of the site.
 design_kit:
-  dir: ""  # e.g. "/srv/airbg/ui_kits" — holds app/index.html
+  dir: ""  # the OpenDesign project root, holding ui_kits/app/index.html
