@@ -1,0 +1,162 @@
+/* The vector basemap: airbg's own PMTiles archive, under the data layer.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * The design system spent several passes hand-capturing roads, streets and
+ * district boundaries from Overpass on the premise that "a tile server is a
+ * third-party origin, which §1 forbids". That premise was wrong: airbg serves
+ * its OWN basemap from its own listener (`internal/tiles/tiles.go`), an
+ * OpenMapTiles-schema planetiler build of the Bulgaria extract. The app's own
+ * CSP has read `connect-src 'self' https://tiles.airbg.org` all along.
+ *
+ * So this file replaces the hand-built basemap with the real one, and the kit
+ * stops validating a picture the reader never sees (§5.2b).
+ *
+ * WHAT IT DOES NOT DO
+ * -------------------
+ * It does not touch the DATA. Provinces, readings, markers and labels are
+ * still drawn by map-render.js, over the tiles, from the served scales. The
+ * basemap says where you are; it never says what the air is doing.
+ *
+ * THE TWO THINGS THAT CAN GO WRONG, AND WHAT HAPPENS THEN
+ * -------------------------------------------------------
+ * 1. The origin refuses this reader. `tiles.airbg.org` answers
+ *    `Access-Control-Allow-Origin: https://airbg.org`, so a kit opened from
+ *    `file://` or a preview host cannot read the style, the glyphs or the
+ *    archive until that origin is allowed too.
+ * 2. WebGL is unavailable (headless export, an old machine, a blocked
+ *    context).
+ *
+ * In EITHER case this file stands down and the SVG basemap draws exactly as
+ * it did before. That is deliberate and it is the whole safety property here:
+ * a style whose layers match nothing renders a blank map with no error, which
+ * is the documented failure in the app's own docs/tiles.md, and a blank map is
+ * the worst outcome this system can ship. Fall back visibly, never silently.
+ */
+(function () {
+  var STYLE = 'https://tiles.airbg.org/style.json';
+  var frames = document.querySelectorAll('[data-od-id="map"], [data-od-id="area-map"]');
+  if (!frames.length) return;
+
+  function stand_down(why) {
+    frames.forEach(function (f) { f.setAttribute('data-basemap', 'local'); });
+    // Not console.error: this is a supported state, not a fault.
+    if (window.console) console.info('map-tiles: SVG basemap in use — ' + why);
+  }
+
+  /* MapLibre 6 is ESM-ONLY and has no UMD build, so there is no global to
+   * check for and no classic <script> that can load it. It is pulled in with a
+   * dynamic import(), which works from this ordinary script and keeps the
+   * pages free of type="module" — one loading strategy for every file the kit
+   * ships.
+   *
+   * 6.x also DROPPED `maplibregl.supported()`. Feature-detecting WebGL is now
+   * ours to do, and it has to happen before the import: pulling 1 MB of
+   * renderer onto a machine that cannot draw it is a pointless download and a
+   * pointless failure. */
+  function webglOK() {
+    try {
+      var c = document.createElement('canvas');
+      return !!(c.getContext('webgl2') || c.getContext('webgl'));
+    } catch (err) { return false; }
+  }
+  if (!window.pmtiles) { stand_down('pmtiles not loaded'); return; }
+  if (!webglOK()) { stand_down('WebGL unavailable'); return; }
+
+  /* Probe before mounting. MapLibre reports a cross-origin style failure as an
+   * `error` event after it has already emptied the container, so asking first
+   * is what keeps the fallback clean rather than leaving a grey canvas behind. */
+  fetch(STYLE, { mode: 'cors' })
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function (style) {
+      /* Resolved against the DOCUMENT, not this script — the screens all sit
+       * at ui_kits/app/, so this is the same ../../ every other asset uses. */
+      return import('../../assets/vendor/maplibre-gl.mjs').then(function (gl) {
+        mount(style, gl);
+      });
+    })
+    .catch(function (e) { stand_down('style or renderer unavailable (' + e.message + ')'); });
+
+  function mount(style, gl) {
+    /* Named ESM exports now: 6.x has no default export and no global. */
+    var proto = new window.pmtiles.Protocol();
+    gl.addProtocol('pmtiles', proto.tile);
+
+    frames.forEach(function (frame) {
+      var canvas = frame.querySelector('.map-canvas');
+      if (!canvas) return;
+
+      var host = document.createElement('div');
+      host.className = 'map-tiles';
+      host.setAttribute('aria-hidden', 'true');   // the SVG over it carries the names
+      frame.insertBefore(host, canvas);
+
+      var map = new gl.Map({
+        container: host,
+        style: style,
+        center: [25.4858, 42.7339],               // the country's own centre
+        zoom: 6.2,
+        /* Bearing and pitch are LOCKED, and that is load-bearing rather than
+         * taste: the SVG overlay projects longitude through X() and latitude
+         * through Y() separately, which is exact in Web Mercator only while
+         * the camera is north-up and flat. Allow rotation and the data layer
+         * shears away from the basemap. */
+        bearing: 0, pitch: 0, pitchWithRotate: false, dragRotate: false,
+        attributionControl: { compact: true }     // ODbL: the credit ships with the data
+      });
+      map.touchZoomRotate.disableRotation();
+      map.keyboard.disableRotation();
+
+      /* The overlay reads the camera through these two functions. `size` and
+       * `zoom` ride along so the renderer can set a pixel-space viewBox and
+       * decide when the choropleth should yield to the basemap. */
+      function publish() {
+        var c = map.getCanvas();
+        window.AIRBG_MAP_PROJECT = {
+          frame: frame,
+          zoom: map.getZoom(),
+          size: { w: c.clientWidth, h: c.clientHeight },
+          x: function (lon) { return map.project([lon, 0]).x; },
+          y: function (lat) { return map.project([0, lat]).y; }
+        };
+      }
+
+      /* One repaint per animation frame, never one per event: a drag fires
+       * `move` dozens of times a second and the data pass is not free. Same
+       * rule the resize observer already follows. */
+      var pending = 0;
+      function repaint() {
+        if (pending) return;
+        pending = requestAnimationFrame(function () {
+          pending = 0;
+          publish();
+          if (window.AIRBG_DATA && window.AIRBG_MAP_DRAW) window.AIRBG_MAP_DRAW();
+        });
+      }
+
+      map.on('load', function () {
+        frame.setAttribute('data-basemap', 'tiles');
+        publish();
+        repaint();
+      });
+      map.on('move', repaint);
+      map.on('resize', repaint);
+
+      /* If the archive itself fails after the style loaded — a missing range
+       * request, a 404 on the pmtiles file — the map would sit there empty.
+       * Hand the frame back to the SVG rather than leaving the reader with a
+       * blank rectangle. */
+      map.on('error', function (e) {
+        var msg = (e && e.error && e.error.message) || 'unknown';
+        if (frame.getAttribute('data-basemap') === 'failed') return;
+        frame.setAttribute('data-basemap', 'failed');
+        window.AIRBG_MAP_PROJECT = null;
+        host.remove();
+        stand_down('tile error (' + msg + ')');
+        if (window.AIRBG_DATA && window.AIRBG_MAP_DRAW) window.AIRBG_MAP_DRAW();
+      });
+
+      frame.__airbgTileMap = map;                 // for the zoom/pan controls
+    });
+  }
+})();

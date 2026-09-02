@@ -1,0 +1,16 @@
+<!-- Chart frame. One series, stroke --accent, filled area — never an empty
+     outline. The hover readout is the one legitimate float (§4.4).
+     The x-axis label comes from the string catalogue: uPlot's English "Time"
+     default is a defect on a Bulgarian page (§5.3). -->
+
+<div class="data-frame chart" data-od-id="chart">
+  <svg viewBox="0 0 780 260" role="img" aria-label="ФПЧ2.5 за последните 24 часа">
+    <path class="series-area" d="M40 200 L160 196 L280 180 L400 158 L520 96 L640 84 L740 62 L740 220 L40 220 Z"/>
+    <path class="series-line" d="M40 200 L160 196 L280 180 L400 158 L520 96 L640 84 L740 62"/>
+    <line class="axis-line" x1="40" y1="220" x2="740" y2="220"/>
+    <line class="axis-line" x1="40" y1="30" x2="40" y2="220"/>
+    <text class="axis-text" x="40" y="242">14:00</text>
+    <text class="axis-text" x="690" y="242">14:00</text>
+    <text class="axis-text" x="40" y="24">µg/m³</text>
+  </svg>
+</div>

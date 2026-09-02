@@ -1,0 +1,242 @@
+/* ui_kits/app/app.css — applied-layer styles for the airbg.org interface kit.
+ * Loads on top of ../../tokens.css, ../../colors_and_type.css, ../../components.css.
+ * Nothing here introduces a new colour, radius, or weight; it only arranges
+ * components into real screens. If a value below is not a token, that is a bug.
+ */
+
+.page { padding-block-end: var(--space-12); }
+.page-head { padding-block: var(--space-8) var(--space-6); }
+.page-head h1 { margin: 0 0 var(--space-2); }
+.page-head p { margin: 0; color: var(--fg-2); max-width: 60ch; }
+
+/* On the map home the map leads, so the head is a caption for it, not a hero.
+   Tightened to 24/16 so the map crosses the fold on a 900px viewport. */
+.page-head--compact { padding-block: var(--space-6) var(--space-4); }
+
+/* The hero map is a full-bleed band: legend and readouts butt straight up
+   against it so the three read as one surface, not three stacked cards. */
+.map--hero + .frame .scale { margin-block-start: var(--space-4); }
+
+.toolbar {
+  display: flex; align-items: flex-end; gap: var(--space-6);
+  flex-wrap: wrap;
+  padding-block-end: var(--space-4);
+}
+.toolbar__spacer { margin-inline-start: auto; }
+/* The refresh sits in the toolbar on the map screen, level with the finder.
+   Full control height (48px) so it shares the field's baseline; the freshness
+   line stays under the legend, where the key it qualifies is. */
+.toolbar__refresh { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+
+/* Readout strip under the map: value + the tier it aggregates. */
+.readouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; background: var(--border-soft); border: 1px solid var(--border-soft); }
+.readout { background: var(--bg); padding: var(--space-4); display: grid; gap: var(--space-1); }
+.readout__label { color: var(--fg-2); font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body); letter-spacing: var(--track-caption); }
+.readout__value { font: var(--weight-display) var(--text-readout)/var(--leading-readout) var(--font-body); font-variant-numeric: tabular-nums; }
+.readout__unit { font: var(--weight-body) var(--text-body)/1 var(--font-body); color: var(--fg-2); }
+.readout__tier { color: var(--fg-2); font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body); letter-spacing: var(--track-compact); }
+
+/* Map placeholder inside the kit: the real map is a Leaflet canvas in the app.
+   The frame, height and legend are the parts this design system owns. */
+/* Choropleth preview. The value belongs to the whole province, so the province
+   is the mark; a dot would put a territorial average on a point it was never
+   measured at. Fills are served colours, set as attributes (§2.1). */
+.map-svg { display: block; inline-size: 100%; block-size: 100%; }
+.map-land { fill: none; stroke: var(--border); stroke-width: 1.25; }
+/* Neighbouring countries, under everything. Bulgaria on an empty field reads as
+   a cut-out; with its actual surroundings drawn at the same projection it reads
+   as a place, and the unfilled area east of the coast becomes the Black Sea.
+   It is context, not data: no ramp colour and no reading, so nothing in it can
+   be mistaken for a measurement (§2.1). Water is the one hue this system spends
+   outside the accent and the ramp, and it is also what separates the sea from a
+   no-data province — those were both grey and told apart only by an opacity
+   step. Blue is not a step, it is a different answer. */
+.map-context { pointer-events: none; }
+/* Water is the field the land sits on, so it is painted, not left blank: at one
+   flat grey the reader could not tell the Black Sea from Romania — nor sea from
+   a silent province. The token is defined beside the palette (colors_and_type),
+   with a Gray-100 counterpart, so the theme owns it like every other colour. */
+.map-context__sea { fill: var(--map-sea); }
+.map-context__land { fill: var(--bg); stroke: var(--border); stroke-opacity: 0.5; stroke-width: 0.75; }
+/* The Danube. It IS the northern border, so drawing it explains the shape of
+   that edge — and a blue line reads as a river rather than as one more
+   administrative stroke. Round joins because a river has no corners. */
+.map-context__river {
+  fill: none; stroke: var(--map-river); stroke-width: 1.75;
+  stroke-linejoin: round; stroke-linecap: round;
+}
+/* Context names: the five countries Bulgaria borders, the sea, and the river.
+   --fg-2 rather than --muted — measured 5.48:1 on the water, where --muted
+   falls to 3.52 and misses the floor. They stay quieter than a province's
+   reading through weight and case, not through contrast. */
+.map-context__name {
+  text-anchor: middle;
+  fill: var(--fg-2);
+  font: var(--weight-body) var(--text-caption)/1 var(--font-body);
+  letter-spacing: 0.6px;                    /* a wide word reads as a region */
+  text-transform: uppercase;
+  pointer-events: none;
+}
+/* Sea and river are natural features, so they take the water colour's own ink
+   rather than the land's — the convention every atlas uses to separate them. */
+.map-context__name--sea,
+.map-context__name--river { fill: var(--map-river); text-transform: none; }
+.map-context__name--river { letter-spacing: 0.32px; }
+/* Province edges are hairlines: they separate neighbours without competing with
+   the colour they enclose. */
+.map-area__shape { stroke: var(--bg); stroke-width: 0.75; }
+.map-area__shape--none { fill: var(--surface-2); }   /* absence, not the ramp (§2.3) */
+.map-area__value {
+  text-anchor: middle;
+  font: var(--weight-emphasis) var(--text-caption)/1 var(--font-body);
+  font-variant-numeric: tabular-nums;                /* measured values (§3) */
+  pointer-events: none;
+}
+/* Every label lives in one layer above every shape, so a province painted
+   later can never cover a neighbour's reading. It sits above the links, so it
+   must not intercept the pointer — the shape underneath is what is clickable. */
+.map-labels { pointer-events: none; }
+/* The name under the reading: body weight, so the number stays the thing you
+   read first. Same ink as the value — computed from the served fill (§2.1). */
+.map-area__name {
+  text-anchor: middle;
+  font: var(--weight-body) var(--text-caption)/1 var(--font-body);
+  letter-spacing: var(--track-caption);
+  pointer-events: none;
+}
+/* A province with no recent reading is labelled like any other, but its value
+   line is an em dash rather than a number: absence is stated in the same place
+   a reading would be, uncoloured (§2.3). The ink cannot be computed here —
+   there is no served band to compute it from.
+
+   It is --fg-2, not --muted. --muted is the empty-state colour (§2.3), but it
+   measures 3.81∶1 on --surface-2 and this is 12px type, so it misses the 4.5
+   floor; --fg-2 clears it at 5.92 and is still visibly quieter than the
+   near-black ink a measured value takes. A contrast floor outranks a colour
+   convention. */
+.map-area__value--none,
+.map-area__name--none { fill: var(--fg-2); }
+.map-area--focus .map-area__shape { stroke: var(--fg); stroke-width: 2; }
+
+/* Hover lifts the province off the sheet. This is one of the sanctioned shadow
+   cases (§4.4): the hovered shape genuinely floats above its neighbours — the
+   script also moves it to the top of the paint order, since SVG has no z-index.
+   Only transform and filter animate, never geometry (§8), so the map frame
+   never reflows and the country fit keeps its ~6px of slack (§1). */
+.map-area--link { cursor: pointer; }
+.map-area--link .map-area__shape,
+.map-area--link .map-area__value,
+.map-area--link .map-area__name {
+  transition: transform var(--dur-base) var(--ease-standard);
+}
+.map-area--link {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform var(--dur-base) var(--ease-standard),
+              filter var(--dur-base) var(--ease-standard);
+}
+.map-area--link:hover,
+.map-area--link:focus-visible {
+  transform: scale(1.045);
+  filter: drop-shadow(0 3px 8px rgb(0 0 0 / 0.35));
+}
+/* The lifted shape also takes a page-coloured edge, so it reads as separated
+   from the provinces it now overlaps rather than merged into them. */
+.map-area--link:hover .map-area__shape,
+.map-area--link:focus-visible .map-area__shape { stroke: var(--bg); stroke-width: 1.5; }
+/* Keyboard focus is stated on the shape itself: an SVG child cannot carry the
+   Carbon double ring, so the equivalent is a 2px --accent outline on the edge
+   the reader is actually on. */
+.map-area--link:focus-visible .map-area__shape { stroke: var(--accent); stroke-width: 2.5; }
+.map-area--link:focus { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* §8: transform is disabled outright, not merely instant. The province still
+     answers the pointer — through the edge, which does not move anything. */
+  .map-area--link:hover,
+  .map-area--link:focus-visible { transform: none; filter: none; }
+  .map-area--link:hover .map-area__shape { stroke: var(--fg); stroke-width: 2; }
+}
+.map[data-preview="static"] .map-canvas { display: block; padding: 0; }
+
+.map-canvas {
+  height: 100%;
+  min-height: inherit;
+  background: var(--surface);
+  display: grid; place-items: center;
+  color: var(--muted);
+  font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact);
+}
+
+/* Chart: filled area plus stroke, one series, --accent. Never an empty outline. */
+.series-area { fill: var(--accent); fill-opacity: 0.12; }
+.series-line { fill: none; stroke: var(--accent); stroke-width: 2; }
+/* A second series takes the same accent, dashed. The palette has one chromatic
+   UI colour (§2.2) and every other hue here belongs to the air-quality ramp
+   (§2.1), so pattern is the only channel left — and it survives greyscale
+   printing and colour blindness, which a second hue would not. */
+.series-line--pm10 { stroke-dasharray: 6 4; }
+.axis-line { stroke: var(--border); stroke-width: 1; }
+.axis-text { fill: var(--fg-2); font-family: var(--font-body); font-size: 12px; letter-spacing: var(--track-caption); }
+/* Measured values, so tabular figures — the axis must not reflow as the window
+   changes, for the same reason a readout must not (§3). */
+.axis-text--y { text-anchor: end; font-variant-numeric: tabular-nums; }
+.axis-text--x { text-anchor: middle; font-variant-numeric: tabular-nums; }
+/* The grid is chrome: it is there to be read THROUGH. Hairline token, and
+   under half opacity on top of that — at full strength a dozen rules compete
+   with the one line the panel exists to show. */
+.chart-grid line { stroke: var(--border-soft); stroke-width: 1; stroke-opacity: 0.55; }
+/* Hours are ticks on the axis rather than rules through the panel. */
+.chart-tick { stroke: var(--border); stroke-width: 1; }
+.chart svg { width: 100%; height: 100%; display: block; }
+
+.split { display: grid; gap: var(--space-8); }
+@media (min-width: 1056px) { .split--2 { grid-template-columns: 2fr 1fr; } }
+
+.state-list { display: grid; gap: var(--space-6); }
+.state-list h3 { margin: 0 0 var(--space-2); }
+.msg { border-inline-start: 0; padding: var(--space-3) var(--space-4); background: var(--surface); }
+.msg--error { background: var(--surface); color: var(--danger); border: 1px solid var(--danger); }
+.msg--loading { color: var(--muted); }
+
+.kit-index { display: grid; gap: 1px; background: var(--border-soft); border: 1px solid var(--border-soft); margin-block-start: var(--space-6); }
+.kit-index a { background: var(--bg); padding: var(--space-4); text-decoration: none; display: grid; gap: var(--space-1); transition: background-color var(--dur-base) var(--ease-standard); }
+.kit-index a:hover { background: var(--surface-hover); }
+.kit-index strong { color: var(--accent); font-weight: var(--weight-emphasis); }
+.kit-index span { color: var(--fg-2); font-size: var(--text-compact); letter-spacing: var(--track-compact); }
+
+/* Table controls: search leads, the data filter sits beside it. The search
+   field is capped at a name's length — a full-width input for a 14-character
+   oblast name promises a query language the page does not have. */
+.table-controls {
+  display: flex; align-items: flex-end; gap: var(--space-6);
+  flex-wrap: wrap;
+  padding-block-end: var(--space-4);
+}
+.field--search { flex: 1 1 22rem; max-width: 28rem; }
+@media (max-width: 672px) { .field--search { flex-basis: 100%; max-width: none; } }
+
+/* Freshness and the control that changes it, on one line. The status is a live
+   region so a screen reader hears the new timestamp without hunting for it;
+   the button is compact because it is chrome beside data, not a page action. */
+.data-refresh {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+  /* Under the legend now, not above the data: the key explains what the values
+     mean, and this line says how old they are — both are captions on the same
+     thing, so they sit together rather than at opposite ends of the screen. */
+  margin: var(--space-4) 0 var(--space-8);
+  color: var(--fg-2);
+  font-size: var(--text-compact); letter-spacing: var(--track-compact);
+}
+/* Icon and word in one control: the glyph is recognised at a glance, the word
+   says which content is refreshed (§5.2a — the glyph is the affordance, the
+   name is still required). */
+.data-refresh__btn { display: inline-flex; align-items: center; gap: var(--space-2); }
+.data-refresh__ico { flex: none; }
+/* The button is the action, so it leads; the status is its result, in a quieter
+   colour, and never moves the button as its text changes length. */
+.data-refresh__status { color: var(--meta); }
+.data-refresh__status { font-variant-numeric: tabular-nums; }
+/* The licence line sits with the other footer meta, not beside the data. */
+.attribution { margin: 0; color: var(--meta); font-size: var(--text-caption); letter-spacing: var(--track-caption); }

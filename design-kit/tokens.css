@@ -1,0 +1,122 @@
+/* airbg.org tokens — derived from DESIGN.md in this project.
+ * Draft for the D3 port into internal/web/static/theme.css. Not served from here.
+ *
+ * Two palettes live in this file and must not be mixed: the UI palette below,
+ * and the air-quality ramp, which is served by /api/v1/scales and is deliberately
+ * absent here. See DESIGN.md §2.1.
+ */
+
+:root {
+  /* Surfaces — depth is layering, not shadow (DESIGN.md §4.4) */
+  --bg: #ffffff;
+  --surface: #f4f4f4;
+  --surface-2: #e0e0e0;
+  --surface-hover: #e8e8e8;
+  --surface-sel: #edf5ff;
+
+  /* Text */
+  --fg: #161616;
+  --fg-2: #525252;
+  --muted: #6f6f6f;
+  --meta: #8d8d8d;
+
+  /* Lines */
+  --border: #c6c6c6;
+  --border-soft: #e0e0e0;
+
+  /* The one chromatic UI colour. Blue, not green: green belongs to the air. */
+  --accent: #0f62fe;
+  --accent-on: #ffffff;
+  --accent-hover: #0043ce;
+  --accent-active: #002d9c;
+
+  /* System messaging only. Forbidden on map, legend, chart series, readouts. */
+  --danger: #da1e28;
+  --warn: #f1c21b;
+  --success: #24a148;
+
+  /* Type. Self-hosted, Cyrillic + Latin. No 700 anywhere in the system. */
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  --weight-display: 300;
+  --weight-body: 400;
+  --weight-emphasis: 600;
+
+  --text-title: 2.625rem;   /* 42px / 1.19 */
+  --text-section: 2rem;     /* 32px / 1.25 */
+  --text-sub: 1.5rem;       /* 24px / 1.33 */
+  --text-card: 1.25rem;     /* 20px / 1.40 */
+  --text-body: 1rem;        /* 16px / 1.50 */
+  --text-compact: 0.875rem; /* 14px / 1.29, +0.16px tracking */
+  --text-caption: 0.75rem;  /* 12px / 1.33, +0.32px tracking */
+
+  --leading-display: 1.19;
+  --leading-body: 1.5;
+  --leading-compact: 1.29;
+
+  /* Tracking exists only below 16px. Never on display type. */
+  --track-compact: 0.16px;
+  --track-caption: 0.32px;
+
+  /* 8px grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-24: 96px;
+
+  /* Two containers, not one (DESIGN.md §4.1) */
+  --measure: 60rem;  /* prose, footer, about */
+  --frame: 78rem;    /* map, charts, oblast table */
+  --gutter: 16px;
+  --gutter-wide: 32px;
+
+  /* Carbon is rectangular. The legend chip is the sole exception. */
+  --radius: 0;
+  --radius-pill: 24px;
+
+  /* Shadow means "this genuinely floats". Cards get none. */
+  --elev-float: 0 2px 6px rgba(0, 0, 0, 0.12);
+  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+
+  --control-height: 48px;
+  --control-height-compact: 40px;
+}
+
+@media (min-width: 672px) {
+  :root { --gutter: 24px; }
+}
+
+@media (min-width: 1056px) {
+  :root { --gutter: var(--gutter-wide); }
+}
+
+/* Motion — confirmation, not personality. DESIGN.md §8. */
+:root {
+  --dur-fast: 70ms;
+  --dur-base: 110ms;
+  --dur-slow: 240ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --ease-exit: cubic-bezier(0.2, 0, 1, 0.9);
+}
+
+/* Air-quality ramp slots. Deliberately UNSET here: these values are served by
+ * /api/v1/scales and are data, not brand (DESIGN.md §2.1). A consuming app sets
+ * them at runtime. A design-system file that hardcodes them is a defect.
+ *   --ramp-1 … --ramp-n   air-quality bands, server-ordered
+ *   --ramp-none           "няма скорошни данни" — grey, and it is NOT an error
+ */
+:root {
+  --ramp-none: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur-base: 0.01ms;
+    --dur-slow: 0.01ms;
+  }
+}

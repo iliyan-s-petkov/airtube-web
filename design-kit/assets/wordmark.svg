@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 24" width="168" height="24" role="img" aria-label="airbg.org">
+  <!-- Masthead wordmark. Sits on the dark --fg masthead in --accent-on.
+       IBM Plex Sans 600 for "airbg", 400 for ".org"; the fallback stack is
+       inlined because an <img>-referenced SVG cannot reach the page stylesheet.
+       At 390px the masthead shortens to the mark + "airbg" before it wraps. -->
+  <text x="0" y="18"
+        font-family="IBM Plex Sans, Helvetica Neue, Arial, sans-serif"
+        font-size="20" fill="#ffffff">
+    <tspan font-weight="600" letter-spacing="0">airbg</tspan><tspan font-weight="400" fill="#c6c6c6">.org</tspan>
+  </text>
+</svg>

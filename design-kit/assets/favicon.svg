@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="airbg.org">
+  <!-- Square, per DESIGN.md §4.3: border-radius is 0 everywhere except the legend pill.
+       The source favicon shipped rx="7"; that is corrected here.
+       #0f62fe is literal on purpose: an <img>-referenced SVG never sees theme.css.
+       Keep it in step with --accent by hand. -->
+  <rect width="32" height="32" fill="#0f62fe"/>
+  <!-- Three isobar-style strokes: moving air, not a cloud, not a leaf. -->
+  <g fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="butt">
+    <path d="M5 11h14a3.5 3.5 0 1 0-3.5-3.5"/>
+    <path d="M5 16h19"/>
+    <path d="M5 21h12a3.5 3.5 0 1 1-3.5 3.5"/>
+  </g>
+</svg>

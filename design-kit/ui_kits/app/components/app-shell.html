@@ -1,0 +1,55 @@
+<!-- App shell — masthead + page container + footer.
+     Every screen in this kit is this shell with a different <main> body.
+     Spec: DESIGN.md §5.1 masthead, §5.5 footer, §4.1 containers.
+     Load order: tokens.css → colors_and_type.css → components.css → app.css. -->
+
+<header class="masthead" data-od-id="masthead">
+  <a class="masthead__brand" href="../index.html"><img src="../../../assets/favicon.svg" width="20" height="20" alt="">airbg<span class="tld">.org</span></a>
+  <nav class="masthead__nav" aria-label="Основна">
+    <a class="masthead__link" href="../map-home.html" aria-current="page">Карта</a>
+    <a class="masthead__link" href="../oblast-table.html">Области</a>
+    <!-- Two identically styled links; the current one carries aria-current. -->
+        <div class="langpick" data-od-id="theme-picker">
+      <button type="button" class="langpick__btn" data-od-id="theme-btn"
+              aria-expanded="false" aria-controls="theme-list" aria-label="Тема: Автоматична">
+        <span class="langpick__mark" data-theme-face><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="theme-list" data-od-id="theme-list" hidden>
+        <li><a class="langpick__opt" href="#" data-theme-opt="auto" aria-current="true"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="light"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.25" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3.05 3.05l1.13 1.13M11.82 11.82l1.13 1.13M3.05 12.95l1.13-1.13M11.82 4.18l1.13-1.13"/></g></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="dark"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8a5.6 5.6 0 1 0 7 7z" fill="currentColor"/></svg></span></a></li>
+      </ul>
+    </div>
+    <div class="langpick" data-od-id="lang-picker">
+      <button type="button" class="langpick__btn" data-od-id="lang-btn"
+              aria-expanded="false" aria-controls="lang-list" aria-label="Език: Български">
+        <span class="langpick__mark"><img src="../../../assets/flag-bg.svg" width="20" height="12" alt=""></span>
+        <span data-lang-code>BG</span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="lang-list" data-od-id="lang-list" hidden>
+        <li><a class="langpick__opt" href="#" lang="bg" aria-current="true"><span class="langpick__mark"><img src="../../../assets/flag-bg.svg" width="20" height="12" alt=""></span>Български</a></li>
+        <li><a class="langpick__opt" href="#" lang="en"><span class="langpick__mark"><img src="../../../assets/flag-gb.svg" width="20" height="12" alt=""></span>English</a></li>
+      </ul>
+    </div>
+  </nav>
+</header>
+
+<main class="page" data-od-id="page">
+  <!-- .frame (78rem) for map, table, chart. .measure (60rem) for prose. -->
+  <div class="frame">
+    <div class="page-head">
+      <h1 class="t-title">Заглавие на страницата</h1>
+      <p class="t-body">Едно изречение, което казва какво показва страницата.</p>
+    </div>
+  </div>
+</main>
+
+<footer class="footer" data-od-id="footer">
+  <div class="measure">
+    <p class="disclaimer">Данните идват от мрежа от граждански сензори и не заместват официалните измервания на Изпълнителната агенция по околна среда.</p>
+    <p>Сензорите не са официално калибрирани. Стойностите се агрегират по области и градове.</p>
+    <p>Обновено в 14:20, 31 август</p>
+  </div>
+</footer>

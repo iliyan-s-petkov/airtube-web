@@ -1,0 +1,1094 @@
+/* examples/theme.css — the shipping form of this design system for the source app.
+ * Concatenation of tokens.css + colors_and_type.css + components.css, in load order.
+ * Port target: internal/web/static/theme.css. Regenerate with:
+ *   cat tokens.css colors_and_type.css components.css > examples/theme.css
+ * The consuming app's CSP forbids inline styles, so every value must live here.
+ */
+
+/* airbg.org tokens — derived from DESIGN.md in this project.
+ * Draft for the D3 port into internal/web/static/theme.css. Not served from here.
+ *
+ * Two palettes live in this file and must not be mixed: the UI palette below,
+ * and the air-quality ramp, which is served by /api/v1/scales and is deliberately
+ * absent here. See DESIGN.md §2.1.
+ */
+
+:root {
+  /* Surfaces — depth is layering, not shadow (DESIGN.md §4.4) */
+  --bg: #ffffff;
+  --surface: #f4f4f4;
+  --surface-2: #e0e0e0;
+  --surface-hover: #e8e8e8;
+  --surface-sel: #edf5ff;
+
+  /* Text */
+  --fg: #161616;
+  --fg-2: #525252;
+  --muted: #6f6f6f;
+  --meta: #8d8d8d;
+
+  /* Lines */
+  --border: #c6c6c6;
+  --border-soft: #e0e0e0;
+
+  /* The one chromatic UI colour. Blue, not green: green belongs to the air. */
+  --accent: #0f62fe;
+  --accent-on: #ffffff;
+  --accent-hover: #0043ce;
+  --accent-active: #002d9c;
+
+  /* System messaging only. Forbidden on map, legend, chart series, readouts. */
+  --danger: #da1e28;
+  --warn: #f1c21b;
+  --success: #24a148;
+
+  /* Type. Self-hosted, Cyrillic + Latin. No 700 anywhere in the system. */
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  --weight-display: 300;
+  --weight-body: 400;
+  --weight-emphasis: 600;
+
+  --text-title: 2.625rem;   /* 42px / 1.19 */
+  --text-section: 2rem;     /* 32px / 1.25 */
+  --text-sub: 1.5rem;       /* 24px / 1.33 */
+  --text-card: 1.25rem;     /* 20px / 1.40 */
+  --text-body: 1rem;        /* 16px / 1.50 */
+  --text-compact: 0.875rem; /* 14px / 1.29, +0.16px tracking */
+  --text-caption: 0.75rem;  /* 12px / 1.33, +0.32px tracking */
+
+  --leading-display: 1.19;
+  --leading-body: 1.5;
+  --leading-compact: 1.29;
+
+  /* Tracking exists only below 16px. Never on display type. */
+  --track-compact: 0.16px;
+  --track-caption: 0.32px;
+
+  /* 8px grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-24: 96px;
+
+  /* Two containers, not one (DESIGN.md §4.1) */
+  --measure: 60rem;  /* prose, footer, about */
+  --frame: 78rem;    /* map, charts, oblast table */
+  --gutter: 16px;
+  --gutter-wide: 32px;
+
+  /* Carbon is rectangular. The legend chip is the sole exception. */
+  --radius: 0;
+  --radius-pill: 24px;
+
+  /* Shadow means "this genuinely floats". Cards get none. */
+  --elev-float: 0 2px 6px rgba(0, 0, 0, 0.12);
+  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+
+  --control-height: 48px;
+  --control-height-compact: 40px;
+}
+
+@media (min-width: 672px) {
+  :root { --gutter: 24px; }
+}
+
+@media (min-width: 1056px) {
+  :root { --gutter: var(--gutter-wide); }
+}
+
+/* Motion — confirmation, not personality. DESIGN.md §8. */
+:root {
+  --dur-fast: 70ms;
+  --dur-base: 110ms;
+  --dur-slow: 240ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --ease-exit: cubic-bezier(0.2, 0, 1, 0.9);
+}
+
+/* Air-quality ramp slots. Deliberately UNSET here: these values are served by
+ * /api/v1/scales and are data, not brand (DESIGN.md §2.1). A consuming app sets
+ * them at runtime. A design-system file that hardcodes them is a defect.
+ *   --ramp-1 … --ramp-n   air-quality bands, server-ordered
+ *   --ramp-none           "няма скорошни данни" — grey, and it is NOT an error
+ */
+:root {
+  --ramp-none: var(--muted);
+}
+
+/* ── Dark theme ──────────────────────────────────────────────────────────────
+ * Values are Carbon's Gray 100 theme, not invented darkenings of the light set.
+ * The light palette is a hand port of Carbon's White theme (see DESIGN.md
+ * provenance); its dark counterpart already exists and is contrast-tested, so
+ * inventing one here would be the same error as drawing a flag from memory.
+ *
+ * Three states, and the order below is what makes them work:
+ *   1. :root                       light, the default
+ *   2. @media (prefers-color-scheme: dark)   follow the system, unless the
+ *      reader has explicitly chosen light
+ *   3. [data-theme="dark"]         the reader's explicit choice, last so it wins
+ *
+ * The air-quality ramp is NOT redefined here. It is served (§2.1), and a design
+ * system that re-tints served data in dark mode is restating it.
+ */
+:root {
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur-base: 0.01ms;
+    --dur-slow: 0.01ms;
+  }
+}
+/* colors_and_type.css — airbg.org design system
+ *
+ * Reusable colour + typography foundations. Spacing, radius, containers, motion,
+ * and elevation live in tokens.css; import both.
+ *
+ *   <link rel="stylesheet" href="tokens.css">
+ *   <link rel="stylesheet" href="colors_and_type.css">
+ *
+ * Two colour systems exist in this product and must never be mixed:
+ *   1. the UI palette below — monochrome plus one blue, describes the INTERFACE;
+ *   2. the air-quality ramp — served by /api/v1/scales, describes THE AIR.
+ * The ramp is absent from this file on purpose. See DESIGN.md §2.1.
+ *
+ * CSP note: the consuming app forbids inline styles. Every value is a token here.
+ */
+
+/* ---------------------------------------------------------------- 1. Colour */
+
+:root {
+  /* Surfaces — depth is background layering, never shadow */
+  --bg: #ffffff;
+  --surface: #f4f4f4;
+  --surface-2: #e0e0e0;
+  --surface-hover: #e8e8e8;
+  --surface-sel: #edf5ff;
+
+  /* Text */
+  --fg: #161616;        /* headings, body            21.0:1 on --bg */
+  --fg-2: #525252;      /* secondary, helper          7.5:1 on --bg */
+  --muted: #6f6f6f;     /* placeholder, EMPTY STATES  5.3:1 on --bg */
+  --meta: #8d8d8d;      /* timestamps, attribution    3.5:1 — 12px caption only,
+                           never body copy */
+
+  /* Lines */
+  --border: #c6c6c6;
+  --border-soft: #e0e0e0;
+
+  /* The single chromatic UI colour. Blue because green, teal and yellow are
+     already spent on air quality. */
+  --accent: #0f62fe;         /* 4.6:1 on --bg */
+  --accent-on: #ffffff;
+  --accent-hover: #0043ce;
+  --accent-active: #002d9c;
+
+  /* System messaging ONLY. Forbidden on the map, in the legend, on a chart
+     series, and in any value readout — these hues belong to the air. */
+  --danger: #da1e28;
+  --warn: #f1c21b;
+  --success: #24a148;
+
+  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+}
+
+/* State pairs. Foreground and background always move together; contrast after a
+   state change is never lower than the default state. */
+:root {
+  --btn-primary-bg: var(--accent);
+  --btn-primary-fg: var(--accent-on);
+  --btn-primary-bg-hover: var(--accent-hover);
+  --btn-primary-fg-hover: var(--accent-on);
+
+  --btn-ghost-bg: transparent;
+  --btn-ghost-fg: var(--accent);
+  --btn-ghost-bg-hover: var(--surface-hover);
+  --btn-ghost-fg-hover: var(--accent-hover);
+
+  --row-bg-hover: var(--surface-hover);
+  --row-bg-sel: var(--surface-sel);
+}
+
+/* ------------------------------------------------------------ 2. Typography */
+
+/* IBM Plex Sans, self-hosted, Cyrillic + Latin subsets, weights 300/400/600.
+   Self-hosted because the CSP has no third-party allowance and a font CDN is a
+   third party watching our readers. Drop the .woff2 files in fonts/ and
+   uncomment. Until then the fallback stack carries the page. */
+
+/*
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("fonts/IBMPlexSans-Light.woff2") format("woff2");
+  font-weight: 300; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0400-04FF, U+2000-206F, U+20AC, U+2122;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("fonts/IBMPlexSans-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0400-04FF, U+2000-206F, U+20AC, U+2122;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
+  font-weight: 600; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0400-04FF, U+2000-206F, U+20AC, U+2122;
+}
+*/
+
+:root {
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+
+  --weight-display: 300;
+  --weight-body: 400;
+  --weight-emphasis: 600;
+  /* Weight 700 does not exist in this system. Neither does italic display type. */
+
+  --text-title: 2.625rem;
+  --text-section: 2rem;
+  --text-sub: 1.5rem;
+  --text-card: 1.25rem;
+  --text-body: 1rem;
+  --text-compact: 0.875rem;
+  --text-caption: 0.75rem;
+  --text-readout: 2rem;
+
+  --leading-display: 1.19;
+  --leading-section: 1.25;
+  --leading-sub: 1.33;
+  --leading-card: 1.4;
+  --leading-body: 1.5;
+  --leading-compact: 1.29;
+  --leading-caption: 1.33;
+  --leading-readout: 1.17;
+
+  /* Tracking exists only below 16px. Never on display type. */
+  --track-compact: 0.16px;
+  --track-caption: 0.32px;
+}
+
+/* Type scale as classes. Bulgarian sets the line length, not English. */
+
+.t-title    { font: var(--weight-display) var(--text-title)/var(--leading-display) var(--font-body); letter-spacing: 0; }
+.t-section  { font: var(--weight-body) var(--text-section)/var(--leading-section) var(--font-body); letter-spacing: 0; }
+.t-sub      { font: var(--weight-body) var(--text-sub)/var(--leading-sub) var(--font-body); letter-spacing: 0; }
+.t-card     { font: var(--weight-emphasis) var(--text-card)/var(--leading-card) var(--font-body); letter-spacing: 0; }
+.t-body     { font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body); letter-spacing: 0; }
+.t-compact  { font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body); letter-spacing: var(--track-compact); }
+.t-caption  { font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body); letter-spacing: var(--track-caption); }
+
+/* Every measured value. A PM figure that reflows its own width as it updates is
+   the detail that makes a data site feel untrustworthy. */
+.t-readout {
+  font: var(--weight-display) var(--text-readout)/var(--leading-readout) var(--font-body);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.num { font-variant-numeric: tabular-nums; }
+
+/* Absence of data is not an error: no colour, no icon, body size. */
+.t-empty { color: var(--muted); font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body); }
+/* components.css — airbg.org design system
+ * Depends on tokens.css + colors_and_type.css. Load all three, in that order.
+ * Every component below is specified in DESIGN.md §5. No inline styles anywhere:
+ * the consuming app's CSP forbids them.
+ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------- Containers (§4.1) */
+
+.measure, .frame {
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+  width: 100%;
+}
+.measure { max-width: calc(var(--measure) + var(--gutter) * 2); }  /* prose */
+.frame   { max-width: calc(var(--frame) + var(--gutter) * 2); }    /* data */
+
+.section { padding-block: var(--space-12); }
+.stack   { display: grid; gap: var(--space-4); }
+.stack-lg { display: grid; gap: var(--space-8); }
+
+/* --------------------------------------------------------- Focus (§5.6) */
+
+:where(a, button, input, select, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ------------------------------------------------------- Masthead (§5.1) */
+
+.masthead {
+  height: 48px;
+  background: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding-inline: var(--space-4);
+  /* Full-bleed: the one element that ignores both containers. */
+}
+.masthead__brand {
+  display: flex; align-items: center; gap: var(--space-2);
+  color: var(--accent-on);
+  font: var(--weight-emphasis) var(--text-body)/1 var(--font-body);
+  text-decoration: none;
+}
+.masthead__brand img { display: block; }
+.masthead__brand .tld { color: #c6c6c6; font-weight: var(--weight-body); }
+.masthead__nav { display: flex; align-items: stretch; height: 48px; margin-inline-start: auto; }
+.masthead__link {
+  display: flex; align-items: center;
+  padding-inline: var(--space-4);
+  color: #c6c6c6;
+  font: var(--weight-body) var(--text-compact)/1 var(--font-body);
+  letter-spacing: var(--track-compact);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  transition: color var(--dur-base) var(--ease-standard),
+              background-color var(--dur-base) var(--ease-standard);
+}
+.masthead__link:hover { color: #ffffff; background: #262626; }
+.masthead__link[aria-current] { color: #ffffff; border-bottom-color: #ffffff; }
+/* The language switcher is two identically styled links, not bare text beside
+   a link. The current one carries aria-current. */
+.masthead__lang { display: flex; }
+
+@media (max-width: 390px) {
+  .masthead__brand .tld { display: none; }  /* shorten before wrapping */
+}
+
+/* --------------------------------------------------------- Cards / tiles */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  box-shadow: none;              /* depth is layering, never shadow (§4.4) */
+}
+.card--inset { background: var(--surface-2); }
+.card__title { margin: 0 0 var(--space-2); }
+
+/* ---------------------------------------------------- Map & chart (§5.2/3) */
+
+.data-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: none;
+}
+/* Country fit is a MAXIMUM ASPECT RATIO, not a height and not an equality.
+   Measured at data-zoom=7, 926x382 => 2.424, ~3.4% latitude margin (~6px slack
+   top and bottom). Wider than 2.424 — a short frame on a fluid width — crops the
+   country top and bottom. TALLER than 2.424 is always safe: it just shows more
+   latitude around Bulgaria. So 926/382 is the floor on height, never the cap. */
+.map {
+  position: relative;
+  overflow: hidden;
+  min-height: 18rem;
+  /* Height floor = the fit. Never set a height below this. */
+  aspect-ratio: 926 / 382;
+}
+
+/* The map is the primary surface of the site, not a tile inside the prose.
+   It sits OUTSIDE .frame so it can run edge to edge.
+
+   Height is max(fit floor, --map-cap): the map is as tall as the viewport
+   allowance asks for, and can never fall under the fit. Raising --map-cap makes
+   it taller with no risk to the country; lowering it below the floor does
+   nothing, which is the safe failure direction. */
+.map--hero {
+  --map-cap: 78vh;
+  width: 100%;
+  aspect-ratio: auto;
+  height: max(calc(100vw * 382 / 926), var(--map-cap));
+  min-height: 22rem;
+  border-inline: 0;
+}
+@media (max-width: 1056px) {
+  /* Portrait phones: 78vh of a tall viewport would swallow the legend, and the
+     width-derived floor already dominates. Let the fit lead. */
+  .map--hero { --map-cap: 52vh; }
+}
+
+.chart { height: 18rem; position: relative; }
+
+/* The hover readout genuinely floats — the legitimate shadow case (§4.4). */
+.readout-float {
+  position: absolute;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--elev-float);
+  padding: var(--space-2) var(--space-3);
+  transition: opacity var(--dur-slow) var(--ease-standard);
+}
+
+/* ------------------------------------------------------- Legend (§5.2) */
+
+.legend { display: grid; gap: var(--space-3); padding: var(--space-4) 0; }
+.legend__row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.legend__label {
+  color: var(--fg-2);
+  font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
+  letter-spacing: var(--track-caption);
+  text-transform: none;
+}
+/* The sole rounded element in the system. */
+.chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-2);
+  color: var(--fg);
+  font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
+  letter-spacing: var(--track-caption);
+  font-variant-numeric: tabular-nums;
+}
+.chip__swatch {
+  width: 12px; height: 12px; flex: none;
+  /* Filled from a --ramp-* custom property set by the app at runtime from
+     /api/v1/scales. Unset here on purpose: the ramp is data, not brand. */
+  background: var(--chip-ramp, transparent);
+  outline: 1px dashed var(--border);
+  outline-offset: 0;
+}
+.chip--none .chip__swatch { background: var(--ramp-none); outline: none; }
+/* Grey means "no recent data". The legend says so in words; it is not an error. */
+.legend__tier {
+  color: var(--fg-2);
+  font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact);
+}
+
+/* --------------------------------------------------- Buttons (§5.6) */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--control-height);
+  padding-inline: var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: var(--weight-body) var(--text-body)/1 var(--font-body);
+  cursor: pointer;
+  transition: background-color var(--dur-base) var(--ease-standard),
+              color var(--dur-base) var(--ease-standard),
+              border-color var(--dur-base) var(--ease-standard);
+}
+.btn--primary { background: var(--btn-primary-bg); color: var(--btn-primary-fg); }
+.btn--primary:hover { background: var(--btn-primary-bg-hover); color: var(--btn-primary-fg-hover); }
+.btn--primary:active { background: var(--accent-active); }
+.btn--ghost { background: var(--btn-ghost-bg); color: var(--btn-ghost-fg); border-color: transparent; }
+.btn--ghost:hover { background: var(--btn-ghost-bg-hover); color: var(--btn-ghost-fg-hover); }
+.btn--secondary { background: var(--bg); color: var(--accent); border-color: var(--border); }
+.btn--secondary:hover { background: var(--surface-hover); color: var(--accent-hover); border-color: var(--accent); }
+.btn[disabled] { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
+/* Disabled is the only state allowed to reduce contrast. */
+
+.link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.link:hover { color: var(--accent-hover); }
+
+/* ------------------------------------ Metric switcher (§5.6, keep fieldset) */
+
+.switcher { border: 0; margin: 0; padding: 0; }
+.switcher > legend {
+  padding: 0 0 var(--space-2);
+  color: var(--fg-2);
+  font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
+  letter-spacing: var(--track-caption);
+}
+.switcher__set { display: flex; }
+.switcher__opt { position: relative; display: flex; }
+.switcher__opt input {
+  position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer;
+}
+.switcher__opt span {
+  display: flex; align-items: center; justify-content: center;
+  min-height: var(--control-height-compact);
+  padding-inline: var(--space-4);
+  margin-inline-start: -1px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--weight-body) var(--text-compact)/1 var(--font-body);
+  letter-spacing: var(--track-compact);
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+.switcher__opt:first-child span { margin-inline-start: 0; }
+.switcher__opt input:hover + span { background: var(--surface-hover); }
+.switcher__opt input:checked + span {
+  background: var(--accent); color: var(--accent-on); border-color: var(--accent);
+  position: relative; z-index: 1;
+}
+.switcher__opt input:focus-visible + span { box-shadow: var(--focus-ring); position: relative; z-index: 2; }
+
+/* ------------------------------------------------ Oblast table (§5.4) */
+
+.table { width: 100%; border-collapse: collapse; }
+.table caption {
+  text-align: start; padding-block-end: var(--space-3);
+  color: var(--fg-2);
+  font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact);
+}
+.table th, .table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
+  text-align: start;
+}
+.table th {
+  font: var(--weight-emphasis) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact);
+  color: var(--fg-2);
+  border-bottom-color: var(--border);
+}
+.table tbody tr:nth-child(odd) { background: var(--surface); }
+.table tbody tr:hover { background: var(--surface-hover); }
+.table tbody tr[aria-selected="true"] { background: var(--surface-sel); }
+.table .name { font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body); }
+.table .num, .table .sensors {
+  text-align: end;
+  font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact);
+  font-variant-numeric: tabular-nums;
+}
+.table .sensors { color: var(--fg-2); }
+.table .value-cell { display: flex; align-items: center; gap: var(--space-2); justify-content: flex-end; }
+/* No data: muted, spanning the value columns, no colour, no icon. */
+.table .nodata { color: var(--muted); text-align: end; }
+
+@media (max-width: 671px) {
+  .table .sensors, .table th.sensors { display: none; }
+}
+/* Below 480px only the headline metric survives. PM2.5 is what the page is
+   named for; PM10 is the comparison, and a comparison is the first thing a
+   phone can afford to drop. It is never dropped above this width. */
+@media (max-width: 480px) {
+  /* Then the second PM column and the active count. The name and PM2.5 are the
+     irreducible pair — below that the table stops being a table. */
+  .table .num--pm10, .table th.num--pm10,
+  .table .sensors, .table th.sensors { display: none; }
+}
+
+/* ------------------------------------------------------- Footer (§5.5) */
+
+.footer { background: var(--surface); padding-block: var(--space-8); margin-block-start: var(--space-12); }
+.footer p {
+  margin: 0 0 var(--space-2);
+  color: var(--meta);
+  font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
+  letter-spacing: var(--track-caption);
+}
+/* The one line that must be read. */
+.footer .disclaimer {
+  color: var(--fg-2);
+  font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body);
+  letter-spacing: 0;
+  margin-block-end: var(--space-4);
+}
+
+/* ------------------------------------------------------------- Utility */
+
+.empty { color: var(--muted); }
+/* The note that explains the table's ordering sits AFTER the table, spanning the
+ * full data frame. It began above the table inside .page-head, where a 60ch cap
+ * held it to roughly a third of the width — a long sentence stranded in the top
+ * corner of a 78rem surface. Below the table it reads as what it is: a note
+ * about what you have just looked at, not an obstacle before it.
+ *
+ * Compact and --fg-2, not body weight: at the foot of the page a body-size
+ * paragraph would outweigh the count line above it and compete with the footer
+ * disclaimer, which is the one line that must be read (§5.5).
+ */
+/* Chart head: the heading states what is plotted, the controls sit beside it.
+ * The heading is the answer, not a label — "ФПЧ2.5 · последните 24 ч · средно
+ * за областта" replaces a bare "Последните 24 часа" that named neither the
+ * metric nor the tier (§9.1). */
+/* The map column and the aside end level.
+ *
+ * The legend used to sit under the map INSIDE the left column, so that column
+ * was map + legend while the card beside it stretched to their combined height:
+ * the two frames could never align, and the map always read as the shorter box.
+ * The legend now spans the full frame below the split, where it is a caption for
+ * the map rather than a third thing competing inside a narrow column — and the
+ * map is free to fill its column exactly.
+ */
+.split--2 > * { align-self: stretch; }
+.map--fill {
+  block-size: 100%;
+  aspect-ratio: auto;                 /* height comes from the row, not the ratio */
+  container-type: inline-size;
+  /* …but never below the country fit (§5.2): the ratio is a floor on height,
+     so a short card can stretch the map, never crop it. */
+  min-block-size: max(22rem, calc(100cqi * 382 / 926));
+}
+.legend--frame { margin-block-start: var(--space-4); }
+
+/* Full-screen control: anchored to one corner with equal inset, on a solid
+   fill so it stays legible over map tiles (never a translucent wash). */
+.map__full {
+  position: absolute; inset-block-start: var(--space-2); inset-inline-end: var(--space-2);
+  z-index: 2;
+  display: grid; place-items: center;
+  inline-size: 40px; block-size: 40px; padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit; font-size: var(--text-compact); letter-spacing: var(--track-compact);
+  cursor: pointer;
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+.map__full:hover { background: var(--surface-2); }   /* background moves, text never lightens */
+.map__full:focus-visible { box-shadow: var(--focus-ring); outline: none; }
+
+/* One button, two glyphs: aria-pressed already carries the state for a screen
+ * reader, so it selects the visible one too. A second source of truth for the
+ * same state is a second thing to get out of step. */
+.map__full-ico--out,
+.map__full[aria-pressed="true"] .map__full-ico--in { display: none; }
+.map__full[aria-pressed="true"] .map__full-ico--out { display: block; }
+
+
+/* Real fullscreen: the frame becomes the viewport. */
+.map:fullscreen { inline-size: 100vw; block-size: 100vh; min-block-size: 0; border: 0; }
+.map:fullscreen .map-canvas { block-size: 100%; }
+
+/* Fallback when the API is refused — same result, pinned over the page. */
+.map--faux-full {
+  position: fixed; inset: 0; z-index: 50;
+  inline-size: 100vw; block-size: 100vh; min-block-size: 0;
+  border: 0;
+  background: var(--bg);
+}
+body.has-faux-full { overflow: hidden; }
+
+.chart-head {
+  display: flex; flex-wrap: wrap; align-items: end;
+  justify-content: space-between; gap: var(--space-4);
+  margin-block: var(--space-8) var(--space-4);
+}
+.chart-head > .t-section { margin: 0; }
+.chart-controls { display: flex; flex-wrap: wrap; gap: var(--space-6); }
+
+/* The custom window is disclosed by the "Избран" option rather than shown
+ * always: two datetime fields standing open would imply the presets are the
+ * exception. min/max are set from the retention floor in script, so the reader
+ * cannot ask for a period the archive does not hold. */
+.chart-custom {
+  display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface);
+  margin-block-end: var(--space-4);
+}
+.chart-custom__note {
+  margin: 0; color: var(--fg-2);
+  font-size: var(--text-caption); letter-spacing: var(--track-caption);
+}
+.field--inline { display: flex; flex-direction: column; gap: var(--space-1); }
+.field--inline .input { inline-size: auto; min-inline-size: 14rem; }
+
+@media (max-width: 672px) {
+  .chart-head { flex-direction: column; align-items: stretch; }
+  .field--inline .input { min-inline-size: 0; inline-size: 100%; }
+}
+
+.table-note {
+  margin-block: var(--space-4) 0;
+  padding-block-start: var(--space-4);
+  border-block-start: 1px solid var(--border-soft);
+  color: var(--fg-2);
+  font-size: var(--text-compact);
+  letter-spacing: var(--track-compact);
+  line-height: 1.5;
+  max-width: none;          /* the frame is the measure here, not 60ch */
+}
+
+.meta  { color: var(--meta); font-size: var(--text-caption); letter-spacing: var(--track-caption); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+/* -------------------------------------------- Text input / search (§5.7) */
+
+/* Carbon field: filled --surface, square, single bottom rule, 48px tall.
+   The rule is the affordance — there is no box outline, so a focus ring has
+   to be the full double ring, not a border colour change. */
+.field { display: grid; gap: var(--space-2); }
+.field__label {
+  color: var(--fg-2);
+  font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
+  letter-spacing: var(--track-caption);
+}
+.input {
+  appearance: none;
+  inline-size: 100%;
+  block-size: 48px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-block-end: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body);
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+/* Hover moves the background down the layering scale; the text colour never
+   moves toward the background (§7). */
+.input:hover { background: var(--surface-hover); }
+.input:focus-visible { box-shadow: var(--focus-ring); outline: 0; }
+.input::placeholder { color: var(--muted); }
+/* Native search decorations are Chrome chrome, not our design. */
+.input[type="search"]::-webkit-search-decoration,
+.input[type="search"]::-webkit-search-cancel-button { appearance: none; }
+
+/* ------------------------------------------- Sortable table head (§5.4) */
+
+/* The whole header cell is the control. A button, not a div with a click
+   handler: keyboard and screen-reader support come free, and aria-sort on the
+   th is what actually announces the state. */
+.table th:has(.th-sort) { padding: 0; }
+.th-sort {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  inline-size: 100%;
+  min-block-size: 40px;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+.th-sort:hover { background: var(--surface-hover); }
+.th-sort:focus-visible { box-shadow: var(--focus-ring); outline: 0; }
+.table th.num .th-sort, .table th.sensors .th-sort { justify-content: flex-end; }
+
+/* The caret is drawn from borders — no icon font, no SVG sprite (§1). It is
+   --border until the column is active, so the affordance is visible without
+   competing with the sorted column. */
+.th-sort::after {
+  inline-size: 0; block-size: 0; flex: none;
+  border-inline: 4px solid transparent;
+  border-block-end: 5px solid var(--border);
+}
+[aria-sort="descending"] .th-sort::after {
+  border-block-end: 0;
+  border-block-start: 5px solid var(--fg);
+}
+[aria-sort="ascending"] .th-sort::after { border-block-end-color: var(--fg); }
+[aria-sort] .th-sort { color: var(--fg); }
+
+/* [hidden] must win over any display a component sets, or an element the JS
+   hid stays on screen. A UA's `[hidden] { display: none }` loses to any class
+   rule with display — .pager's flex silently defeated it. This is the reset. */
+[hidden] { display: none !important; }
+
+/* ---------------------------------------------------------- Select (§5.8) */
+
+/* Same filled field as .input. The caret is a real element rather than a
+   background-image data URI, so it inherits colour and needs no second asset. */
+.select-wrap { position: relative; display: inline-grid; align-items: center; }
+.select {
+  appearance: none;
+  block-size: 40px;
+  padding: 0 var(--space-8) 0 var(--space-3);
+  border: 0;
+  border-block-end: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact);
+  cursor: pointer;
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+.select:hover { background: var(--surface-hover); }
+.select:focus-visible { box-shadow: var(--focus-ring); outline: 0; }
+.select-wrap__caret {
+  position: absolute; inset-inline-end: var(--space-3);
+  inline-size: 0; block-size: 0;
+  pointer-events: none;
+  border-inline: 4px solid transparent;
+  border-block-start: 5px solid var(--fg);
+}
+
+/* ------------------------------------------------------- Pagination (§5.9) */
+
+/* One bar under the table: rows-per-page on the left, page navigation on the
+   right. They belong together — both answer "how much of this am I seeing?" —
+   and putting them in one place means the reader never looks in two. */
+.pager {
+  display: flex; align-items: center; gap: var(--space-4);
+  flex-wrap: wrap;
+  padding-block-start: var(--space-4);
+  border-block-start: 1px solid var(--border-soft);
+}
+.pager__spacer { flex: 1 1 auto; }
+/* The nav half hides at one page; the bar and its select do not. */
+.pager__nav { display: flex; align-items: center; gap: var(--space-4); }
+.pager__group { display: flex; gap: 1px; }
+/* 40px is the compact-control floor (§6). Square, like every other control. */
+.pager__btn {
+  min-inline-size: 40px;
+  block-size: 40px;
+  padding-inline: var(--space-3);
+  justify-content: center;
+}
+/* Disabled is the ONLY state allowed to drop contrast (§7) — at the first and
+   last page the ends are genuinely unavailable, so they say so rather than
+   disappearing and shifting the row. */
+.pager__btn[disabled] { background: transparent; color: var(--muted); border-color: transparent; }
+.pager__status {
+  color: var(--fg-2);
+  font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact);
+  font-variant-numeric: tabular-nums;   /* the page number must not twitch */
+}
+.pager__perpage { display: flex; align-items: center; gap: var(--space-3); }
+.pager__perpage label {
+  color: var(--fg-2);
+  font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
+  letter-spacing: var(--track-caption);
+}
+@media (max-width: 672px) {
+  /* Stacked: the select keeps the full row, the nav wraps under it rather than
+     squeezing the page status between two button pairs. */
+  .pager { gap: var(--space-3); }
+  .pager__spacer { flex-basis: 100%; }
+  .pager__nav { inline-size: 100%; justify-content: space-between; }
+}
+
+/* Announced, never painted. Used for the combobox's keyboard hint (§5.10):
+   a sighted user infers arrow-key navigation from the open list, a screen-reader
+   user does not, and a visible hint under a search field is clutter for both. */
+.sr-only {
+  position: absolute;
+  inline-size: 1px; block-size: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Announced, never painted. Used for the combobox's keyboard hint (§5.10):
+   a sighted user infers arrow-key navigation from the open list, a screen-reader
+   user does not, and a visible hint under a search field is clutter for both. */
+.sr-only {
+  position: absolute;
+  inline-size: 1px; block-size: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------- Combobox (§5.10) */
+
+/* ARIA 1.2 combobox: a text input that owns a listbox. The input keeps
+   role="combobox"; the list is a real <ul role="listbox"> of <li role="option">.
+   Focus never leaves the input — the active option is pointed at with
+   aria-activedescendant, so the reader hears the option without losing the
+   caret. This is why the options are not buttons. */
+.combobox { position: relative; }
+
+.combobox__list {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 100%;
+  z-index: 20;
+  max-block-size: 17rem;      /* ~7 options, then scroll */
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* A dropdown genuinely floats above the page — the sanctioned shadow (§4.4). */
+  box-shadow: var(--elev-float);
+}
+
+.combobox__opt {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-block-size: 40px;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body);
+  color: var(--fg);
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+/* Hover and keyboard-active are the SAME background. Two different highlights
+   in one list means the reader has to work out which one Enter will take. */
+.combobox__opt:hover,
+.combobox__opt[aria-selected="true"] { background: var(--surface-hover); }
+/* The keyboard cursor additionally gets a rule, so it is distinguishable from a
+   passing mouse without changing the text colour. */
+.combobox__opt[aria-selected="true"] { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* The matched substring. Weight 600 exists in this system; 700 does not (§3). */
+.combobox__opt mark {
+  background: none;
+  color: inherit;
+  font-weight: var(--weight-emphasis);
+}
+/* Trailing value, or the absence of one. Absence is --muted and uncoloured. */
+
+.combobox__empty {
+  padding: var(--space-3) var(--space-4);
+  color: var(--muted);
+  font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body);
+}
+
+/* --------------------------------------------- Column menu (§5.11) */
+
+/* A disclosure button owning a panel of checkboxes. Unlike the combobox
+   (§5.10), focus DOES move into this panel: the options are real focusable
+   controls the reader toggles several of, not a value they pick once. */
+.colmenu { position: relative; }
+
+.colmenu__panel {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: calc(100% + var(--space-2));
+  z-index: 20;
+  min-inline-size: 15rem;
+  padding: var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--elev-float);   /* it floats — sanctioned shadow (§4.4) */
+}
+.colmenu__panel fieldset { border: 0; margin: 0; padding: 0; }
+.colmenu__panel legend {
+  padding: 0 0 var(--space-3);
+  color: var(--fg-2);
+  font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
+  letter-spacing: var(--track-caption);
+}
+
+.colmenu__opt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-block-size: 40px;           /* compact-control floor (§6) */
+  padding-inline: var(--space-2);
+  margin-inline: calc(var(--space-2) * -1);
+  cursor: pointer;
+  font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body);
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+.colmenu__opt:hover { background: var(--surface-hover); }
+.colmenu__opt:focus-within { box-shadow: var(--focus-ring); }
+/* The last remaining data column cannot be switched off. Disabled is the only
+   state allowed to lose contrast (§7), and it is the honest signal here: the
+   control still exists and explains itself, rather than silently ignoring a
+   click or letting the reader empty the table. */
+.colmenu__opt:has(input:disabled) { color: var(--muted); cursor: not-allowed; }
+.colmenu__opt:has(input:disabled):hover { background: none; }
+.colmenu__opt input { inline-size: 16px; block-size: 16px; accent-color: var(--accent); flex: none; }
+
+/* User choice hides columns; it never forces one back. The responsive rules
+   below are a floor, so a column the viewport has dropped stays dropped even
+   if it is ticked here. Anything else would reintroduce the horizontal scroll
+   the breakpoints exist to prevent (§6). */
+.table[data-hidden~="pm25"]      .num:not(.num--pm10),
+.table[data-hidden~="pm25"] th.num:not(.num--pm10),
+.table[data-hidden~="pm10"]      .num--pm10,
+.table[data-hidden~="pm10"] th.num--pm10,
+.table[data-hidden~="sensors"]      .sensors,
+.table[data-hidden~="sensors"] th.sensors,
+
+/* --------------------------- Air-quality ramp (demo binding only) */
+
+/* These six colours are SERVED by /api/v1/scales (EAQI, metric P2) and are
+   data, not brand (§2.1). They are bound here so the kit's legend shows the
+   real ramp instead of empty slots — deliberately NOT in tokens.css, which
+   stays free of them. The consuming app sets these from the API at runtime.
+   Snapshot: 2026-08-31T22:20:46Z */
+.chip__swatch--eaqi { border: 0; }
+.chip__swatch--eaqi[data-band="Добро"] { background: #50f0e6; }
+.chip__swatch--eaqi[data-band="Задоволително"] { background: #50ccaa; }
+.chip__swatch--eaqi[data-band="Умерено"] { background: #f0e641; }
+.chip__swatch--eaqi[data-band="Лошо"] { background: #ff5050; }
+.chip__swatch--eaqi[data-band="Много лошо"] { background: #960032; }
+.chip__swatch--eaqi[data-band="Изключително лошо"] { background: #7d2181; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #161616;
+    --surface: #262626;
+    --surface-2: #393939;
+    --surface-hover: #333333;
+    --surface-sel: #001d6c;
+    --fg: #f4f4f4;
+    --fg-2: #c6c6c6;
+    --muted: #a8a8a8;
+    --meta: #a8a8a8;
+    --border: #6f6f6f;
+    --border-soft: #393939;
+    --accent: #4589ff;
+    --accent-on: #161616;
+    --accent-hover: #78a9ff;
+    --accent-active: #a6c8ff;
+    --danger: #ff8389;
+    --warn: #f1c21b;
+    --success: #42be65;
+    /* The inner ring is the PAGE colour, not white — a white ring on a dark
+       page is a bright rectangle, not a focus indicator. */
+    --focus-ring: 0 0 0 2px #161616, 0 0 0 4px var(--accent);
+    --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #161616;
+  --surface: #262626;
+  --surface-2: #393939;
+  --surface-hover: #333333;
+  --surface-sel: #001d6c;
+  --fg: #f4f4f4;
+  --fg-2: #c6c6c6;
+  --muted: #a8a8a8;
+  --meta: #a8a8a8;
+  --border: #6f6f6f;
+  --border-soft: #393939;
+  --accent: #4589ff;
+  --accent-on: #161616;
+  --accent-hover: #78a9ff;
+  --accent-active: #a6c8ff;
+  --danger: #ff8389;
+  --warn: #f1c21b;
+  --success: #42be65;
+  --focus-ring: 0 0 0 2px #161616, 0 0 0 4px var(--accent);
+  --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+}

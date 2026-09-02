@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Области · airbg.org</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../tokens.css?v=21">
+<link rel="stylesheet" href="../../colors_and_type.css?v=21">
+<link rel="stylesheet" href="../../components.css?v=21">
+<link rel="stylesheet" href="app.css?v=21">
+</head>
+<body>
+<header class="masthead" data-od-id="masthead">
+  <a class="masthead__brand" href="index.html"><img src="../../assets/favicon.svg" width="20" height="20" alt="">airbg<span class="tld">.org</span></a>
+  <nav class="masthead__nav" aria-label="Основна">
+    <a class="masthead__link" href="map-home.html" data-i18n="nav.map">Карта</a>
+    <a class="masthead__link" href="oblast-table.html" aria-current="page" data-i18n="nav.oblasti">Области</a>
+        <div class="langpick" data-od-id="theme-picker">
+      <button type="button" class="langpick__btn" data-od-id="theme-btn"
+              aria-expanded="false" aria-controls="theme-list" aria-label="Тема: Автоматична">
+        <span class="langpick__mark" data-theme-face><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="theme-list" data-od-id="theme-list" hidden>
+        <li><a class="langpick__opt" href="#" data-theme-opt="auto" aria-current="true"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="light"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.25" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3.05 3.05l1.13 1.13M11.82 11.82l1.13 1.13M3.05 12.95l1.13-1.13M11.82 4.18l1.13-1.13"/></g></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="dark"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8a5.6 5.6 0 1 0 7 7z" fill="currentColor"/></svg></span></a></li>
+      </ul>
+    </div>
+    <div class="langpick" data-od-id="lang-picker">
+      <button type="button" class="langpick__btn" data-od-id="lang-btn"
+              aria-expanded="false" aria-controls="lang-list" aria-label="Език: Български">
+        <span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>
+        <span data-lang-code>BG</span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="lang-list" data-od-id="lang-list" hidden>
+        <li><a class="langpick__opt" href="#" lang="bg" aria-current="true"><span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>Български</a></li>
+        <!-- English takes the language code, not a borrowed national flag:
+             a flag names a nation and English has no single one (§5.12). -->
+        <li><a class="langpick__opt" href="#" lang="en"><span class="langpick__mark"><img src="../../assets/flag-gb.svg" width="20" height="12" alt=""></span>English</a></li>
+      </ul>
+    </div>
+  </nav>
+</header>
+<main class="page" data-od-id="oblast-table-page">
+  <div class="frame">
+    <div class="page-head page-head--compact">
+      <h1 class="t-title" data-i18n="table.title">Области</h1>
+    </div>
+
+    <div class="table-controls" data-od-id="table-controls">
+      <div class="field field--search combobox" data-od-id="oblast-combobox">
+        <label class="field__label" for="oblast-search" data-i18n="table.search">Търсене на област</label>
+        <input class="input" id="oblast-search" type="search" name="q" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-controls="oblast-listbox"
+               aria-autocomplete="both" aria-describedby="oblast-search-hint"
+               placeholder="Например: Габрово" data-od-id="oblast-search">
+        <ul class="combobox__list" id="oblast-listbox" role="listbox"
+            aria-label="Области" hidden data-od-id="oblast-listbox"></ul>
+        <p class="sr-only" id="oblast-search-hint" data-i18n="table.srHint">Пишете, за да филтрирате. Стрелки за избор, Enter за потвърждение, Escape за изчистване.</p>
+      </div>
+      <fieldset class="switcher" data-od-id="data-filter">
+        <legend data-i18n="table.show">Показване</legend>
+        <div class="switcher__set">
+          <label class="switcher__opt"><input type="radio" name="datafilter" value="all"><span data-i18n="table.all">Всички</span></label>
+          <label class="switcher__opt"><input type="radio" name="datafilter" value="withdata" checked><span data-i18n="table.withData">С данни</span></label>
+          <label class="switcher__opt"><input type="radio" name="datafilter" value="nodata"><span data-i18n="table.noDataFilter">Без данни</span></label>
+        </div>
+      </fieldset>
+      <div class="colmenu" data-od-id="oblast-colmenu">
+        <button type="button" class="btn btn--secondary" id="oblast-colmenu-btn"
+                aria-expanded="false" aria-controls="oblast-colmenu-panel" data-i18n="table.columns">Колони</button>
+        <div class="colmenu__panel" id="oblast-colmenu-panel" hidden>
+          <fieldset>
+            <legend data-i18n="table.visibleColumns">Видими колони</legend>
+            <label class="colmenu__opt"><input type="checkbox" data-col="pm25" checked><span data-i18n="col.pm25Short">ФПЧ2.5</span></label>
+            <label class="colmenu__opt"><input type="checkbox" data-col="pm10" checked><span data-i18n="col.pm10Short">ФПЧ10</span></label>
+            <label class="colmenu__opt"><input type="checkbox" data-col="sensors" checked><span data-i18n="col.sensorsShort">Сензори</span></label>
+          </fieldset>
+        </div>
+      </div>
+    </div>
+
+
+    <table class="table" data-od-id="oblast-table">
+      <caption data-i18n="table.caption">Средно за областта през последния час. Сензори са тези, които участват в агрегата за областта. Данните са моментна снимка от airbg.org.</caption>
+      <thead>
+        <tr>
+          <th scope="col" data-sort-key="name"><button type="button" class="th-sort"><span data-i18n="col.oblast">Област</span></button></th>
+          <th scope="col" class="num" data-sort-key="value" aria-sort="descending"><button type="button" class="th-sort"><span data-i18n="col.pm25">ФПЧ2.5, µg/m³</span></button></th>
+          <th scope="col" class="num num--pm10" data-sort-key="pm10"><button type="button" class="th-sort"><span data-i18n="col.pm10">ФПЧ10, µg/m³</span></button></th>
+          <th scope="col" class="sensors" data-sort-key="sensors"><button type="button" class="th-sort"><span data-i18n="col.sensors">Сензори</span></button></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr data-name="Смолян" data-value="18.16" data-pm10="22.69" data-sensors="11"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A1%D0%BC%D0%BE%D0%BB%D1%8F%D0%BD" data-oblast="Смолян">Смолян</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>18,16</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>22,69</span></span></td><td class="sensors">11</td></tr>
+        <tr data-name="Софийска" data-value="9.75" data-pm10="12.55" data-sensors="86"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A1%D0%BE%D1%84%D0%B8%D0%B9%D1%81%D0%BA%D0%B0" data-oblast="Софийска">Софийска</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>9,75</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>12,55</span></span></td><td class="sensors">86</td></tr>
+        <tr data-name="Велико Търново" data-value="8.1" data-pm10="7.32" data-sensors="22"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%92%D0%B5%D0%BB%D0%B8%D0%BA%D0%BE%20%D0%A2%D1%8A%D1%80%D0%BD%D0%BE%D0%B2%D0%BE" data-oblast="Велико Търново">Велико Търново</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>8,1</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>7,32</span></span></td><td class="sensors">22</td></tr>
+        <tr data-name="Ловеч" data-value="5.81" data-pm10="9.74" data-sensors="6"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%9B%D0%BE%D0%B2%D0%B5%D1%87" data-oblast="Ловеч">Ловеч</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>5,81</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>9,74</span></span></td><td class="sensors">6</td></tr>
+        <tr data-name="Кюстендил" data-value="5.42" data-pm10="9.58" data-sensors="25"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%9A%D1%8E%D1%81%D1%82%D0%B5%D0%BD%D0%B4%D0%B8%D0%BB" data-oblast="Кюстендил">Кюстендил</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>5,42</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>9,58</span></span></td><td class="sensors">25</td></tr>
+        <tr data-name="Благоевград" data-value="5.27" data-pm10="11.26" data-sensors="27"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%91%D0%BB%D0%B0%D0%B3%D0%BE%D0%B5%D0%B2%D0%B3%D1%80%D0%B0%D0%B4" data-oblast="Благоевград">Благоевград</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>5,27</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>11,26</span></span></td><td class="sensors">27</td></tr>
+        <tr data-name="София-град" data-value="4.88" data-pm10="8.83" data-sensors="566"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A1%D0%BE%D1%84%D0%B8%D1%8F-%D0%B3%D1%80%D0%B0%D0%B4" data-oblast="София-град">София-град</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>4,88</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>8,83</span></span></td><td class="sensors">566</td></tr>
+        <tr data-name="Видин" data-value="4.56" data-pm10="10.03" data-sensors="9"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%92%D0%B8%D0%B4%D0%B8%D0%BD" data-oblast="Видин">Видин</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>4,56</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>10,03</span></span></td><td class="sensors">9</td></tr>
+        <tr data-name="Варна" data-value="3.72" data-pm10="6.65" data-sensors="62"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%92%D0%B0%D1%80%D0%BD%D0%B0" data-oblast="Варна">Варна</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>3,72</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>6,65</span></span></td><td class="sensors">62</td></tr>
+        <tr data-name="Пловдив" data-value="3.22" data-pm10="7.7" data-sensors="111"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%9F%D0%BB%D0%BE%D0%B2%D0%B4%D0%B8%D0%B2" data-oblast="Пловдив">Пловдив</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>3,22</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>7,7</span></span></td><td class="sensors">111</td></tr>
+        <tr data-name="Сливен" data-value="3.13" data-pm10="10.42" data-sensors="10"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A1%D0%BB%D0%B8%D0%B2%D0%B5%D0%BD" data-oblast="Сливен">Сливен</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>3,13</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>10,42</span></span></td><td class="sensors">10</td></tr>
+        <tr data-name="Плевен" data-value="2.95" data-pm10="5.48" data-sensors="15"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%9F%D0%BB%D0%B5%D0%B2%D0%B5%D0%BD" data-oblast="Плевен">Плевен</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>2,95</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>5,48</span></span></td><td class="sensors">15</td></tr>
+        <tr data-name="Хасково" data-value="2.81" data-pm10="8.81" data-sensors="17"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A5%D0%B0%D1%81%D0%BA%D0%BE%D0%B2%D0%BE" data-oblast="Хасково">Хасково</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>2,81</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>8,81</span></span></td><td class="sensors">17</td></tr>
+        <tr data-name="Габрово" data-value="2.69" data-pm10="6.76" data-sensors="13"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%93%D0%B0%D0%B1%D1%80%D0%BE%D0%B2%D0%BE" data-oblast="Габрово">Габрово</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>2,69</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>6,76</span></span></td><td class="sensors">13</td></tr>
+        <tr data-name="Стара Загора" data-value="2.68" data-pm10="6.78" data-sensors="24"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A1%D1%82%D0%B0%D1%80%D0%B0%20%D0%97%D0%B0%D0%B3%D0%BE%D1%80%D0%B0" data-oblast="Стара Загора">Стара Загора</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>2,68</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>6,78</span></span></td><td class="sensors">24</td></tr>
+        <tr data-name="Монтана" data-value="2.61" data-pm10="5.28" data-sensors="13"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%9C%D0%BE%D0%BD%D1%82%D0%B0%D0%BD%D0%B0" data-oblast="Монтана">Монтана</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>2,61</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>5,28</span></span></td><td class="sensors">13</td></tr>
+        <tr data-name="Бургас" data-value="2.51" data-pm10="8.38" data-sensors="19"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%91%D1%83%D1%80%D0%B3%D0%B0%D1%81" data-oblast="Бургас">Бургас</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>2,51</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>8,38</span></span></td><td class="sensors">19</td></tr>
+        <tr data-name="Кърджали" data-value="2.28" data-pm10="6.35" data-sensors="3"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%9A%D1%8A%D1%80%D0%B4%D0%B6%D0%B0%D0%BB%D0%B8" data-oblast="Кърджали">Кърджали</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>2,28</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>6,35</span></span></td><td class="sensors">3</td></tr>
+        <tr data-name="Добрич" data-value="2.24" data-pm10="5.57" data-sensors="9"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%94%D0%BE%D0%B1%D1%80%D0%B8%D1%87" data-oblast="Добрич">Добрич</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>2,24</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>5,57</span></span></td><td class="sensors">9</td></tr>
+        <tr data-name="Русе" data-value="1.63" data-pm10="4.4" data-sensors="22"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A0%D1%83%D1%81%D0%B5" data-oblast="Русе">Русе</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>1,63</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>4,4</span></span></td><td class="sensors">22</td></tr>
+        <tr data-name="Враца" data-nodata data-sensors="0"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%92%D1%80%D0%B0%D1%86%D0%B0" data-oblast="Враца">Враца</a></td><td class="nodata" colspan="2" data-i18n="cell.noData">Няма скорошни данни</td><td class="sensors">0</td></tr>
+        <tr data-name="Пазарджик" data-nodata data-sensors="0"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%9F%D0%B0%D0%B7%D0%B0%D1%80%D0%B4%D0%B6%D0%B8%D0%BA" data-oblast="Пазарджик">Пазарджик</a></td><td class="nodata" colspan="2" data-i18n="cell.noData">Няма скорошни данни</td><td class="sensors">0</td></tr>
+        <tr data-name="Перник" data-nodata data-sensors="0"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%9F%D0%B5%D1%80%D0%BD%D0%B8%D0%BA" data-oblast="Перник">Перник</a></td><td class="nodata" colspan="2" data-i18n="cell.noData">Няма скорошни данни</td><td class="sensors">0</td></tr>
+        <tr data-name="Разград" data-nodata data-sensors="0"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A0%D0%B0%D0%B7%D0%B3%D1%80%D0%B0%D0%B4" data-oblast="Разград">Разград</a></td><td class="nodata" colspan="2" data-i18n="cell.noData">Няма скорошни данни</td><td class="sensors">0</td></tr>
+        <tr data-name="Силистра" data-nodata data-sensors="2"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A1%D0%B8%D0%BB%D0%B8%D1%81%D1%82%D1%80%D0%B0" data-oblast="Силистра">Силистра</a></td><td class="nodata" colspan="2" data-i18n="cell.noData">Няма скорошни данни</td><td class="sensors">2</td></tr>
+        <tr data-name="Търговище" data-nodata data-sensors="0"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A2%D1%8A%D1%80%D0%B3%D0%BE%D0%B2%D0%B8%D1%89%D0%B5" data-oblast="Търговище">Търговище</a></td><td class="nodata" colspan="2" data-i18n="cell.noData">Няма скорошни данни</td><td class="sensors">0</td></tr>
+        <tr data-name="Шумен" data-nodata data-sensors="0"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%A8%D1%83%D0%BC%D0%B5%D0%BD" data-oblast="Шумен">Шумен</a></td><td class="nodata" colspan="2" data-i18n="cell.noData">Няма скорошни данни</td><td class="sensors">0</td></tr>
+        <tr data-name="Ямбол" data-nodata data-sensors="0"><td class="name"><a class="link" href="area-detail.html?oblast=%D0%AF%D0%BC%D0%B1%D0%BE%D0%BB" data-oblast="Ямбол">Ямбол</a></td><td class="nodata" colspan="2" data-i18n="cell.noData">Няма скорошни данни</td><td class="sensors">0</td></tr>
+      </tbody>
+    </table>
+    <nav class="pager" id="oblast-pager" aria-label="Страници на таблицата" data-od-id="oblast-pager">
+      <div class="pager__perpage">
+        <label for="oblast-perpage" data-i18n="pager.rows">Реда на страница</label>
+        <span class="select-wrap">
+          <select class="select" id="oblast-perpage" data-od-id="oblast-perpage">
+            <option value="all" selected>Всички</option>
+            <option value="21">21</option>
+            <option value="14">14</option>
+            <option value="7">7</option>
+          </select>
+          <span class="select-wrap__caret" aria-hidden="true"></span>
+        </span>
+      </div>
+      <span class="pager__spacer"></span>
+      <div class="pager__nav" id="oblast-pager-nav" hidden>
+      <div class="pager__group">
+        <button type="button" class="btn btn--ghost pager__btn" data-page="first" aria-label="Първа страница">‹‹</button>
+        <button type="button" class="btn btn--ghost pager__btn" data-page="prev" aria-label="Предишна страница">‹</button>
+      </div>
+      <p class="pager__status" id="oblast-pager-status" role="status" data-i18n="pager.status">Страница 1 от 1</p>
+      <div class="pager__group">
+        <button type="button" class="btn btn--ghost pager__btn" data-page="next" aria-label="Следваща страница">›</button>
+        <button type="button" class="btn btn--ghost pager__btn" data-page="last" aria-label="Последна страница">››</button>
+      </div>
+      </div>
+    </nav>
+
+    <p class="t-empty" id="oblast-empty" hidden data-od-id="table-empty" data-i18n="table.empty">Няма област с това име. Проверете изписването или изчистете търсенето.</p>
+    <p class="meta" id="oblast-count" role="status" data-od-id="table-count">Показани 28 от 28 области. 1072 сензора в мрежата. Осем области нямат скорошни отчитания; това е обичайно състояние, не грешка.</p>
+
+    <p class="table-note" data-i18n="table.intro" data-od-id="table-note">Всички 28 области с фини (ФПЧ2.5) и груби (ФПЧ10) прахови частици, средно за областта. Подредбата по подразбиране е по ФПЧ2.5 низходящо, а областите без скорошни данни остават в края при всяка подредба.</p>
+
+    <p class="data-refresh" data-od-id="data-refresh">
+      <button type="button" class="btn btn--ghost btn--compact data-refresh__btn" data-od-id="refresh">
+        <svg class="data-refresh__ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+        </svg>
+        <span data-i18n="refresh.button">Обнови</span>
+      </button>
+      <span class="data-refresh__status" role="status" data-od-id="refresh-status"></span>
+    </p>
+
+  </div>
+</main>
+<footer class="footer" data-od-id="footer">
+  <div class="measure">
+    <p class="disclaimer" data-i18n="foot.disclaimer">Данните идват от мрежа от граждански сензори и не заместват официалните измервания на Изпълнителната агенция по околна среда.</p>
+    <p data-i18n="foot.aggregation">Сензорите не са официално калибрирани. Стойностите се агрегират по области и градове и се обновяват на всеки няколко минути.</p>
+    <p data-i18n="foot.updated">Обновено в 12:10, 1 септември</p>
+    <p class="attribution" data-od-id="attribution" hidden></p>
+  </div>
+</footer>
+<script src="i18n.js?v=21"></script>
+<script src="oblast-link.js?v=21"></script>
+<script src="airbg-data.js?v=21"></script>
+<script src="oblast-table.js?v=21"></script>
+<script src="masthead.js?v=21"></script>
+<script src="theme.js?v=21"></script>
+</body>
+</html>

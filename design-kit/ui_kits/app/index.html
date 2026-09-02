@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Интерфейсен комплект · airbg.org</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../tokens.css?v=21">
+<link rel="stylesheet" href="../../colors_and_type.css?v=21">
+<link rel="stylesheet" href="../../components.css?v=21">
+<link rel="stylesheet" href="app.css?v=21">
+<style>
+/* Kit-launcher styles only. The shipped screens carry no inline styles — the
+   airbg.org CSP forbids them (DESIGN.md §1) — and neither does app.css consumers.
+   This block exists so the launcher reads correctly when opened standalone in a
+   review harness. Every value below is an existing token. */
+  .kit-index { margin-block: var(--space-6); }
+  .kit-index a { min-height: var(--control-height); align-content: center; }
+  .kit-index code { font-family: var(--font-mono); font-size: var(--text-caption); }
+  .meta { display: block; max-width: 70ch; margin-block-start: var(--space-6); }
+</style>
+</head>
+<body>
+<header class="masthead" data-od-id="masthead">
+  <a class="masthead__brand" href="index.html"><img src="../../assets/favicon.svg" width="20" height="20" alt="">airbg<span class="tld">.org</span></a>
+  <nav class="masthead__nav" aria-label="Основна">
+    <a class="masthead__link" href="map-home.html" data-i18n="nav.map">Карта</a>
+    <a class="masthead__link" href="oblast-table.html" data-i18n="nav.oblasti">Области</a>
+        <div class="langpick" data-od-id="theme-picker">
+      <button type="button" class="langpick__btn" data-od-id="theme-btn"
+              aria-expanded="false" aria-controls="theme-list" aria-label="Тема: Автоматична">
+        <span class="langpick__mark" data-theme-face><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="theme-list" data-od-id="theme-list" hidden>
+        <li><a class="langpick__opt" href="#" data-theme-opt="auto" aria-current="true"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="light"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.25" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3.05 3.05l1.13 1.13M11.82 11.82l1.13 1.13M3.05 12.95l1.13-1.13M11.82 4.18l1.13-1.13"/></g></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="dark"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8a5.6 5.6 0 1 0 7 7z" fill="currentColor"/></svg></span></a></li>
+      </ul>
+    </div>
+    <div class="langpick" data-od-id="lang-picker">
+      <button type="button" class="langpick__btn" data-od-id="lang-btn"
+              aria-expanded="false" aria-controls="lang-list" aria-label="Език: Български">
+        <span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>
+        <span data-lang-code>BG</span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="lang-list" data-od-id="lang-list" hidden>
+        <li><a class="langpick__opt" href="#" lang="bg" aria-current="true"><span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>Български</a></li>
+        <!-- English takes the language code, not a borrowed national flag:
+             a flag names a nation and English has no single one (§5.12). -->
+        <li><a class="langpick__opt" href="#" lang="en"><span class="langpick__mark"><img src="../../assets/flag-gb.svg" width="20" height="12" alt=""></span>English</a></li>
+      </ul>
+    </div>
+  </nav>
+</header>
+<main class="page" data-od-id="kit-index">
+  <div class="measure">
+    <div class="page-head">
+      <h1 class="t-title" data-i18n="kit.title">Интерфейсен комплект</h1>
+      <p class="t-body" data-i18n="kit.intro">Приложеният слой на дизайн системата на airbg.org: истински екрани, сглобени само от токените и компонентите в корена на пакета. Нито един цвят, радиус или тегло не се въвежда тук.</p>
+    </div>
+    <nav class="kit-index" aria-label="Екрани">
+      <a href="map-home.html"><strong data-i18n="kit.screenHome">Начална страница с картата</strong><span data-i18n="kit.screenHomeDesc">Мастхед, превключвател на показател, картата като водеща повърхност (пълна ширина, височина max(побиране, 78vh)), легенда с нивото на агрегация, лента с отчитания</span></a>
+      <a href="oblast-table.html"><strong data-i18n="table.title">Области</strong><span data-i18n="kit.screenTableDesc">Таблица на 28-те области с ФПЧ2.5 и ФПЧ10: избор на видими колони, търсене, филтър с/без данни, подредба по всяка колона, страниране с редове на страница, табулярни числа, редовете без данни последни при всяка подредба</span></a>
+      <a href="area-detail.html"><strong data-i18n="kit.screenArea">Район</strong><span data-i18n="kit.screenAreaDesc">Подробен изглед, достъпен от име на област в таблицата или от точка на картата — не е раздел в навигацията. Отчитания с посочено ниво на агрегация, карта при zoom 9, запълнена графика за 24 часа</span></a>
+      <a href="states.html"><strong data-i18n="states.title">Състояния</strong><span data-i18n="kit.screenStatesDesc">Празно, зареждане, грешка, ограничение по приближение, избран ред</span></a>
+    </nav>
+
+    <h2 class="t-section" data-i18n="kit.components">Компоненти</h2>
+    <p class="t-body" data-i18n="kit.componentsIntro">Фрагменти за копиране, от които са сглобени екраните. Това са HTML части, не модули: приложението е сървърно рендиран Go без стъпка за компилация. Поставете фрагмента в страница, която вече зарежда четирите стилови файла.</p>
+    <nav class="kit-index" aria-label="Компоненти">
+      <a href="components/app-shell.html"><strong>App shell</strong><span><code>components/app-shell.html</code><span data-i18n="kit.fragShell"> · мастхед, контейнер на страницата, футър</span></span></a>
+      <a href="components/input-bar.html"><strong>InputBar</strong><span><code>components/input-bar.html</code><span data-i18n="kit.fragInput"> · превключвател на показателя и най-много един плътен бутон</span></span></a>
+      <a href="components/sidebar.html"><strong>Sidebar</strong><span><code>components/sidebar.html</code><span data-i18n="kit.fragSidebar"> · страничната колона на страницата за район</span></span></a>
+      <a href="components/readouts.html"><strong data-i18n="kit.fragReadouts">Отчитания</strong><span><code>components/readouts.html</code><span data-i18n="kit.fragReadoutsDesc"> · всяка стойност казва какво агрегира</span></span></a>
+      <a href="components/map-legend.html"><strong data-i18n="kit.fragMap">Карта и легенда</strong><span><code>components/map-legend.html</code><span data-i18n="kit.fragMapDesc"> · рамка със съотношение 926×382, скала и ред за нивото на агрегация</span></span></a>
+      <a href="components/oblast-table.html"><strong data-i18n="kit.fragTable">Таблица на областите</strong><span><code>components/oblast-table.html</code><span data-i18n="kit.fragTableDesc"> · търсене с падащ списък и автодовършване, филтър, подредба по колона · табулярни числа, редовете без данни последни</span></span></a>
+      <a href="components/chart.html"><strong data-i18n="kit.fragChart">Графика</strong><span><code>components/chart.html</code><span data-i18n="kit.fragChartDesc"> · една серия със запълнена площ</span></span></a>
+    </nav>
+    <p class="meta"><span data-i18n="kit.footNoteA">Стойностите в екраните са примерни и обозначени като такива. Цветовете на чиповете остават празни, защото скалата за качество на въздуха се сервира от </span><code>/api/v1/scales</code><span data-i18n="kit.footNoteB"> и не принадлежи на тази дизайн система.</span></p>
+  </div>
+</main>
+<footer class="footer" data-od-id="footer">
+  <div class="measure">
+    <p class="disclaimer" data-i18n="foot.disclaimer">Данните идват от мрежа от граждански сензори и не заместват официалните измервания на Изпълнителната агенция по околна среда.</p>
+    <p data-i18n="foot.aggregation">Сензорите не са официално калибрирани. Стойностите се агрегират по области и градове и се обновяват на всеки няколко минути.</p>
+    <p data-i18n="foot.updated">Обновено в 14:20, 31 август</p>
+    <p class="attribution" data-od-id="attribution" hidden></p>
+  </div>
+</footer>
+<script src="i18n.js?v=21"></script>
+<script src="masthead.js?v=21"></script>
+<script src="theme.js?v=21"></script>
+</body>
+</html>

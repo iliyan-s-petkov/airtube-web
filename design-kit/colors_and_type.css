@@ -1,0 +1,234 @@
+/* colors_and_type.css — airbg.org design system
+ *
+ * Reusable colour + typography foundations. Spacing, radius, containers, motion,
+ * and elevation live in tokens.css; import both.
+ *
+ *   <link rel="stylesheet" href="tokens.css">
+ *   <link rel="stylesheet" href="colors_and_type.css">
+ *
+ * Two colour systems exist in this product and must never be mixed:
+ *   1. the UI palette below — monochrome plus one blue, describes the INTERFACE;
+ *   2. the air-quality ramp — served by /api/v1/scales, describes THE AIR.
+ * The ramp is absent from this file on purpose. See DESIGN.md §2.1.
+ *
+ * CSP note: the consuming app forbids inline styles. Every value is a token here.
+ */
+
+/* ---------------------------------------------------------------- 1. Colour */
+
+:root {
+  /* Surfaces — depth is background layering, never shadow */
+  --bg: #ffffff;
+  --surface: #f4f4f4;
+  --surface-2: #e0e0e0;
+  /* Basemap water. The one place this system spends a hue outside the accent
+     and outside the served ramp (§2.1): water is a real referent, not UI state
+     and not a reading, and grey water is the reason a reader could not tell the
+     Black Sea from Romania. Derived in OKLCh, low chroma, far from the ramp's
+     teal. --fg-2 measures 5.48:1 on it; the river clears the 3:1 UI floor at
+     3.7:1. */
+  --map-sea: oklch(0.88 0.05 236);      /* #b9ddf5 */
+  --map-river: oklch(0.52 0.13 236);    /* #0072a9 */
+  --surface-hover: #e8e8e8;
+  --surface-sel: #edf5ff;
+
+  /* Text */
+  --fg: #161616;        /* headings, body            21.0:1 on --bg */
+  --fg-2: #525252;      /* secondary, helper          7.5:1 on --bg */
+  --muted: #6f6f6f;     /* placeholder, EMPTY STATES  5.3:1 on --bg */
+  --meta: #8d8d8d;      /* timestamps, attribution    3.5:1 — 12px caption only,
+                           never body copy */
+
+  /* Lines */
+  --border: #c6c6c6;
+  --border-soft: #e0e0e0;
+
+  /* The single chromatic UI colour. Blue because green, teal and yellow are
+     already spent on air quality. */
+  --accent: #0f62fe;         /* 4.6:1 on --bg */
+  --accent-on: #ffffff;
+  --accent-hover: #0043ce;
+  --accent-active: #002d9c;
+
+  /* System messaging ONLY. Forbidden on the map, in the legend, on a chart
+     series, and in any value readout — these hues belong to the air. */
+  --danger: #da1e28;
+  --warn: #f1c21b;
+  --success: #24a148;
+
+  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+}
+
+/* State pairs. Foreground and background always move together; contrast after a
+   state change is never lower than the default state. */
+:root {
+  --btn-primary-bg: var(--accent);
+  --btn-primary-fg: var(--accent-on);
+  --btn-primary-bg-hover: var(--accent-hover);
+  --btn-primary-fg-hover: var(--accent-on);
+
+  --btn-ghost-bg: transparent;
+  --btn-ghost-fg: var(--accent);
+  --btn-ghost-bg-hover: var(--surface-hover);
+  --btn-ghost-fg-hover: var(--accent-hover);
+
+  --row-bg-hover: var(--surface-hover);
+  --row-bg-sel: var(--surface-sel);
+}
+
+/* ------------------------------------------------------------ 2. Typography */
+
+/* IBM Plex Sans, self-hosted, Cyrillic + Latin subsets, weights 300/400/600.
+   Self-hosted because the CSP has no third-party allowance and a font CDN is a
+   third party watching our readers. Drop the .woff2 files in fonts/ and
+   uncomment. Until then the fallback stack carries the page. */
+
+/*
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("fonts/IBMPlexSans-Light.woff2") format("woff2");
+  font-weight: 300; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0400-04FF, U+2000-206F, U+20AC, U+2122;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("fonts/IBMPlexSans-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0400-04FF, U+2000-206F, U+20AC, U+2122;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
+  font-weight: 600; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0400-04FF, U+2000-206F, U+20AC, U+2122;
+}
+*/
+
+:root {
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+
+  --weight-display: 300;
+  --weight-body: 400;
+  --weight-emphasis: 600;
+  /* Weight 700 does not exist in this system. Neither does italic display type. */
+
+  --text-title: 2.625rem;
+  --text-section: 2rem;
+  --text-sub: 1.5rem;
+  --text-card: 1.25rem;
+  --text-body: 1rem;
+  --text-compact: 0.875rem;
+  --text-caption: 0.75rem;
+  --text-readout: 2rem;
+
+  --leading-display: 1.19;
+  --leading-section: 1.25;
+  --leading-sub: 1.33;
+  --leading-card: 1.4;
+  --leading-body: 1.5;
+  --leading-compact: 1.29;
+  --leading-caption: 1.33;
+  --leading-readout: 1.17;
+
+  /* Tracking exists only below 16px. Never on display type. */
+  --track-compact: 0.16px;
+  --track-caption: 0.32px;
+}
+
+/* Type scale as classes. Bulgarian sets the line length, not English. */
+
+.t-title    { font: var(--weight-display) var(--text-title)/var(--leading-display) var(--font-body); letter-spacing: 0; }
+.t-section  { font: var(--weight-body) var(--text-section)/var(--leading-section) var(--font-body); letter-spacing: 0; }
+.t-sub      { font: var(--weight-body) var(--text-sub)/var(--leading-sub) var(--font-body); letter-spacing: 0; }
+.t-card     { font: var(--weight-emphasis) var(--text-card)/var(--leading-card) var(--font-body); letter-spacing: 0; }
+.t-body     { font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body); letter-spacing: 0; }
+.t-compact  { font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body); letter-spacing: var(--track-compact); }
+.t-caption  { font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body); letter-spacing: var(--track-caption); }
+
+/* Every measured value. A PM figure that reflows its own width as it updates is
+   the detail that makes a data site feel untrustworthy. */
+.t-readout {
+  font: var(--weight-display) var(--text-readout)/var(--leading-readout) var(--font-body);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.num { font-variant-numeric: tabular-nums; }
+
+/* Absence of data is not an error: no colour, no icon, body size. */
+.t-empty { color: var(--muted); font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body); }
+
+/* ── Dark theme ──────────────────────────────────────────────────────────────
+ * Carbon's Gray 100 theme, not darkened light values (DESIGN.md §5.2a).
+ *
+ * This lives HERE, at the end of the file that owns the palette, and that
+ * placement is load-bearing. `:root` and `[data-theme="dark"]` have identical
+ * specificity (0,1,0), so source order alone decides which wins. The dark rules
+ * were originally in tokens.css, which loads BEFORE this file — so the light
+ * `:root` below re-declared every colour afterwards and the explicit dark
+ * choice silently lost. The picker set the attribute correctly and the page
+ * never changed.
+ *
+ * Rule that follows from it: a theme override belongs in the same file as the
+ * palette it overrides, after it. Split them across files and the cascade is
+ * decided by link order in every page that happens to include them.
+ */
+:root { color-scheme: light; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #161616;
+    --surface: #262626;
+    --surface-2: #393939;
+  /* Gray-100 counterpart: the same hue, inverted lightness. --meta (#a8a8a8)
+     measures 5.68:1 on it and the river 4.26:1. */
+  --map-sea: oklch(0.30 0.035 236);     /* #1c313d */
+  --map-river: oklch(0.65 0.09 236);    /* #5598bf */
+    --surface-hover: #333333;
+    --surface-sel: #001d6c;
+    --fg: #f4f4f4;
+    --fg-2: #c6c6c6;
+    --muted: #a8a8a8;
+    --meta: #a8a8a8;
+    --border: #6f6f6f;
+    --border-soft: #393939;
+    --accent: #4589ff;
+    --accent-on: #161616;
+    --accent-hover: #78a9ff;
+    --accent-active: #a6c8ff;
+    --danger: #ff8389;
+    --warn: #f1c21b;
+    --success: #42be65;
+    --focus-ring: 0 0 0 2px #161616, 0 0 0 4px var(--accent);
+    --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+}
+
+[data-theme="dark"] {
+color-scheme: dark;
+  --bg: #161616;
+  --surface: #262626;
+  --surface-2: #393939;
+  /* Gray-100 counterpart: the same hue, inverted lightness. --meta (#a8a8a8)
+     measures 5.68:1 on it and the river 4.26:1. */
+  --map-sea: oklch(0.30 0.035 236);     /* #1c313d */
+  --map-river: oklch(0.65 0.09 236);    /* #5598bf */
+  --surface-hover: #333333;
+  --surface-sel: #001d6c;
+  --fg: #f4f4f4;
+  --fg-2: #c6c6c6;
+  --muted: #a8a8a8;
+  --meta: #a8a8a8;
+  --border: #6f6f6f;
+  --border-soft: #393939;
+  --accent: #4589ff;
+  --accent-on: #161616;
+  --accent-hover: #78a9ff;
+  --accent-active: #a6c8ff;
+  --danger: #ff8389;
+  --warn: #f1c21b;
+  --success: #42be65;
+  --focus-ring: 0 0 0 2px #161616, 0 0 0 4px var(--accent);
+  --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+}

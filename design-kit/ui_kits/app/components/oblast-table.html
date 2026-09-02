@@ -1,0 +1,103 @@
+<!-- Oblast table (§5.4) — search + filter + sortable headers.
+     All 28 oblasti always ship; there is no "show more".
+     Two invariants: no-data rows sink in EVERY sort order, and the count
+     line's denominator is always 28. Paging is applied last, after filter and
+     sort, and defaults to "Всички". Rows-per-page and page navigation share one
+     bar below the table; only the page controls hide at a single page, because
+     the select is what creates pages in the first place.
+     The Колони menu (§5.11) toggles column visibility: the name column is
+     never hideable, the last data column's checkbox disables, and hiding the
+     sorted column re-sorts. Search is a combobox (§5.10): live table filtering, a selectable dropdown
+     of matching names, and inline completion on prefix matches only.
+     Behaviour lives in ../oblast-table.js; it is an external file because the
+     app's CSP has no inline allowance. -->
+
+<div class="table-controls" data-od-id="table-controls">
+  <div class="field field--search combobox" data-od-id="oblast-combobox">
+    <label class="field__label" for="oblast-search">Търсене на област</label>
+    <input class="input" id="oblast-search" type="search" name="q" autocomplete="off"
+           role="combobox" aria-expanded="false" aria-controls="oblast-listbox"
+           aria-autocomplete="both" aria-describedby="oblast-search-hint"
+           placeholder="Например: Габрово" data-od-id="oblast-search">
+    <ul class="combobox__list" id="oblast-listbox" role="listbox"
+        aria-label="Области" hidden data-od-id="oblast-listbox"></ul>
+    <p class="sr-only" id="oblast-search-hint">Пишете, за да филтрирате. Стрелки за избор, Enter за потвърждение, Escape за изчистване.</p>
+  </div>
+  <fieldset class="switcher" data-od-id="data-filter">
+    <legend>Показване</legend>
+    <div class="switcher__set">
+      <label class="switcher__opt"><input type="radio" name="datafilter" value="all" checked><span>Всички</span></label>
+      <label class="switcher__opt"><input type="radio" name="datafilter" value="withdata"><span>С данни</span></label>
+      <label class="switcher__opt"><input type="radio" name="datafilter" value="nodata"><span>Без данни</span></label>
+    </div>
+  </fieldset>
+  <div class="colmenu" data-od-id="oblast-colmenu">
+    <button type="button" class="btn btn--secondary" id="oblast-colmenu-btn"
+            aria-expanded="false" aria-controls="oblast-colmenu-panel">Колони</button>
+    <div class="colmenu__panel" id="oblast-colmenu-panel" hidden>
+      <fieldset>
+        <legend>Видими колони</legend>
+        <label class="colmenu__opt"><input type="checkbox" data-col="pm25" checked><span>ФПЧ2.5</span></label>
+        <label class="colmenu__opt"><input type="checkbox" data-col="pm10" checked><span>ФПЧ10</span></label>
+        <label class="colmenu__opt"><input type="checkbox" data-col="sensors" checked><span>Сензори</span></label>
+              </fieldset>
+    </div>
+  </div>
+</div>
+
+<!-- data-od-id="oblast-table" belongs to the <table> alone. Reusing it on a
+     wrapper makes querySelector return the wrapper and kills the script. -->
+<table class="table" data-od-id="oblast-table">
+  <caption>Средно за областта през последния час. „Активни“ са сензорите с отчитане през последния час; „регистрирани“ са всички в областта. Стойностите са примерни.</caption>
+  <thead>
+    <tr>
+      <th scope="col" data-sort-key="name"><button type="button" class="th-sort">Област</button></th>
+      <th scope="col" class="num" data-sort-key="value" aria-sort="descending"><button type="button" class="th-sort">ФПЧ2.5, µg/m³</button></th>
+      <th scope="col" class="num num--pm10" data-sort-key="pm10"><button type="button" class="th-sort">ФПЧ10, µg/m³</button></th>
+      <th scope="col" class="sensors" data-sort-key="sensors"><button type="button" class="th-sort">Сензори</button></th>
+    </tr>
+  </thead>
+  <tbody>
+    <!-- One row per oblast, all 28. data-value/data-pm10/data-sensors/data-registered drive the
+         sort; a row without a reading carries data-nodata and spans all three
+         two PM columns. Active and registered sensors are separate columns —
+         "Сензори" alone is ambiguous and the two differ by 55 nationally.
+         Both PM metrics are columns here — only the MAP switches
+         between them, because a dot can only be one colour (§5.4). PM10 is never
+         below PM2.5, and a figure must match every other screen that prints it. -->
+    <tr data-name="Пловдив" data-value="52.1" data-pm10="78.4" data-sensors="57"><td class="name"><a class="link" href="../area-detail.html">Пловдив</a></td><td class="num"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>52,1</span></span></td><td class="num num--pm10"><span class="value-cell"><span class="chip"><span class="chip__swatch"></span>78,4</span></span></td><td class="sensors">57</td></tr>
+    <!-- A silent oblast keeps its sensor columns: 0 of 3 explains the silence. -->
+    <tr data-name="Видин" data-nodata data-sensors="0"><td class="name"><a class="link" href="../area-detail.html">Видин</a></td><td class="nodata" colspan="2">Няма скорошни данни</td><td class="sensors">0</td></tr>
+  </tbody>
+</table>
+<nav class="pager" id="oblast-pager" aria-label="Страници на таблицата" data-od-id="oblast-pager">
+  <div class="pager__perpage">
+    <label for="oblast-perpage">Реда на страница</label>
+    <span class="select-wrap">
+      <select class="select" id="oblast-perpage" data-od-id="oblast-perpage">
+        <!-- Divisors of the 28 rows, so no page is ever a stub. "Всички" is a named
+             option rather than the literal 28: it means "the whole set" whatever
+             the set currently is, and so stays valid under any filter. -->
+        <option value="all" selected>Всички</option>
+            <option value="21">21</option>
+            <option value="14">14</option>
+            <option value="7">7</option>
+      </select>
+      <span class="select-wrap__caret" aria-hidden="true"></span>
+    </span>
+  </div>
+      <span class="pager__spacer"></span>
+      <div class="pager__nav" id="oblast-pager-nav" hidden>
+  <div class="pager__group">
+    <button type="button" class="btn btn--ghost pager__btn" data-page="first" aria-label="Първа страница">&lsaquo;&lsaquo;</button>
+    <button type="button" class="btn btn--ghost pager__btn" data-page="prev" aria-label="Предишна страница">&lsaquo;</button>
+  </div>
+  <p class="pager__status" id="oblast-pager-status" role="status">Страница 1 от 1</p>
+  <div class="pager__group">
+    <button type="button" class="btn btn--ghost pager__btn" data-page="next" aria-label="Следваща страница">&rsaquo;</button>
+    <button type="button" class="btn btn--ghost pager__btn" data-page="last" aria-label="Последна страница">&rsaquo;&rsaquo;</button>
+  </div>
+  </div>
+</nav>
+<p class="t-empty" id="oblast-empty" hidden data-od-id="table-empty">Няма област с това име. Проверете изписването или изчистете търсенето.</p>
+<p class="meta" id="oblast-count" role="status" data-od-id="table-count">Показани 28 от 28 области. Осем нямат скорошни отчитания; това е обичайно състояние, не грешка.</p>

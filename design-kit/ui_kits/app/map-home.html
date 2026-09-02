@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Карта · airbg.org</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../tokens.css?v=21">
+<link rel="stylesheet" href="../../colors_and_type.css?v=21">
+<link rel="stylesheet" href="../../components.css?v=21">
+<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=21">
+<link rel="stylesheet" href="app.css?v=21">
+</head>
+<body>
+<header class="masthead" data-od-id="masthead">
+  <a class="masthead__brand" href="index.html"><img src="../../assets/favicon.svg" width="20" height="20" alt="">airbg<span class="tld">.org</span></a>
+  <nav class="masthead__nav" aria-label="Основна">
+    <a class="masthead__link" href="map-home.html" aria-current="page" data-i18n="nav.map">Карта</a>
+    <a class="masthead__link" href="oblast-table.html" data-i18n="nav.oblasti">Области</a>
+        <div class="langpick" data-od-id="theme-picker">
+      <button type="button" class="langpick__btn" data-od-id="theme-btn"
+              aria-expanded="false" aria-controls="theme-list" aria-label="Тема: Автоматична">
+        <span class="langpick__mark" data-theme-face><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="theme-list" data-od-id="theme-list" hidden>
+        <li><a class="langpick__opt" href="#" data-theme-opt="auto" aria-current="true"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="light"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.25" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3.05 3.05l1.13 1.13M11.82 11.82l1.13 1.13M3.05 12.95l1.13-1.13M11.82 4.18l1.13-1.13"/></g></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="dark"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8a5.6 5.6 0 1 0 7 7z" fill="currentColor"/></svg></span></a></li>
+      </ul>
+    </div>
+    <div class="langpick" data-od-id="lang-picker">
+      <button type="button" class="langpick__btn" data-od-id="lang-btn"
+              aria-expanded="false" aria-controls="lang-list" aria-label="Език: Български">
+        <span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>
+        <span data-lang-code>BG</span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="lang-list" data-od-id="lang-list" hidden>
+        <li><a class="langpick__opt" href="#" lang="bg" aria-current="true"><span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>Български</a></li>
+        <!-- English takes the language code, not a borrowed national flag:
+             a flag names a nation and English has no single one (§5.12). -->
+        <li><a class="langpick__opt" href="#" lang="en"><span class="langpick__mark"><img src="../../assets/flag-gb.svg" width="20" height="12" alt=""></span>English</a></li>
+      </ul>
+    </div>
+  </nav>
+</header>
+<main class="page" data-od-id="map-home">
+  <div class="frame">
+    <div class="page-head page-head--compact">
+      <h1 class="t-title" data-i18n="map.title">Качеството на въздуха в България</h1>
+      <p class="t-body" data-i18n="map.intro">Текущи стойности на фините прахови частици (ФПЧ / PM) от мрежа от граждански сензори. Изберете област за подробности.</p>
+    </div>
+
+
+    <div class="toolbar">
+      <fieldset class="switcher" data-od-id="metric-switcher">
+        <legend data-i18n="map.metric">Показател</legend>
+        <div class="switcher__set">
+          <label class="switcher__opt"><input type="radio" name="metric" value="pm25" checked><span data-i18n="col.pm25Short">ФПЧ2.5</span></label>
+          <label class="switcher__opt"><input type="radio" name="metric" value="pm10"><span data-i18n="col.pm10Short">ФПЧ10</span></label>
+        </div>
+      </fieldset>
+      <div class="toolbar__spacer"></div>
+      <!-- Finds a province and points the map at it. The list is read from the
+           28 keys of AIRBG_OBLAST_EN, not written down again (§9.3). -->
+      <div class="field field--search combobox toolbar__find" data-od-id="province-find">
+        <label class="field__label" for="province-search" data-i18n="province.find">Търсене на област</label>
+        <input class="input" id="province-search" type="search" name="province" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-controls="province-listbox"
+               aria-autocomplete="list" data-od-id="province-search">
+        <ul class="combobox__list" id="province-listbox" role="listbox" data-od-id="province-listbox" hidden></ul>
+      </div>
+      <!-- Solid-bordered, full 48px, sitting on the field's baseline: the
+           toolbar is where this screen's controls live, so the refresh belongs
+           beside the finder rather than in a line of prose. Secondary, not
+           primary — the page has no single call to action to compete with. -->
+      <button type="button" class="btn btn--secondary toolbar__refresh" data-od-id="refresh">
+        <svg class="data-refresh__ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+        </svg>
+        <span data-i18n="refresh.button">Обнови</span>
+      </button>
+    </div>
+
+
+  </div>
+
+  <div class="data-frame map map--hero" data-od-id="map">
+      <button type="button" class="map__full" data-od-id="map-fullscreen" aria-pressed="false">
+        <svg class="map__full-ico map__full-ico--in" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M1.75 5.75v-4h4M14.25 5.75v-4h-4M1.75 10.25v4h4M14.25 10.25v4h-4"
+                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+        </svg>
+        <svg class="map__full-ico map__full-ico--out" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M5.75 1.75v4h-4M10.25 1.75v4h4M5.75 14.25v-4h-4M10.25 14.25v-4h4"
+                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+        </svg>
+      </button>
+    <!-- The app mounts Leaflet here at data-zoom=7 and centres on
+         data-focus-oblast when the finder sets it. This kit owns the frame,
+         the 926:382 fit and the legend — not the map canvas (§5.2). -->
+    <div class="map-canvas" data-i18n="map.canvas">Картата на страната се показва тук в приложението</div>
+  </div>
+
+  <div class="frame">
+    <!-- The bands, their edges and their colours are the served scale
+         (/api/v1/scales), captured in airbg-snapshot.json. The swatches reuse
+         .chip__swatch--eaqi[data-band] rather than restating the hexes: one
+         copy of the ramp, not two (§2.1). -->
+    <div class="scale scale--named" data-od-id="map-legend">
+      <!-- Composed at runtime from the current metric (§5.12: one string, one
+           owner), so no data-i18n key here. The ranges below are rewritten from
+           the served bands too — the PM10 edges are not the PM2.5 edges. -->
+      <span class="scale__label" data-od-id="legend-unit">ФПЧ2.5, µg/m³</span>
+      <ol class="scale__bands">
+        <li class="scale__band">
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Добро"></span>
+          <span class="scale__band-name" data-i18n="band.good">Добро</span>
+          <span class="scale__band-range">0–5</span>
+        </li>
+        <li class="scale__band">
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Задоволително"></span>
+          <span class="scale__band-name" data-i18n="band.fair">Задоволително</span>
+          <span class="scale__band-range">5–10</span>
+        </li>
+        <li class="scale__band">
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Умерено"></span>
+          <span class="scale__band-name" data-i18n="band.moderate">Умерено</span>
+          <span class="scale__band-range">10–20</span>
+        </li>
+        <li class="scale__band">
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Лошо"></span>
+          <span class="scale__band-name" data-i18n="band.poor">Лошо</span>
+          <span class="scale__band-range">20–25</span>
+        </li>
+        <li class="scale__band">
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Много лошо"></span>
+          <span class="scale__band-name" data-i18n="band.veryPoor">Много лошо</span>
+          <span class="scale__band-range">25–50</span>
+        </li>
+        <li class="scale__band">
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Изключително лошо"></span>
+          <span class="scale__band-name" data-i18n="band.extreme">Изключително лошо</span>
+          <span class="scale__band-range">50+</span>
+        </li>
+      </ol>
+      <p class="scale__none">
+        <span class="chip chip--none" data-i18n="legend.none"><span class="chip__swatch"></span>няма скорошни данни</span>
+      </p>
+      <p class="legend__tier" data-i18n="map.tier">Всяка област е оцветена по текущата си средна стойност — последното отчитане от сензорите в нея, не осреднено за час или ден. Приближете в приложението за градски агрегати и още веднъж за отделни сензори.</p>
+    </div>
+
+    <p class="data-refresh" data-od-id="data-refresh">
+      <span class="data-refresh__status" role="status" data-od-id="refresh-status"></span>
+    </p>
+
+
+    <div class="readouts" data-od-id="country-readouts">
+      <div class="readout"><span class="readout__label" data-i18n="read.highest">Най-висока стойност</span><span class="readout__value">18,16 <span class="readout__unit">µg/m³</span></span><span class="readout__tier" data-i18n="home.tierTop">Смолян · средно за областта</span></div>
+      <div class="readout"><span class="readout__label" data-i18n="read.median">Медиана по области</span><span class="readout__value">3,18 <span class="readout__unit">µg/m³</span></span><span class="readout__tier" data-i18n="home.tierCovered">20 области с данни</span></div>
+      <div class="readout"><span class="readout__label" data-i18n="read.sensors">Сензори в мрежата</span><span class="readout__value">1072</span><span class="readout__tier" data-i18n="home.tierSensors">участващи в областните агрегати</span></div>
+      <div class="readout"><span class="readout__label" data-i18n="read.noData">Области без данни</span><span class="readout__value">8</span><span class="readout__tier" data-i18n="home.tierSilent">няма скорошни отчитания</span></div>
+    </div>
+  </div>
+</main>
+<footer class="footer" data-od-id="footer">
+  <div class="measure">
+    <p class="disclaimer" data-i18n="foot.disclaimer">Данните идват от мрежа от граждански сензори и не заместват официалните измервания на Изпълнителната агенция по околна среда.</p>
+    <p data-i18n="foot.aggregation">Сензорите не са официално калибрирани. Стойностите се агрегират по области и градове и се обновяват на всеки няколко минути.</p>
+    <p data-i18n="foot.updated">Обновено в 12:10, 1 септември</p>
+    <p class="attribution" data-od-id="attribution" hidden></p>
+  </div>
+</footer>
+<script src="i18n.js?v=21"></script>
+<script src="oblast-link.js?v=21"></script>
+<script src="airbg-data.js?v=21"></script>
+<script src="masthead.js?v=21"></script>
+<script src="map-provinces.js?v=21"></script>
+<script src="theme.js?v=21"></script>
+<script src="map-fullscreen.js?v=21"></script>
+<script src="map-metric.js?v=21"></script>
+<script src="../../assets/vendor/pmtiles.js?v=21"></script>
+<script src="map-render.js?v=21"></script>
+<script src="map-tiles.js?v=21"></script>
+<script src="map-zoom.js?v=21"></script>
+<script src="map-pan.js?v=21"></script>
+</body>
+</html>

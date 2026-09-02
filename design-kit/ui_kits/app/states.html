@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Състояния · airbg.org</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../tokens.css?v=21">
+<link rel="stylesheet" href="../../colors_and_type.css?v=21">
+<link rel="stylesheet" href="../../components.css?v=21">
+<link rel="stylesheet" href="app.css?v=21">
+</head>
+<body>
+<header class="masthead" data-od-id="masthead">
+  <a class="masthead__brand" href="index.html"><img src="../../assets/favicon.svg" width="20" height="20" alt="">airbg<span class="tld">.org</span></a>
+  <nav class="masthead__nav" aria-label="Основна">
+    <a class="masthead__link" href="map-home.html" data-i18n="nav.map">Карта</a>
+    <a class="masthead__link" href="oblast-table.html" data-i18n="nav.oblasti">Области</a>
+        <div class="langpick" data-od-id="theme-picker">
+      <button type="button" class="langpick__btn" data-od-id="theme-btn"
+              aria-expanded="false" aria-controls="theme-list" aria-label="Тема: Автоматична">
+        <span class="langpick__mark" data-theme-face><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="theme-list" data-od-id="theme-list" hidden>
+        <li><a class="langpick__opt" href="#" data-theme-opt="auto" aria-current="true"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="light"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.25" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3.05 3.05l1.13 1.13M11.82 11.82l1.13 1.13M3.05 12.95l1.13-1.13M11.82 4.18l1.13-1.13"/></g></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="dark"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8a5.6 5.6 0 1 0 7 7z" fill="currentColor"/></svg></span></a></li>
+      </ul>
+    </div>
+    <div class="langpick" data-od-id="lang-picker">
+      <button type="button" class="langpick__btn" data-od-id="lang-btn"
+              aria-expanded="false" aria-controls="lang-list" aria-label="Език: Български">
+        <span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>
+        <span data-lang-code>BG</span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="lang-list" data-od-id="lang-list" hidden>
+        <li><a class="langpick__opt" href="#" lang="bg" aria-current="true"><span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>Български</a></li>
+        <!-- English takes the language code, not a borrowed national flag:
+             a flag names a nation and English has no single one (§5.12). -->
+        <li><a class="langpick__opt" href="#" lang="en"><span class="langpick__mark"><img src="../../assets/flag-gb.svg" width="20" height="12" alt=""></span>English</a></li>
+      </ul>
+    </div>
+  </nav>
+</header>
+<main class="page" data-od-id="states">
+  <div class="measure">
+    <div class="page-head">
+      <h1 class="t-title" data-i18n="states.title">Състояния</h1>
+      <p class="t-body" data-i18n="states.intro">Кое е грешка и кое не е. Това разграничение е причината за половината правила в системата.</p>
+    </div>
+
+    <div class="state-list">
+      <section data-od-id="state-empty">
+        <h3 class="t-card" data-i18n="states.emptyTitle">Няма данни — не е грешка</h3>
+        <div class="card"><p class="t-empty" data-i18n="states.emptyMsg">Няма скорошни данни за този район</p></div>
+        <p class="meta"><span data-i18n="states.emptyNoteA">Основен размер, </span><code>--muted</code><span data-i18n="states.emptyNoteB">, без икона и без цвят. Нищо не се е повредило: тези области просто нямат скорошни отчитания.</span></p>
+      </section>
+
+      <section data-od-id="state-loading">
+        <h3 class="t-card" data-i18n="states.loadingTitle">Зареждане</h3>
+        <div class="msg msg--loading t-body" data-i18n="states.loadingMsg">Зареждане на стойностите за последния час…</div>
+        <p class="meta" data-i18n="states.loadingNote">Ред текст, който казва какво се зарежда. Без скелетно премигване и без анимация.</p>
+      </section>
+
+      <section data-od-id="state-error">
+        <h3 class="t-card" data-i18n="states.errorTitle">Истинска грешка</h3>
+        <div class="msg msg--error t-body" data-i18n="states.errorMsg">Заявката към сървъра не успя. Опитайте отново.</div>
+        <p class="row"><button class="btn btn--secondary" type="button" data-i18n="states.retry">Опитай отново</button></p>
+        <p class="meta"><code>--danger</code><span data-i18n="states.errorNote"> е позволено тук и само тук. Никога върху картата, в легендата, върху серия в графика или в отчетена стойност.</span></p>
+      </section>
+
+      <section data-od-id="state-tier">
+        <h3 class="t-card" data-i18n="states.zoomTitle">Ограничение по ниво на приближение</h3>
+        <div class="card"><p class="t-empty" data-i18n="area.zoomHint">Приближете още, за да видите отделните сензори.</p></div>
+        <p class="meta" data-i18n="states.zoomNote">Мярка срещу изчерпателно изтегляне на регистъра. Показва се безусловно в легендата, а не само когато сензорното ниво бъде отказано.</p>
+      </section>
+
+      <section data-od-id="state-selected">
+        <h3 class="t-card" data-i18n="states.selectedTitle">Избран ред</h3>
+        <table class="table">
+          <tbody>
+            <tr><td class="name" data-oblast="Пловдив">Пловдив</td><td class="num">52,1</td></tr>
+            <tr aria-selected="true"><td class="name" data-oblast="София-град">София-град</td><td class="num">41,8</td></tr>
+            <tr><td class="name" data-oblast="Варна">Варна</td><td class="num">18,6</td></tr>
+          </tbody>
+        </table>
+        <p class="meta"><code>--surface-sel</code> · <code>#edf5ff</code><span data-i18n="states.selectedNoteB">. Синият оттенък е UI, не отчитане.</span></p>
+      </section>
+    </div>
+  </div>
+</main>
+<footer class="footer" data-od-id="footer">
+  <div class="measure">
+    <p class="disclaimer" data-i18n="foot.disclaimer">Данните идват от мрежа от граждански сензори и не заместват официалните измервания на Изпълнителната агенция по околна среда.</p>
+    <p data-i18n="foot.aggregation">Сензорите не са официално калибрирани. Стойностите се агрегират по области и градове и се обновяват на всеки няколко минути.</p>
+    <p data-i18n="foot.updated">Обновено в 14:20, 31 август</p>
+    <p class="attribution" data-od-id="attribution" hidden></p>
+  </div>
+</footer>
+<script src="i18n.js?v=21"></script>
+<script src="masthead.js?v=21"></script>
+<script src="theme.js?v=21"></script>
+</body>
+</html>

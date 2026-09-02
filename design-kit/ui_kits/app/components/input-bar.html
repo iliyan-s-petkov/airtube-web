@@ -1,0 +1,20 @@
+<!-- InputBar — the control row above a data surface.
+     Holds the metric switcher and at most one solid button.
+     Spec: DESIGN.md §5.6. The fieldset/legend is native on purpose: it is the
+     correct grouping semantics for a radio set and it is what a screen reader
+     needs. Do not replace it with divs. -->
+
+<div class="toolbar" data-od-id="input-bar">
+  <fieldset class="switcher" data-od-id="metric-switcher">
+    <legend>Показател</legend>
+    <div class="switcher__set">
+      <label class="switcher__opt"><input type="radio" name="metric" value="pm25" checked><span>ФПЧ2.5</span></label>
+      <label class="switcher__opt"><input type="radio" name="metric" value="pm10"><span>ФПЧ10</span></label>
+    </div>
+  </fieldset>
+
+  <div class="toolbar__spacer"></div>
+
+  <!-- One action, one primary CTA. Secondary entry points are ghost or link. -->
+  <a class="btn btn--secondary" href="../oblast-table.html">Виж всички области</a>
+</div>

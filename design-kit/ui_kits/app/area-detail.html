@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Район · airbg.org</title>
+<link rel="icon" href="../../assets/favicon.svg">
+<link rel="stylesheet" href="../../tokens.css?v=21">
+<link rel="stylesheet" href="../../colors_and_type.css?v=21">
+<link rel="stylesheet" href="../../components.css?v=21">
+<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=21">
+<link rel="stylesheet" href="app.css?v=21">
+</head>
+<body>
+<header class="masthead" data-od-id="masthead">
+  <a class="masthead__brand" href="index.html"><img src="../../assets/favicon.svg" width="20" height="20" alt="">airbg<span class="tld">.org</span></a>
+  <nav class="masthead__nav" aria-label="Основна">
+    <a class="masthead__link" href="map-home.html" data-i18n="nav.map">Карта</a>
+    <a class="masthead__link" href="oblast-table.html" aria-current="true" data-i18n="nav.oblasti">Области</a>
+        <div class="langpick" data-od-id="theme-picker">
+      <button type="button" class="langpick__btn" data-od-id="theme-btn"
+              aria-expanded="false" aria-controls="theme-list" aria-label="Тема: Автоматична">
+        <span class="langpick__mark" data-theme-face><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="theme-list" data-od-id="theme-list" hidden>
+        <li><a class="langpick__opt" href="#" data-theme-opt="auto" aria-current="true"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 0 0 12.5z" fill="currentColor"/></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="light"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.25" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3.05 3.05l1.13 1.13M11.82 11.82l1.13 1.13M3.05 12.95l1.13-1.13M11.82 4.18l1.13-1.13"/></g></svg></span></a></li>
+        <li><a class="langpick__opt" href="#" data-theme-opt="dark"><span class="langpick__mark"><svg class="pick-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.2 9.8A5.6 5.6 0 0 1 6.2 2.8a5.6 5.6 0 1 0 7 7z" fill="currentColor"/></svg></span></a></li>
+      </ul>
+    </div>
+    <div class="langpick" data-od-id="lang-picker">
+      <button type="button" class="langpick__btn" data-od-id="lang-btn"
+              aria-expanded="false" aria-controls="lang-list" aria-label="Език: Български">
+        <span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>
+        <span data-lang-code>BG</span>
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </button>
+      <ul class="langpick__list" id="lang-list" data-od-id="lang-list" hidden>
+        <li><a class="langpick__opt" href="#" lang="bg" aria-current="true"><span class="langpick__mark"><img src="../../assets/flag-bg.svg" width="20" height="12" alt=""></span>Български</a></li>
+        <!-- English takes the language code, not a borrowed national flag:
+             a flag names a nation and English has no single one (§5.12). -->
+        <li><a class="langpick__opt" href="#" lang="en"><span class="langpick__mark"><img src="../../assets/flag-gb.svg" width="20" height="12" alt=""></span>English</a></li>
+      </ul>
+    </div>
+  </nav>
+</header>
+<main class="page" data-od-id="area-detail">
+  <div class="frame">
+    <div class="page-head">
+      <h1 class="t-title" data-oblast="Пловдив">Пловдив</h1>
+      <!-- The count is composed at runtime from the current province (§5.12: one
+           string, one owner), so this carries no data-i18n. The text is the authored
+           province's own figure, shown until the data publishes. -->
+      <p class="t-body" data-od-id="area-intro">111 сензора в областта.</p>
+    </div>
+
+
+    <div class="readouts" data-od-id="area-readouts">
+      <div class="readout"><span class="readout__label" data-i18n="area.pm25now">ФПЧ2.5 сега</span><span class="readout__value">3,22 <span class="readout__unit">µg/m³</span></span><span class="readout__tier" data-i18n="area.tierOblast">средно за областта</span></div>
+      <div class="readout"><span class="readout__label" data-i18n="area.pm10now">ФПЧ10 сега</span><span class="readout__value">7,7 <span class="readout__unit">µg/m³</span></span><span class="readout__tier" data-i18n="area.tierOblast">средно за областта</span></div>
+      <div class="readout" data-od-id="area-peak"><span class="readout__label" data-od-id="area-peak-label">Най-високо място · ФПЧ2.5</span><span class="readout__value" data-od-id="area-peak-value">—</span><span class="readout__tier" data-od-id="area-peak-tier">няма отчитания под нивото на областта</span></div>
+      <div class="readout"><span class="readout__label" data-i18n="col.sensorsShort">Сензори</span><span class="readout__value">111</span><span class="readout__tier" data-i18n="area.tierAggregate">участващи в агрегата</span></div>
+    </div>
+
+    <div class="sensor-bar" data-od-id="sensor-bar">
+      <div class="field field--search combobox">
+        <label class="field__label" for="sensor-search" data-i18n="sensor.find">Търсене на място в областта</label>
+        <input class="input" id="sensor-search" type="search" name="sensor" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-controls="sensor-listbox"
+               aria-autocomplete="list" placeholder="Например: Тракия" data-od-id="sensor-search">
+        <ul class="combobox__list" id="sensor-listbox" role="listbox" data-od-id="sensor-listbox" hidden></ul>
+      </div>
+      <fieldset class="switcher" data-od-id="sensor-status">
+        <legend data-i18n="sensor.status">Показани места</legend>
+        <div class="switcher__set">
+          <label class="switcher__opt"><input type="radio" name="sensor-status" value="all"><span data-i18n="sensor.all">Всички</span></label>
+          <label class="switcher__opt"><input type="radio" name="sensor-status" value="active" checked><span data-i18n="sensor.active">С данни</span></label>
+          <label class="switcher__opt"><input type="radio" name="sensor-status" value="inactive"><span data-i18n="sensor.inactive">Без данни</span></label>
+        </div>
+      </fieldset>
+    </div>
+    <p class="meta" role="status" data-od-id="sensor-count"></p>
+    <p class="sensor-picked" data-od-id="sensor-picked" hidden></p>
+
+    <div class="data-frame map map--wide" data-od-id="area-map" data-sensor-filter="active">
+      <button type="button" class="map__full" data-od-id="map-fullscreen" aria-pressed="false">
+        <svg class="map__full-ico map__full-ico--in" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M1.75 5.75v-4h4M14.25 5.75v-4h-4M1.75 10.25v4h4M14.25 10.25v4h-4"
+                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+        </svg>
+        <svg class="map__full-ico map__full-ico--out" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M5.75 1.75v4h-4M10.25 1.75v4h4M5.75 14.25v-4h-4M10.25 14.25v-4h4"
+                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+        </svg>
+      </button>
+      <!-- The app mounts Leaflet here at data-zoom=9, ~25 city aggregates.
+           data-sensor-filter carries the reader's active/inactive choice. -->
+      <div class="map-canvas" data-i18n="area.canvas">Картата на областта се показва тук в приложението</div>
+    </div>
+
+    <!-- The detail card for whichever place the reader picks on the map. It is
+         empty and hidden until a marker or a finder option is chosen; the
+         script owns every string in it (§5.12). -->
+    <section class="place-host" data-od-id="place-card" hidden></section>
+
+    <!-- The bands and colours below are the served scale (/api/v1/scales),
+         captured in airbg-snapshot.json. Not invented, not re-tinted (§2.1). -->
+    <div class="scale" data-od-id="ramp-scale">
+      <span class="scale__label" data-i18n="legend.unit">ФПЧ2.5, µg/m³</span>
+      <div class="scale__bar" role="img" aria-label="Скала на качеството на въздуха от добро до изключително лошо"></div>
+      <div class="scale__ticks" aria-hidden="true">
+        <span>0</span><span>5</span><span>10</span><span>20</span><span>25</span><span>50</span><span>50+</span>
+      </div>
+      <p class="scale__none">
+        <span class="chip chip--none" data-i18n="legend.none"><span class="chip__swatch"></span>няма скорошни данни</span>
+      </p>
+    </div>
+
+    <p class="data-refresh" data-od-id="data-refresh">
+      <button type="button" class="btn btn--ghost btn--compact data-refresh__btn" data-od-id="refresh">
+        <svg class="data-refresh__ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+        </svg>
+        <span data-i18n="refresh.button">Обнови</span>
+      </button>
+      <span class="data-refresh__status" role="status" data-od-id="refresh-status"></span>
+    </p>
+
+
+    <section data-od-id="area-chart-section">
+      <div class="chart-head">
+        <h2 class="t-section" data-od-id="area-chart-title">ФПЧ2.5 · последните 24 часа · средно за областта</h2>
+        <div class="chart-controls">
+          <!-- Checkboxes, not radios: the two particulates can be read together,
+               so the states are no longer mutually exclusive (§5.6). -->
+          <fieldset class="switcher" data-od-id="chart-metric">
+            <legend data-i18n="map.metric">Показател</legend>
+            <div class="switcher__set">
+              <label class="switcher__opt"><input type="checkbox" name="chart-metric" value="pm25" checked><span data-i18n="col.pm25Short">ФПЧ2.5</span></label>
+              <label class="switcher__opt"><input type="checkbox" name="chart-metric" value="pm10"><span data-i18n="col.pm10Short">ФПЧ10</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="switcher" data-od-id="chart-window">
+            <legend data-i18n="chart.window">Период</legend>
+            <div class="switcher__set">
+              <label class="switcher__opt"><input type="radio" name="chart-window" value="6"><span data-i18n="chart.h6">6 ч</span></label>
+              <label class="switcher__opt"><input type="radio" name="chart-window" value="12"><span data-i18n="chart.h12">12 ч</span></label>
+              <label class="switcher__opt"><input type="radio" name="chart-window" value="24" checked><span data-i18n="chart.h24">24 ч</span></label>
+              <label class="switcher__opt"><input type="radio" name="chart-window" value="42"><span data-i18n="chart.h42">42 ч</span></label>
+              <label class="switcher__opt"><input type="radio" name="chart-window" value="custom"><span data-i18n="chart.custom">По избор</span></label>
+            </div>
+          </fieldset>
+        </div>
+      </div>
+
+      <div class="chart-custom" data-od-id="chart-custom" hidden>
+        <div class="field field--inline">
+          <label class="field__label" for="chart-from" data-i18n="chart.from">От</label>
+          <input class="input" type="datetime-local" id="chart-from" name="chart-from">
+        </div>
+        <div class="field field--inline">
+          <label class="field__label" for="chart-to" data-i18n="chart.to">До</label>
+          <input class="input" type="datetime-local" id="chart-to" name="chart-to">
+        </div>
+        <p class="chart-custom__note" data-i18n="chart.retention">Архивът стига 42 часа назад.</p>
+      </div>
+
+      <div class="data-frame chart" data-od-id="area-chart">
+        <!-- Grid, ticks and labels are built by area-chart.js: their count and
+             their values depend on the window and the metric, so markup cannot
+             state them. The grid comes first so the series draws over it. -->
+        <svg viewBox="0 0 780 260" role="img" aria-label="">
+          <g class="chart-grid" data-grid aria-hidden="true"></g>
+          <!-- One <g> per metric, built by the script: how many series are on
+               the panel is the reader's choice, so markup cannot fix it. -->
+          <g data-series></g>
+          <line class="axis-line" x1="46" y1="220" x2="740" y2="220"/>
+          <line class="axis-line" x1="46" y1="30" x2="46" y2="220"/>
+          <g data-yaxis aria-hidden="true"></g>
+          <g data-xaxis aria-hidden="true"></g>
+          <text class="axis-text" data-unit x="46" y="20">µg/m³</text>
+          <g data-key></g>
+        </svg>
+      </div>
+    </section>
+  </div>
+</main>
+<footer class="footer" data-od-id="footer">
+  <div class="measure">
+    <p class="disclaimer" data-i18n="foot.disclaimer">Данните идват от мрежа от граждански сензори и не заместват официалните измервания на Изпълнителната агенция по околна среда.</p>
+    <p data-i18n="foot.aggregation">Сензорите не са официално калибрирани. Стойностите се агрегират по области и градове и се обновяват на всеки няколко минути.</p>
+    <p data-i18n="foot.updated">Обновено в 12:10, 1 септември</p>
+    <p class="attribution" data-od-id="attribution" hidden></p>
+  </div>
+</footer>
+<script src="i18n.js?v=21"></script>
+<script src="oblast-link.js?v=21"></script>
+<script src="airbg-data.js?v=21"></script>
+<script src="masthead.js?v=21"></script>
+<script src="area-sensors.js?v=21"></script>
+<script src="area-place.js?v=21"></script>
+<script src="theme.js?v=21"></script>
+<script src="map-fullscreen.js?v=21"></script>
+<script src="../../assets/vendor/pmtiles.js?v=21"></script>
+<script src="map-render.js?v=21"></script>
+<script src="map-tiles.js?v=21"></script>
+<script src="map-zoom.js?v=21"></script>
+<script src="map-pan.js?v=21"></script>
+<script src="area-chart.js?v=21"></script>
+</body>
+</html>

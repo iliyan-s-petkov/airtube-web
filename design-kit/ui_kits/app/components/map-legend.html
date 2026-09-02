@@ -1,0 +1,56 @@
+<!-- Map frame + legend. A map without a legend is incomplete (§5.2).
+     The legend states two things the reader cannot infer:
+       1. the ramp, including grey as "няма скорошни данни" — not an error;
+       2. what a dot means at this zoom — oblast average, city aggregate, sensor.
+     926/382 is the country fit and a floor on height (§1): taller is safe,
+     wider crops. Add .map--hero, outside .frame, when the map leads. -->
+
+<div class="data-frame map" data-od-id="map">
+  <!-- The app mounts Leaflet here at data-zoom=7. -->
+  <div class="map-canvas">Картата се показва тук в приложението</div>
+</div>
+
+<!-- The ramp is a linear scale: one continuous bar, hard stops at the served
+     band edges, each band named under its own colour. The swatches reuse
+     .chip__swatch--eaqi[data-band] so the ramp is written down once (§2.1).
+     Under 672px the bands stack into rows — same markup, no second copy. -->
+<div class="scale scale--named" data-od-id="map-legend">
+  <span class="scale__label">ФПЧ2.5, µg/m³</span>
+  <ol class="scale__bands">
+    <li class="scale__band">
+      <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Добро"></span>
+      <span class="scale__band-name" data-i18n="band.good">Добро</span>
+      <span class="scale__band-range">0–5</span>
+    </li>
+    <li class="scale__band">
+      <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Задоволително"></span>
+      <span class="scale__band-name" data-i18n="band.fair">Задоволително</span>
+      <span class="scale__band-range">5–10</span>
+    </li>
+    <li class="scale__band">
+      <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Умерено"></span>
+      <span class="scale__band-name" data-i18n="band.moderate">Умерено</span>
+      <span class="scale__band-range">10–20</span>
+    </li>
+    <li class="scale__band">
+      <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Лошо"></span>
+      <span class="scale__band-name" data-i18n="band.poor">Лошо</span>
+      <span class="scale__band-range">20–25</span>
+    </li>
+    <li class="scale__band">
+      <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Много лошо"></span>
+      <span class="scale__band-name" data-i18n="band.veryPoor">Много лошо</span>
+      <span class="scale__band-range">25–50</span>
+    </li>
+    <li class="scale__band">
+      <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Изключително лошо"></span>
+      <span class="scale__band-name" data-i18n="band.extreme">Изключително лошо</span>
+      <span class="scale__band-range">50+</span>
+    </li>
+  </ol>
+  <!-- Grey is outside the ramp: absence of a reading, not the bottom of it. -->
+  <p class="scale__none">
+    <span class="chip chip--none"><span class="chip__swatch"></span>няма скорошни данни</span>
+  </p>
+  <p class="legend__tier">Всяка област е оцветена по текущата си средна стойност — последното отчитане от сензорите в нея, не осреднено за час или ден. Приближете в приложението за градски агрегати и още веднъж за отделни сензори.</p>
+</div>
