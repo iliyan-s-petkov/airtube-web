@@ -22,6 +22,7 @@ type raw struct {
 	Frontend  *rawFrontend  `yaml:"frontend"`
 	Tiles     *rawTiles     `yaml:"tiles"`
 	I18n      *rawI18n      `yaml:"i18n"`
+	DesignKit *rawDesignKit `yaml:"design_kit"`
 }
 
 type rawListen struct {
@@ -208,5 +209,13 @@ type rawTiles struct {
 // a catalogue file, not in the config file: airbg.yaml is committed, and the
 // keys here are echoed back in assignScalar's parse errors.
 type rawI18n struct {
+	Dir *string `yaml:"dir"`
+}
+
+// rawDesignKit is one directory and nothing else. Empty means the route does
+// not exist, which is the shipped setting: the kit is a review surface, not
+// part of the site, and the way to be sure it is not exposed in production is
+// for the handler never to be constructed there.
+type rawDesignKit struct {
 	Dir *string `yaml:"dir"`
 }

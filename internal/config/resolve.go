@@ -23,6 +23,7 @@ type Config struct {
 	Frontend  Frontend
 	Tiles     Tiles
 	I18n      I18n
+	DesignKit DesignKit
 }
 
 type Listen struct {
@@ -218,6 +219,22 @@ type I18n struct {
 	Dir string
 }
 
+// DesignKit points at the design kit's directory tree.
+type DesignKit struct {
+	// Dir is served under /design-kit/. Empty means the route does not exist,
+	// which is the shipped setting — see rawDesignKit.
+	//
+	// It must point BELOW a repo root, not at one: the kit has no build step, so
+	// the tree that ships is a working tree, and a static server rooted at one
+	// serves .git/objects/ — the full history, not just what is checked out. The
+	// handler refuses dotted segments as a second line, but the first line is
+	// this value.
+	Dir string
+}
+
+// Enabled reports whether the design-kit route exists.
+func (d DesignKit) Enabled() bool { return d.Dir != "" }
+
 // Enabled reports whether a basemap is configured. Validate guarantees the
 // four keys are all set or all empty, so testing one would do — testing all
 // four keeps this honest if that guarantee is ever weakened.
@@ -346,6 +363,9 @@ func resolve(r *raw) Config {
 		},
 		I18n: I18n{
 			Dir: *r.I18n.Dir,
+		},
+		DesignKit: DesignKit{
+			Dir: *r.DesignKit.Dir,
 		},
 	}
 

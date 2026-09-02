@@ -373,3 +373,18 @@ tiles:
 # restarts. Empty means embedded only, which is the shipped setting.
 i18n:
   dir: ""  # e.g. "/etc/airbg/messages" — holds bg.json and/or en.json
+
+# The design kit — the static page set the web UI is refined against. Served
+# under /design-kit/ from this directory, same origin as the site so the site's
+# CSP covers it without being relaxed.
+#
+# Point this BELOW a repo root, never at one. The kit has no build step, so the
+# tree that ships is a working tree, and a static server rooted at a working
+# tree serves .git/objects/ — the whole history, including anything ever
+# committed and later removed. The handler refuses dotted path segments as a
+# second line of defence, but this value is the first.
+#
+# Empty means the route does not exist, which is the shipped setting: the kit
+# is a review surface, not part of the site.
+design_kit:
+  dir: ""  # e.g. "/srv/airbg/ui_kits" — holds app/index.html

@@ -22,6 +22,7 @@ import (
 	"airbg.org/internal/admit"
 	"airbg.org/internal/api"
 	"airbg.org/internal/config"
+	"airbg.org/internal/designkit"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/metrics"
@@ -113,6 +114,20 @@ func New(opts Options) (*Server, error) {
 	root := http.NewServeMux()
 	root.Handle("/api/", apiMux)
 	root.Handle("/", renderer.Routes())
+
+	// The kit rides the public listener and its middleware chain deliberately:
+	// same origin is what lets the site's CSP cover it unchanged. Registered
+	// before the chain is built so it is inside it — a route outside the chain
+	// is a route with no security headers and no rate limit.
+	if opts.Config.DesignKit.Enabled() {
+		kit, err := designkit.NewHandler(opts.Config.DesignKit.Dir)
+		if err != nil {
+			return nil, fmt.Errorf("server: design kit: %w", err)
+		}
+		// StripPrefix without the trailing slash, so the handler sees "/" for
+		// the served root and can redirect to the kit's real entry point.
+		root.Handle("/design-kit/", http.StripPrefix("/design-kit", kit))
+	}
 
 	chain := httpx.Chain{
 		Resolver:          resolver,
