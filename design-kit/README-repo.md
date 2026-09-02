@@ -29,6 +29,13 @@ working tree is dirty — so committing is the gate, not a person. Nothing left
 uncommitted can reach the host, and a passing local page proves nothing about
 what is being served.
 
+Reviewing it in a browser works today only because the origin currently accepts
+any client — see `docs/backlog/origin-is-open-and-enumeration-mutations.md`.
+Once the origin requires Cloudflare's client certificate, https://airbg.org/design-kit/
+stops loading from the LAN, and reviewing a change will mean opening the files
+locally instead. Nothing about the kit changes; the route just stops being
+reachable from here.
+
 ## What the app actually serves
 
 `internal/designkit` allowlists five entries at the root and refuses everything
