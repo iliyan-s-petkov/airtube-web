@@ -1501,6 +1501,24 @@ has shipped enough controls that looked correct in the DOM while doing nothing
 on screen to owe that step. `tests/` is not an allowlisted root, so it 404s on
 the host — correct for a check.
 
+**And because it is a hand deploy, the style checks itself.**
+`tools/basemap/style.test.mjs` runs MapLibre's own validator over `style.json`
+— the spec package is already in `web/node_modules` under the vendored
+renderer, so again no new dependency — and then asserts three things the
+categories depend on: every `text-font` names a stack the glyph endpoint
+actually serves, every layer carries an `airbg:group`, and **every POI class
+lands in exactly one group**, evaluated through MapLibre's own `featureFilter`
+rather than by reading the JSON. A class in two groups is a POI two checkboxes
+fight over; a class in none is a POI with no switch at all, which is what the
+`!in` catch-all exists to prevent and what this proves. Five mutants, all
+killed: a class enumerated twice, the catch-all narrowed to an `in`, an
+unserved fontstack, a malformed filter, and a layer stripped of its group.
+
+The check earns its place because of *how* a style fails: an unknown font, a
+malformed expression or a layer matching nothing renders a **blank map with no
+error**. There is nothing on screen to debug, and no build stands between this
+file and the server.
+
 **The style is a deploy, not a build.** `tools/basemap/style.json` is served
 from `/var/lib/airbg/tiles/style.json`; changing it is a copy and a reload. The
 archive is untouched, so none of the 217 MB is regenerated and `tiles.archive`
