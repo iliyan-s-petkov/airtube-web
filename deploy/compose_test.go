@@ -463,12 +463,49 @@ func ofeliaValue(lines []string, key string) (string, bool) {
 // Both images are local, so a pull can only fail — and a failed pull fails the
 // job silently, since nothing watches a job-run's exit code.
 func TestEveryOfeliaJobDisablesTheImagePull(t *testing.T) {
-	for _, job := range []string{"backup", "backup-prune"} {
+	for _, job := range []string{"backup-prune"} {
 		lines := ofeliaJobLines(t, `job-run "`+job+`"`)
 		v, ok := ofeliaValue(lines, "pull")
 		if !ok || v != "false" {
 			t.Errorf("job %s sets pull=%q (present=%v), want \"false\" — the socket proxy forbids image pulls, so this job would 403 on every run and fail silently", job, v, ok)
 		}
+	}
+}
+
+// `network =` is a /networks API call, which the proxy answers 403 to because
+// NETWORKS=0. ofelia creates the container regardless, so the job runs on the
+// default bridge, resolves no service name, and fails with an error visible
+// only in ofelia's own log. The nightly pg_dump did exactly this on every run
+// it ever made; it is a host systemd timer now.
+//
+// Asserted rather than commented because the failure looks like a scheduling
+// problem, not a networking one, and `network =` is the obvious thing to reach
+// for when a job cannot see the database.
+func TestNoOfeliaJobDeclaresANetwork(t *testing.T) {
+	for _, job := range []string{"backup-prune"} {
+		lines := ofeliaJobLines(t, `job-run "`+job+`"`)
+		if v, ok := ofeliaValue(lines, "network"); ok {
+			t.Errorf("job %s sets network=%q — the socket proxy sets NETWORKS=0, so the attach is 403'd and the job silently runs on the default bridge. Run it from a host systemd timer instead, as deploy/airbg-backup.service does", job, v)
+		}
+	}
+}
+
+// systemd expands % in a unit, so `date +%Y%m%d` written singly reaches sh as
+// whatever the specifier meant and the dump is misnamed. It must be doubled.
+func TestBackupUnitEscapesTheDateFormat(t *testing.T) {
+	data, err := os.ReadFile("airbg-backup.service")
+	if err != nil {
+		t.Fatalf("ReadFile(airbg-backup.service) error = %v, want nil", err)
+	}
+	unit := string(data)
+	if !strings.Contains(unit, `+%%Y%%m%%d`) {
+		t.Errorf("airbg-backup.service does not contain %s — systemd expands a single %% as a specifier, so the dump would be named after that expansion", `+%%Y%%m%%d`)
+	}
+	// The dump must land under its final name only once it is complete, or a
+	// run killed midway leaves a truncated file that backup-prune counts as a
+	// fresh backup and the staleness alarm therefore never fires.
+	if !strings.Contains(unit, "/backups/.partial.dump && mv") {
+		t.Error("airbg-backup.service does not write .partial.dump and mv it into place; a truncated dump would satisfy the staleness check")
 	}
 }
 
@@ -518,32 +555,37 @@ func TestNoOfeliaJobRunsTheCollector(t *testing.T) {
 	}
 }
 
-// Every job in ofelia.ini names a network that must (a) exist in the compose
-// file and (b) be internal: true. (b) is the point. It is tempting to think a
-// job needing the internet — collect does, for https://data.sensor.community —
-// justifies a non-internal network; it does not, because ofelia attaches every
-// job-run container to Docker's default bridge as well, so the job has egress
-// regardless. A non-internal network here would buy nothing and would hand
-// egress to whichever long-lived service was joined to it to make the job
-// reachable — which is exactly how db acquired internet access once already.
-func TestEveryOfeliaJobRunsOnAnInternalNetwork(t *testing.T) {
+// The backup reaches db over the network its systemd unit names, so that
+// network must exist, must carry db, and must be internal: true.
+//
+// internal is the point. It is tempting to think a job needing the internet
+// justifies a non-internal network; it does not. The dump talks only to db,
+// and a non-internal network here would hand egress to every service joined to
+// it — which is exactly how db acquired internet access once already.
+func TestBackupUnitRunsOnAnInternalNetworkCarryingTheDatabase(t *testing.T) {
+	data, err := os.ReadFile("airbg-backup.service")
+	if err != nil {
+		t.Fatalf("ReadFile(airbg-backup.service) error = %v, want nil", err)
+	}
+
+	const flag = "--network "
+	i := strings.Index(string(data), flag)
+	if i < 0 {
+		t.Fatal("airbg-backup.service names no --network; docker run would use the default bridge, where the service name db does not resolve")
+	}
+	network := strings.Fields(string(data)[i+len(flag):])[0]
+
 	c := loadCompose(t)
-	for _, job := range []string{"backup", "backup-prune"} {
-		lines := ofeliaJobLines(t, `job-run "`+job+`"`)
-		network, ok := ofeliaValue(lines, "network")
-		if !ok {
-			t.Errorf("%s job sets no network =; ofelia would attach it to the Docker default bridge only, so it could not reach db", job)
-			continue
-		}
-		name := strings.TrimPrefix(network, "airbg_")
-		net, ok := c.Networks[name]
-		if !ok {
-			t.Errorf("%s job's network = %s does not correspond to any network in docker-compose.prod.yml (looked for %q)", job, network, name)
-			continue
-		}
-		if !net.Internal {
-			t.Errorf("%s job runs on network %s, which is not internal: true — a job-run container already gets internet from Docker's default bridge, so the only thing a non-internal network here adds is egress for the services joined to it", job, network)
-		}
+	name := strings.TrimPrefix(network, "airbg_")
+	net, ok := c.Networks[name]
+	if !ok {
+		t.Fatalf("airbg-backup.service runs on %s, which corresponds to no network in docker-compose.prod.yml (looked for %q)", network, name)
+	}
+	if !net.Internal {
+		t.Errorf("the backup runs on %s, which is not internal: true — the dump talks only to db, so the only thing a non-internal network adds is egress for the services joined to it", network)
+	}
+	if _, on := service(t, c, "db").Networks[name]; !on {
+		t.Errorf("the backup runs on %s but db is not attached to %q, so pg_dump cannot resolve or reach it", network, name)
 	}
 }
 
@@ -572,7 +614,7 @@ func TestBackupPruneAlarmsWhenBackupsGoStale(t *testing.T) {
 // `;` and `#` start an INI comment, silently truncating the command — the
 // prune job was registered as `sh -c 'set -f`. Use `&&`/`||` and subshells.
 func TestNoOfeliaCommandUsesACommentCharacter(t *testing.T) {
-	for _, job := range []string{"backup", "backup-prune"} {
+	for _, job := range []string{"backup-prune"} {
 		command, ok := ofeliaValue(ofeliaJobLines(t, `job-run "`+job+`"`), "command")
 		if !ok {
 			continue
@@ -588,9 +630,9 @@ func TestNoOfeliaCommandUsesACommentCharacter(t *testing.T) {
 // ofelia strips every double quote from a command value, so the command runs
 // with a different meaning than it reads. Not a parse error — nothing warns.
 func TestNoOfeliaCommandUsesDoubleQuotes(t *testing.T) {
-	const wantJobs = 2 // positive control: a header typo must not silently scan zero jobs
+	const wantJobs = 1 // positive control: a header typo must not silently scan zero jobs
 	var checked int
-	for _, job := range []string{"backup", "backup-prune"} {
+	for _, job := range []string{"backup-prune"} {
 		command, ok := ofeliaValue(ofeliaJobLines(t, `job-run "`+job+`"`), "command")
 		if !ok {
 			continue // not every job needs a command
@@ -615,22 +657,6 @@ func TestOfeliaConfigContainsNoBackslash(t *testing.T) {
 	for n, line := range strings.Split(string(raw), "\n") {
 		if strings.Contains(line, `\`) {
 			t.Errorf("ofelia.ini:%d contains a backslash — ofelia will refuse the whole config and run no jobs at all\ngot: %s", n+1, line)
-		}
-	}
-}
-
-// The backup jobs write to and read from db, so each has to reach it. A job
-// gets one network from ofelia (the INI keeps only the last `network =` line),
-// so that one network is its only route to the database — db must be on it.
-func TestOfeliaJobsCanReachTheDatabase(t *testing.T) {
-	for _, job := range []string{"backup", "backup-prune"} {
-		network, ok := ofeliaValue(ofeliaJobLines(t, `job-run "`+job+`"`), "network")
-		if !ok {
-			continue
-		}
-		name := strings.TrimPrefix(network, "airbg_")
-		if _, on := service(t, loadCompose(t), "db").Networks[name]; !on {
-			t.Errorf("%s job runs on network %s but db is not attached to %q; the job has exactly one network and cannot reach the database from it", job, network, name)
 		}
 	}
 }

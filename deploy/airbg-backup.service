@@ -1,0 +1,18 @@
+[Unit]
+# The nightly dump runs here rather than as an ofelia job. README.md, "Why the
+# backup is a systemd timer". % is a systemd specifier, so date's format
+# characters are doubled: %%Y reaches sh as %Y.
+Description=Nightly pg_dump of the airbg database
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm --network airbg_back \
+  --env PGUSER=airbg \
+  --env PGDATABASE=airbg \
+  --env PGPASSFILE=/secrets/pgpass \
+  --volume /var/backups/airbg:/backups \
+  --volume /srv/airbg/pgpass:/secrets/pgpass:ro \
+  timescale/timescaledb-ha:pg18 \
+  sh -c 'pg_dump -Fc -h db -f /backups/.partial.dump && mv /backups/.partial.dump /backups/airbg-$(date +%%Y%%m%%d).dump'

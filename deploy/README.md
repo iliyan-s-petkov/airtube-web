@@ -37,19 +37,43 @@ named by a `*_FILE` environment variable and bind-mounted read-only; the
 distroless image has no shell to pipe a file into a variable, and writing the
 DSN into this file would put a credential in configuration management.
 
-ofelia attaches every job-run container to Docker's default bridge in addition
-to the network named by `network =`. A job on the internal `airbg_back` network
-therefore still has internet egress while `db` stays isolated. This is
-empirical, not documented behaviour — verified against the pinned image, and
-worth re-checking after any version bump. No job here needs egress today: both
-backup jobs talk only to `db`. Upstream collection is not a job at all — see
-below.
+**`network =` does not work here, and fails silently.** Attaching a container to
+a network is a `/networks` API call, and the socket proxy sets `NETWORKS=0`, so
+the proxy answers 403 and ofelia creates the container anyway. The job lands on
+Docker's default bridge alone, where no compose service name resolves. An
+earlier note in this file claimed the opposite from observing that job
+containers reach the default bridge — they do, but that is the *only* network
+they get, not an extra one.
 
-`network =` holds exactly one network per job. A second line replaces the first
-rather than adding to it, so "one job on two networks" is not available.
+The nightly `pg_dump` failed this way on every run, with
+`could not translate host name "db" to address` visible only in ofelia's own
+log. It is a host systemd timer now; see below. No job left here needs a
+network — `backup-prune` reads a volume and nothing else.
 
 Nothing watches a job-run's exit code. Every failure mode on this page is
 silent.
+
+## Why the backup is a systemd timer
+
+`airbg-backup.timer` and `airbg-backup.service` run the nightly dump from the
+host, as a plain `docker run --network airbg_back` — the same shape the role's
+bootstrap tasks already use, and the one that demonstrably resolves `db`.
+
+This is the alternative named below under `IMAGES=1`: removing the surface
+instead of widening it. Making the ofelia job work would have meant
+`NETWORKS=1` on the proxy, which with `POST=1` permits creating, connecting and
+deleting networks — enough to attach a container to the edge network. A timer
+needs nothing from the proxy at all.
+
+Two things improve in passing. `Persistent=true` runs a dump missed while the
+host was down, which ofelia could not do. And the unit's exit status is visible
+to `systemctl` and the journal, where a failed job-run was visible only in
+ofelia's log. The `BACKUP-IS-STALE` marker remains the alarm that matters — it
+is what caught this — and `backup-prune` still raises it at 03:45.
+
+In the unit, `%` is a systemd specifier, so `date`'s format is written `%%Y%%m%%d`
+to reach `sh` as `%Y%m%d`. Written singly, systemd expands it and the dump is
+named after whatever the specifier meant.
 
 ## socket-proxy: why IMAGES=1
 

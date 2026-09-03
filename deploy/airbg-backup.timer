@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the airbg database backup nightly
+
+[Timer]
+# 03:30, ahead of the 03:45 backup-prune job that raises the staleness alarm.
+# Persistent runs a dump missed while the host was down, which the ofelia job
+# this replaced could not do.
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
