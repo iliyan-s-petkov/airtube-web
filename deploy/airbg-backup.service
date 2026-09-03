@@ -2,7 +2,8 @@
 # The nightly dump runs here rather than as an ofelia job. README.md, "Why the
 # backup is a systemd timer". % is a systemd specifier, so date's format
 # characters are doubled: %%Y reaches sh as %Y. --user 0:0 because the image
-# defaults to uid 1000, which can read neither the 0600 pgpass nor /backups.
+# defaults to uid 1000, which can read neither the 0600 pgpass nor /backups;
+# ofelia ran its jobs as root and so never needed this.
 Description=Nightly pg_dump of the airbg database
 Requires=docker.service
 After=docker.service

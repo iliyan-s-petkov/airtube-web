@@ -73,9 +73,12 @@ is what caught this — and `backup-prune` still raises it at 03:45.
 
 The container runs `--user 0:0`. The image's default uid 1000 can read neither
 `/srv/airbg/pgpass` — which `pg_dump` requires to be `0600`, and which the role
-writes as root — nor `/var/backups/airbg`. The ofelia job would have hit the same
-wall had it ever got past DNS; it reported only
-`could not open output file "/backups/.partial.dump": Permission denied`.
+writes as root — nor `/var/backups/airbg`. `docker run` honours the image's
+`USER`; ofelia does not, because `RunJob.User` carries `default:"root"`. That is
+why `backup-prune` still deletes root-owned dumps and rewrites the marker with
+no `user =` of its own, and why moving the same command to a unit needed the
+flag. Without it: `could not open output file "/backups/.partial.dump":
+Permission denied`.
 
 In the unit, `%` is a systemd specifier, so `date`'s format is written `%%Y%%m%%d`
 to reach `sh` as `%Y%m%d`. Written singly, systemd expands it and the dump is
