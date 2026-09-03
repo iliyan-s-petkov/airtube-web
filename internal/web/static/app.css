@@ -41,6 +41,14 @@ a { color: var(--accent); }
 .areas { list-style: none; padding: 0; }
 .areas li { display: flex; justify-content: space-between; padding: var(--space-2) 0; border-bottom: 1px solid var(--border-faint); }
 .count { color: var(--fg-2); font-variant-numeric: tabular-nums; }
+/* The caption that names the metric, its unit and the tier. Compact and quiet:
+   it explains the column, it is not a heading. */
+.areas-caption { color: var(--fg-2); font-size: var(--text-compact); letter-spacing: var(--track-compact); margin-block: var(--space-2) 0; }
+/* The reading is the thing the list now exists to show, so it gets emphasis
+   weight and tabular figures — a measured value must not change width as it
+   updates (DESIGN.md §3). It sits between the name and the sensor count, and
+   pushes nothing: the row is already a flex line. */
+.reading { margin-inline-start: auto; padding-inline-end: var(--space-4); font-weight: var(--weight-emphasis); font-variant-numeric: tabular-nums; }
 /* Not a warning: these oblasti have no recent readings, which is an ordinary
    state of the world. Colouring it read as eight failures on one page. */
 .uncovered { color: var(--muted); }

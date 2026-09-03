@@ -19,6 +19,8 @@
   "area.no_coverage_detail": "Публикуваме средни стойности само когато поне три сензора отчитат надеждни данни.",
   "area.sensors": "сензора",
   "area.updated": "Обновено",
+  "areas.ranked_by": "Подредени по",
+  "areas.tier": "средно за областта",
   "chart.axis.time": "Време",
   "chart.axis.value": "µg/m³",
   "chart.empty": "Няма данни за последните 24 часа",
@@ -70,5 +72,12 @@
   "period.30d": "30 дни",
   "period.7d": "7 дни",
   "site.tagline": "Качество на въздуха в България в реално време",
-  "site.title": "Мръсен въздух"
+  "site.title": "Мръсен въздух",
+  "unit.P1": "µg/m³",
+  "unit.P2": "µg/m³",
+  "unit.humidity": "%",
+  "unit.noise_LA_max": "dB(A)",
+  "unit.noise_LAeq": "dB(A)",
+  "unit.pressure": "hPa",
+  "unit.temperature": "°C"
 }

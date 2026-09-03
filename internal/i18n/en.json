@@ -19,6 +19,8 @@
   "area.no_coverage_detail": "We publish an average only when at least three sensors are reporting usable readings.",
   "area.sensors": "sensors",
   "area.updated": "Updated",
+  "areas.ranked_by": "Ranked by",
+  "areas.tier": "province average",
   "chart.axis.time": "Time",
   "chart.axis.value": "µg/m³",
   "chart.empty": "No readings in the last 24 hours",
@@ -70,5 +72,12 @@
   "period.30d": "30 days",
   "period.7d": "7 days",
   "site.tagline": "Real-time air quality in Bulgaria",
-  "site.title": "Dusty Air"
+  "site.title": "Dusty Air",
+  "unit.P1": "µg/m³",
+  "unit.P2": "µg/m³",
+  "unit.humidity": "%",
+  "unit.noise_LA_max": "dB(A)",
+  "unit.noise_LAeq": "dB(A)",
+  "unit.pressure": "hPa",
+  "unit.temperature": "°C"
 }

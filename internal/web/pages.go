@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -154,10 +155,29 @@ func (rr *Renderer) areaRows(snap *snapshot.Snapshot, lang, kind string) []AreaR
 		}
 		rows = append(rows, rr.rowFrom(meta, lang))
 	}
-	// Sorted by name so the list is stable between requests. Map iteration
-	// order would reshuffle it on every page load — visibly wrong to a reader
-	// and pointless cache churn at the edge.
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+	// Ranked by the reading, because a reader opens this page to find out
+	// where the air is bad — not to read an alphabet. Three tiers, in order:
+	//
+	//  1. Areas with a value, highest first. That is the question being asked.
+	//  2. Ties broken by name, and areas WITHOUT a value sorted by name among
+	//     themselves. The original rationale still holds and is not dropped:
+	//     map iteration order would reshuffle the list on every page load,
+	//     visibly wrong to a reader and pointless cache churn at the edge. A
+	//     total order is what keeps the page byte-identical between requests.
+	//  3. Areas with no reading last. They answer nothing about the air, so
+	//     they do not belong above an area that does — the same call the
+	//     design contract makes for the table's silent rows. Their sensor
+	//     count still prints, so absence is stated rather than hidden.
+	sort.Slice(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if a.HasValue != b.HasValue {
+			return a.HasValue
+		}
+		if a.HasValue && a.Value != b.Value {
+			return a.Value > b.Value
+		}
+		return a.Name < b.Name
+	})
 	return rows
 }
 
@@ -180,10 +200,21 @@ func (rr *Renderer) rowFrom(meta snapshot.AreaMeta, lang string) AreaRow {
 	if key := "area.name." + meta.Slug; rr.cat.Has(lang, key) {
 		name = rr.cat.T(lang, key)
 	}
+	// The default metric is the one the rest of the page already renders, so
+	// the list and the map agree without a second policy to keep in step.
+	value, hasValue := meta.Values[rr.defaultMetric]
+	valueText := ""
+	if hasValue {
+		valueText = strconv.FormatFloat(value, 'f', 1, 64)
+		if lang == i18n.DefaultLang {
+			valueText = strings.Replace(valueText, ".", ",", 1)
+		}
+	}
 	return AreaRow{
 		Slug: meta.Slug, Name: name, Kind: meta.Kind,
 		Lon: meta.CentroidLon, Lat: meta.CentroidLat, Zoom: meta.DefaultZoom,
 		Covered: meta.Covered, SensorCount: meta.SensorCount,
+		Value:   value, HasValue: hasValue, ValueText: valueText,
 	}
 }
 

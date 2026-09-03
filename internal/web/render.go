@@ -162,6 +162,16 @@ type AreaRow struct {
 	Zoom        int
 	Covered     bool
 	SensorCount int
+	// Value is the reading for the page's default metric; HasValue says
+	// whether there is one. 0 is a legitimate reading, so absence gets its own
+	// flag rather than being encoded as a zero the template would print.
+	Value    float64
+	HasValue bool
+	// Pre-formatted, because the decimal separator is the language's: Bulgarian
+	// writes 12,4 where English writes 12.4, and a Go template cannot localise
+	// a float on its own. Formatting once here also keeps every row identical
+	// in precision.
+	ValueText string
 }
 
 type alternate struct {

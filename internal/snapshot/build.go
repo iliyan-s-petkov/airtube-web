@@ -133,6 +133,7 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 			Slug: a.Slug, Kind: a.Kind, NameBG: a.NameBG, NameEN: a.NameEN,
 			CentroidLon: a.CentroidLon, CentroidLat: a.CentroidLat,
 			DefaultZoom: a.DefaultZoom, Covered: a.Covered, SensorCount: a.SensorCount,
+			Values:      a.Values,
 		}
 	}
 

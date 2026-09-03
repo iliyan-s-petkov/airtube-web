@@ -82,10 +82,16 @@
 {{/* The map's text alternative, named so aria-describedby can reach it. It is
      one sentence, not a duplicate of the list: the list itself follows. */}}
 <p id="map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
+{{/* The list says what it is ordered by and what the number aggregates, once,
+     above the rows — never a bare figure (DESIGN.md §9.1). The metric is the
+     page's default, the same one the map paints, so the two agree without a
+     second policy to keep in step. */}}
+<p class="areas-caption">{{.T "areas.ranked_by"}} {{.T (printf "metric.%s" .DefaultMetric)}}, {{.T (printf "unit.%s" .DefaultMetric)}} — {{.T "areas.tier"}}</p>
 <ul class="areas">
 {{range .Areas}}
   <li>
     <a href="{{$.Path (printf "/area/%s" .Slug)}}">{{.Name}}</a>
+    {{if .HasValue}}<span class="reading">{{.ValueText}}</span>{{end}}
     {{if .Covered}}<span class="count">{{.SensorCount}} {{$.T "area.sensors"}}</span>
     {{else}}<span class="uncovered">{{$.T "area.no_coverage"}}</span>{{end}}
   </li>

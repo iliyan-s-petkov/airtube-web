@@ -75,6 +75,12 @@ type AreaMeta struct {
 	DefaultZoom int
 	Covered     bool
 	SensorCount int
+	// The area's current reading per metric, the same map the wire type
+	// already publishes. Carried here so a server-rendered page can rank and
+	// print values without a second round trip: the province list is the
+	// no-JS fallback and the crawlable content, and a ranking that only
+	// exists once JavaScript has run is one crawlers never see.
+	Values map[string]float64
 }
 
 type Snapshot struct {
