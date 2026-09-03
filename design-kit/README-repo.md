@@ -34,8 +34,28 @@ what is being served.
 connection to the host fails the TLS handshake — see
 `docs/backlog/origin-is-open-and-enumeration-mutations.md` for why it accepted
 anyone until then. Nothing about the kit changed and the route is still served;
-it is just no longer reachable from here. Review a change by opening the files
-locally, or through the SSH forward in `docs/deployment.md`.
+it is just no longer reachable from here.
+
+Review it locally instead, which is strictly better than the host ever was —
+this serves the **working tree**, so uncommitted work is visible, while the host
+only ever showed what was committed and deployed:
+
+    docker compose up -d db
+    export AIRBG_DATABASE_URL='postgres://airbg:airbg@localhost:5432/airbg?sslmode=disable'
+    export AIRBG_CONFIG="$PWD/airbg.yaml"
+    export AIRBG_DESIGN_KIT_DIR="$PWD/design-kit"
+    go run ./cmd/airbg serve      # http://localhost:8080/design-kit/
+
+No secret store and no certificate: `docker-compose.yml` is development-only and
+every credential in it has a development fallback. `AIRBG_DESIGN_KIT_DIR`
+overrides `design_kit.dir`, whose shipped value is the in-image path — see
+`docs/configuration.md` for the `AIRBG_*` naming rule. `migrate` must have run
+once against that database; `import-areas` is not needed for the kit route.
+
+`file://` also renders the kit, but the tiles stand down and the SVG basemap
+draws in their place — that validates layout and not the basemap integration.
+The SSH forward in `docs/deployment.md` reaches the deployed app directly,
+bypassing Caddy, if what you need is specifically the host's copy.
 
 ## What the app actually serves
 
