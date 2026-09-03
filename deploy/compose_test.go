@@ -507,6 +507,13 @@ func TestBackupUnitEscapesTheDateFormat(t *testing.T) {
 	if !strings.Contains(unit, "/backups/.partial.dump && mv") {
 		t.Error("airbg-backup.service does not write .partial.dump and mv it into place; a truncated dump would satisfy the staleness check")
 	}
+	// timescale/timescaledb-ha runs as uid 1000. That uid can read neither
+	// /srv/airbg/pgpass, which pg_dump requires to be 0600 and which Ansible
+	// writes as root, nor /var/backups/airbg. Observed as
+	// `could not open output file "/backups/.partial.dump": Permission denied`.
+	if !strings.Contains(unit, "--user 0:0") {
+		t.Error("airbg-backup.service does not run as root; the image's uid 1000 cannot read the 0600 pgpass or write to /backups")
+	}
 }
 
 // ofelia's job-run only reaps a container when the job finishes, so a command

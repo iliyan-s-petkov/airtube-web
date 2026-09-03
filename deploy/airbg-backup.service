@@ -1,7 +1,8 @@
 [Unit]
 # The nightly dump runs here rather than as an ofelia job. README.md, "Why the
 # backup is a systemd timer". % is a systemd specifier, so date's format
-# characters are doubled: %%Y reaches sh as %Y.
+# characters are doubled: %%Y reaches sh as %Y. --user 0:0 because the image
+# defaults to uid 1000, which can read neither the 0600 pgpass nor /backups.
 Description=Nightly pg_dump of the airbg database
 Requires=docker.service
 After=docker.service
@@ -9,6 +10,7 @@ After=docker.service
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/docker run --rm --network airbg_back \
+  --user 0:0 \
   --env PGUSER=airbg \
   --env PGDATABASE=airbg \
   --env PGPASSFILE=/secrets/pgpass \

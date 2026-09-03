@@ -71,6 +71,12 @@ to `systemctl` and the journal, where a failed job-run was visible only in
 ofelia's log. The `BACKUP-IS-STALE` marker remains the alarm that matters — it
 is what caught this — and `backup-prune` still raises it at 03:45.
 
+The container runs `--user 0:0`. The image's default uid 1000 can read neither
+`/srv/airbg/pgpass` — which `pg_dump` requires to be `0600`, and which the role
+writes as root — nor `/var/backups/airbg`. The ofelia job would have hit the same
+wall had it ever got past DNS; it reported only
+`could not open output file "/backups/.partial.dump": Permission denied`.
+
 In the unit, `%` is a systemd specifier, so `date`'s format is written `%%Y%%m%%d`
 to reach `sh` as `%Y%m%d`. Written singly, systemd expands it and the dump is
 named after whatever the specifier meant.
