@@ -37,7 +37,18 @@ a { color: var(--accent); }
 /* Not a warning: these oblasti have no recent readings, which is an ordinary
    state of the world. Colouring it read as eight failures on one page. */
 .uncovered { color: var(--muted); }
-.notice { border-left: 4px solid var(--warn); padding: var(--space-2) var(--space-4); background: var(--notice-bg); }
+/* An absence is not a failure (DESIGN.md 2.3). `area.no_coverage` says a
+   province has no recent readings — an ordinary state of the world — and it was
+   rendered with --warn's yellow bar on --notice-bg, which is the anti-pattern
+   this contract names first: a non-failure drawn as one. It is muted body copy
+   now, with no colour, no bar and no icon. The tokens stay for a genuine system
+   warning, which this is not. */
+.notice { color: var(--muted); padding: var(--space-2) 0; }
+.notice strong { color: var(--fg-2); }
+/* Weight 700 does not exist in this system (DESIGN.md 3), and <strong> carries
+   the browser's bold by default — so the masthead wordmark and every emphasised
+   run shipped at a weight the contract forbids. */
+strong, b { font-weight: var(--weight-emphasis); }
 .disclaimer { color: var(--fg-2); }
 /* A caveat, not a warning: muted like .disclaimer rather than boxed like
    .notice, because it qualifies a number that is fine rather than telling the
@@ -48,7 +59,41 @@ footer { border-top: 1px solid var(--border); background: var(--surface); color:
 /* The one footer line that must actually be read. */
 footer .disclaimer { font-size: var(--text-body); letter-spacing: 0; color: var(--fg-2); }
 
-#map, #area-map { position: relative; height: 24rem; background: var(--map-placeholder-bg); border: 1px solid var(--border); }
+/* The map is the primary surface, sized by RATIO not by pixels (DESIGN.md 5.2
+   and the 1 fit). A fixed 24rem held the 926:382 fit at exactly one viewport
+   width and cropped the country at every other, and it made the map one card
+   among several on a page whose whole point is the map. The first term is the
+   fit, the second is how much viewport the map may claim; whichever is larger
+   wins, so the country can never crop and the map can always be taller. */
+#map, #area-map {
+  position: relative; background: var(--map-placeholder-bg); border: 1px solid var(--border);
+  /* Height DERIVES from width, so the fit holds at every viewport instead of at
+     one. `100cqi` was wrong here: nothing declares a container, so the whole
+     min() would have been invalid and the declaration dropped. */
+  aspect-ratio: 926 / 382;
+  min-block-size: 22rem;
+  /* A short viewport is paid for in WIDTH, never in height: trimming height
+     alone widens the aspect past 926:382, which is the axis that crops. So the
+     cap is expressed as the width whose derived height equals it. */
+  /* Capped at 100% FIRST. With aspect-ratio set, a min-block-size floor is
+     satisfied by growing WIDTH — at 390px the 22rem floor inflated the map to
+     853px and put a horizontal scrollbar on every phone (6 forbids exactly
+     that). Bounded by the container, the floor makes the box TALLER than the
+     fit instead, which 1 says is always safe. */
+  /* Width is DEFINITE, so the height floor can never be satisfied by growing
+     the box sideways. */
+  inline-size: 100%;
+  margin-inline: auto;
+}
+/* The cap lives on the same selector that caps the frame, because `main > #map`
+   (0,1,1) beats a bare `#map` (0,1,0) — the first version put it on the loser
+   and the declaration silently did nothing, which is this project's recurring
+   defect in a new place: when two rules have an opinion, write the intent where
+   the winner can see it. A short viewport is paid for in width (1). */
+main > #map, main > #area-map {
+  max-width: min(var(--frame), calc(var(--map-cap) * 926 / 382));
+}
+@media (max-width: 1056px) { :root { --map-cap: 52vh; } }
 #chart { min-height: 12rem; }
 .map-legend, .map-hint, .map-note {
   position: absolute; z-index: 1; left: var(--space-2);

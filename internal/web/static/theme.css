@@ -43,6 +43,10 @@
   --weight-display: 300;
   --weight-body: 400;
   --weight-emphasis: 600;
+  /* The map's viewport budget (DESIGN.md 5.2). The height is a RATIO, never a
+     pixel value: 926:382 is a maximum aspect, so a wider box crops the country
+     top and bottom while a taller one is always safe. */
+  --map-cap: 78vh;
 
   --text-caption: 12px;
   --text-compact: 14px;
