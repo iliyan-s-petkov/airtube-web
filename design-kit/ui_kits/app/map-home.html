@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Карта · airbg.org</title>
 <link rel="icon" href="../../assets/favicon.svg">
-<link rel="stylesheet" href="../../tokens.css?v=23">
-<link rel="stylesheet" href="../../colors_and_type.css?v=23">
-<link rel="stylesheet" href="../../components.css?v=23">
-<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=23">
-<link rel="stylesheet" href="app.css?v=23">
+<link rel="stylesheet" href="../../tokens.css?v=24">
+<link rel="stylesheet" href="../../colors_and_type.css?v=24">
+<link rel="stylesheet" href="../../components.css?v=24">
+<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=24">
+<link rel="stylesheet" href="app.css?v=24">
 </head>
 <body>
 <header class="masthead" data-od-id="masthead">
@@ -75,6 +75,23 @@
            toolbar is where this screen's controls live, so the refresh belongs
            beside the finder rather than in a line of prose. Secondary, not
            primary — the page has no single call to action to compete with. -->
+      <!-- What the basemap draws, by category. The options are NOT written
+           here: they are read from `metadata["airbg:group"]` on the mounted
+           style, so this file cannot fall out of step with what style.json
+           actually carries (§5.2b). The button's own label is composed at
+           runtime too, hence no data-i18n key — one string, one owner (§5.12).
+           `hidden` until map-tiles.js reports a camera: with the SVG basemap
+           drawing there are no tile layers to switch, and a control over
+           nothing is the dead control this system keeps hitting. -->
+      <div class="colmenu toolbar__layers" data-od-id="map-layers" hidden>
+        <button type="button" class="btn btn--secondary" id="map-layers-btn"
+                aria-expanded="false" aria-controls="map-layers-panel">Слоеве</button>
+        <div class="colmenu__panel" id="map-layers-panel" hidden>
+          <fieldset>
+            <legend>Показвай на картата</legend>
+          </fieldset>
+        </div>
+      </div>
       <button type="button" class="btn btn--secondary toolbar__refresh" data-od-id="refresh">
         <svg class="data-refresh__ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
           <path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -173,18 +190,19 @@
     <p class="attribution" data-od-id="attribution" hidden></p>
   </div>
 </footer>
-<script src="i18n.js?v=23"></script>
-<script src="oblast-link.js?v=23"></script>
-<script src="airbg-data.js?v=23"></script>
-<script src="masthead.js?v=23"></script>
-<script src="map-provinces.js?v=23"></script>
-<script src="theme.js?v=23"></script>
-<script src="map-fullscreen.js?v=23"></script>
-<script src="map-metric.js?v=23"></script>
-<script src="../../assets/vendor/pmtiles.js?v=23"></script>
-<script src="map-render.js?v=23"></script>
-<script src="map-tiles.js?v=23"></script>
-<script src="map-zoom.js?v=23"></script>
-<script src="map-pan.js?v=23"></script>
+<script src="i18n.js?v=24"></script>
+<script src="oblast-link.js?v=24"></script>
+<script src="airbg-data.js?v=24"></script>
+<script src="masthead.js?v=24"></script>
+<script src="map-provinces.js?v=24"></script>
+<script src="theme.js?v=24"></script>
+<script src="map-fullscreen.js?v=24"></script>
+<script src="map-metric.js?v=24"></script>
+<script src="../../assets/vendor/pmtiles.js?v=24"></script>
+<script src="map-render.js?v=24"></script>
+<script src="map-tiles.js?v=24"></script>
+<script src="map-layers.js?v=24"></script>
+<script src="map-zoom.js?v=24"></script>
+<script src="map-pan.js?v=24"></script>
 </body>
 </html>

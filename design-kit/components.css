@@ -1012,6 +1012,24 @@ body.has-faux-full { overflow: hidden; }
 .colmenu__opt:has(input:disabled):hover { background: none; }
 .colmenu__opt input { inline-size: 16px; block-size: 16px; accent-color: var(--accent); flex: none; }
 
+/* The basemap layer control reuses the column menu whole — same disclosure,
+   same checkbox rows (§5.11). Only two things differ, and both are scoped to
+   it so the table's menu is untouched.
+
+   It does not stretch: it sits in a flex toolbar beside a search field that is
+   meant to take the free space. */
+.toolbar__layers { flex: none; align-self: end; }
+
+/* Twelve categories is a taller panel than three columns, and on a short
+   laptop window the last option would land under the fold with nothing saying
+   so. Capped and scrolled rather than shortened: dropping a category to make
+   the list fit would hide a layer the reader has no other way to reach. */
+.toolbar__layers .colmenu__panel {
+  max-block-size: min(26rem, 60svh);
+  overflow-y: auto;
+  overscroll-behavior: contain;   /* the page does not scroll when the list ends */
+}
+
 
 /* User choice hides columns; it never forces one back. The responsive rules
    below are a floor, so a column the viewport has dropped stays dropped even

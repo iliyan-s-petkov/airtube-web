@@ -48,8 +48,22 @@
   var frames = document.querySelectorAll('[data-od-id="map"], [data-od-id="area-map"]');
   if (!frames.length) return;
 
+  /* One announcement for every basemap state change, so nothing else has to
+   * probe for a camera. The layer control (map-layers.js) is the reader of it:
+   * it offers nothing while the SVG basemap is drawing, because there are no
+   * tile layers to switch. Two things deciding whether the tiles are live is
+   * two things free to disagree. */
+  function announce(frame, state, map) {
+    document.dispatchEvent(new CustomEvent('airbg:basemapchange', {
+      detail: { frame: frame, state: state, map: map || null }
+    }));
+  }
+
   function stand_down(why) {
-    frames.forEach(function (f) { f.setAttribute('data-basemap', 'local'); });
+    frames.forEach(function (f) {
+      f.setAttribute('data-basemap', 'local');
+      announce(f, 'local');
+    });
     // Not console.error: this is a supported state, not a fault.
     if (window.console) console.info('map-tiles: SVG basemap in use — ' + why);
   }
@@ -168,6 +182,7 @@
 
       map.on('load', function () {
         frame.setAttribute('data-basemap', 'tiles');
+        announce(frame, 'tiles', map);
         publish();
         /* Draw first: the renderer publishes the wanted box as it draws, so
          * there is nothing to fit to until one pass has run. */
@@ -193,6 +208,7 @@
         var msg = (e && e.error && e.error.message) || 'unknown';
         if (frame.getAttribute('data-basemap') === 'failed') return;
         frame.setAttribute('data-basemap', 'failed');
+        announce(frame, 'failed');
         window.AIRBG_MAP_PROJECT = null;
         host.remove();
         stand_down('tile error (' + msg + ')');

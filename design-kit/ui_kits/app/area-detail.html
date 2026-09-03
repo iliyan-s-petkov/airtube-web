@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Район · airbg.org</title>
 <link rel="icon" href="../../assets/favicon.svg">
-<link rel="stylesheet" href="../../tokens.css?v=23">
-<link rel="stylesheet" href="../../colors_and_type.css?v=23">
-<link rel="stylesheet" href="../../components.css?v=23">
-<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=23">
-<link rel="stylesheet" href="app.css?v=23">
+<link rel="stylesheet" href="../../tokens.css?v=24">
+<link rel="stylesheet" href="../../colors_and_type.css?v=24">
+<link rel="stylesheet" href="../../components.css?v=24">
+<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=24">
+<link rel="stylesheet" href="app.css?v=24">
 </head>
 <body>
 <header class="masthead" data-od-id="masthead">
@@ -79,6 +79,21 @@
           <label class="switcher__opt"><input type="radio" name="sensor-status" value="inactive"><span data-i18n="sensor.inactive">Без данни</span></label>
         </div>
       </fieldset>
+      <!-- What the basemap draws, by category. The options are read from
+           `metadata["airbg:group"]` on the mounted style, never listed here, so
+           this file cannot drift from what style.json carries (§5.2b). The
+           button's label is composed at runtime, hence no data-i18n key — one
+           string, one owner (§5.12). `hidden` until map-tiles.js reports a
+           camera: with the SVG basemap drawing there is nothing to switch. -->
+      <div class="colmenu toolbar__layers" data-od-id="map-layers" hidden>
+        <button type="button" class="btn btn--secondary" id="area-layers-btn"
+                aria-expanded="false" aria-controls="area-layers-panel">Слоеве</button>
+        <div class="colmenu__panel" id="area-layers-panel" hidden>
+          <fieldset>
+            <legend>Показвай на картата</legend>
+          </fieldset>
+        </div>
+      </div>
     </div>
     <p class="meta" role="status" data-od-id="sensor-count"></p>
     <p class="sensor-picked" data-od-id="sensor-picked" hidden></p>
@@ -195,19 +210,20 @@
     <p class="attribution" data-od-id="attribution" hidden></p>
   </div>
 </footer>
-<script src="i18n.js?v=23"></script>
-<script src="oblast-link.js?v=23"></script>
-<script src="airbg-data.js?v=23"></script>
-<script src="masthead.js?v=23"></script>
-<script src="area-sensors.js?v=23"></script>
-<script src="area-place.js?v=23"></script>
-<script src="theme.js?v=23"></script>
-<script src="map-fullscreen.js?v=23"></script>
-<script src="../../assets/vendor/pmtiles.js?v=23"></script>
-<script src="map-render.js?v=23"></script>
-<script src="map-tiles.js?v=23"></script>
-<script src="map-zoom.js?v=23"></script>
-<script src="map-pan.js?v=23"></script>
-<script src="area-chart.js?v=23"></script>
+<script src="i18n.js?v=24"></script>
+<script src="oblast-link.js?v=24"></script>
+<script src="airbg-data.js?v=24"></script>
+<script src="masthead.js?v=24"></script>
+<script src="area-sensors.js?v=24"></script>
+<script src="area-place.js?v=24"></script>
+<script src="theme.js?v=24"></script>
+<script src="map-fullscreen.js?v=24"></script>
+<script src="../../assets/vendor/pmtiles.js?v=24"></script>
+<script src="map-render.js?v=24"></script>
+<script src="map-tiles.js?v=24"></script>
+<script src="map-layers.js?v=24"></script>
+<script src="map-zoom.js?v=24"></script>
+<script src="map-pan.js?v=24"></script>
+<script src="area-chart.js?v=24"></script>
 </body>
 </html>

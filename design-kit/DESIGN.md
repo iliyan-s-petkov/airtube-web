@@ -1398,6 +1398,101 @@ own glyph, in an identical 40px square 8px below it. Two different actions,
 near-identical marks, adjacent. It is now a bordered area divided into regions,
 which is what the button returns to.
 
+**The POIs were never missing. The layers that draw them were.** The reader
+asked for streets, rivers, schools, kindergartens and shops and could see none
+of them, and the reference map they sent — a sensor.community view of София —
+was drawn from **the same source we use**: OpenStreetMap. That is what settled
+it. Our archive is a planetiler build of the Bulgaria extract with **no
+`--profile` flag**, so it carries the default OpenMapTiles layer set, and the
+app's own `docs/tiles.md` line 136 lists what that set contains: *water,
+waterway, landcover, landuse, park, building, place, **poi**, housenumber,
+aeroway, aerodrome_label*. `tools/basemap/style.json` drew **19** layers and
+`poi` was not among them. 217 MB of schools and shops shipped to every reader
+and nothing asked for them.
+
+**A style is a selection, not an inventory, and the capability was declared
+absent from the wrong document.** Every previous pass read the *style* to learn
+what the basemap had — which answers what we chose to draw, never what exists.
+This is the same shape as the third-party-origin correction above, one level
+down: a constraint was inferred from an artefact that could not carry the
+answer. **Read the schema, not the stylesheet, before concluding the data is
+not there** — and before commissioning an Overpass capture or a rebuild to
+replace it. The alternatives being weighed were a per-city POI capture and a
+planetiler re-run; the actual fix is ten layers in a 10 KB JSON file and no
+rebuild at all.
+
+**Ten layers, four named categories and a catch-all.** POIs are grouped by
+OpenMapTiles' own `class` — education, health, shops and eating places,
+transport — because a single "POI" switch over a thousand unrelated things is
+not a category a reader thinks in. The fifth group is a `!in` filter rather
+than a fifth list: a class nobody enumerated still draws under *Други обекти*
+instead of vanishing, the same rule as a slug the snapshot has never seen.
+
+**They are grey, and that is §2.1 doing its job.** A POI is neither a state nor
+a reading, so a hue here would be either a second accent (§2.2) or a ramp
+colour on a data surface. Dot `#8a8378`, ink `#6b6459`, white halo — the
+basemap's own neutrals. `text-optional` is set on every label, so a POI name
+that will not fit is dropped rather than pushing anything else off the tile: a
+reading outranks a place name everywhere on this map, and a POI outranks
+nothing.
+
+**Gated by zoom, not by taste.** Education, health and transport draw from z14
+because they are the anchors people navigate by; shops from z15; everything
+else from z16, with names one zoom later than their dots in every case. At the
+zoom a province page opens on, none of them draw at all — the map is still a
+choropleth, and 40 000 shops over 28 provinces would be the second dataset
+§5.2b keeps refusing.
+
+**The fontstack is the one the style already ships.** `Noto Sans Regular`,
+because the glyphs are self-hosted at `tiles.airbg.org/glyphs/{fontstack}/` and
+a name the archive does not carry renders **nothing at all, with no error** —
+the blank-map failure `docs/tiles.md` warns about, arriving through a typo.
+
+**Once they draw, they have to be switchable, so the categories are a
+control.** The map is the primary surface and the readings are what the reader
+came for; a city at z16 carrying every shop in it competes with them. The
+control is §5.11's column menu **unchanged** — one disclosure owning
+checkboxes, Escape closing and returning focus, a click outside closing without
+stealing it. Two scoped rules were added and nothing else: it does not stretch
+in the toolbar, and twelve categories are capped at `min(26rem, 60svh)` and
+scrolled. Shortening the list to fit would hide a layer with no other way to
+reach it.
+
+**The options are read off the style, never listed in the control.** Every
+layer carries `metadata["airbg:group"]`, and `map-layers.js` collects the
+groups from the mounted style. A list of layer ids in the kit would be a second
+thing free to drift from the style it describes — the same argument that put
+`borders_bg` in the neighbours asset rather than in the renderer (§5.2). Add a
+layer to `style.json` tomorrow and the control offers it with no kit change; a
+group with no catalogue string prints its own key, which is a visible gap
+rather than a silent omission (§5.12).
+
+**It is not offered when there is nothing to switch.** From `file://`, from a
+preview host, with WebGL refused, or after a tile error, the SVG basemap draws
+and there are no tile layers at all. The whole disclosure stays `hidden` until
+the camera exists. **And it does not probe for one:** `map-tiles.js` fires
+`airbg:basemapchange` with the state and the map on all three of its paths —
+mounted, stood down, failed — because two components each deciding whether the
+tiles are live is two components free to disagree about it. Same seam as
+`airbg:metricchange` and `airbg:oblastchange`.
+
+**The квартали are in the archive too, and the hand-captured asset is now the
+duplicate.** `place-village` already filters `suburb` and `neighbourhood` at
+z≥11 out of the `place` layer — which is *Горна баня*, *Княжево* and *Бояна*,
+the four names the reader listed as missing, from OSM, with `name:bg`, at every
+zoom. `assets/bg-quarters.json` was captured to fill a gap that the basemap did
+not have; it stays only as part of the SVG fallback, and it is recorded here as
+a debt like `bg-roads.json` and `bg-streets.json` beside it, not as a feature.
+The reason the reader saw no квартали is the gate, not the data: the province
+page opens near z8 and that layer starts at z11.
+
+**The style is a deploy, not a build.** `tools/basemap/style.json` is served
+from `/var/lib/airbg/tiles/style.json`; changing it is a copy and a reload. The
+archive is untouched, so none of the 217 MB is regenerated and `tiles.archive`
+does not move. **Until that copy happens the layers exist in the repository and
+not on the reader's screen** — which is exactly the stale-asset failure §5.3a
+describes, and it is stated here so the next reader does not debug correct code.
+
 ### 5.2a Theme — light, dark, and following the system
 
 **Three states, not two.** *Автоматична* is the default and stays reachable: a
@@ -2528,6 +2623,21 @@ in §1 make likely. Committing one is a defect, not a preference.
   server is a third-party origin" was true of tile servers in general and false
   of this project's own listener, and a whole basemap was hand-captured on the
   strength of it.
+- ❌ Reading a style to find out what a basemap contains. The style is the
+  selection; the schema is the inventory. `poi` shipped in the archive from the
+  first build and was declared missing because it was absent from `style.json`.
+- ❌ Commissioning a capture or a rebuild to supply data the backend already
+  serves, without first checking the schema it was built to.
+- ❌ A basemap layer whose `text-font` names a stack the glyph endpoint does not
+  serve. It renders nothing, with no error — the blank map, through a typo.
+- ❌ A layer control holding its own list of layer ids. The style is the source;
+  a copy of it in the control drifts the first time a layer is added.
+- ❌ Offering a layer control while the fallback basemap is drawing. There are no
+  tile layers to switch, so every checkbox is inert.
+- ❌ A POI drawn in a ramp hue, or in the accent. It is neither a reading nor a
+  state; the basemap's neutrals are what it gets.
+- ❌ Shortening a category list so its panel fits the viewport. Cap and scroll —
+  a dropped category is a layer with no way to reach it.
 - ❌ Treating a first-party service on a second hostname as an external one.
   Read the CSP the app already ships; it names what is allowed.
 - ❌ Duplicating geometry the backend already serves. Two owners for one
