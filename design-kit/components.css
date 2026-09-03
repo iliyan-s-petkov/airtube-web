@@ -1270,3 +1270,14 @@ body.has-faux-full { overflow: hidden; }
 .chip__swatch--eaqi[data-band="Лошо"] { background: #ff5050; }
 .chip__swatch--eaqi[data-band="Много лошо"] { background: #960032; }
 .chip__swatch--eaqi[data-band="Изключително лошо"] { background: #7d2181; }
+
+/* Quarters (квартали) — basemap context, never data. They carry no reading, so
+   they take no band colour (DESIGN.md §2.1) and sit below a district name in
+   the visual order: smaller, lighter, never bold. --fg-2 rather than --muted,
+   for the same contrast reason the province labels use it. */
+.map-quarter__name {
+  font-size: 10px; letter-spacing: var(--track-caption);
+  fill: var(--fg-2); text-anchor: middle; dominant-baseline: middle;
+  paint-order: stroke; stroke: var(--bg); stroke-width: 2.5px; stroke-linejoin: round;
+  pointer-events: none;
+}

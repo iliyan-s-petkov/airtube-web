@@ -90,6 +90,11 @@
    * gate already is. 60 rather than 90 because it has to be reachable on a
    * large province as well as a small one. */
   var MINOR_PX_KM = 40, STREETNAME_PX_KM = 60;
+  /* Quarters sit between district names and street names: finer than a район,
+   * coarser than a street. Set from what the surface reaches — a Sofia page
+   * opens near 10 px/km and a reader looking for Бояна has zoomed well past
+   * that — rather than from a number that sounds right. */
+  var QUARTER_PX_KM = 45;
   /* 8 px/km: a Sofia rayon is ~4-8 km across, so its outline is 30-60 px wide —
    * enough to read as a division rather than as a scribble. It sits well below
    * the street gate on purpose: districts answer WHERE in a city you are, which
@@ -210,7 +215,7 @@
     return (L + 0.05) / 0.05 >= 4.5 ? '#161616' : '#ffffff';
   }
 
-  function ready(outline, provinces, neighbours, rivers, data, roads, streets, districts) {
+  function ready(outline, provinces, neighbours, rivers, data, roads, streets, districts, quarters) {
     var ring = outline.ring, i;
     var lat0 = 0;
     for (i = 0; i < ring.length; i++) lat0 += ring[i][1];
@@ -1306,6 +1311,43 @@
       }
       frame.setAttribute('data-districts', drawnDistricts + '/' + namedDistricts);
 
+      /* QUARTERS — Бояна, Княжево, Горна баня and 183 more. They are what a
+       * reader in Sofia actually navigates by, and no layer here had them: the
+       * API stops at район and the district capture is admin_level=6, so the
+       * names people use were missing from both the data and the basemap.
+       *
+       * Names only, no outline, and that is the honest form of this layer:
+       * Overpass returned relation geometry empty on the capture, and a label
+       * at a real centre states what is known while an invented boundary would
+       * not. The asset says so in its own note.
+       *
+       * They carry NO value and never take a band colour (§2.1): nothing below
+       * район is measured, so a quarter drawn like a reading would be a
+       * fabricated one. This is basemap context, styled as such.
+       *
+       * Placed after the district names and tested against everything already
+       * on the map, so a quarter never covers a reading it cannot explain. */
+      var drawnQuarters = 0;
+      if (quarters && quarters.quarters && pxPerKm >= QUARTER_PX_KM) {
+        var ql = el('g', { class: 'map-quarters' });
+        quarters.quarters.forEach(function (q) {
+          var qx = X(q.lon), qy = Y(q.lat);
+          if (qx < 4 || qx > W - 4 || qy < 4 || qy > vh - 4) return;
+          var label = (lang() === 'en' && q.name_en) ? q.name_en : q.name_bg;
+          var qw = widthOf(label, false, 10), qh = 12;
+          var qbox = { x0: qx - qw / 2, x1: qx + qw / 2, y0: qy - qh / 2, y1: qy + qh / 2 };
+          if (hits(qbox)) return;
+          var qt = el('text', { class: 'map-quarter__name',
+            x: qx.toFixed(1), y: qy.toFixed(1) });
+          qt.textContent = label;
+          ql.appendChild(qt);
+          placedNames.push(qbox);
+          drawnQuarters++;
+        });
+        if (drawnQuarters) svg.appendChild(ql);
+      }
+      frame.setAttribute('data-quarters', drawnQuarters);
+
       /* Street names go on last of all, under the same rule as every other
        * label here: a name that collides with something already placed is not
        * drawn. Readings first, then district names, then these — the order is
@@ -1496,6 +1538,12 @@
         .catch(function () { return null; }),
       /* City districts (райони). Optional like every other basemap layer. */
       fetch('../../assets/bg-districts.json').then(function (r) { return r.json(); })
+        .catch(function () { return null; }),
+      /* Quarters (квартали) INSIDE those районы — Бояна, Княжево, Горна баня and
+       * 183 more. They are the names people actually navigate Sofia by, and
+       * neither layer above had them: the API publishes no aggregate below
+       * район, and the district capture is admin_level=6. */
+      fetch('../../assets/bg-quarters.json').then(function (r) { return r.json(); })
         .catch(function () { return null; })
     ]);
     return cache.p;
@@ -1503,7 +1551,7 @@
 
   function draw(data) {
     if (!data || !data.oblasti || !data.scale_p2_eaqi) return;
-    assets().then(function (v) { ready(v[0], v[1], v[2], v[3], data, v[4], v[5], v[6]); }).catch(function (e) {
+    assets().then(function (v) { ready(v[0], v[1], v[2], v[3], data, v[4], v[5], v[6], v[7]); }).catch(function (e) {
       // The placeholder sentence stays: an honest "shown in the app" beats a
       // blank frame.
       /* The stack, not just the message: a DOMException from an SVG attribute

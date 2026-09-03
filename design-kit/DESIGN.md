@@ -1125,6 +1125,28 @@ localised like every other geometry here (§1). Бургас, Русе and Ст�
 returned nothing at that level because they have no districts, which is an answer
 rather than a gap.
 
+**Below район there are квартали, and they were missing from everything.**
+*Бояна*, *Княжево*, *Горна баня* — the names people actually navigate Sofia by
+— appeared in no layer: the API publishes no aggregate below район, and the
+district capture is `admin_level=6`. A reader looking for their own квартал
+found the map silent about it. `assets/bg-quarters.json` is 186 of them,
+OpenStreetMap via Overpass (ODbL 1.0), `place=suburb|quarter|neighbourhood`.
+
+**Names only, and that is the honest form.** Overpass returned relation
+geometry empty on this capture, so there are no outlines — a label at a real
+centre states what is known, where an invented boundary would not. The asset
+records that in its own note rather than leaving the next reader to wonder.
+
+**They carry no reading and never take a band colour (§2.1).** Nothing below
+район is measured, so a quarter drawn like a reading would be a fabricated one.
+The layer is basemap context and is styled as such: 10px, `--fg-2`, under the
+district names in the visual order.
+
+**Gated at 45 px/km, between the district names and the street names**, and
+placed after both — a quarter never covers a reading it cannot explain.
+Measured on София-град: 0 at the province framing, 51 at 5,1×, 25 at 11,4× as
+the frame narrows. On-screen only, like the neighbour markers.
+
 **English names came from Wikidata where OSM had none.** Ten districts carried no
 `name:en`; eight carried a `wikidata` QID, and Wikidata's own English label filled
 seven of them. Три Пловдивски района — Южен, Тракия, Източен — have neither, so
