@@ -20,6 +20,13 @@ body > header {
   min-height: var(--control-height); padding: 0 var(--gutter);
   background: var(--fg); color: var(--accent-on);
 }
+/* The wordmark is the one header item that must not shrink. As an ordinary flex
+   child it was squeezed to 62px at 390px, so "Мръсен въздух" wrapped to two
+   lines inside a 48px bar — the D0 finding, and DESIGN.md 5.1 is explicit that
+   the masthead stays one line at 390. The nav absorbs the pressure instead:
+   it is short, and its items already wrap gracefully. */
+body > header > a:first-child { flex: 0 0 auto; }
+body > header nav { min-width: 0; }
 body > header a { color: var(--border); }
 body > header a:hover { color: var(--accent-on); }
 body > header [aria-current] { color: var(--accent-on); box-shadow: inset 0 -2px 0 currentColor; }
