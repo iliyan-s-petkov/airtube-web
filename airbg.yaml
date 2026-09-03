@@ -296,6 +296,11 @@ frontend:
   # A muted blue-grey, distinct from both the no-data grey and every band colour.
   unscaled_colour: "#94a3b8"
   marker_stroke_colour: "#ffffff"
+  # The ink for the reading printed beside each marker, and it is --fg. It
+  # lives here rather than in theme.css for the reason the whole frontend block
+  # does: a WebGL paint value is configuration, because no CSS rule can reach a
+  # canvas layer. The halo behind it is marker_stroke_colour above.
+  marker_label_colour: "#161616"
   empty_basemap_colour: "#eef2f5"
   chart_line_colour: "#2563eb"
   # Zoom thresholds for the country -> city -> sensor tiering. Below zoom_city

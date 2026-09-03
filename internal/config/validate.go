@@ -319,6 +319,7 @@ func (c Config) validateFrontend(p *problems) {
 		"frontend.no_data_colour":       c.Frontend.NoDataColour,
 		"frontend.unscaled_colour":      c.Frontend.UnscaledColour,
 		"frontend.marker_stroke_colour": c.Frontend.MarkerStrokeColour,
+		"frontend.marker_label_colour":  c.Frontend.MarkerLabelColour,
 		"frontend.empty_basemap_colour": c.Frontend.EmptyBasemapColour,
 		"frontend.chart_line_colour":    c.Frontend.ChartLineColour,
 	} {

@@ -163,6 +163,7 @@ type Frontend struct {
 	NoDataColour       string
 	UnscaledColour     string
 	MarkerStrokeColour string
+	MarkerLabelColour  string
 	EmptyBasemapColour string
 	ChartLineColour    string
 	ZoomCity           int
@@ -345,6 +346,7 @@ func resolve(r *raw) Config {
 			NoDataColour:       *r.Frontend.NoDataColour,
 			UnscaledColour:     *r.Frontend.UnscaledColour,
 			MarkerStrokeColour: *r.Frontend.MarkerStrokeColour,
+			MarkerLabelColour:  *r.Frontend.MarkerLabelColour,
 			EmptyBasemapColour: *r.Frontend.EmptyBasemapColour,
 			ChartLineColour:    *r.Frontend.ChartLineColour,
 			ZoomCity:           *r.Frontend.ZoomCity,

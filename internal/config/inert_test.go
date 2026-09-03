@@ -173,6 +173,7 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			{"series.default_metric", cfg.Series.DefaultMetric, "P2"},
 			{"frontend.no_data_colour", cfg.Frontend.NoDataColour, "#9ca3af"},
 			{"frontend.marker_stroke_colour", cfg.Frontend.MarkerStrokeColour, "#ffffff"},
+			{"frontend.marker_label_colour", cfg.Frontend.MarkerLabelColour, "#161616"},
 			{"frontend.empty_basemap_colour", cfg.Frontend.EmptyBasemapColour, "#eef2f5"},
 			{"frontend.chart_line_colour", cfg.Frontend.ChartLineColour, "#2563eb"},
 			// The tiles keys are NEW, not moved: this pin records the decision that

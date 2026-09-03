@@ -131,6 +131,7 @@ type PageData struct {
 	NoDataColour       string
 	UnscaledColour     string
 	MarkerStrokeColour string
+	MarkerLabelColour  string
 	EmptyBasemapColour string
 	ChartLineColour    string
 	ZoomCity           int
@@ -290,6 +291,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		NoDataColour:       rr.frontend.NoDataColour,
 		UnscaledColour:     rr.frontend.UnscaledColour,
 		MarkerStrokeColour: rr.frontend.MarkerStrokeColour,
+		MarkerLabelColour:  rr.frontend.MarkerLabelColour,
 		EmptyBasemapColour: rr.frontend.EmptyBasemapColour,
 		ChartLineColour:    rr.frontend.ChartLineColour,
 		ZoomCity:           rr.frontend.ZoomCity,

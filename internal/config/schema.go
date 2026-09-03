@@ -181,6 +181,7 @@ type rawFrontend struct {
 	NoDataColour       *string `yaml:"no_data_colour"`
 	UnscaledColour     *string `yaml:"unscaled_colour"`
 	MarkerStrokeColour *string `yaml:"marker_stroke_colour"`
+	MarkerLabelColour  *string `yaml:"marker_label_colour"`
 	EmptyBasemapColour *string `yaml:"empty_basemap_colour"`
 	ChartLineColour    *string `yaml:"chart_line_colour"`
 	ZoomCity           *int    `yaml:"zoom_city"`

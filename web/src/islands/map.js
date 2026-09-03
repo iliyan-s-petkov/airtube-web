@@ -23,6 +23,7 @@ const MOVE_DEBOUNCE_MS = 250
 
 const SOURCE_ID = 'airbg-data'
 const LAYER_ID = 'airbg-markers'
+const LABEL_LAYER_ID = 'airbg-marker-labels'
 
 export function mount(el) {
   const cfg = readConfig(el)
@@ -79,6 +80,25 @@ export function mount(el) {
       type: 'circle',
       source: SOURCE_ID,
       paint: layerPaint(cfg),
+    })
+
+    // The reading, printed on the map. Colour alone carried three different
+    // facts here — no reading, an unscaled metric, and a real band value — so
+    // a reader without colour vision lost all three at once, and the legend
+    // could only tell them what the colours WOULD have meant. The number is
+    // the second channel D4 asks for, and it is the same value the panel and
+    // the province list show.
+    //
+    // A separate symbol layer rather than a bigger circle: the circles are
+    // 5-9px and cannot hold a number, and growing them to fit would crowd the
+    // map at exactly the zooms where areas sit closest together.
+    map.addLayer({
+      id: LABEL_LAYER_ID,
+      type: 'symbol',
+      source: SOURCE_ID,
+      filter: ['all', ['has', 'value'], ['!=', ['get', 'value'], null]],
+      layout: labelLayout(cfg),
+      paint: labelPaint(cfg),
     })
 
     // Registered synchronously, right here — after addLayer so setPaintProperty
@@ -463,6 +483,13 @@ export function readConfig(el) {
     noDataColour: d.noDataColour,
     unscaledColour: d.unscaledColour,
     markerStrokeColour: d.markerStrokeColour,
+    // A WebGL paint value is configuration, not CSS: no rule can reach a
+    // canvas layer, which is why every colour this island paints with arrives
+    // as a data-* attribute. An earlier version read --fg through
+    // getComputedStyle with a hex fallback; literals.test.js caught the
+    // fallback, and it was right to — the fallback was the tell that the value
+    // was coming from the wrong place.
+    labelColour: d.markerLabelColour,
     emptyBasemapColour: d.emptyBasemapColour,
     zoomCity: Number(d.zoomCity),
     zoomSensor: Number(d.zoomSensor),
@@ -567,6 +594,51 @@ export function layerPaint(cfg) {
     'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 5, 12, 9],
     'circle-stroke-width': 1,
     'circle-stroke-color': cfg.markerStrokeColour,
+  }
+}
+
+// labelLayout and labelPaint are the symbol layer that prints each area's
+// reading beside its dot — the non-colour channel for the air-quality scale.
+//
+// text-allow-overlap stays FALSE, which is the whole crowding strategy: rather
+// than inventing a zoom threshold to guess when labels start colliding,
+// MapLibre drops the ones that would overlap and keeps the rest. The map thins
+// itself out as areas converge, and no number is ever drawn on top of another.
+//
+// The fontstack is the one the basemap style already ships (the tiles are an
+// OpenMapTiles build whose own label layers use Noto Sans Regular), so this
+// adds no font asset and no new origin.
+export function labelLayout(cfg) {
+  return {
+    // One decimal, matching the province list and the sensor panel: three
+    // surfaces showing the same reading to different precision would be three
+    // surfaces disagreeing. number-format localises the separator, so this
+    // reads 12,4 in Bulgarian and 12.4 in English without a second formatter.
+    'text-field': [
+      'number-format',
+      ['get', 'value'],
+      { locale: cfg.lang || 'bg', 'min-fraction-digits': 1, 'max-fraction-digits': 1 },
+    ],
+    'text-font': ['Noto Sans Regular'],
+    'text-size': 11,
+    // Beside the dot, not on it: the circle is 5-9px, so a centred number
+    // would sit on its own stroke and lose contrast against every band colour.
+    'text-offset': [0.9, 0],
+    'text-anchor': 'left',
+    'text-allow-overlap': false,
+    'text-ignore-placement': false,
+    'text-optional': true,
+  }
+}
+
+export function labelPaint(cfg) {
+  return {
+    'text-color': cfg.labelColour,
+    // The halo is what makes the number legible on every band from the palest
+    // teal to the darkest purple, and over the basemap's own streets, without
+    // re-tinting the served colour underneath it.
+    'text-halo-color': cfg.markerStrokeColour,
+    'text-halo-width': 1.4,
   }
 }
 
