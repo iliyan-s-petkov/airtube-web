@@ -15,7 +15,13 @@
      content — a map alone is invisible to a search engine and unusable with
      a screen reader. The MapLibre island mounts on #map beside it, never
      replacing it. */}}
+{{/* A map is a region with a name, not an unlabelled box: D4 found it
+     announced only as "Map". The description points at the province list
+     below, which is already the text alternative and the no-JS fallback,
+     so the two are connected rather than merely both present. */}}
 <div id="map" data-island="map"
+     role="region" aria-label="{{.T "map.label"}}"
+     aria-describedby="map-alt"
      data-zoom="{{.DefaultZoom}}" data-lon="{{.DefaultLon}}" data-lat="{{.DefaultLat}}"
      data-metric="{{.DefaultMetric}}"
      data-metrics="{{.MetricsAttr}}"
@@ -73,6 +79,9 @@
      data-t-chart-unavailable="{{.T "map.error.unavailable"}}"></div>
 
 <h2>{{.T "nav.areas"}}</h2>
+{{/* The map's text alternative, named so aria-describedby can reach it. It is
+     one sentence, not a duplicate of the list: the list itself follows. */}}
+<p id="map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
 <ul class="areas">
 {{range .Areas}}
   <li>

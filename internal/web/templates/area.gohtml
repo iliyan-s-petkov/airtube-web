@@ -50,7 +50,13 @@
      data-metric="{{.DefaultMetric}}"
      data-t-legend="{{.T "metric.legend"}}"></div>
 
+{{/* A map is a region with a name, not an unlabelled box: D4 found it
+     announced only as "Map". The description points at the province list
+     below, which is already the text alternative and the no-JS fallback,
+     so the two are connected rather than merely both present. */}}
 <div id="area-map" data-island="map"
+     role="region" aria-label="{{.T "map.label"}}"
+     aria-describedby="area-map-alt"
      data-slug="{{.Area.Slug}}"
      data-zoom="{{.Area.Zoom}}"
      data-lon="{{.Area.Lon}}"
@@ -77,6 +83,7 @@
      data-t-locate-button="{{.T "locate.button"}}"
      data-t-locate-denied="{{.T "locate.denied"}}"
      data-t-locate-failed="{{.T "locate.failed"}}"></div>
+<p id="area-map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
 
 {{/* #sensor= is honoured only here, never on index.gohtml: resolving it
      needs the sensor already loaded through the map island above (the
