@@ -1136,11 +1136,43 @@
        * area is the mark): the API gives these places a coordinate and no
        * boundary, so a filled territory would be a shape this system invented.
        * On the country view they are not drawn — 51 dots over 28 provinces is
-       * a second dataset competing with the one the reader came for. */
+       * a second dataset competing with the one the reader came for.
+       *
+       * NEIGHBOURS ARE DRAWN TOO, and the rule is what is ON SCREEN rather
+       * than which province owns the point. Framed on a province the reader
+       * saw one territory carrying readings inside a ring of flat colour: the
+       * neighbours were painted their real served band, but with no mark, no
+       * number and no name they read as background rather than as data, and
+       * the first question a border raises — "is it worse on the other side?"
+       * — had no answer on screen. The snapshot already holds an aggregate
+       * for every province, so the answer was in the data and only this
+       * filter was hiding it.
+       *
+       * Screen-bounded, not "bordering": a neighbour list would be a second
+       * adjacency table to maintain, and it would still be wrong at the zoom
+       * where the subject fills the frame. Testing the projected point is the
+       * same question the reader is actually asking — is this place in view.
+       *
+       * They go once the reader drills in, at the scale the street layer
+       * starts. Past that the subject fills the frame and what remains on
+       * screen should be the place being examined, not its surroundings. This
+       * supersedes the older rule scoping markers to one province: that was
+       * written when a province was a solid slab, where a neighbour's dot
+       * would have sat on undifferentiated colour. */
       var points = [], markerBoxes = [], markerNames = {};
+      var NEIGHBOUR_MAX_PX_KM = STREETS_PX_KM;
+      var showNeighbours = pxPerKm < NEIGHBOUR_MAX_PX_KM;
+      var frameW = box ? box.w : W, frameH = box ? box.h : vh;
+      function onScreen(lon, lat) {
+        var px = X(lon), py = Y(lat);
+        return px >= 0 && px <= frameW && py >= 0 && py <= frameH;
+      }
       if (view.mode === 'province' && focus && data.sub_areas) {
         var pts = el('g', { class: 'map-points' });
-        data.sub_areas.filter(function (a) { return a.oblast === focus; })
+        data.sub_areas.filter(function (a) {
+          if (a.oblast === focus) return true;
+          return showNeighbours && onScreen(a.lon, a.lat);
+        })
           .sort(function (a, b) { return (b.p2 == null) - (a.p2 == null); })
           .forEach(function (a) {
             var av = metric === 'p10' ? a.p10 : a.p2;

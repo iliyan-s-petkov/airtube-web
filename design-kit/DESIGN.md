@@ -755,6 +755,34 @@ shape would be geometry this system invented. They are drawn only on a province
 view; 51 points over 28 provinces is a second dataset competing with the one
 the reader came for.
 
+**A province is not an island, so its neighbours carry their readings too.**
+Framed on Смолян the reader saw one territory with numbers on it inside a ring
+of flat colour. The neighbours were painted their real served band, but with no
+mark, no number and no name they read as background rather than as data — and
+the first question a border raises, *is it worse on the other side?*, had no
+answer on screen. The snapshot already holds an aggregate for every province,
+so the answer was in the data and only the filter was hiding it.
+
+**The rule is what is on screen, not which province owns the point.** A list of
+bordering provinces would be a second adjacency table to maintain, and it would
+still be wrong at the zoom where the subject fills the frame. The projected
+point is tested against the drawn box instead, which is the same question the
+reader is actually asking: is this place in view. Measured: Смолян draws 2
+markers at its own framing, София-град 26.
+
+**They go when the reader drills in, at the scale the street layer starts
+(25 px/km).** Past that the subject fills the frame, a neighbour's single city
+dot is usually outside it anyway, and what remains on screen should be the
+place being examined rather than its surroundings. Measured: 26 → 25 for
+София-град and 2 → 1 for Смолян at 7,6×.
+
+**This supersedes the scoping rule above, and the reason it was written has
+gone.** Markers were confined to one province when a province was a solid slab
+of served colour, where a neighbour's dot would have sat on undifferentiated
+paint with nothing to relate it to. The province now carries its own outline,
+its districts and its name, so a dot outside it is legible as belonging
+somewhere else.
+
 **The parent province came from the boundaries, not from the name.** The feed
 publishes no parent, so each sub-area was joined by point-in-polygon against
 the same Natural Earth provinces the map draws, once, at capture time — 50 of
