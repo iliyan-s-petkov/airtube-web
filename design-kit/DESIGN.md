@@ -1486,6 +1486,21 @@ a debt like `bg-roads.json` and `bg-streets.json` beside it, not as a feature.
 The reason the reader saw no квартали is the gate, not the data: the province
 page opens near z8 and that layer starts at z11.
 
+**The control is exercised, not asserted — and the suite was made to fail
+first.** The tiles themselves need a browser on the host, but every rule the
+layer control holds is decidable without a GPU: which options exist, where they
+come from, what one toggle drives, what survives a language switch, and when
+the control refuses to appear. `design-kit/tests/map-layers.test.mjs` runs it
+under jsdom — already in `web/node_modules` for the app's own suite, so no new
+dependency (§1) — with MapLibre stubbed. 18 checks. Then five mutants were run
+against it and all five died: `apply()` driving only a group's first layer, the
+control shown while the SVG basemap draws, one option per layer instead of per
+group, no re-render on a language change, and checkboxes defaulting to off. **A
+green suite that has never been shown to fail is decoration**, and this system
+has shipped enough controls that looked correct in the DOM while doing nothing
+on screen to owe that step. `tests/` is not an allowlisted root, so it 404s on
+the host — correct for a check.
+
 **The style is a deploy, not a build.** `tools/basemap/style.json` is served
 from `/var/lib/airbg/tiles/style.json`; changing it is a copy and a reload. The
 archive is untouched, so none of the 217 MB is regenerated and `tiles.archive`
