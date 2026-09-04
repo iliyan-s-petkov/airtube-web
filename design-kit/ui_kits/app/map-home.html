@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Карта · airbg.org</title>
 <link rel="icon" href="../../assets/favicon.svg">
-<link rel="stylesheet" href="../../tokens.css?v=29">
-<link rel="stylesheet" href="../../colors_and_type.css?v=29">
-<link rel="stylesheet" href="../../components.css?v=29">
-<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=29">
-<link rel="stylesheet" href="app.css?v=29">
+<link rel="stylesheet" href="../../tokens.css?v=30">
+<link rel="stylesheet" href="../../colors_and_type.css?v=30">
+<link rel="stylesheet" href="../../components.css?v=30">
+<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=30">
+<link rel="stylesheet" href="app.css?v=30">
 </head>
 <body>
 <header class="masthead" data-od-id="masthead">
@@ -104,6 +104,10 @@
 
   </div>
 
+  <!-- The shell exists so the key can be an overlay on a wide screen and a
+       block under the map on a phone, from one piece of markup. Inside .map,
+       "below the map" is still inside the map. -->
+  <div class="map-shell" data-od-id="map-shell">
   <div class="data-frame map map--hero" data-od-id="map">
       <button type="button" class="map__full" data-od-id="map-fullscreen" aria-pressed="false">
         <svg class="map__full-ico map__full-ico--in" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
@@ -120,13 +124,13 @@
          the 926:382 fit and the legend — not the map canvas (§5.2). -->
     <div class="map-canvas" data-i18n="map.canvas">Картата на страната се показва тук в приложението</div>
   </div>
-
-  <div class="frame">
-    <!-- The bands, their edges and their colours are the served scale
-         (/api/v1/scales), captured in airbg-snapshot.json. The swatches reuse
-         .chip__swatch--eaqi[data-band] rather than restating the hexes: one
-         copy of the ramp, not two (§2.1). -->
-    <div class="scale scale--named scale--vertical" data-od-id="map-legend">
+    <!-- The key sits ON the map, bottom-left, not under it. A colour scale
+         the reader has to look away from is a key they read from memory —
+         and the map is full-bleed, so "under it" was a long saccade. Bottom
+         LEFT because MapLibre puts its attribution bottom-right; the two
+         would have shared a corner. Over Greece and North Macedonia, which
+         are context and carry no reading (§5.2), so it covers no data. -->
+    <div class="scale scale--named scale--vertical scale--onmap" data-od-id="map-legend">
       <!-- Composed at runtime from the current metric (§5.12: one string, one
            owner), so no data-i18n key here. The ranges below are rewritten from
            the served bands too — the PM10 edges are not the PM2.5 edges. -->
@@ -174,8 +178,15 @@
       <p class="scale__none">
         <span class="chip chip--none" data-i18n="legend.none"><span class="chip__swatch"></span>няма скорошни данни</span>
       </p>
-      <p class="legend__tier" data-i18n="map.tier">Всяка област е оцветена по текущата си средна стойност — последното отчитане от сензорите в нея, не осреднено за час или ден. Приближете в приложението за градски агрегати и още веднъж за отделни сензори.</p>
     </div>
+  </div>
+
+  <div class="frame">
+    <!-- The bands, their edges and their colours are the served scale
+         (/api/v1/scales), captured in airbg-snapshot.json. The swatches reuse
+         .chip__swatch--eaqi[data-band] rather than restating the hexes: one
+         copy of the ramp, not two (§2.1). -->
+    <p class="legend__tier" data-i18n="map.tier">Всяка област е оцветена по текущата си средна стойност — последното отчитане от сензорите в нея, не осреднено за час или ден. Приближете в приложението за градски агрегати и още веднъж за отделни сензори.</p>
 
     <p class="data-refresh" data-od-id="data-refresh">
       <span class="data-refresh__status" role="status" data-od-id="refresh-status"></span>
@@ -202,20 +213,20 @@
     <p class="attribution" data-od-id="attribution" hidden></p>
   </div>
 </footer>
-<script src="origins.js?v=29"></script>
-<script src="i18n.js?v=29"></script>
-<script src="oblast-link.js?v=29"></script>
-<script src="airbg-data.js?v=29"></script>
-<script src="masthead.js?v=29"></script>
-<script src="map-provinces.js?v=29"></script>
-<script src="theme.js?v=29"></script>
-<script src="map-fullscreen.js?v=29"></script>
-<script src="map-metric.js?v=29"></script>
-<script src="../../assets/vendor/pmtiles.js?v=29"></script>
-<script src="map-render.js?v=29"></script>
-<script src="map-tiles.js?v=29"></script>
-<script src="map-layers.js?v=29"></script>
-<script src="map-zoom.js?v=29"></script>
-<script src="map-pan.js?v=29"></script>
+<script src="origins.js?v=30"></script>
+<script src="i18n.js?v=30"></script>
+<script src="oblast-link.js?v=30"></script>
+<script src="airbg-data.js?v=30"></script>
+<script src="masthead.js?v=30"></script>
+<script src="map-provinces.js?v=30"></script>
+<script src="theme.js?v=30"></script>
+<script src="map-fullscreen.js?v=30"></script>
+<script src="map-metric.js?v=30"></script>
+<script src="../../assets/vendor/pmtiles.js?v=30"></script>
+<script src="map-render.js?v=30"></script>
+<script src="map-tiles.js?v=30"></script>
+<script src="map-layers.js?v=30"></script>
+<script src="map-zoom.js?v=30"></script>
+<script src="map-pan.js?v=30"></script>
 </body>
 </html>

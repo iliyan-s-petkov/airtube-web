@@ -133,7 +133,11 @@ body {
      colours they are already looking at. So the viewport budget covers the
      masthead, the page head, the toolbar AND the legend, and the map takes
      what is left. Measured against the real screens, not guessed. */
-  --map-reserve: 30rem;   /* 272px of chrome above + 170px of legend + slack */
+  /* The legend moved ONTO the map, so the reserve no longer holds room for
+     it: 272px of chrome above plus slack, and nothing for a key that is no
+     longer below the frame. Leaving 30rem here would have kept the map
+     short to protect something that had moved. */
+  --map-reserve: 19rem;   /* 272px of chrome above + slack */
   --map-budget: min(var(--map-cap), calc(100svh - var(--map-reserve)));
 
   /* The fit is a ratio, so a short viewport is paid for in WIDTH, never in
@@ -142,7 +146,9 @@ body {
      normal-height desktop the budget does not bind and the band stays full
      width; only a short window pulls the edges in. */
   inline-size: 100%;
-  max-inline-size: calc(var(--map-budget) * 926 / 382);
+  /* The shell already caps this; the map fills it. Capping in both places is
+     two owners for one width. */
+  max-inline-size: 100%;
   margin-inline: auto;
   aspect-ratio: 926 / 382;
   block-size: auto;
@@ -152,7 +158,7 @@ body {
 @media (max-width: 1056px) {
   /* Portrait phones: the width-derived fit already dominates, and the reserve
      is smaller because the toolbar and legend stack. */
-  .map--hero { --map-cap: 52vh; --map-reserve: 26rem; }
+  .map--hero { --map-cap: 52vh; --map-reserve: 26rem; }  /* phone: the scale is below the frame again, so its room is still reserved */
 }
 
 /* The hover readout genuinely floats — the legitimate shadow case (§4.4). */
@@ -1398,4 +1404,65 @@ body.has-faux-full { overflow: hidden; }
  * the same names the original rule existed to avoid fitting. Verified at 390:
  * no horizontal scroll. */
 .scale--vertical { max-inline-size: 100%; }
+
+/* ---- The scale, on the map (§5.2d) ----------------------------------------
+ * Anchored bottom-left with one inset on every side, fully inside the frame.
+ * Bottom LEFT rather than right because MapLibre's attribution control sits
+ * bottom-right and the two would have shared a corner; over Greece and North
+ * Macedonia it also covers context rather than a reading (§5.2).
+ *
+ * This is one of the sanctioned floating cases (§4.4): it genuinely sits above
+ * the map, so it takes a background and a shadow. Solid, not translucent — a
+ * frosted panel over a choropleth tints the six served colours showing through
+ * it, which is the re-tint §2.1 forbids, and the swatches are the one thing
+ * here that must be exact. */
+/* The shell is the positioning context, not the map: on a phone the key has to
+ * sit BELOW the map, and inside .map that is still inside the map.
+ *
+ * It carries the SAME width cap as the map, because a short viewport is paid
+ * for in width (§5.2) — the map narrows and centres. A full-width shell then
+ * anchors the overlay 16px from the SHELL while the map's own edge is 95px
+ * further in, and the key hangs off the map. Measured at 1024: inset -79px
+ * before this, +16 after. The cap is the same expression, not a copy of the
+ * number, so the two cannot drift. */
+.map-shell {
+  position: relative;
+  max-inline-size: calc(var(--map-budget, 100vw) * 926 / 382);
+  margin-inline: auto;
+}
+
+.scale--onmap {
+  position: absolute;
+  inset-block-end: 16px;
+  inset-inline-start: 16px;
+  z-index: 2;
+  margin: 0;
+  padding: 12px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .12);
+  /* Never taller than the frame it floats in. The map can be short (a laptop
+     in a small window, or the resize handle dragged down), and a key that
+     overflows its own map is worse than one that scrolls. */
+  max-block-size: calc(100% - 32px);
+  overflow: auto;
+  /* The map underneath still pans and zooms; only the panel takes the pointer. */
+  pointer-events: auto;
+}
+/* The map is grabbable (§5.2b), so the cursor must not read as "drag" while
+   the pointer is over a panel that does not drag. */
+.scale--onmap { cursor: default; }
+
+/* On a phone the map is short and the panel would cover most of it, so the
+   scale returns to its old place below the frame. Same markup, no overlay. */
+@media (max-width: 672px) {
+  .scale--onmap {
+    position: static;
+    max-block-size: none;
+    margin-block-start: 16px;
+    box-shadow: none;
+    border-inline: 0;
+    border-block-end: 0;
+    padding-inline: 0;
+  }
 }
