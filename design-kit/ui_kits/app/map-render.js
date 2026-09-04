@@ -1021,6 +1021,11 @@
         if (drawnHex) {
           svg.appendChild(hl);
           frame.setAttribute('data-hexes', drawnHex + '/' + thinHex + '/' + foreignHex);
+        /* Which envelope drew this, and at what bin. A check that asserts on
+         * hex counts alone passes identically against the snapshot and the
+         * served data — that is exactly how the live path went unverified. */
+        frame.setAttribute('data-hex-source', (hexes.live ? 'live' : 'snapshot') +
+                                              '@' + hexes.bin_km + 'km');
         }
       }
 
@@ -1753,11 +1758,22 @@
        * its own bin_km, so the two grids can never be mistaken for each other. */
       (function () {
         var api = (window.AIRBG_ORIGINS && window.AIRBG_ORIGINS.api) || '';
-        function local() {
+        /* The snapshot is a legitimate offline fallback (§5.3a) — but it is a
+         * DIFFERENT ENVELOPE from the served one, at a different bin size, and
+         * swapping to it silently is how a live-path defect shipped: off
+         * loopback the cross-origin fetch always fails, so every local run
+         * verified the fallback and never the code the reader actually gets.
+         * Say which source is on screen, loudly, and record it on the frame so
+         * a harness can assert on it. */
+        function local(why) {
+          if (why) console.warn('map-render: hexes fell back to the bundled ' +
+                                'snapshot — ' + why + '. This is NOT the live ' +
+                                'envelope; the served one carries no lat_ref ' +
+                                'or window and a different bin size.');
           return fetch('../../assets/bg-hexes.json').then(function (r) { return r.json(); })
             .then(function (a) { a.live = false; return a; });
         }
-        if (!api) return local().catch(function () { return null; });
+        if (!api) return local('no API origin configured').catch(function () { return null; });
         return fetch(api + 'hexes').then(function (r) {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
@@ -1808,7 +1824,9 @@
               return h.P1 !== 1999.9 && h.P2 !== 999.9;
             })
           };
-        }).catch(local).catch(function () { return null; })
+        }).catch(function (e) {
+          return local((e && e.message) || 'the live fetch failed');
+        }).catch(function () { return null; })
       })()
     ]);
     return cache.p;
