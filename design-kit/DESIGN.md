@@ -1559,7 +1559,30 @@ archive name has not moved; `Noto Sans Regular` answers on both the Latin
 which is what makes the first two results mean anything rather than being a
 probe that says yes to everything.
 
-**What is still unverified, and it is the last step: a human seeing a dot.**
+**RESOLVED — the deployed page was loaded in a browser and the tiles mount.**
+`https://airbg.org/design-kit/ui_kits/app/map-home.html`: `data-basemap="tiles"`,
+a MapLibre canvas in the document, `© OpenStreetMap contributors` in the
+attribution control, the layer control offered, and **zero console errors or
+warnings**. The client-certificate refusal below is no longer in force.
+
+**Feature counts are not reachable on production, and that is the design, not a
+gap.** `window.AIRBG_TILEMAP` is published only where `origins.js` permits an
+override, so airbg.org gains no debugging global — which also means
+`queryRenderedFeatures` cannot be called there. The counts come from loopback
+instead, running the same committed files against the same archive: at Младост
+z15.4, **152 POI features**, dropping to **112** when *Магазини и заведения* is
+unticked with `poi-shop` and `poi-shop-name` both at `visibility: none`, and back
+to 152 on re-tick; transport 93, health 9, education 10, roads 185, 29 style
+layers. **The trade is that the surface readers actually use is the one that can
+be measured least**, and it is taken deliberately: a production global that
+exists only for diagnosis is a permanent cost for an occasional benefit.
+
+**`rebase()` was verified against a proxy that rewrites nothing**, so the kit had
+to repoint the archive and the glyphs itself — both came back on the loopback
+origin. That is the check that distinguishes the fix from the workaround it
+replaced.
+
+**The remaining unverified step, stated plainly:**
 `airbg.org` answers `ERR_BAD_SSL_CLIENT_AUTH_CERT` — the origin requires a
 client certificate (`client_auth`, `require_and_verify`) while the tile host is
 DNS-only and deliberately does not. Every input to the render is confirmed
