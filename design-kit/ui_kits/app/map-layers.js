@@ -44,6 +44,40 @@
     'poi-education', 'poi-health', 'poi-shop', 'poi-transport', 'poi-other'
   ];
 
+  /* ---- View toggles ---------------------------------------------------
+   * Asked for a Google-Maps-style switcher. Two of the three things wanted are
+   * not basemap categories at all — they are what the SCREEN shows — so they
+   * live in their own group above the layer list rather than being smuggled in
+   * beside "Магазини" as if they were one more kind of POI.
+   *
+   * `basemap` hides every tile layer at once, which leaves the readings and the
+   * plain shapes over an empty ground. It is deliberately NOT a stand-down:
+   * map-tiles.js still owns whether a camera exists, the camera still projects,
+   * and the hexes do not move. Hiding what the basemap paints and tearing the
+   * basemap down are different things, and only the first is reversible in one
+   * click.
+   *
+   * `legend` toggles the scale. The scale is a <details> and already folds, so
+   * this is the second way to reach the same state — which is fine: the fold is
+   * at the reader's hand on the map, this is where someone goes looking for a
+   * switch. Both write the same `open` property, so there is still one record
+   * of the state. */
+  var VIEW = [
+    { id: 'legend', on: function (yes) {
+        document.querySelectorAll('[data-od-id="map-legend"]').forEach(function (el) {
+          /* hidden, not display:none in a class — the reset already makes
+           * [hidden] win, and one attribute is one record of the state. */
+          el.hidden = !yes;
+        });
+      } },
+    { id: 'basemap', needsMap: true, on: function (yes, map) {
+        if (!map) return;
+        map.getStyle().layers.forEach(function (l) {
+          map.setLayoutProperty(l.id, 'visibility', yes ? 'visible' : 'none');
+        });
+      } }
+  ];
+
   function t(key, fallback) {
     var s = window.AIRBG_T ? window.AIRBG_T(key) : key;
     return (s && s !== key) ? s : fallback;
@@ -103,6 +137,30 @@
       list.querySelectorAll('.colmenu__opt').forEach(function (n) { n.remove(); });
 
       var state = stored();
+
+      /* View toggles first: they are about the screen, and they work whether or
+       * not a tile camera exists. A toggle that needs the map is simply not
+       * offered without one — an inert checkbox is the dead control this file's
+       * own header warns about. */
+      VIEW.forEach(function (v) {
+        if (v.needsMap && !map) return;
+        var label = document.createElement('label');
+        label.className = 'colmenu__opt colmenu__opt--view';
+        var input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = state['view:' + v.id] !== false;
+        input.setAttribute('data-view-toggle', v.id);
+        var span = document.createElement('span');
+        span.textContent = t('view.' + v.id, v.id);
+        label.appendChild(input); label.appendChild(span);
+        list.appendChild(label);
+        input.addEventListener('change', function () {
+          var st = stored(); st['view:' + v.id] = input.checked; store(st);
+          v.on(input.checked, map);
+        });
+        v.on(input.checked, map);
+      });
+
       groups.forEach(function (g) {
         var label = document.createElement('label');
         label.className = 'colmenu__opt';
@@ -133,9 +191,13 @@
     document.addEventListener('airbg:basemapchange', function (e) {
       var d = e.detail || {};
       if (d.state !== 'tiles' || !d.map) {
+        /* No camera: the layer categories genuinely have nothing to switch, but
+         * the view toggles still do. So the control stays — it just offers
+         * less. The old rule hid the whole disclosure here, which was right
+         * when this was only a layer menu and became wrong the moment it also
+         * carried the legend switch. */
         map = null;
-        root.hidden = true;
-        open(false);
+        render();
         return;
       }
       map = d.map;
