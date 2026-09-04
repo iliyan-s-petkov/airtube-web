@@ -163,8 +163,11 @@
 
   function paintStamp(data) {
     var when = stamp(data.generated_at);
+    /* Whether the page is refreshing itself is part of "how fresh is this",
+     * so it belongs in the same line rather than in a tooltip nobody opens. */
+    var auto = (typeof autoOn !== 'undefined' && autoOn) ? ' · ' + t('refresh.auto') : '';
     document.querySelectorAll('[data-od-id="refresh-status"]').forEach(function (el) {
-      el.textContent = t(data.live ? 'refresh.live' : 'refresh.local', { when: when });
+      el.textContent = t(data.live ? 'refresh.live' : 'refresh.local', { when: when }) + auto;
     });
     document.querySelectorAll('[data-i18n="foot.updated"]').forEach(function (el) {
       el.textContent = t('foot.updatedAt', { when: when });
@@ -223,14 +226,80 @@
     }).catch(function () {
       // No CORS header, offline, or opened from file:// — say so and show the
       // bundled copy rather than an empty screen.
-      return snapshot().then(function (d) {
-        publish(d);
-        document.querySelectorAll('[data-od-id="refresh-status"]').forEach(function (el) {
-          el.textContent = t('refresh.local', { when: stamp(d.generated_at) });
-        });
-      });
+      /* `publish` calls paintStamp, which already composes this line from
+       * data.live plus the auto-refresh state. Writing it again here made two
+       * owners for one string and the second one won — so the "refreshing
+       * automatically" half was composed and then immediately overwritten.
+       * Same defect as the area intro (§5.12): whatever composes a string at
+       * runtime owns it, and nothing else writes it. */
+      return snapshot().then(publish);
     }).then(function () { busy(false); });
   }
+
+  /* ---- Auto-refresh -------------------------------------------------------
+   * §5.3a said "nothing on a timer", and the reasons it gave were real: figures
+   * that move while a reader is comparing them, and a reload that throws away
+   * the sort, the filter or the pan they had set. Requested anyway, so what
+   * follows honours those reasons instead of ignoring them — a timer that
+   * cannot fire while the reader is using the page.
+   *
+   * It never rebuilds anything. `publish()` fires `airbg:datachange` and the
+   * renderer re-reads its view off the frame's own attributes, so pan, zoom,
+   * framing, metric, language and the layer choices all survive a refresh —
+   * that was already true for the manual button and is what makes a timer
+   * safe here at all. */
+  var AUTO_MS = 300000;          /* the upstream feed's own 5-minute cadence:
+                                  * polling faster asks the same question again
+                                  * before the answer can have changed. */
+  var autoOn = true, autoTimer = null, held = false;
+
+  function autoAllowed() {
+    /* Four gates, each closing a way this could interrupt someone.        */
+    if (!autoOn) return false;
+    if (document.hidden) return false;               /* nobody is looking   */
+    if (held) return false;                          /* pointer is down on the map */
+    /* An open disclosure — the layer menu, the language picker, a combobox
+     * listbox — means the reader is mid-decision. A repaint under an open
+     * menu is the "changing the view under the cursor" defect (§5.4). */
+    if (document.querySelector('[aria-expanded="true"]')) return false;
+    /* Text selected on the page is someone reading a number closely. */
+    var sel = window.getSelection && window.getSelection();
+    if (sel && String(sel).trim().length > 2) return false;
+    return true;
+  }
+
+  function schedule() {
+    if (autoTimer) clearTimeout(autoTimer);
+    autoTimer = setTimeout(function () {
+      /* A blocked tick is deferred, never skipped: the reader who was holding
+       * the map still gets fresh data, just not mid-gesture. */
+      if (autoAllowed()) load(false).then(schedule); else schedule();
+    }, AUTO_MS);
+  }
+
+  /* A drag or a pinch holds the timer off for its duration. Capture phase, on
+   * the document, because the pointer may leave the canvas mid-gesture. */
+  document.addEventListener('pointerdown', function () { held = true; }, true);
+  document.addEventListener('pointerup', function () { held = false; }, true);
+  document.addEventListener('pointercancel', function () { held = false; }, true);
+  /* Coming back to a backgrounded tab is exactly when the data is most stale,
+   * so the return is a refresh rather than a wait for the next tick. */
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && autoOn) { if (autoAllowed()) load(false); schedule(); }
+  });
+
+  /* The reader can switch it off, and the switch states which it is. A timer
+   * with no way to stop it is the control this system keeps refusing to ship:
+   * the way back is part of the control (§5.2a, §5.4). */
+  document.addEventListener('change', function (e) {
+    var c = e.target.closest && e.target.closest('[data-od-id="auto-refresh"]');
+    if (!c) return;
+    autoOn = !!c.checked;
+    if (autoOn) schedule();
+    else if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+    if (window.AIRBG_DATA) paintStamp(window.AIRBG_DATA);
+  });
+  window.AIRBG_AUTOREFRESH = function () { return { on: autoOn, ms: AUTO_MS, held: held }; };
 
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-od-id="refresh"]');
@@ -248,5 +317,11 @@
   });
 
   // Snapshot first so the screen is never empty, then upgrade if the API answers.
-  snapshot().then(publish).catch(function () {}).then(function () { load(false); });
+  snapshot().then(publish).catch(function () {}).then(function () { load(false); })
+    /* Scheduled only once the page actually has data: a timer started at
+     * parse time would fire against an empty screen. It also has to live
+     * INSIDE this closure — the first version sat after the IIFE, so
+     * `schedule` was undefined and the timer never started at all, while
+     * the switch, the gates and AIRBG_AUTOREFRESH all worked perfectly. */
+    .then(schedule);
 })();

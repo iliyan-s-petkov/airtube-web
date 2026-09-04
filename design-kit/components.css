@@ -1331,3 +1331,9 @@ body.has-faux-full { overflow: hidden; }
 /* Only a hex with no served band lands here, so this is the one rule allowed
  * to set a fill — nothing has to lose a cascade fight to reach it. */
 .map-hex--none { fill: var(--surface-2); fill-opacity: 0.35; }
+/* The auto-refresh switch sits with the status it qualifies, not with the
+ * button: the button is the action, these two together are the answer to
+ * "how fresh is this, and is it staying fresh". */
+.data-refresh__auto { display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px; letter-spacing: 0.32px; color: var(--fg-2); cursor: pointer; }
+.data-refresh__auto input { inline-size: 16px; block-size: 16px; accent-color: var(--accent); }
