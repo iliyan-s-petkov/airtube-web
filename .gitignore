@@ -26,4 +26,6 @@ web/blob-report/
 node_modules/
 .playwright-mcp/
 audit-home-full.png
+sofia-poi-zoom.png
 node-compile-cache/
+.claude-flow/
