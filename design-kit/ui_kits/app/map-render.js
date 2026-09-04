@@ -972,6 +972,13 @@
         var pxPerKm = Math.abs(X(hcx + 1 / kmDeg) - X(hcx));
         var hr = hexes.bin_km * pxPerKm;
         var drawnHex = 0, thinHex = 0, foreignHex = 0;
+        /* An optional layer must fail as an optional layer. A missing or
+         * malformed lat_ref/bin_km makes hr NaN, and NaN passed to the
+         * projection throws — which took the ENTIRE map down in production,
+         * basemap and provinces with it, because one field was absent from one
+         * envelope. isFinite here keeps that blast radius inside the layer that
+         * caused it. */
+        if (!isFinite(hr)) hr = 0;
         if (hr >= 3) {                       /* below this a hex is a speck */
           hexes.hexes.forEach(function (h) {
             var v = (metric === 'p10') ? h.P1 : h.P2;
@@ -1756,10 +1763,29 @@
           return r.json();
         }).then(function (d) {
           var rows = d.hexes || [];
+          /* The served envelope carries generated_at, resolution_km and the
+           * rows — and nothing else. The bundled snapshot also carries lat_ref
+           * and window, which the draw pass needs to size a hex on screen, so
+           * they have to be MEASURED from the rows here rather than read off an
+           * envelope that never had them. Omitting them is not a missing
+           * decoration: kmDeg goes NaN, the first X() throws on an
+           * (NaN, 0) coordinate, and the whole map dies — not just the hexes. */
+          var lons = rows.map(function (h) { return h.lon; });
+          var lats = rows.map(function (h) { return h.lat; });
+          var win = rows.length ? {
+            lon: [Math.min.apply(null, lons), Math.max.apply(null, lons)],
+            lat: [Math.min.apply(null, lats), Math.max.apply(null, lats)]
+          } : null;
           return {
             live: true,
             bin_km: d.resolution_km,          /* served, never assumed */
             generated_at: d.generated_at,
+            window: win,
+            /* The latitude the bin's width in km was converted at. The middle
+             * of the data's own span, for the same reason the snapshot picks
+             * the middle of its window: a hex sized at 38° is visibly wrong at
+             * 46°, and the error is worst at the edges either way. */
+            lat_ref: win ? (win.lat[0] + win.lat[1]) / 2 : null,
             hexes: rows.map(function (h) {
               var v = h.values || {};
               return {
