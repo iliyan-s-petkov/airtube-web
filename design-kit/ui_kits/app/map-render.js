@@ -142,9 +142,30 @@
    * k may fall to 1/fit: the point at which the province view has scaled all
    * the way down to country scale and the two framings agree. Only there does
    * the mode change, and the picture does not jump when it does. */
+  /* The country fit stopped being the floor when the basemap and the
+   * cross-border readings arrived. It was the right floor while the map was a
+   * Bulgaria-only choropleth: below it there was literally nothing drawn, so
+   * out was correctly disabled at the default view and said so.
+   *
+   * Now the frame already carries the real neighbours, the tile basemap runs
+   * past the border, and the hexes include readings outside Bulgaria — the
+   * question "is it worse on the other side" has an answer on screen. A reader
+   * who opens the home map and presses minus should get to see it.
+   *
+   * 0.55 is not a taste: the context window this map draws is lon 19,5–31,5,
+   * 12° wide, and the country fit spans about 6,6° of it. 6,6/12 = 0,55, so
+   * this is exactly the scale at which the drawn context fills the frame and
+   * not one step further. Past it the map would be Europe with a
+   * Bulgaria-shaped dataset on it, which says nothing. */
+  var CMIN = 0.55;
   function minK(v) {
-    return v.mode === 'province' && v.fit ? Math.min(1, 1 / v.fit) : 1;
+    return v.mode === 'province' && v.fit ? Math.min(CMIN, 1 / v.fit) : CMIN;
   }
+  /* Published so the buttons state the limit they actually have. map-zoom.js
+   * used to compare against a hardcoded 1, which is a second copy of the floor
+   * — and it is what left minus disabled on the default view after the floor
+   * moved. One owner. */
+  window.AIRBG_MAP_MINK = minK;
   function clamp(z, v) { return Math.min(ZMAX, Math.max(v ? minK(v) : ZMIN, z)); }
   function repaint() {
     if (window.AIRBG_DATA) document.dispatchEvent(

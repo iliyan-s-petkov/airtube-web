@@ -193,6 +193,20 @@
         style: style,
         center: [25.4858, 42.7339],               // the country's own centre
         zoom: 6.2,
+        /* The reader can zoom out past Bulgaria, because there is now something
+         * out there: the tile basemap runs past the border and the hexes carry
+         * readings from the neighbours. Out was previously refused at the
+         * country fit, which was right when the map was a Bulgaria-only
+         * choropleth and became wrong the moment it stopped being one.
+         *
+         * 4.5 is where the drawn context window (lon 19,5–31,5, lat 38–46,5)
+         * fills the frame — Bulgaria and every neighbour it shares a border
+         * with. Below that the map is Europe carrying a Bulgaria-shaped
+         * dataset, which answers nothing, and the hexes fall under the 3px
+         * floor and stop drawing anyway. A limit the reader reaches and sees
+         * stated beats one that lets them zoom into an empty answer. */
+        minZoom: 4.5,
+        maxZoom: 17,
         /* Bearing and pitch are LOCKED, and that is load-bearing rather than
          * taste: the SVG overlay projects longitude through X() and latitude
          * through Y() separately, which is exact in Web Mercator only while

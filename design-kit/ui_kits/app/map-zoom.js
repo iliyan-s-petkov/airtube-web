@@ -111,13 +111,47 @@
       // (§5.11). At the country fit there is nothing to zoom out to.
       // Out always does something now: it either scales down or widens the
       // subject to the country. Only the country fit is the true floor.
-      btns.out.disabled = v.mode === 'country' && v.k <= 1;
+      /* Report the limit of the camera these buttons ACTUALLY drive.
+       *
+       * When the vector basemap is mounted the click handler above calls
+       * tm.zoomOut() and returns — AIRBG_MAP_VIEW is never reached, so the SVG
+       * view state stays exactly where it started, at country@1. paint() was
+       * still reading that state, so on the home map minus was disabled at the
+       * default view and stayed disabled forever: a button reporting the floor
+       * of a camera it had stopped driving.
+       *
+       * Two engines, one control (the comment above says so) — but the disabled
+       * state was only ever asking one of them. */
+      var tm = frame.__airbgTileMap;
+      if (tm) {
+        var z = tm.getZoom();
+        btns.out.disabled = z <= tm.getMinZoom() + 1e-6;
+        btns.in.disabled = z >= tm.getMaxZoom() - 1e-6;
+        btns.country.disabled = false;   /* the camera can always be returned */
+        return;
+      }
+      /* Read the floor, never restate it. This compared against a hardcoded 1
+       * and so kept saying "no further" after the renderer's floor moved below
+       * the country fit. */
+      var floor = window.AIRBG_MAP_MINK ? window.AIRBG_MAP_MINK(v) : 1;
+      btns.out.disabled = v.k <= floor + 1e-9;
       btns.in.disabled = v.k >= 8;
       btns.country.disabled = !back;
     }
 
     document.addEventListener('airbg:languagechange', paint);
     document.addEventListener('airbg:viewchange', paint);
+    /* The tile camera moves without firing airbg:viewchange — it is MapLibre's
+     * state, not the renderer's — so the buttons have to hear it directly or
+     * they freeze at whatever they showed on the first paint. */
+    document.addEventListener('airbg:basemapchange', function (e) {
+      var d = e.detail || {};
+      if (d.state === 'tiles' && d.map) {
+        d.map.on('zoomend', paint);
+        d.map.on('moveend', paint);
+      }
+      paint();
+    });
     paint();
   });
 
