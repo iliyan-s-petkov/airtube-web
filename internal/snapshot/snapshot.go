@@ -92,6 +92,12 @@ type Snapshot struct {
 	OverviewCity Body
 	Areas        Body
 
+	// Hexes is the fixed-resolution aggregate grid. Below the area tiers in
+	// detail, not above it: it carries counts and means per bin and no sensor
+	// identity, so it is the one spatial payload safe to serve to a caller who
+	// has named no area at all.
+	Hexes Body
+
 	// AreaSensors is keyed by area slug. Present for every known slug, even
 	// one with no sensors — a missing key must mean "no such area" (404) and
 	// never "this area happens to be empty" (200 with an empty list).

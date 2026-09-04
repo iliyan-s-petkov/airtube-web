@@ -51,6 +51,23 @@ func (d Deps) handleAreas(w http.ResponseWriter, r *http.Request) {
 	serveBody(w, r, snap.Areas, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
 }
 
+// handleHexes serves the aggregate hex grid.
+//
+// Like handleOverview it takes no spatial parameter, and for the same reason —
+// but the constant that matters most here is the resolution. A "resolution"
+// query parameter would turn one endpoint into an unbounded family of them, and
+// a fine enough setting would return the sensor list one bin at a time. The grid
+// is snapshot.HexResolutionKM for everyone, which is also what keeps this
+// response public rather than private: there is nothing per-caller in it.
+func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
+	snap := d.Snapshots.Load()
+	if snap == nil {
+		writeUnavailable(w)
+		return
+	}
+	serveBody(w, r, snap.Hexes, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
+}
+
 type metaBody struct {
 	GeneratedAt         time.Time `json:"generated_at"`
 	CoverageThreshold   int       `json:"coverage_threshold"`

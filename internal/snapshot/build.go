@@ -146,6 +146,13 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	if snap.Areas, err = encode(areaPayloadFrom(now, all)); err != nil {
 		return nil, fmt.Errorf("snapshot: encode areas: %w", err)
 	}
+	// Binned from the sensors already read above, not from a second fetch: the
+	// grid is a different view of the same cycle's readings, and a separate
+	// poller would both double the upstream load and let the two views disagree
+	// about what "now" means.
+	if snap.Hexes, err = encode(hexPayloadFrom(now, sensors)); err != nil {
+		return nil, fmt.Errorf("snapshot: encode hexes: %w", err)
+	}
 
 	// Group sensors by area. A sensor in three nested areas appears in three
 	// entries; that is correct, since each is a separate response.
@@ -287,15 +294,18 @@ func encode(payload any) (Body, error) {
 }
 
 // zeroGeneratedAt returns a copy of the payload with its timestamp cleared, for
-// hashing only. Handled per concrete type rather than by reflection: there are
-// exactly two payload types, and a reflective version would silently stop
-// working the moment a third is added without a matching case.
+// hashing only. Handled per concrete type rather than by reflection: the
+// payload types are few and named here, and a reflective version would silently
+// stop working the moment one is added without a matching case.
 func zeroGeneratedAt(payload any) any {
 	switch p := payload.(type) {
 	case areaPayload:
 		p.GeneratedAt = time.Time{}
 		return p
 	case sensorPayload:
+		p.GeneratedAt = time.Time{}
+		return p
+	case hexPayload:
 		p.GeneratedAt = time.Time{}
 		return p
 	default:

@@ -114,6 +114,7 @@ func NewRouter(d Deps) *http.ServeMux {
 	// Method-qualified patterns, so ServeMux answers 405 for anything else
 	// without a per-handler check.
 	mux.HandleFunc("GET /api/v1/overview", d.handleOverview)
+	mux.HandleFunc("GET /api/v1/hexes", d.handleHexes)
 	mux.HandleFunc("GET /api/v1/areas", d.handleAreas)
 	mux.HandleFunc("GET /api/v1/meta", d.handleMeta)
 	mux.HandleFunc("GET /api/v1/scales", d.handleScales)
