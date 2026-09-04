@@ -44,7 +44,10 @@
  * the worst outcome this system can ship. Fall back visibly, never silently.
  */
 (function () {
-  var STYLE = 'https://tiles.airbg.org/style.json';
+  /* origins.js owns where the backends live, so this file no longer decides
+   * it and no longer makes the kit reviewable only in production (§5.2b). */
+  var TILES = (window.AIRBG_ORIGINS && window.AIRBG_ORIGINS.tiles) || 'https://tiles.airbg.org';
+  var STYLE = TILES + '/style.json';
   var frames = document.querySelectorAll('[data-od-id="map"], [data-od-id="area-map"]');
   if (!frames.length) return;
 

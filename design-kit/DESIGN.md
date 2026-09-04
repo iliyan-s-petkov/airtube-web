@@ -1553,6 +1553,31 @@ and the origin. A local review therefore exercises the fallback and says
 nothing about the tiled path, which is the opposite of what it looks like it is
 doing.
 
+**A constant three files away decided what could be tested, and that is the
+defect.** `map-tiles.js` hardcoded the style URL and `airbg-data.js` hardcoded
+the API host. Both correct in production, and together they made the kit
+reviewable **only** in production: on loopback the style fetch is refused — the
+local CSP omits the tile host and the listener's ACAO names the app origin
+exactly — so the kit falls back to the SVG basemap every time, exactly as
+designed. Correct for the basemap, fatal for anything reachable only over the
+tiled path. That is how the layer control came to be verified in jsdom, verified
+in the style, and never once seen operating a real map.
+
+**`origins.js` owns both, and nothing else decides.** Precedence: authored
+`<body data-tiles-base>` / `data-api-base`, then `?tiles=` / `?api=` **on a
+loopback host only**, then the production constants — byte-identical to what
+shipped before, so a reader on airbg.org is unaffected.
+
+**The query parameter is gated, and the gate is the point.** Ungated,
+`?tiles=https://evil.example` is a link that repoints a reader's map at someone
+else's server. The production CSP would refuse the connection anyway, but **a
+guard that relies on a different system to be correct is not a guard** — so off
+loopback the parameter does not exist. Only `http`/`https` is accepted from
+either channel, and authored markup outranks the query so a served page is
+never steerable by URL. Sixteen checks, and four mutants killed: the loopback
+gate removed, any protocol accepted, the query outranking markup, and the
+default moved.
+
 **The style is a deploy, not a build.** `tools/basemap/style.json` is served
 from `/var/lib/airbg/tiles/style.json`; changing it is a copy and a reload. The
 archive is untouched, so none of the 217 MB is regenerated and `tiles.archive`

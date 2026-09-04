@@ -14,7 +14,8 @@
  * Showing a stale figure while implying it is live would be the §9 defect.
  */
 (function () {
-  var API = 'https://airbg.org/api/v1/';
+  /* Same one owner as the tile origin (origins.js). */
+  var API = (window.AIRBG_ORIGINS && window.AIRBG_ORIGINS.api) || 'https://airbg.org/api/v1/';
   var SNAPSHOT = 'airbg-snapshot.json';
 
   function t(k, v) { return window.AIRBG_T ? window.AIRBG_T(k, v) : k; }
