@@ -1437,18 +1437,22 @@ body.has-faux-full { overflow: hidden; }
   inset-inline-start: 16px;
   z-index: 2;
   margin: 0;
-  padding: 12px 16px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .12);
-  /* Never taller than the frame it floats in. The map can be short (a laptop
-     in a small window, or the resize handle dragged down), and a key that
-     overflows its own map is worse than one that scrolls. */
+  padding: 0;
+  /* NO panel. A box here hides the map it is explaining, and the map is the
+   * thing the reader came for. Legibility instead comes from a halo on the type
+   * — the same device the basemap's own POI labels use, so the two agree — and
+   * from the swatches, which are solid colour and need no help.
+   *
+   * paint-order:stroke draws the outline UNDER the glyph, so the letterform
+   * stays its own weight; a plain stroke would fatten every character. */
+  color: var(--fg);
+  -webkit-text-stroke: 3px var(--bg);
+  paint-order: stroke fill;
   max-block-size: calc(100% - 32px);
-  overflow: auto;
-  /* The map underneath still pans and zooms; only the panel takes the pointer. */
   pointer-events: auto;
+  cursor: default;
 }
+
 /* The map is grabbable (§5.2b), so the cursor must not read as "drag" while
    the pointer is over a panel that does not drag. */
 .scale--onmap { cursor: default; }
@@ -1465,4 +1469,28 @@ body.has-faux-full { overflow: hidden; }
     border-block-end: 0;
     padding-inline: 0;
   }
+}
+
+/* The fold. <details> owns the state, the keyboard and the accessible name, so
+ * nothing else records whether it is open — one owner, as everywhere else here. */
+.scale--onmap .scale__toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; letter-spacing: 0.32px; color: var(--fg);
+  cursor: pointer; list-style: none; padding: 2px 0; margin-block-end: 4px;
+}
+.scale--onmap .scale__toggle::-webkit-details-marker { display: none; }
+/* The marker is drawn, not a character: a glyph beside a translatable label is
+ * something the language swap can write into (§5.12). */
+.scale--onmap .scale__toggle::before {
+  content: ""; inline-size: 0; block-size: 0;
+  border-inline: 4px solid transparent;
+  border-block-start: 5px solid currentColor;
+  transition: transform var(--dur-base) var(--ease-standard);
+}
+.scale--onmap:not([open]) .scale__toggle::before { transform: rotate(-90deg); }
+.scale--onmap .scale__toggle:focus-visible { box-shadow: var(--focus-ring); }
+/* Folded, the control is just its own name — it must not keep the bar's height. */
+.scale--onmap:not([open]) { max-block-size: none; }
+@media (prefers-reduced-motion: reduce) {
+  .scale--onmap .scale__toggle::before { transition: none; }
 }
