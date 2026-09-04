@@ -1299,3 +1299,35 @@ body.has-faux-full { overflow: hidden; }
   paint-order: stroke; stroke: var(--bg); stroke-width: 2.5px; stroke-linejoin: round;
   pointer-events: none;
 }
+
+/* ---- Hexagonal aggregates (§5.2c) -----------------------------------------
+ * NO `fill` rule anywhere in this block, deliberately. The fill is the served
+ * band, set as a presentation attribute on each hex — and a class rule beats a
+ * presentation attribute, so a `fill` here would paint every hex one colour
+ * while the DOM still showed the right value. That exact defect has shipped
+ * twice on this map already. */
+.map-hexes { pointer-events: none; }
+.map-hex {
+  stroke: var(--bg);
+  stroke-width: 0.6;
+  fill-opacity: 0.82;      /* the basemap has to stay legible underneath */
+  pointer-events: auto;
+}
+/* A cell holding one sensor. The reading is real and is drawn at full colour;
+ * what changes is that the cell stops claiming to be settled — a dashed edge
+ * and a smaller footprint say "measured here, once". This is the §2.3 rule
+ * about stating a limit where the value is, not hiding the value. */
+.map-hex--thin {
+  stroke-dasharray: 2 1.6;
+  stroke-width: 0.8;
+  fill-opacity: 0.5;
+}
+/* A foreign hex is real data, not context and not absence — §5.2 keeps those
+ * three apart. It keeps its served colour and takes a quieter edge, so the
+ * subject country still reads as the subject without the neighbour being
+ * demoted to background. */
+.map-hex--foreign { stroke: var(--border); stroke-width: 0.5; }
+.map-hex:hover { stroke: var(--fg); stroke-width: 1.2; }
+/* Only a hex with no served band lands here, so this is the one rule allowed
+ * to set a fill — nothing has to lose a cascade fight to reach it. */
+.map-hex--none { fill: var(--surface-2); fill-opacity: 0.35; }

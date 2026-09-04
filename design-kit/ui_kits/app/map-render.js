@@ -215,7 +215,7 @@
     return (L + 0.05) / 0.05 >= 4.5 ? '#161616' : '#ffffff';
   }
 
-  function ready(outline, provinces, neighbours, rivers, data, roads, streets, districts, quarters) {
+  function ready(outline, provinces, neighbours, rivers, data, roads, streets, districts, quarters, hexes) {
     var ring = outline.ring, i;
     var lat0 = 0;
     for (i = 0; i < ring.length; i++) lat0 += ring[i][1];
@@ -267,6 +267,11 @@
      * the loop, so they cannot close over the loop's own `frame` — the first
      * version did and threw `ReferenceError: frame is not defined` on every
      * tiled draw, which the catch reported as an empty message. */
+    /* Decided once per pass, before the provinces paint: whether the hex
+     * layer has anything to draw. Two layers each deciding this independently
+     * is two layers free to disagree — the seam this file already uses for
+     * the camera and the metric. */
+    var hexesWillDraw = false;
     var curFrame = null;
     function tiled() {
       return !!(window.AIRBG_MAP_PROJECT &&
@@ -471,6 +476,11 @@
        * that wider than 926∶382 crops the country top and bottom while taller
        * is always safe. Below the floor the SVG letterboxes rather than losing
        * Bulgaria, which is the correct direction to fail in. */
+      /* Set before anything paints: the province pass reads it, and the hex
+       * pass below re-derives the same condition. Both must agree or the map
+       * shows a choropleth under hexes, or neither. */
+      hexesWillDraw = !!(hexes && hexes.hexes && hexes.hexes.length && tiled());
+
       var VH = H;
       try {
         var cssH = parseFloat(getComputedStyle(frame).getPropertyValue('--map-view-h'));
@@ -772,7 +782,13 @@
          * threshold above what the surface can actually reach (the district
          * gate at 12, ZMAX at 8, this): set it from the state the page OPENS
          * in, not from the one it can be driven to. */
-        sh.outlineOnly = tiled() &&
+        /* The choropleth yields to the hexes wherever they draw. A province
+         * fill and a hex layer are two answers to one question, and the
+         * province is the weaker of the two: it paints 28 equal-weight
+         * territories from evidence that ranges from 558 sensors to none.
+         * The province keeps its outline, its name and its link — what it
+         * gives up is the claim to a reading across ground nobody measured. */
+        sh.outlineOnly = (tiled() && hexesWillDraw) || tiled() &&
           (view.mode === 'province' || window.AIRBG_MAP_PROJECT.zoom >= 9);
         /* A province is a way into its own page from ANY map, so it is a real
          * `<a>` — focusable, middle-clickable, shown in the status bar on
@@ -829,6 +845,73 @@
        * settled for shapes by size (above); labels are not shapes and must not
        * take part in that ordering at all. */
       var labels = el('g', { class: 'map-labels' });
+      /* ---- Hexagonal aggregates -------------------------------------
+       * The province choropleth paints 28 equal-weight territories from
+       * wildly unequal evidence: София-град carries 558 of the country's
+       * 1055 sensors and seven provinces carry none at all, yet every one
+       * of them is filled one served band. The colour implies a density of
+       * measurement that does not exist.
+       *
+       * A hex is the honest mark at country scale: it covers only where
+       * something was actually measured, and it is an AGGREGATE, so it
+       * neither enumerates a sensor nor invents a reading for empty ground.
+       * Drawn only over the real basemap — on the SVG fallback there is no
+       * OSM underneath and a field of floating hexes explains nothing. */
+      if (hexes && hexes.hexes && tiled()) {
+        var hl = el('g', { class: 'map-hexes' });
+        var hk = window.AIRBG_MAP_PROJECT;
+        /* One hex's radius in screen pixels, measured through the SAME
+         * projection the marks use — never a constant. The bin is a distance
+         * on the ground, so its size on screen is whatever the camera says. */
+        var hcx = hexes.window ? (hexes.window.lon[0] + hexes.window.lon[1]) / 2 : 25.5;
+        var kmDeg = 111.32 * Math.cos(hexes.lat_ref * Math.PI / 180);
+        var pxPerKm = Math.abs(X(hcx + 1 / kmDeg) - X(hcx));
+        var hr = hexes.bin_km * pxPerKm;
+        var drawnHex = 0, thinHex = 0, foreignHex = 0;
+        if (hr >= 3) {                       /* below this a hex is a speck */
+          hexes.hexes.forEach(function (h) {
+            var v = (metric === 'p10') ? h.P1 : h.P2;
+            if (v == null) return;
+            var cx = X(h.lon), cy = Y(h.lat);
+            if (cx < -hr || cy < -hr || cx > W + hr || cy > VH + hr) return;
+            var pts = [];
+            for (var i = 0; i < 6; i++) {
+              var a = Math.PI / 180 * (60 * i);   /* flat-top, as binned */
+              pts.push([cx + hr * Math.cos(a), cy + hr * Math.sin(a)]);
+            }
+            var b = band(v);
+            var cls = 'map-hex';
+            /* A single sensor cannot be cross-checked, and 55 % of cells hold
+             * exactly one. It still carries its reading — that reading is real
+             * — but it says so, rather than looking as settled as a cell built
+             * from thirty. Same rule as a silent province: state the limit
+             * where the value is (§2.3), do not hide the cell. */
+            if (h.thin) { cls += ' map-hex--thin'; thinHex++; }
+            if (h.country !== 'BG') { cls += ' map-hex--foreign'; foreignHex++; }
+            var poly = el('path', { class: cls, d: d(pts) });
+            /* Served colour, so it is an attribute (§2.1) — and the class
+             * rules below must never set `fill`, or the stylesheet wins and
+             * every hex renders one grey. That defect has shipped twice. */
+            /* `colour`, not `color`: the served band uses the British spelling
+             * (§0.2), and `b.color` is silently undefined — which paints every
+             * hex black while the node count and the tooltips all look right. */
+            if (b && b.colour) poly.setAttribute('fill', b.colour);
+            else poly.setAttribute('class', cls + ' map-hex--none');
+            var ti = el('title');
+            ti.textContent = num(v) + ' µg/m³ · ' + (b ? bandName(b) + ' · ' : '') +
+              t(h.thin ? 'hex.tierThin' : 'hex.tier', { n: h.n }) +
+              (h.country !== 'BG' ? ' · ' + h.country : '');
+            poly.appendChild(ti);
+            hl.appendChild(poly);
+            drawnHex++;
+          });
+        }
+        if (drawnHex) {
+          svg.appendChild(hl);
+          frame.setAttribute('data-hexes', drawnHex + '/' + thinHex + '/' + foreignHex);
+        }
+      }
+
       svg.appendChild(labels);
 
       labelOrder.forEach(function (sh) {
@@ -1544,6 +1627,13 @@
        * neither layer above had them: the API publishes no aggregate below
        * район, and the district capture is admin_level=6. */
       fetch('../../assets/bg-quarters.json').then(function (r) { return r.json(); })
+        .catch(function () { return null; }),
+      /* Hexagonal aggregates of the sensor.community feed — the same ODbL
+       * source every reading on this site already comes from. A hex is an
+       * AGGREGATE: no sensor id or coordinate is published, and a 12 km bin is
+       * coarser than the neighbourhood tier the API already serves, so this
+       * does not widen the tier ceiling (§1). Optional like every other layer. */
+      fetch('../../assets/bg-hexes.json').then(function (r) { return r.json(); })
         .catch(function () { return null; })
     ]);
     return cache.p;
@@ -1551,7 +1641,7 @@
 
   function draw(data) {
     if (!data || !data.oblasti || !data.scale_p2_eaqi) return;
-    assets().then(function (v) { ready(v[0], v[1], v[2], v[3], data, v[4], v[5], v[6], v[7]); }).catch(function (e) {
+    assets().then(function (v) { ready(v[0], v[1], v[2], v[3], data, v[4], v[5], v[6], v[7], v[8]); }).catch(function (e) {
       // The placeholder sentence stays: an honest "shown in the app" beats a
       // blank frame.
       /* The stack, not just the message: a DOMException from an SVG attribute
