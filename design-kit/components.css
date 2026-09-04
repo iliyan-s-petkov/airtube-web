@@ -483,7 +483,14 @@ body {
 /* THE VECTOR BASEMAP (path A). The tile canvas fills the frame and the data
    SVG sits over it in screen pixels. Both are inside the frame's own stacking
    context, so neither needs a z-index race. */
-.map-tiles { position: absolute; inset: 0; }
+/* Doubled class, deliberately: the element also carries `.maplibregl-map`, whose
+ * own `position: relative` ties this at (0,1,0) and wins on source order because
+ * the vendor stylesheet loads after this one. Relative meant the container took
+ * its height from content it has none of — 0px, overflow hidden — so the tile
+ * canvas kept a stale 300px inside a zero-height box and the basemap was
+ * invisible while every diagnostic said it had mounted and rendered.
+ * `.map-tiles.map-tiles` is (0,2,0) and cannot lose to a later vendor rule. */
+.map-tiles.map-tiles { position: absolute; inset: 0; }
 .map--tiled .map-canvas, [data-basemap="tiles"] .map-canvas { position: absolute; inset: 0; }
 .map-svg--overlay { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; }
 /* The overlay must not eat the gestures that pan the basemap, so it is
