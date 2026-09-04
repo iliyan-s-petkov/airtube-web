@@ -9,9 +9,8 @@ import (
 	"airbg.org/internal/upstream"
 )
 
-// clampScorer is the committed configuration's shape: P1 pegs above its range,
-// P2 pegs inside it. That asymmetry is the whole reason the check exists, so
-// the fixture has to preserve it rather than tidy it.
+// clampScorer mirrors the committed config: P1 pegs above its range, P2 inside
+// it. The asymmetry is the point — see README.md.
 func clampScorer() *quality.Scorer {
 	return quality.NewScorer(config.Quality{
 		MinNeighbours:         3,
@@ -38,11 +37,8 @@ func clampReading(id int64, metric string, value, lon, lat float64) upstream.Rea
 	}
 }
 
-// TestClampedSentinelIsFlagged is the live defect, measured rather than
-// assumed: on 2026-09-04 the upstream payload for the six enabled countries
-// carried 30 SDS011s reporting exactly P1 1999.9 and P2 999.9, always as a
-// pair, never one without the other. The P2 half sat inside the configured
-// 0–1000 range and so was scored ok.
+// The live defect, measured on the 2026-09-04 payload: 30 pegged SDS011s, and
+// the P2 half scored ok.
 func TestClampedSentinelIsFlagged(t *testing.T) {
 	s := clampScorer()
 	for _, tc := range []struct {
@@ -59,9 +55,8 @@ func TestClampedSentinelIsFlagged(t *testing.T) {
 	}
 }
 
-// TestClampedTakesPrecedenceOverOutOfRange pins the check order. P1's sentinel
-// is out of range too, so without an explicit order the pair would be split
-// across two flags for one physical event.
+// Pins the check order: P1's sentinel is out of range too, so without one the
+// pair splits across two flags.
 func TestClampedTakesPrecedenceOverOutOfRange(t *testing.T) {
 	s := clampScorer()
 	got := s.Score([]upstream.Reading{clampReading(1, "P1", 1999.9, 23.3, 42.7)}, quality.NewHistory(6))
@@ -70,13 +65,9 @@ func TestClampedTakesPrecedenceOverOutOfRange(t *testing.T) {
 	}
 }
 
-// TestNearSentinelValuesAreUntouched is the reason for exact equality. 999.8 is
-// a real, reportable concentration; a range-based sentinel check would discard
-// it along with the peg.
+// The reason for exact equality: 999.8 is a real concentration.
 func TestNearSentinelValuesAreUntouched(t *testing.T) {
 	s := clampScorer()
-	// 1999.8 is out of range on its own merits — the point is that it is not
-	// swallowed by the clamp check, whose flag would say the wrong thing.
 	for _, tc := range []struct {
 		metric string
 		value  float64
@@ -92,20 +83,14 @@ func TestNearSentinelValuesAreUntouched(t *testing.T) {
 	}
 }
 
-// TestSentinelIsExcludedFromTheReferencePopulation is the harm the flag alone
-// does not undo. A pegged sensor was in range for P2, so it entered the median
-// its own neighbours were scored against — one saturated instrument could push
-// a whole neighbourhood's reference up by hundreds of µg/m³.
+// The harm the flag alone does not undo: a pegged sensor was dragging the
+// median its own neighbours were scored against.
 func TestSentinelIsExcludedFromTheReferencePopulation(t *testing.T) {
 	s := clampScorer()
 
-	// Three ordinary neighbours and three pegged ones. The proportion is
-	// constructed, not typical — the sentinels have to carry the median past
-	// the subject for the effect to be visible at all, and a fixture where the
-	// verdict does not change proves nothing about the exclusion.
-	//
-	// Three clean neighbours is also the floor: drop below MinNeighbours and
-	// the subject scores no_neighbours whatever the sentinels do.
+	// Proportion is constructed, not typical: the sentinels must carry the
+	// median past the subject, and three clean neighbours is the MinNeighbours
+	// floor.
 	readings := []upstream.Reading{
 		clampReading(1, "P2", 120, 23.300, 42.700), // subject
 		clampReading(2, "P2", 10, 23.310, 42.700),
@@ -123,17 +108,14 @@ func TestSentinelIsExcludedFromTheReferencePopulation(t *testing.T) {
 			subject = sc.Flag
 		}
 	}
-	// With the sentinels in the population the median lands around 500 and 120
-	// looks ordinary. Without them, 120 against a ~11 neighbourhood is an
-	// outlier. Verified by mutation: dropping the IsClamped term from Score's
-	// reference loop turns this red.
+	// Verified by mutation: dropping the IsClamped term from Score's reference
+	// loop turns this red.
 	if subject != quality.FlagSpatialOutlier {
 		t.Errorf("subject scored %q, want %q — the sentinel is still in the reference median", subject, quality.FlagSpatialOutlier)
 	}
 }
 
-// TestClampedIsNotUsable: the flag has to keep the reading out of aggregates.
-// Flagging it and then averaging it in would be worse than not checking.
+// Flagging a reading and then averaging it in is worse than not checking.
 func TestClampedIsNotUsable(t *testing.T) {
 	if quality.FlagClamped.Usable() {
 		t.Error("FlagClamped.Usable() = true; a saturated reading must not reach an average")

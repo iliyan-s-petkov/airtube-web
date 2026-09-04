@@ -8,9 +8,7 @@ type Flag string
 
 const (
 	FlagOK Flag = "ok"
-	// FlagClamped is an instrument pegged at the top of its own scale, not an
-	// implausible value — separate from out_of_range so an operator can tell
-	// "this sensor is saturated" from "this sensor is broken". See clamp.go.
+	// FlagClamped is saturation, not implausibility. See README.md.
 	FlagClamped    Flag = "clamped"
 	FlagOutOfRange Flag = "out_of_range"
 	FlagStuck          Flag = "stuck"

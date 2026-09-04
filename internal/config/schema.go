@@ -150,9 +150,8 @@ type rawQuality struct {
 	ClampSentinels        *rawClamps `yaml:"clamp_sentinels"`
 }
 
-// rawClamps carries only the two PM metrics, because only the PM instrument
-// has a saturation value. A metric that grows a clamp later needs a field here
-// and a line in resolve.go — deliberately, so the set stays a code fact.
+// rawClamps is a fixed struct for the same reason rawRanges is: only the PM
+// instrument has a saturation value, and that set is a code fact.
 type rawClamps struct {
 	P1 *float64 `yaml:"P1"`
 	P2 *float64 `yaml:"P2"`

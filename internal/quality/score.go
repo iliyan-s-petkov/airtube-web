@@ -43,8 +43,8 @@ func (s *Scorer) Score(readings []upstream.Reading, hist *History) []Scored {
 
 	// The reference population excludes out-of-range values: a sensor reporting
 	// -999 must not drag the neighbourhood median it is being compared against.
-	// Clamp sentinels are excluded for the same reason and are not covered by
-	// the range check — 999.9 is a legal P2 value.
+	// Clamp sentinels are excluded for the same reason; the range check does
+	// not catch them. See README.md.
 	reference := make(map[string][]upstream.Reading, len(byMetric))
 	for metric, group := range byMetric {
 		valid := make([]upstream.Reading, 0, len(group))
@@ -64,9 +64,7 @@ func (s *Scorer) Score(readings []upstream.Reading, hist *History) []Scored {
 }
 
 func (s *Scorer) scoreOne(r upstream.Reading, population []upstream.Reading, hist *History) Flag {
-	// Before the range check: a saturated instrument is a more specific
-	// diagnosis than an implausible number, and only one of the two PM
-	// sentinels would be caught by range at all.
+	// Order is load-bearing; see README.md.
 	if s.IsClamped(r.Metric, r.Value) {
 		return FlagClamped
 	}
@@ -74,9 +72,6 @@ func (s *Scorer) scoreOne(r upstream.Reading, population []upstream.Reading, his
 		return FlagOutOfRange
 	}
 
-	// Not reached by a clamped reading: a sensor pegged for hours is stuck by
-	// any definition, but "clamped" already says why, and feeding the sentinel
-	// to the history would make the stuck check fire on the recovery instead.
 	hist.Observe(r.SensorID, r.Metric, r.Value)
 	if hist.IsStuck(r.SensorID, r.Metric) {
 		return FlagStuck

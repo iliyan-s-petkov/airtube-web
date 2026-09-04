@@ -337,9 +337,8 @@ func (c Config) validateQuality(p *problems) {
 			p.addf("quality.ranges.%s: max (%v) must exceed min (%v)", metric, rng.Max, rng.Min)
 		}
 	}
-	// A sentinel below the range floor could never be reported, and one that
-	// equals the ceiling makes the clamp check and the range check fire on the
-	// same value — the flag would then depend on which ran first.
+	// A sentinel equal to its range ceiling makes the flag depend on check
+	// order. See internal/quality/README.md.
 	for _, metric := range []string{"P1", "P2"} {
 		s := q.ClampSentinels[metric]
 		p.positiveFloat("quality.clamp_sentinels."+metric, s)

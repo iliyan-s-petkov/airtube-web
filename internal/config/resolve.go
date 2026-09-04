@@ -152,9 +152,8 @@ type Quality struct {
 	SmoothFieldFloors map[string]float64
 	// Ranges is keyed by canonical metric name.
 	Ranges map[string]Range
-	// ClampSentinels is keyed by canonical metric name and holds only the
-	// metrics whose instrument pegs at a fixed value. Membership is meaningful:
-	// a metric absent from this map has no sentinel and is never clamp-checked.
+	// ClampSentinels is keyed by canonical metric name. Membership is
+	// meaningful: a metric absent from it is never clamp-checked.
 	ClampSentinels map[string]float64
 }
 

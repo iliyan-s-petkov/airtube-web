@@ -274,8 +274,8 @@ quality:
     noise_LA_max:
       min: 25.0
       max: 120.0
-  # The SDS011's saturation values, matched by exact equality. Not a range
-  # question: 999.9 is a legal P2 value. See internal/quality/clamp.go.
+  # SDS011 saturation values, matched by exact equality. Not a range question.
+  # See internal/quality/README.md.
   clamp_sentinels:
     P1: 1999.9
     P2: 999.9

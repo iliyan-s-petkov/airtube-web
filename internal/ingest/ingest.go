@@ -295,9 +295,6 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 		"rejected_outside_boundary", stats.RejectedOutsideBoundary,
 		"areas_assigned", assigned,
 		"areas_revoked", revoked,
-		// Worth its own field rather than folding into out_of_range: a rising
-		// clamped count is a fleet of saturated instruments, which is an air
-		// quality event, not a data quality one.
 		"clamped", stats.Flagged[quality.FlagClamped],
 		"out_of_range", stats.Flagged[quality.FlagOutOfRange],
 		"stuck", stats.Flagged[quality.FlagStuck],
