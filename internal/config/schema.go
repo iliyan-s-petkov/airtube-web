@@ -15,6 +15,7 @@ type raw struct {
 	RateLimit *rawRateLimit `yaml:"ratelimit"`
 	Cache     *rawCache     `yaml:"cache"`
 	Upstream  *rawUpstream  `yaml:"upstream"`
+	Wind      *rawWind      `yaml:"wind"`
 	Store     *rawStore     `yaml:"store"`
 	Series    *rawSeries    `yaml:"series"`
 	Quality   *rawQuality   `yaml:"quality"`
@@ -111,6 +112,22 @@ type rawUpstream struct {
 	PollInterval    *Duration `yaml:"poll_interval"`
 	MinPollInterval *Duration `yaml:"min_poll_interval"`
 	MaxPayloadBytes *int64    `yaml:"max_payload_bytes"`
+}
+
+// rawWind configures the forecast overlay. Enabled is a key like any other, so
+// an operator turning the layer off still states the provider they are not
+// using rather than deleting the block. See docs/wind-overlay.md.
+type rawWind struct {
+	Enabled         *bool     `yaml:"enabled"`
+	URL             *string   `yaml:"url"`
+	Model           *string   `yaml:"model"`
+	ResolutionDeg   *float64  `yaml:"resolution_deg"`
+	RequestTimeout  *Duration `yaml:"request_timeout"`
+	PollInterval    *Duration `yaml:"poll_interval"`
+	ForecastHours   *int      `yaml:"forecast_hours"`
+	PointsPerReq    *int      `yaml:"points_per_request"`
+	MaxPayloadBytes *int64    `yaml:"max_payload_bytes"`
+	Retention       *Duration `yaml:"retention"`
 }
 
 type rawStore struct {

@@ -47,6 +47,44 @@ type hexEntry struct {
 	Values  map[string]float64 `json:"values"`
 }
 
+// HexGridOf reduces sensor positions to the distinct hexes they fall in, with
+// each hex's centre. It is what the wind collector asks the met model about:
+// the grid exists where the sensors are, so there is no fixed tiling to walk.
+//
+// Deduplicated and ordered by coordinate, because the result becomes a request
+// URL — an unstable order would defeat any caching in front of it and make two
+// identical fetches look different.
+func HexGridOf(sensors []store.SensorReading) []HexCell {
+	seen := make(map[axial]bool, len(sensors))
+	coords := make([]axial, 0, len(sensors))
+	for _, sr := range sensors {
+		c := hexOf(sr.Lon, sr.Lat)
+		if !seen[c] {
+			seen[c] = true
+			coords = append(coords, c)
+		}
+	}
+	sort.Slice(coords, func(i, j int) bool {
+		if coords[i].q != coords[j].q {
+			return coords[i].q < coords[j].q
+		}
+		return coords[i].r < coords[j].r
+	})
+
+	cells := make([]HexCell, 0, len(coords))
+	for _, c := range coords {
+		lon, lat := hexCentre(c)
+		cells = append(cells, HexCell{Q: c.q, R: c.r, Lon: round4(lon), Lat: round4(lat)})
+	}
+	return cells
+}
+
+// HexCell is one grid cell's identity and centre.
+type HexCell struct {
+	Q, R     int
+	Lon, Lat float64
+}
+
 // axial is a hex grid coordinate. Two ints, so it is comparable and usable as a
 // map key — the whole reason for binning in grid space rather than clustering.
 type axial struct{ q, r int }

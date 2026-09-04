@@ -7,6 +7,32 @@ around it or goose splits it on the semicolons inside.
 The reasoning behind a migration lives here, not in the file. Numbers below are
 the ones documented so far.
 
+## 00010 — `wind_forecast`
+
+Storage for the forecast overlay (`docs/wind-overlay.md`). The only table here
+that holds something we did not measure.
+
+**Keyed by axial hex coordinate, not by centre lon/lat.** The centre is derived
+from `snapshot.HexResolutionKM` and `hexRefLat`; change either and every stored
+centre names a different place, silently. The axial pair is the grid's own
+identity and moves only when the grid does.
+
+`resolution_km` is stored on the row anyway, because that move is exactly what
+invalidates the data: rows written at one resolution must be recognisable as
+stale rather than merged with rows written at another.
+
+**Retention is 7 days against a 24-hour forecast horizon.** A superseded
+forecast is not history worth keeping. The margin over the horizon exists so a
+collector that has been down for a day still has rows to serve while it
+catches up, and `config.validateWind` refuses a retention shorter than the
+horizon for the same reason.
+
+There is no foreign key to `sensor` or `area`. A hex is not a stored entity —
+it is computed each cycle from wherever the sensors happen to be — so there is
+nothing to reference. Rows for a hex that no longer has sensors are left to
+retention rather than deleted eagerly; they cost a few bytes and a sensor
+coming back online is common.
+
 ## 00009 — the `clamped` flag
 
 Adds a `quality_flag` enum value for an instrument pegged at the top of its

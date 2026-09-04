@@ -79,5 +79,7 @@
   "unit.noise_LA_max": "dB(A)",
   "unit.noise_LAeq": "dB(A)",
   "unit.pressure": "hPa",
-  "unit.temperature": "°C"
+  "unit.temperature": "°C",
+  "wind.attribution": "Wind forecast · {model} model, {resolution}° grid · valid {time}",
+  "wind.toggle": "Wind"
 }

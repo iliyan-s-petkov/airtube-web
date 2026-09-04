@@ -151,6 +151,22 @@ main > #map, main > #area-map {
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg); cursor: pointer;
 }
 .map-locate:hover { background: var(--surface); }
+/* Stacked above .map-locate, same corner, same chrome. */
+.map-wind {
+  position: absolute; z-index: 1; bottom: 2.75rem; right: var(--space-2);
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg); cursor: pointer;
+}
+.map-wind:hover { background: var(--surface); }
+.map-wind[aria-pressed="true"] { background: var(--surface); border-color: var(--fg-2); }
+/* The forecast disclosure. Never behind a control and never a tooltip: it is
+   the whole reason the layer is allowed on a map of measurements. */
+.map-wind-label {
+  position: absolute; z-index: 1; bottom: 5.25rem; right: var(--space-2); max-width: 18rem;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg-2);
+}
+.map-wind-label[hidden] { display: none; }
 /* Positioned over the map (absolute within #map/#area-map, both position:
    relative above) rather than pushing layout: a click target under the panel
    must stay reachable by panning, not get reflowed off the page. */

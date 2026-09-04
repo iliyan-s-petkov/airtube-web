@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"airbg.org/internal/store"
@@ -152,6 +153,25 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	// about what "now" means.
 	if snap.Hexes, err = encode(hexPayloadFrom(now, sensors)); err != nil {
 		return nil, fmt.Errorf("snapshot: encode hexes: %w", err)
+	}
+
+	// The forecast overlay, read from our own table rather than fetched here:
+	// the met model updates hourly and the ingest cycle runs every five
+	// minutes. A failure is logged and leaves Wind empty rather than failing
+	// the build — the PM map is the site, and an optional layer must not be
+	// able to take it down. See docs/wind-overlay.md.
+	if h.wind.Enabled {
+		vectors, validAt, model, err := s.CurrentWind(ctx, now, HexResolutionKM)
+		switch {
+		case err != nil:
+			slog.Warn("snapshot: wind unavailable", "error", err)
+		case len(vectors) == 0:
+			slog.Warn("snapshot: no wind forecast for the current hour", "valid_at", validAt)
+		default:
+			if snap.Wind, err = encode(windPayloadFrom(now, validAt, model, h.wind.ResolutionDeg, vectors)); err != nil {
+				return nil, fmt.Errorf("snapshot: encode wind: %w", err)
+			}
+		}
 	}
 
 	// Group sensors by area. A sensor in three nested areas appears in three

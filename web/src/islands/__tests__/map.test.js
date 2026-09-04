@@ -244,6 +244,8 @@ describe('readConfig', () => {
         tUnscaled: 'No air-quality scale for this metric',
         tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
         tLocateFailed: 'We could not determine your location.',
+        tWindToggle: 'Wind',
+        tWindAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
         // Neither is rendered any more; toEqual below is what keeps them from
         // reappearing in cfg.t. tLocateOutside went with the unreachable
         // outside-coverage branch (nearestArea has no distance cutoff).
@@ -263,6 +265,8 @@ describe('readConfig', () => {
       unscaled: 'No air-quality scale for this metric',
       locateButton: 'Find me', locateDenied: 'Location access was denied.',
       locateFailed: 'We could not determine your location.',
+      windToggle: 'Wind',
+      windAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
     })
   })
 

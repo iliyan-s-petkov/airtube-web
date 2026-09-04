@@ -23,6 +23,7 @@ import (
 	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
 	"airbg.org/internal/web"
+	"airbg.org/internal/wind"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -78,6 +79,11 @@ func main() {
 		slog.Info("migrations applied")
 
 	case "collect":
+		if cfg.Wind.Enabled {
+			// The wind loop is started alongside the reading loop, on its own
+			// interval, and stops with the same context.
+			go wind.NewCollector(cfg.Wind, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series)).Loop(ctx)
+		}
 		client := upstream.New(cfg.Upstream)
 		ing := ingest.New(client, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series), quality.NewHistory(cfg.Quality.HistoryDepth), quality.NewScorer(cfg.Quality), cfg.Database.StatementTimeouts.Assign, cfg.Upstream.Countries)
 		ing.Loop(ctx, cfg.Upstream.PollInterval)
@@ -209,6 +215,9 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	collectorStore := store.New(collectorPool, cfg.Store, cfg.Database.StatementTimeouts.Series)
 
 	holder := snapshot.NewHolder(cfg.Series)
+	if cfg.Wind.Enabled {
+		holder.SetWind(cfg.Wind)
+	}
 	pub := server.NewPublisher(collectorStore, holder, log)
 
 	cat, err := i18n.LoadWithOverrides(cfg.I18n.Dir)
@@ -271,11 +280,26 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		ing.Loop(pollCtx, cfg.Upstream.PollInterval) // returns when pollCtx is cancelled
 	}()
 
+	// A second, slower loop: the met model publishes hourly, so tying wind to
+	// the five-minute ingest cycle would be twelve requests for one new answer.
+	// It shares the collector pool, not the API pool. See docs/wind-overlay.md.
+	windDone := make(chan struct{})
+	if cfg.Wind.Enabled {
+		wc := wind.NewCollector(cfg.Wind, collectorStore)
+		go func() {
+			defer close(windDone)
+			wc.Loop(pollCtx)
+		}()
+	} else {
+		close(windDone)
+	}
+
 	err = srv.Run(ctx)
 
 	// Stop the poller and wait for it, so the process does not exit with a
 	// half-written cycle in flight.
 	stopPolling()
 	<-polled
+	<-windDone
 	return err
 }

@@ -98,6 +98,11 @@ type Snapshot struct {
 	// has named no area at all.
 	Hexes Body
 
+	// Wind is the forecast overlay, and is the one Body that is legitimately
+	// empty: the layer is optional, its provider is external, and a zero value
+	// means the handler answers 503 rather than drawing a stale field.
+	Wind Body
+
 	// AreaSensors is keyed by area slug. Present for every known slug, even
 	// one with no sensors — a missing key must mean "no such area" (404) and
 	// never "this area happens to be empty" (200 with an empty list).
@@ -138,6 +143,11 @@ type Holder struct {
 	// bucket the database-backed fall-through uses for the same period, or one
 	// chart changes shape depending on whether the snapshot was warm.
 	bucket time.Duration
+
+	// wind is zero until SetWind, and a zero value is a disabled overlay. A
+	// setter rather than a NewHolder argument so the seventeen existing call
+	// sites keep meaning "no wind". See docs/wind-overlay.md.
+	wind config.Wind
 }
 
 // NewHolder takes the series configuration because the snapshot serves the
@@ -156,6 +166,9 @@ func NewHolder(cfg config.Series) *Holder {
 	}
 	return h
 }
+
+// SetWind enables the forecast overlay in subsequent builds.
+func (h *Holder) SetWind(cfg config.Wind) { h.wind = cfg }
 
 // DefaultMetric is the metric of the one series combination Build precomputes.
 // Exported so api.handleAreaSeries can decide, without importing config

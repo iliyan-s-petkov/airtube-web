@@ -67,6 +67,7 @@ func (c Config) Validate() error {
 	c.validateDatabase(&p)
 	c.validateRateLimit(&p)
 	c.validateUpstreamAndCache(&p)
+	c.validateWind(&p)
 	c.validateStoreAndSeries(&p)
 	c.validateQuality(&p)
 	c.validateFrontend(&p)
@@ -248,6 +249,46 @@ func (c Config) validateUpstreamAndCache(p *problems) {
 	// has already been superseded. This was a code comment; here it is checked.
 	if half := c.Upstream.PollInterval / 2; c.Cache.DataMaxAge > half {
 		p.addf("cache.data_max_age (%v) exceeds half of upstream.poll_interval (%v)", c.Cache.DataMaxAge, half)
+	}
+}
+
+// validateWind checks the overlay's settings even when it is disabled, so a
+// block that has rotted while switched off is caught before someone enables it.
+// See docs/wind-overlay.md.
+func (c Config) validateWind(p *problems) {
+	if u, err := url.Parse(c.Wind.URL); err != nil {
+		p.addf("wind.url = %q is not a URL: %v", c.Wind.URL, err)
+	} else if u.Scheme != "https" {
+		// https only, unlike upstream.url: this is a third party the operator
+		// does not run, reached from the collector.
+		p.addf("wind.url = %q must use https", c.Wind.URL)
+	} else if u.Host == "" {
+		p.addf("wind.url = %q must be absolute", c.Wind.URL)
+	} else if u.RawQuery != "" {
+		// The client builds every parameter, including the model. A query
+		// string here would be silently dropped.
+		p.addf("wind.url = %q must carry no query string; the model goes in wind.model", c.Wind.URL)
+	}
+
+	if c.Wind.Model == "" {
+		p.addf("wind.model is empty; it names the model in the overlay's own label, so it cannot be blank")
+	}
+	// The resolution is shown to the user as the grid the arrows are upsampled
+	// from. Wrong here means the map understates how coarse it is.
+	p.positiveFloat("wind.resolution_deg", c.Wind.ResolutionDeg)
+	p.positive("wind.request_timeout", c.Wind.RequestTimeout)
+	p.positive("wind.poll_interval", c.Wind.PollInterval)
+	p.positive("wind.retention", c.Wind.Retention)
+	p.positiveInt("wind.forecast_hours", c.Wind.ForecastHours)
+	p.positiveInt("wind.points_per_request", c.Wind.PointsPerReq)
+
+	if c.Wind.MaxPayloadBytes <= 0 {
+		p.addf("wind.max_payload_bytes must be positive, got %d", c.Wind.MaxPayloadBytes)
+	}
+	// Retention shorter than the forecast would delete rows the overlay is
+	// still serving, which reads as a layer that goes blank at the far end.
+	if h := time.Duration(c.Wind.ForecastHours) * time.Hour; c.Wind.Retention < h {
+		p.addf("wind.retention (%v) is shorter than wind.forecast_hours (%v); stored forecasts would expire while still being served", c.Wind.Retention, h)
 	}
 }
 

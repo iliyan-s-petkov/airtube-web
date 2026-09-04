@@ -162,6 +162,23 @@ upstream:
   # 64 MiB. A response larger than this is a bug or an attack, not data.
   max_payload_bytes: 67108864
 
+# The forecast wind overlay. Not measured — no sensor we ingest has an
+# anemometer. See docs/wind-overlay.md.
+wind:
+  enabled: true
+  url: "https://api.open-meteo.com/v1/forecast"
+  model: "ecmwf_ifs025"
+  # The model's grid, shown on the overlay: coarser than our 15 km hexes, so
+  # neighbouring arrows repeat. Naming it is how the map admits the upsampling.
+  resolution_deg: 0.25
+  request_timeout: "30s"
+  poll_interval: "1h"
+  forecast_hours: 24
+  points_per_request: 100
+  # 16 MiB.
+  max_payload_bytes: 16777216
+  retention: "48h"
+
 store:
   # Minimum sensors before an area gets a value at all. Below it the area is
   # painted "no data" — one sensor must never be presented as an oblast.

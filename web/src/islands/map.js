@@ -15,6 +15,7 @@ import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales } from '../lib/sensors.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { nearestArea } from '../lib/nearest.js'
+import { WIND_SOURCE_ID, WIND_LAYER_ID, windFeatures, windLabel, arrowLayout, arrowPaint } from './wind.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
@@ -63,6 +64,13 @@ export function mount(el) {
   // rules out ("no new request").
   const state = { slug: cfg.slug, tier: null, scales: null, areas: null }
 
+  // The wind overlay's own state, separate from `state` above: it is off by
+  // default and never follows the viewport, the tier, or the metric — one
+  // fetch for the whole country, cached for the page's life, because the
+  // payload is a single forecast hour and does not change while the visitor
+  // pans. See docs/wind-overlay.md.
+  const windState = { on: false, body: null, loading: false }
+
   chrome.locateButton.addEventListener('click', () => locateMe(state, cfg, chrome))
 
   // unsubscribe is assigned inside the 'load' handler (see below) and read by
@@ -100,6 +108,20 @@ export function mount(el) {
       layout: labelLayout(cfg),
       paint: labelPaint(cfg),
     })
+
+    // The wind layer is added empty and hidden at load, not on first toggle:
+    // adding a source and a layer to a live map is the part that can fail, and
+    // failing it here — before any visitor has asked for wind — keeps the
+    // toggle itself down to setData plus a visibility flip.
+    map.addSource(WIND_SOURCE_ID, { type: 'geojson', data: emptyCollection() })
+    map.addLayer({
+      id: WIND_LAYER_ID,
+      type: 'symbol',
+      source: WIND_SOURCE_ID,
+      layout: { ...arrowLayout(), visibility: 'none' },
+      paint: arrowPaint(cfg),
+    })
+    chrome.windButton.addEventListener('click', () => toggleWind(map, cfg, chrome, windState))
 
     // Registered synchronously, right here — after addLayer so setPaintProperty
     // always has a real layer to act on, but deliberately BEFORE awaiting
@@ -163,6 +185,46 @@ export function mount(el) {
   })
 
   return { map, chrome, stop: () => unsubscribe?.() }
+}
+
+// toggleWind is the whole wind control: fetch once, then show or hide.
+//
+// Exported and given an injectable fetch for the same reason initData is —
+// the "no jsdom" rule puts a real MapLibre instance out of reach, so the
+// behaviour that matters (the disclosure appears with the arrows and never
+// without them) is only testable through a fake map and a fake chrome.
+//
+// A failed fetch leaves the layer off rather than raising the map's error
+// banner: /api/v1/wind answers 503 whenever no forecast covers the current
+// hour, which is an ordinary state for an optional overlay, and an error
+// banner is reserved for the data the page actually exists to show.
+export async function toggleWind(map, cfg, chrome, state, fetchJSON = getJSON) {
+  if (state.on) {
+    state.on = false
+    map.setLayoutProperty(WIND_LAYER_ID, 'visibility', 'none')
+    chrome.showWind(false, '')
+    return
+  }
+  // A second click while the first fetch is in flight is dropped, not queued:
+  // getJSON already dedupes the request, but two resolutions would each flip
+  // the layer and the later one could turn on a layer the visitor just asked
+  // to turn off.
+  if (state.loading) return
+  if (!state.body) {
+    state.loading = true
+    try {
+      state.body = await fetchJSON('/api/v1/wind')
+    } catch {
+      chrome.showWind(false, '')
+      return
+    } finally {
+      state.loading = false
+    }
+  }
+  map.getSource(WIND_SOURCE_ID).setData({ type: 'FeatureCollection', features: windFeatures(state.body) })
+  map.setLayoutProperty(WIND_LAYER_ID, 'visibility', 'visible')
+  state.on = true
+  chrome.showWind(true, windLabel(state.body, cfg.t))
 }
 
 // onMetricChange is what runs on every metric switch (and once, explicitly,
@@ -512,6 +574,8 @@ export function readConfig(el) {
       locateButton: d.tLocateButton || '',
       locateDenied: d.tLocateDenied || '',
       locateFailed: d.tLocateFailed || '',
+      windToggle: d.tWindToggle || '',
+      windAttribution: d.tWindAttribution || '',
     },
   }
 }
@@ -769,6 +833,24 @@ function mountChrome(el, cfg) {
   locateButton.textContent = cfg.t.locateButton
   el.appendChild(locateButton)
 
+  // The wind overlay's toggle and its disclosure. aria-pressed, not a checkbox,
+  // because this shows and hides a map layer rather than submitting anything —
+  // and the pressed state is the only thing announcing that the layer is on,
+  // since a screen reader cannot see the arrows. The label is a sibling, not
+  // the button's own text: it must stay visible while the layer is, and a
+  // control's label disappears the moment focus moves on.
+  const windButton = document.createElement('button')
+  windButton.type = 'button'
+  windButton.className = 'map-wind'
+  windButton.setAttribute('aria-pressed', 'false')
+  windButton.textContent = cfg.t.windToggle
+  el.appendChild(windButton)
+
+  const windNote = document.createElement('div')
+  windNote.className = 'map-wind-label'
+  windNote.hidden = true
+  el.appendChild(windNote)
+
   // The precedence rule lives in hintController; this is only the wiring from
   // its decision to the banner. textContent, never innerHTML.
   const hintCtl = hintController((text) => {
@@ -799,5 +881,13 @@ function mountChrome(el, cfg) {
     },
     showLegend,
     locateButton,
+    windButton,
+    // Both halves move together: the disclosure is shown exactly when the
+    // arrows are, so no caller can turn one on without the other.
+    showWind(on, text) {
+      windButton.setAttribute('aria-pressed', String(on))
+      windNote.textContent = on ? text : ''
+      windNote.hidden = !on || !text
+    },
   }
 }

@@ -16,6 +16,7 @@ type Config struct {
 	RateLimit RateLimit
 	Cache     Cache
 	Upstream  Upstream
+	Wind      Wind
 	Store     Store
 	Series    Series
 	Quality   Quality
@@ -108,6 +109,23 @@ type Upstream struct {
 	PollInterval    time.Duration
 	MinPollInterval time.Duration
 	MaxPayloadBytes int64
+}
+
+// Wind configures the forecast overlay. Enabled false means the routes and the
+// collector loop are never constructed. See docs/wind-overlay.md.
+type Wind struct {
+	Enabled bool
+	URL     string
+	// Model and ResolutionDeg are shown to the user, not just used to build
+	// the request: the overlay names the model it is upsampling from.
+	Model           string
+	ResolutionDeg   float64
+	RequestTimeout  time.Duration
+	PollInterval    time.Duration
+	ForecastHours   int
+	PointsPerReq    int
+	MaxPayloadBytes int64
+	Retention       time.Duration
 }
 
 type Store struct {
@@ -313,6 +331,18 @@ func resolve(r *raw) Config {
 			PollInterval:    r.Upstream.PollInterval.Std(),
 			MinPollInterval: r.Upstream.MinPollInterval.Std(),
 			MaxPayloadBytes: *r.Upstream.MaxPayloadBytes,
+		},
+		Wind: Wind{
+			Enabled:         *r.Wind.Enabled,
+			URL:             *r.Wind.URL,
+			Model:           *r.Wind.Model,
+			ResolutionDeg:   *r.Wind.ResolutionDeg,
+			RequestTimeout:  r.Wind.RequestTimeout.Std(),
+			PollInterval:    r.Wind.PollInterval.Std(),
+			ForecastHours:   *r.Wind.ForecastHours,
+			PointsPerReq:    *r.Wind.PointsPerReq,
+			MaxPayloadBytes: *r.Wind.MaxPayloadBytes,
+			Retention:       r.Wind.Retention.Std(),
 		},
 		Store: Store{
 			CoverageThreshold: *r.Store.CoverageThreshold,

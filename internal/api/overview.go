@@ -68,6 +68,21 @@ func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 	serveBody(w, r, snap.Hexes, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
 }
 
+// handleWind serves the forecast overlay.
+//
+// An empty body is 503, not 200 with no vectors: the layer is optional and
+// externally sourced, so "we have no forecast" is a real state, and a client
+// that cannot tell it apart from "the wind is nowhere" would draw a calm map
+// over a windy country. See docs/wind-overlay.md.
+func (d Deps) handleWind(w http.ResponseWriter, r *http.Request) {
+	snap := d.Snapshots.Load()
+	if snap == nil || snap.Wind.JSON == nil {
+		writeUnavailable(w)
+		return
+	}
+	serveBody(w, r, snap.Wind, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
+}
+
 type metaBody struct {
 	GeneratedAt         time.Time `json:"generated_at"`
 	CoverageThreshold   int       `json:"coverage_threshold"`
