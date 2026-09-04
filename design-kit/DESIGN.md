@@ -1519,6 +1519,40 @@ malformed expression or a layer matching nothing renders a **blank map with no
 error**. There is nothing on screen to debug, and no build stands between this
 file and the server.
 
+**The archive stops at z14, and everything above it is overzoom.** Read off
+the PMTiles header on the live server rather than assumed: max zoom **14**, and
+`poi` is present at **z12–14** carrying a `name:bg` field. So the POI gates at
+z14 / z15 / z16 do draw — MapLibre keeps using the z14 tile and scales it — but
+a gate above 14 buys *placement and decluttering, never more detail*. Someone
+setting z18 expecting finer POIs would get exactly what z14 holds. Worth
+stating because it is invisible from the style: nothing in `style.json` says
+where the data runs out.
+
+**Verified against the deployed server, not the repository.** The style really
+is serving 29 layers with all ten POI layers and every `airbg:group`; the
+archive name has not moved; `Noto Sans Regular` answers on both the Latin
+(76 021 B) and Cyrillic (125 058 B) ranges, and a stack nobody serves 404s —
+which is what makes the first two results mean anything rather than being a
+probe that says yes to everything.
+
+**What is still unverified, and it is the last step: a human seeing a dot.**
+`airbg.org` answers `ERR_BAD_SSL_CLIENT_AUTH_CERT` — the origin requires a
+client certificate (`client_auth`, `require_and_verify`) while the tile host is
+DNS-only and deliberately does not. Every input to the render is confirmed
+correct; the render itself is not. **Confirming the inputs is not confirming
+the output**, and this document has recorded enough controls that were correct
+in the DOM and dead on screen to keep those two apart.
+
+**Loopback does not substitute, and finding out why was worth the probe.** Both
+review servers already serve the kit — `:8080` and `:8091` answer 200 on
+`/design-kit/ui_kits/app/map-home.html` — but that route's CSP is
+`connect-src 'self'`, with no tile host. So on loopback the tile request is
+refused by the CSP *before* CORS is consulted, and the kit stands down to the
+SVG basemap exactly as designed. Two independent blocks, not one: the local CSP
+and the origin. A local review therefore exercises the fallback and says
+nothing about the tiled path, which is the opposite of what it looks like it is
+doing.
+
 **The style is a deploy, not a build.** `tools/basemap/style.json` is served
 from `/var/lib/airbg/tiles/style.json`; changing it is a copy and a reload. The
 archive is untouched, so none of the 217 MB is regenerated and `tiles.archive`
