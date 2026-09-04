@@ -74,6 +74,12 @@
   function stand_down(why) {
     if (downed) return;
     downed = true;
+    /* The diagnosis handle must not outlive the map it points at. Left set, it
+     * hands whoever is debugging a blank screen a torn-down map whose
+     * getStyle() still answers happily — the same "state claims live when it
+     * is not" defect this file just fixed, reintroduced by the tool added to
+     * catch it. */
+    window.AIRBG_TILEMAP = null;
     frames.forEach(function (f) {
       f.setAttribute('data-basemap', 'local');
       announce(f, 'local');

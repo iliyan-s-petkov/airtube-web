@@ -1609,6 +1609,55 @@ than waiting for a real tile server to misbehave. Before the fix:
 hidden, and the SVG fallback drawing 28 provinces and 105 labels — which is the
 promise the fallback exists to keep.
 
+**CORRECTION — a screenshot of a WebGL canvas is not evidence, and one was
+treated as evidence here.** The report that "no basemap paints on the kit map"
+was **false**. The MapLibre context runs `preserveDrawingBuffer: false`, so a
+screenshot of that canvas comes back blank whatever the map is doing; at the
+moment of the blank screenshots the map was rendering **247 road features and
+201 POI features** with all 29 style layers loaded. Tiles, style, `origins.js`
+and the kit were all working. **The instrument was the broken part.**
+
+`queryRenderedFeatures()` is the instrument for what a map is drawing.
+Screenshots are fine for the DOM *around* the map and worthless for the canvas
+itself — and a blank canvas screenshot is indistinguishable from a broken map,
+which is the most expensive kind of false negative this project has hit.
+
+**What survives the correction, and what does not.** The latch fix stands: a
+stand-down that a late `load` can undo is a real defect, reproduced
+deterministically, and `console.info` is the wrong level for the one line that
+explains an empty frame. What does **not** stand is any claim that it explains
+the reported blank map — that map was never blank. The hedge written at the
+time ("this does not prove that run failed this way") was the correct reading,
+and it is the reason the fix was not oversold.
+
+**Q4 is closed, measured through the right instrument.** At Младост, z15.4:
+201 POI features with every category ticked; unticking *Магазини и заведения*
+drops to **134**, with `poi-shop` and `poi-shop-name` both flipped to
+`visibility: none`; re-ticking restores 201. Other categories are untouched —
+transport 92, health 12, education 5 — and the choice survives a reload. The
+control drives the map.
+
+**The diagnosis handle must not outlive the map it points at.** After a
+stand-down `window.AIRBG_TILEMAP` was still set, so anyone debugging a blank
+screen would read `getStyle()` off a torn-down map and conclude the layers were
+fine. That is exactly the "state claims live when it is not" defect the latch
+had just fixed, reintroduced by the tool added to catch it. It is nulled in
+`stand_down` now.
+
+**An offline fixture was attempted and abandoned, which is worth recording so
+nobody repeats it.** A hand-built PMTiles archive carrying one z14 tile of
+synthetic POIs would make the tiled path reviewable with no production access
+and no 217 MB download. Two attempts failed the same way — `Expected varint not
+more than 10 bytes` — because the v3 root-directory encoding is not obvious from
+the outside. Worth doing properly with the `pmtiles` library rather than by
+hand; not worth hand-rolling under time pressure, and a broken fixture in the
+repository would be worse than none.
+
+**Two sessions sharing one browser will corrupt each other's measurements.** A
+page navigated itself mid-run because another session drove the same Playwright
+instance. Whoever holds the browser should say so on the ticket before either
+side trusts what it reports.
+
 **The style is a deploy, not a build.** `tools/basemap/style.json` is served
 from `/var/lib/airbg/tiles/style.json`; changing it is a copy and a reload. The
 archive is untouched, so none of the 217 MB is regenerated and `tiles.archive`
