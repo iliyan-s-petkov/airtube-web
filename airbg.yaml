@@ -274,6 +274,11 @@ quality:
     noise_LA_max:
       min: 25.0
       max: 120.0
+  # The SDS011's saturation values, matched by exact equality. Not a range
+  # question: 999.9 is a legal P2 value. See internal/quality/clamp.go.
+  clamp_sentinels:
+    P1: 1999.9
+    P2: 999.9
 
 backfill:
   # A backfill batch that rejects more than this fraction of its rows is

@@ -7,8 +7,12 @@ package quality
 type Flag string
 
 const (
-	FlagOK             Flag = "ok"
-	FlagOutOfRange     Flag = "out_of_range"
+	FlagOK Flag = "ok"
+	// FlagClamped is an instrument pegged at the top of its own scale, not an
+	// implausible value — separate from out_of_range so an operator can tell
+	// "this sensor is saturated" from "this sensor is broken". See clamp.go.
+	FlagClamped    Flag = "clamped"
+	FlagOutOfRange Flag = "out_of_range"
 	FlagStuck          Flag = "stuck"
 	FlagSpatialOutlier Flag = "spatial_outlier"
 	// FlagNoNeighbours records that the spatial check could not run. It is not

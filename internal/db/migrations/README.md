@@ -7,6 +7,24 @@ around it or goose splits it on the semicolons inside.
 The reasoning behind a migration lives here, not in the file. Numbers below are
 the ones documented so far.
 
+## 00009 — the `clamped` flag
+
+Adds a `quality_flag` enum value for an instrument pegged at the top of its
+scale (`internal/quality/clamp.go`). Separate from `out_of_range` because the
+two need different responses: a saturated sensor is working, a broken one is
+not.
+
+**`-- +goose NO TRANSACTION`.** `ALTER TYPE … ADD VALUE` may not be followed by
+a use of the new value in the same transaction. Nothing here uses it, but the
+statement is a single DDL with nothing to be atomic with, so the annotation
+costs nothing and removes the constraint entirely.
+
+**Down does not remove the value.** Postgres has no `DROP VALUE`; undoing it
+means recreating the type and rewriting every `reading` row that references it.
+An unused enum label is inert, so Down instead refuses if any row is actually
+flagged `clamped` — rolling back under the older code would otherwise leave
+rows it cannot decode. The remedy is in the exception message.
+
 ## 00008 — country codes
 
 Supports the widened ingest filter (`docs/ingest-filter.md`): the boundary test

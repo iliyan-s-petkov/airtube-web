@@ -152,6 +152,10 @@ type Quality struct {
 	SmoothFieldFloors map[string]float64
 	// Ranges is keyed by canonical metric name.
 	Ranges map[string]Range
+	// ClampSentinels is keyed by canonical metric name and holds only the
+	// metrics whose instrument pegs at a fixed value. Membership is meaningful:
+	// a metric absent from this map has no sentinel and is never clamp-checked.
+	ClampSentinels map[string]float64
 }
 
 type Range struct {
@@ -342,6 +346,10 @@ func resolve(r *raw) Config {
 				"pressure":     resolveRange(r.Quality.Ranges.Pressure),
 				"noise_LAeq":   resolveRange(r.Quality.Ranges.NoiseLAeq),
 				"noise_LA_max": resolveRange(r.Quality.Ranges.NoiseLAMax),
+			},
+			ClampSentinels: map[string]float64{
+				"P1": *r.Quality.ClampSentinels.P1,
+				"P2": *r.Quality.ClampSentinels.P2,
 			},
 		},
 		Backfill: Backfill{

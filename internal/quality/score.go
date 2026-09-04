@@ -30,7 +30,7 @@ func NewScorer(cfg config.Quality) *Scorer { return &Scorer{cfg: cfg} }
 // the batch rather than against the database: one poll returns every Bulgarian
 // sensor at once, so the neighbourhood is already in hand.
 //
-// Checks run in order and the first failure wins: range, then stuck, then
+// Checks run in order and the first failure wins: clamp, range, stuck, then
 // spatial. Every input reading appears in the output — readings are flagged,
 // never dropped.
 func (s *Scorer) Score(readings []upstream.Reading, hist *History) []Scored {
@@ -43,11 +43,13 @@ func (s *Scorer) Score(readings []upstream.Reading, hist *History) []Scored {
 
 	// The reference population excludes out-of-range values: a sensor reporting
 	// -999 must not drag the neighbourhood median it is being compared against.
+	// Clamp sentinels are excluded for the same reason and are not covered by
+	// the range check — 999.9 is a legal P2 value.
 	reference := make(map[string][]upstream.Reading, len(byMetric))
 	for metric, group := range byMetric {
 		valid := make([]upstream.Reading, 0, len(group))
 		for _, r := range group {
-			if s.InRange(metric, r.Value) {
+			if s.InRange(metric, r.Value) && !s.IsClamped(metric, r.Value) {
 				valid = append(valid, r)
 			}
 		}
@@ -62,10 +64,19 @@ func (s *Scorer) Score(readings []upstream.Reading, hist *History) []Scored {
 }
 
 func (s *Scorer) scoreOne(r upstream.Reading, population []upstream.Reading, hist *History) Flag {
+	// Before the range check: a saturated instrument is a more specific
+	// diagnosis than an implausible number, and only one of the two PM
+	// sentinels would be caught by range at all.
+	if s.IsClamped(r.Metric, r.Value) {
+		return FlagClamped
+	}
 	if !s.InRange(r.Metric, r.Value) {
 		return FlagOutOfRange
 	}
 
+	// Not reached by a clamped reading: a sensor pegged for hours is stuck by
+	// any definition, but "clamped" already says why, and feeding the sentinel
+	// to the history would make the stuck check fire on the recovery instead.
 	hist.Observe(r.SensorID, r.Metric, r.Value)
 	if hist.IsStuck(r.SensorID, r.Metric) {
 		return FlagStuck

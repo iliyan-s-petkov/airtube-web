@@ -147,6 +147,15 @@ type rawQuality struct {
 	PMAbsoluteThreshold   *float64   `yaml:"pm_absolute_threshold"`
 	SmoothFieldFloors     *rawFloors `yaml:"smooth_field_floors"`
 	Ranges                *rawRanges `yaml:"ranges"`
+	ClampSentinels        *rawClamps `yaml:"clamp_sentinels"`
+}
+
+// rawClamps carries only the two PM metrics, because only the PM instrument
+// has a saturation value. A metric that grows a clamp later needs a field here
+// and a line in resolve.go — deliberately, so the set stays a code fact.
+type rawClamps struct {
+	P1 *float64 `yaml:"P1"`
+	P2 *float64 `yaml:"P2"`
 }
 
 // rawFloors is a fixed struct rather than a map[string]float64 for the same
