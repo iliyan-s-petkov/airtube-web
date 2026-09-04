@@ -1337,3 +1337,65 @@ body.has-faux-full { overflow: hidden; }
 .data-refresh__auto { display: inline-flex; align-items: center; gap: 8px;
   font-size: 12px; letter-spacing: 0.32px; color: var(--fg-2); cursor: pointer; }
 .data-refresh__auto input { inline-size: 16px; block-size: 16px; accent-color: var(--accent); }
+
+/* ---- Vertical scale (§5.2d) -----------------------------------------------
+ * The form of the sensor.community legend — one tall bar, ticked, unit at the
+ * base — with two deliberate departures.
+ *
+ * 1. HARD STOPS, not a blend. EAQI is banded; a gradient would show colours
+ *    between #50f0e6 and #50ccaa that the served scale never defines, which is
+ *    the same class of error as re-tinting served data for a theme (§2.1).
+ * Every selector here is scoped under .scale--vertical, not because it reads
+ * nicely but because `.scale--named .scale__bands` is (0,2,0) and a bare
+ * `.scale__bands--vertical` is (0,1,0) — it loses wherever it sits in the
+ * file. Source order only decides a tie.
+ *
+ * 2. The band NAMES stay. The reference drops them, and a colour with no name
+ *    only answers "how bad" relative to itself — the name is the half that says
+ *    what the colour means (§5.2). */
+.scale--vertical { display: grid; grid-template-columns: auto 1fr; gap: 0 16px;
+  align-items: start; }
+.scale--vertical .scale__label { grid-column: 1 / -1; }
+.scale--vertical .scale__bands--vertical {
+  display: flex; flex-direction: column; gap: 0;
+  margin: 0; padding: 0; list-style: none;
+  /* One bar: the segments touch, so it reads as a scale rather than as six
+   * separate chips in a column. */
+  inline-size: max-content;
+}
+.scale--vertical .scale__bands--vertical .scale__band {
+  display: grid; grid-template-columns: 20px auto; gap: 0 12px;
+  align-items: end; position: relative; min-block-size: 34px;
+}
+/* The swatch is the bar. No radius, no gap — §4.3, and touching segments are
+ * what makes six blocks read as one scale. */
+.scale--vertical .scale__bands--vertical .scale__band-swatch {
+  inline-size: 20px; block-size: 100%; min-block-size: 34px;
+  display: block; border-radius: 0; margin: 0;
+}
+.scale--vertical .scale__bands--vertical .scale__band-name {
+  font-size: 12px; letter-spacing: 0.32px; color: var(--fg-2);
+  align-self: center; white-space: nowrap;
+}
+/* The edge number divides the two segments it sits between, so it is aligned
+ * to the boundary rather than centred on either one. Tabular, because a scale
+ * whose numbers shift width as the metric changes is the §3 defect. */
+.scale__band-edge {
+  position: absolute; inset-inline-start: 26px; inset-block-start: -0.6em;
+  font-size: 12px; letter-spacing: 0.32px; color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+.scale__zero { display: block; margin-inline-start: 26px; margin-block-start: -0.6em;
+  font-size: 12px; letter-spacing: 0.32px; color: var(--fg-2);
+  font-variant-numeric: tabular-nums; }
+/* No phone override, and that is the point. §5.2 already established that six
+ * Bulgarian band names cannot share a 343px line — *Изключително лошо* alone is
+ * wider than a sixth of it — which is why the old horizontal bar stood up under
+ * 672px. A vertical bar is ALREADY that layout, so it needs no breakpoint.
+ *
+ * The first attempt added one anyway, flipping back to a row on a phone, and it
+ * put a horizontal scrollbar on the page at 390px: the names it had to fit were
+ * the same names the original rule existed to avoid fitting. Verified at 390:
+ * no horizontal scroll. */
+.scale--vertical { max-inline-size: 100%; }
+}

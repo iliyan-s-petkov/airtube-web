@@ -126,43 +126,51 @@
          (/api/v1/scales), captured in airbg-snapshot.json. The swatches reuse
          .chip__swatch--eaqi[data-band] rather than restating the hexes: one
          copy of the ramp, not two (§2.1). -->
-    <div class="scale scale--named" data-od-id="map-legend">
+    <div class="scale scale--named scale--vertical" data-od-id="map-legend">
       <!-- Composed at runtime from the current metric (§5.12: one string, one
            owner), so no data-i18n key here. The ranges below are rewritten from
            the served bands too — the PM10 edges are not the PM2.5 edges. -->
       <span class="scale__label" data-od-id="legend-unit">ФПЧ2.5, µg/m³</span>
-      <ol class="scale__bands">
+      <!-- Vertical, ticked at the band edges, highest at the top — the form of a
+           continuous scale, but the stops are HARD. EAQI is banded: 12 µg/m³ is
+           squarely Умерено, not a mix of its neighbours, and interpolating would
+           paint colours the served scale does not define (§2.1). The segments are
+           equal height rather than proportional to value, because 0–5 and 50+ on
+           one linear axis makes the bands people actually sit in invisible.
+           The edge numbers sit between the segments they divide. -->
+      <ol class="scale__bands scale__bands--vertical">
         <li class="scale__band">
-          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Добро"></span>
-          <span class="scale__band-name" data-i18n="band.good">Добро</span>
-          <span class="scale__band-range">0–5</span>
-        </li>
-        <li class="scale__band">
-          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Задоволително"></span>
-          <span class="scale__band-name" data-i18n="band.fair">Задоволително</span>
-          <span class="scale__band-range">5–10</span>
-        </li>
-        <li class="scale__band">
-          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Умерено"></span>
-          <span class="scale__band-name" data-i18n="band.moderate">Умерено</span>
-          <span class="scale__band-range">10–20</span>
-        </li>
-        <li class="scale__band">
-          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Лошо"></span>
-          <span class="scale__band-name" data-i18n="band.poor">Лошо</span>
-          <span class="scale__band-range">20–25</span>
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Изключително лошо"></span>
+          <span class="scale__band-name" data-i18n="band.extreme">Изключително лошо</span>
+          <span class="scale__band-edge" aria-hidden="true"></span>
         </li>
         <li class="scale__band">
           <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Много лошо"></span>
           <span class="scale__band-name" data-i18n="band.veryPoor">Много лошо</span>
-          <span class="scale__band-range">25–50</span>
+          <span class="scale__band-edge" aria-hidden="true">50</span>
         </li>
         <li class="scale__band">
-          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Изключително лошо"></span>
-          <span class="scale__band-name" data-i18n="band.extreme">Изключително лошо</span>
-          <span class="scale__band-range">50+</span>
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Лошо"></span>
+          <span class="scale__band-name" data-i18n="band.poor">Лошо</span>
+          <span class="scale__band-edge" aria-hidden="true">25</span>
+        </li>
+        <li class="scale__band">
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Умерено"></span>
+          <span class="scale__band-name" data-i18n="band.moderate">Умерено</span>
+          <span class="scale__band-edge" aria-hidden="true">20</span>
+        </li>
+        <li class="scale__band">
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Задоволително"></span>
+          <span class="scale__band-name" data-i18n="band.fair">Задоволително</span>
+          <span class="scale__band-edge" aria-hidden="true">10</span>
+        </li>
+        <li class="scale__band">
+          <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Добро"></span>
+          <span class="scale__band-name" data-i18n="band.good">Добро</span>
+          <span class="scale__band-edge" aria-hidden="true">5</span>
         </li>
       </ol>
+      <span class="scale__zero" aria-hidden="true">0</span>
       <p class="scale__none">
         <span class="chip chip--none" data-i18n="legend.none"><span class="chip__swatch"></span>няма скорошни данни</span>
       </p>
