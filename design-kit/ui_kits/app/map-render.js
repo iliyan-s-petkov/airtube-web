@@ -1633,8 +1633,52 @@
        * AGGREGATE: no sensor id or coordinate is published, and a 12 km bin is
        * coarser than the neighbourhood tier the API already serves, so this
        * does not widen the tier ceiling (§1). Optional like every other layer. */
-      fetch('../../assets/bg-hexes.json').then(function (r) { return r.json(); })
-        .catch(function () { return null; })
+      /* The SERVER owns the grid now. /api/v1/hexes publishes resolution_km in
+       * its own envelope, so the kit reads the bin size rather than holding a
+       * second copy of it — change the number server-side and the map follows
+       * with no kit release. The bundled asset stays as the offline fallback
+       * (§5.3a: the snapshot is half the design, not a bolt-on), and it carries
+       * its own bin_km, so the two grids can never be mistaken for each other. */
+      (function () {
+        var api = (window.AIRBG_ORIGINS && window.AIRBG_ORIGINS.api) || '';
+        function local() {
+          return fetch('../../assets/bg-hexes.json').then(function (r) { return r.json(); })
+            .then(function (a) { a.live = false; return a; });
+        }
+        if (!api) return local().catch(function () { return null; });
+        return fetch(api + 'hexes').then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        }).then(function (d) {
+          var rows = d.hexes || [];
+          return {
+            live: true,
+            bin_km: d.resolution_km,          /* served, never assumed */
+            generated_at: d.generated_at,
+            hexes: rows.map(function (h) {
+              var v = h.values || {};
+              return {
+                lon: h.lon, lat: h.lat, n: h.n, country: h.country,
+                /* A hex holding one sensor cannot be cross-checked. It keeps its
+                 * real colour and says so (§2.3); it is not hidden. */
+                thin: h.n === 1,
+                P1: v.P1, P2: v.P2
+              };
+            })
+            /* The device clamp, dropped on read until the server drops it at
+             * source. 90 sensors worldwide report P2 at exactly 999.9 and 82
+             * report P1 at exactly 1999.9, across countries at the same moment:
+             * that is the ceiling, not the air. Without this the map paints the
+             * worst band over a village because one device is stuck. Exact
+             * equality only — a real pollution event must still come through.
+             * Remove this when /api/v1/hexes filters it; the comment is here so
+             * the next reader knows it is a duplicate and not a second opinion. */
+            .filter(function (h) {
+              return h.P1 !== 1999.9 && h.P2 !== 999.9;
+            })
+          };
+        }).catch(local).catch(function () { return null; })
+      })()
     ]);
     return cache.p;
   }
