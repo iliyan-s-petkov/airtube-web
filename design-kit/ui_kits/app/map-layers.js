@@ -198,6 +198,13 @@
          * carried the legend switch. */
         map = null;
         render();
+        /* Offered whenever it has anything to offer. Without a camera the layer
+         * categories are empty, but the view toggles are not — and the legend
+         * switch is the one a reader on the SVG fallback is most likely to
+         * want. The previous line here hid the whole disclosure, which silently
+         * made that switch unreachable on exactly the surface that has no other
+         * way to reach it. */
+        root.hidden = !list.querySelector('.colmenu__opt');
         return;
       }
       map = d.map;
@@ -208,7 +215,9 @@
       });
       /* A style whose layers carry no groups yields no options, and a panel of
        * nothing is worse than no panel. */
-      if (!groups.length) { map = null; root.hidden = true; return; }
+      /* Groups can be empty while view toggles are not, so the test is what
+       * the panel actually holds, never the group count alone. */
+      if (!groups.length) { map = null; render(); root.hidden = !list.querySelector('.colmenu__opt'); return; }
       root.hidden = false;
       render();
     });

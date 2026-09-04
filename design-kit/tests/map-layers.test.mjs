@@ -82,16 +82,38 @@ const root = window.document.querySelector('[data-od-id="map-layers"]');
 const btn = root.querySelector('button');
 const panel = root.querySelector('.colmenu__panel');
 
-console.log('\n1. hidden while the SVG basemap draws');
-ok('starts hidden', root.hidden);
+console.log('\n1. what is offered while the SVG basemap draws');
+ok('starts hidden, before anything has reported a basemap', root.hidden);
 window.document.dispatchEvent(new window.CustomEvent('airbg:basemapchange', { detail: { state: 'local' } }));
-ok('stays hidden when tiles stand down', root.hidden);
+/* SUPERSEDED with the rule above it: a stood-down basemap has no layer
+ * categories to switch, but the legend toggle still means something — and this
+ * is the surface with no other way to reach it. What must NOT appear is a
+ * basemap toggle, because there is no map to apply it to. */
+const p1 = window.document.querySelector('.colmenu__panel');
+ok('offered after a stand-down, carrying the view toggles',
+   root.hidden === false && p1.querySelectorAll('[data-view-toggle]').length >= 1);
+ok('no layer categories, because there is no style to read them from',
+   p1.querySelectorAll('[data-layer-group]').length === 0);
+ok('and NO basemap toggle, because there is no map to apply it to',
+   !p1.querySelector('[data-view-toggle="basemap"]'));
 
 console.log('\n2. options are read off the style');
 const map = fakeMap();
 window.document.dispatchEvent(new window.CustomEvent('airbg:basemapchange', { detail: { state: 'tiles', map } }));
 ok('shown once a camera exists', !root.hidden);
-const opts = [...panel.querySelectorAll('.colmenu__opt')];
+/* The panel carries TWO kinds of option now: layer categories, which come from
+ * the style, and view toggles (legend, basemap), which are about what the
+ * screen shows. Everything below is about the LAYER half, so it selects on
+ * [data-layer-group] rather than on every checkbox in the panel.
+ *
+ * That distinction is exactly why nine of these failed when the view toggles
+ * landed: a generic `.colmenu__opt` selector counted 6 where 4 groups exist and
+ * shifted every index by two. The assertions were right; the selector had
+ * stopped meaning what it was written to mean. */
+const layerOpts = (p) =>
+  [...p.querySelectorAll('.colmenu__opt')].filter(o => o.querySelector('[data-layer-group]'));
+
+const opts = layerOpts(panel);
 ok('one option per group, not per layer', opts.length === 4, `got ${opts.length}`);
 ok('ordered base→water→poi', opts.map(o => o.querySelector('input').getAttribute('data-layer-group')).join(',')
    === 'base,water,poi-education,poi-shop');
@@ -110,7 +132,7 @@ console.log('\n4. the choice persists');
 ok('written to localStorage', JSON.parse(window.localStorage.getItem('airbg:map-layers'))['poi-shop'] === false);
 map.calls.length = 0;
 window.document.dispatchEvent(new window.CustomEvent('airbg:basemapchange', { detail: { state: 'tiles', map } }));
-const again = [...panel.querySelectorAll('.colmenu__opt')].map(o => o.querySelector('input').checked);
+const again = layerOpts(panel).map(o => o.querySelector('input').checked);
 ok('restored on the next mount', JSON.stringify(again) === '[true,true,true,false]', JSON.stringify(again));
 ok('and re-applied to the map', map.calls.some(c => c[0] === 'poi-shop' && c[2] === 'none'));
 
@@ -124,12 +146,12 @@ console.log('\n6. a language switch re-renders script-built copy');
 CAT['layers.poi-shop'] = 'Shops and eating places';
 CAT['layers.button'] = 'Layers';
 window.document.dispatchEvent(new window.CustomEvent('airbg:languagechange'));
-const relabelled = [...panel.querySelectorAll('.colmenu__opt')].map(o => o.textContent);
+const relabelled = layerOpts(panel).map(o => o.textContent);
 ok('option relabelled', relabelled[3] === 'Shops and eating places', relabelled[3]);
 ok('button relabelled', btn.textContent === 'Layers', btn.textContent);
 ok('no duplicated options after re-render', relabelled.length === 4, `got ${relabelled.length}`);
 ok('the reader’s choice survives it',
-   [...panel.querySelectorAll('input')][3].checked === false);
+   [...panel.querySelectorAll('[data-layer-group]')][3].checked === false);
 
 console.log('\n7. a group with no string is a visible gap, not a silent one');
 ok('unknown key prints itself', window.AIRBG_T('layers.poi-other') === 'layers.poi-other');
@@ -140,8 +162,50 @@ dom2.window.AIRBG_T = (k) => k;
 dom2.window.eval(src);
 const bare = { getStyle: () => ({ layers: [{ id: 'x' }] }), setLayoutProperty() {} };
 dom2.window.document.dispatchEvent(new dom2.window.CustomEvent('airbg:basemapchange', { detail: { state: 'tiles', map: bare } }));
-ok('stays hidden rather than showing an empty panel',
-   dom2.window.document.querySelector('[data-od-id="map-layers"]').hidden);
+/* SUPERSEDED, deliberately. This asserted the whole disclosure hides when the
+ * style carries no groups, which was right while the panel held only layer
+ * categories. It now also holds the view toggles, and the legend switch is the
+ * one a reader with no basemap most wants — hiding it there makes it
+ * unreachable on exactly the surface with no other route to it. The rule is now
+ * "offered when it has anything to offer". */
+const p2 = dom2.window.document.querySelector('.colmenu__panel');
+ok('offered with no layer groups, because the view toggles remain',
+   dom2.window.document.querySelector('[data-od-id="map-layers"]').hidden === false &&
+   p2.querySelectorAll('[data-view-toggle]').length >= 1 &&
+   p2.querySelectorAll('[data-layer-group]').length === 0);
+ok('the legend toggle is among them',
+   !!p2.querySelector('[data-view-toggle="legend"]'));
+
+
+console.log('\n8. a view toggle drives the map, not just its own checkbox');
+/* This section exists because a mutant survived without it: deleting the change
+ * handler's apply() left every other check passing. A control whose checkbox
+ * moves while the map does not is the dead control this project has shipped
+ * more often than any other defect — and it was untested here. */
+{
+  const m = fakeMap();
+  window.document.dispatchEvent(new window.CustomEvent('airbg:basemapchange',
+    { detail: { state: 'tiles', map: m } }));
+  const panelV = window.document.querySelector('.colmenu__panel');
+  const bm = panelV.querySelector('[data-view-toggle="basemap"]');
+  ok('the basemap toggle is offered once a map exists', !!bm);
+  /* fakeMap records setLayoutProperty rather than implementing a getter, so the
+   * assertion is on what the control ASKED the map to do — which is the right
+   * question anyway: the defect being guarded against is a toggle that asks for
+   * nothing. */
+  const nLayers = m.getStyle().layers.length;
+  m.calls.length = 0;
+  bm.checked = false;
+  bm.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const off = m.calls.filter(c => c[1] === 'visibility' && c[2] === 'none');
+  ok('unticking it hides every tile layer', off.length === nLayers, `got ${off.length}/${nLayers}`);
+
+  m.calls.length = 0;
+  bm.checked = true;
+  bm.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const on = m.calls.filter(c => c[1] === 'visibility' && c[2] === 'visible');
+  ok('re-ticking restores them', on.length === nLayers, `got ${on.length}/${nLayers}`);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
