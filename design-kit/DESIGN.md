@@ -1658,6 +1658,29 @@ page navigated itself mid-run because another session drove the same Playwright
 instance. Whoever holds the browser should say so on the ticket before either
 side trusts what it reports.
 
+**The two override bases are not the same shape, and only one person knew it.**
+The tiles base is an **origin** — the style is fetched from `<base>/style.json`.
+The API base is an **origin plus a path**, because requests are built as
+`<base>areas`, so it has to end in `/api/v1`. A bare origin sends every request
+to `/meta` and `/areas` and 404s them, which is exactly what happened to a
+reviewer. That asymmetry is invisible from the parameter names, so `origins.js`
+now says so at the moment it is got wrong rather than only in prose.
+
+**And the first version of that warning carried a guard that could never
+fire.** It was gated on loopback, on the reasoning that production should gain
+no console noise — but off loopback `api` is *always* `PROD_API`, since a
+crafted `?api=` is refused upstream, and `PROD_API` has a path. The branch is
+unreachable there by construction. **A mutant that deleted the gate passed every
+check**, because the test covering it could not distinguish: production never
+reaches the branch either way. The gate is gone, the check is gone, and a
+comment says why so it is not helpfully re-added.
+
+**That is the third time mutation has caught something reading could not.** The
+first two found real defects; this one found a *test* that was decoration — it
+passed for the wrong reason and would have gone on passing forever. **Running
+the mutants is how you learn which of your checks are load-bearing**, and a
+suite nobody has tried to break is a suite of unknown strength.
+
 **The style is a deploy, not a build.** `tools/basemap/style.json` is served
 from `/var/lib/airbg/tiles/style.json`; changing it is a copy and a reload. The
 archive is untouched, so none of the 217 MB is regenerated and `tiles.archive`

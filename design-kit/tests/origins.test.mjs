@@ -63,5 +63,34 @@ console.log('\n6. markup outranks the query, so a served page is never steerable
 o = run('http://localhost/x.html?tiles=http://127.0.0.1:9999', 'data-tiles-base="http://127.0.0.1:8092"');
 ok('data-tiles-base wins over ?tiles=', o.tiles === 'http://127.0.0.1:8092', o.tiles);
 
+console.log('\n7. the two bases are different shapes, and a bare ?api= says so');
+// The tiles base is an origin; the API base is an origin PLUS /api/v1, because
+// requests are built as `<base>areas`. Getting that wrong 404s everything, and
+// the parameter names do not hint at the difference — so it warns on loopback.
+{
+  const warn = [];
+  const dom = new JSDOM('<!doctype html><body></body>', {
+    url: 'http://localhost/x.html?api=http://127.0.0.1:8080', runScripts: 'outside-only',
+  });
+  dom.window.console.warn = (m) => warn.push(m);
+  dom.window.eval(src);
+  ok('warns when the API base carries no path', warn.some(m => /needs its path/.test(m)), warn.join('|'));
+
+  const quiet = [];
+  const good = new JSDOM('<!doctype html><body></body>', {
+    url: 'http://localhost/x.html?api=http://127.0.0.1:8080/api/v1', runScripts: 'outside-only',
+  });
+  good.window.console.warn = (m) => quiet.push(m);
+  good.window.eval(src);
+  ok('stays quiet when it carries one', quiet.length === 0, quiet.join('|'));
+
+  /* There is deliberately no "never warns on production" check. Production
+   * always resolves to PROD_API, which has a path, so the branch is unreachable
+   * there whatever the code does — a check would pass without testing anything,
+   * which a mutant proved by deleting the guard and staying green. Check 4
+   * already asserts the property that matters: a crafted ?api= cannot take
+   * effect off loopback. */
+}
+
 console.log(fail ? `\n${fail} failed` : '\nall checks passed');
 process.exit(fail ? 1 : 0);

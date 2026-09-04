@@ -67,9 +67,35 @@
     return fallback.replace(/\/+$/, '');
   }
 
+  var api = resolve('apiBase', 'api', PROD_API) + '/';
+
+  /* THE TWO BASES ARE NOT THE SAME SHAPE, AND THAT COST SOMEONE AN HOUR.
+   * The tile base is an ORIGIN — the style is fetched from `<base>/style.json`.
+   * The API base is an ORIGIN PLUS A PATH — requests go to `<base>meta` and
+   * `<base>areas`, so it has to end in `/api/v1`. Passing a bare origin sends
+   * every request to `/meta` and `/areas` and 404s them.
+   *
+   * That asymmetry is invisible from the parameter names, so instead of only
+   * writing it down, say so at the moment it is got wrong.
+   *
+   * No loopback gate here, and the absence is deliberate: off loopback `api` is
+   * always PROD_API — a crafted ?api= is refused upstream — and PROD_API has a
+   * path, so this branch is unreachable on airbg.org by construction. A gate
+   * would be dead code implying a risk that does not exist. It was written with
+   * one, and a mutant that deleted the gate still passed every check: the test
+   * covering it could not distinguish, because production never reaches here
+   * either way. A check that passes for the wrong reason is decoration. */
+  if (!/\/[^/]/.test(new URL(api).pathname)) {
+    if (window.console) {
+      console.warn('origins: ?api= looks like a bare origin (' + api + '). ' +
+                   'The API base needs its path — e.g. http://127.0.0.1:8080/api/v1 — ' +
+                   'or requests go to /meta and /areas. The tiles base takes no path.');
+    }
+  }
+
   window.AIRBG_ORIGINS = {
     tiles: resolve('tilesBase', 'tiles', PROD_TILES),
-    api: resolve('apiBase', 'api', PROD_API) + '/',
+    api: api,
     /* Stated so a reader of the console can tell a redirected kit from a
      * production one without reading three files. */
     overridden: function () {
