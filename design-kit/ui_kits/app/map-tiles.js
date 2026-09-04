@@ -118,6 +118,18 @@
   fetch(STYLE, { mode: 'cors' })
     .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function (style) {
+      /* The served style hardcodes its own public host in sources[].url and in
+       * glyphs, so overriding the tiles base repointed the STYLE fetch and
+       * nothing else: the archive and the glyphs still went to production, the
+       * CSP refused them, and the kit stood down to the SVG basemap. The
+       * override looked live — AIRBG_ORIGINS reported the new base — while the
+       * only request it actually redirected was the first one.
+       *
+       * A base that moves some of its own URLs and not the rest is the dead
+       * control this system keeps hitting. Rebase whatever the style says about
+       * its own origin onto the base the reader asked for. No-op in production,
+       * where the two are already the same string. */
+      rebase(style, TILES);
       /* Resolved against the DOCUMENT, not this script — the screens all sit
        * at ui_kits/app/, so this is the same ../../ every other asset uses. */
       return import('../../assets/vendor/maplibre-gl.mjs').then(function (gl) {
@@ -125,6 +137,42 @@
       });
     })
     .catch(function (e) { stand_down('style or renderer unavailable (' + e.message + ')'); });
+
+  /* Rewrite every absolute URL in the style that points at the style's OWN
+   * origin so it points at `base` instead. Only that origin is touched: a
+   * style legitimately referencing a third host keeps it. */
+  function rebase(style, base) {
+    /* `from` is the origin the STYLE declares about itself, which is the only
+     * thing that knows it — deriving it from STYLE instead is worthless, since
+     * STYLE is built from `base` and the two are then always equal. The first
+     * version did exactly that and was a guaranteed no-op in the one case it
+     * existed for. Read it off the style's own source URL. */
+    var from = null;
+    Object.keys(style.sources || {}).some(function (k) {
+      var src = style.sources[k] || {};
+      var u = src.url || (Array.isArray(src.tiles) ? src.tiles[0] : null);
+      if (typeof u !== 'string') return false;
+      var m = u.match(/https?:\/\/[^/]+/);
+      if (m) { from = m[0]; return true; }
+      return false;
+    });
+    if (!from && typeof style.glyphs === 'string') {
+      var g = style.glyphs.match(/https?:\/\/[^/]+/);
+      if (g) from = g[0];
+    }
+    if (!from || from === base) return;
+    var swap = function (u) {
+      return (typeof u === 'string' && u.indexOf(from) !== -1) ? u.split(from).join(base) : u;
+    };
+    if (style.glyphs) style.glyphs = swap(style.glyphs);
+    if (style.sprite) style.sprite = swap(style.sprite);
+    Object.keys(style.sources || {}).forEach(function (k) {
+      var src = style.sources[k];
+      if (!src) return;
+      if (src.url) src.url = swap(src.url);
+      if (Array.isArray(src.tiles)) src.tiles = src.tiles.map(swap);
+    });
+  }
 
   function mount(style, gl) {
     /* Named ESM exports now: 6.x has no default export and no global. */
