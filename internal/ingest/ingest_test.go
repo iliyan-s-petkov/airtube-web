@@ -68,6 +68,11 @@ const (
 	testAssignTimeout = 60 * time.Second
 )
 
+// testCountries is the allow list these tests ingest under. Only BG, because the
+// fixtures import only bulgaria.geojson — a wider list here would mean the tests
+// exercise boundaries that do not exist in the test database.
+var testCountries = []string{"BG"}
+
 type stubFetcher struct {
 	readings []upstream.Reading
 	// skipped mirrors upstream.Batch.Skipped, so a test can reproduce the
@@ -110,7 +115,7 @@ func newIngester(t *testing.T, f ingest.Fetcher) (context.Context, *store.Store,
 		t.Fatalf("area.Import(bulgaria): %v", err)
 	}
 	st := store.New(pool, testStoreConfig(), testSeriesTimeout)
-	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
+	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout, testCountries)
 }
 
 // newTestIngester builds an Ingester on a migrated database with an empty,
@@ -281,7 +286,7 @@ func TestLoopSurvivesFetchErrors(t *testing.T) {
 	var calls atomic.Int64
 	f := countingFetcher{calls: &calls, err: errors.New("upstream down")}
 	_, st, _ := newIngester(t, f)
-	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout, testCountries)
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -330,7 +335,7 @@ func TestLoopReusesHistoryAcrossCycles(t *testing.T) {
 
 	var calls atomic.Int64
 	f := countingFetcher{calls: &calls, readings: []upstream.Reading{same}}
-	ing := ingest.New(f, st, hist, testScorer(), testAssignTimeout)
+	ing := ingest.New(f, st, hist, testScorer(), testAssignTimeout, testCountries)
 
 	loopCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
@@ -476,7 +481,7 @@ func TestLoopStopsOnContextCancel(t *testing.T) {
 	// A real store is required: RunOnce always runs the rollup backlog step
 	// now, even for an empty fetch result, so a nil store would panic.
 	_, st, _ := newIngester(t, f)
-	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout, testCountries)
 
 	loopCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

@@ -43,8 +43,8 @@ func TestMigration00006DownGuard(t *testing.T) {
 	}
 
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO area (slug, kind, name_bg, name_en, geom)
-		 VALUES ('bulgaria', 'country', 'България', 'Bulgaria',
+		`INSERT INTO area (slug, kind, name_bg, name_en, country_code, geom)
+		 VALUES ('bulgaria', 'country', 'България', 'Bulgaria', 'BG',
 		         ST_Multi(ST_SetSRID(ST_MakeEnvelope($1, $2, $3, $4), 4326))::geography)`,
 		22.3, 41.2, 28.6, 44.2); err != nil {
 		t.Fatalf("insert boundary: %v", err)

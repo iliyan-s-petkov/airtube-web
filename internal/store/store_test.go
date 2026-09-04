@@ -62,7 +62,7 @@ func TestUpsertSensorsIsIdempotent(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if err := s.UpsertSensors(ctx, scored); err != nil {
+		if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 			t.Fatalf("UpsertSensors: %v", err)
 		}
 	}
@@ -80,7 +80,7 @@ func TestUpsertSensorsStoresCoordinatesInBulgaria(t *testing.T) {
 	ctx, pool, s := newStore(t)
 	ts := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
-	if err := s.UpsertSensors(ctx, []quality.Scored{sample(1, "P1", 24.3, quality.FlagOK, ts)}); err != nil {
+	if err := s.UpsertSensors(ctx, []quality.Scored{sample(1, "P1", 24.3, quality.FlagOK, ts)}, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 
@@ -103,7 +103,7 @@ func TestWriteReadingsPersistsFlags(t *testing.T) {
 		sample(1, "P1", 24.3, quality.FlagOK, ts),
 		sample(2, "P1", 900, quality.FlagSpatialOutlier, ts),
 	}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 
@@ -131,7 +131,7 @@ func TestWriteReadingsIsIdempotent(t *testing.T) {
 	ts := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	scored := []quality.Scored{sample(1, "P1", 24.3, quality.FlagOK, ts)}
 
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	for i := 0; i < 2; i++ {

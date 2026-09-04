@@ -8,30 +8,60 @@ This file documents what these files **are**. Two companions:
 - `docs/known-limitations.md` — the consequences a **reader of the map** should
   know, chiefly the 13/14 city-proper vs. municipality split below.
 
-## `bulgaria.geojson`
+## The six `country`-kind files
 
-The national boundary. Importing it is a **hard prerequisite for ingesting
-anything** — `collect` filters every incoming sensor against the `country`-kind
-area with `ST_Covers`, and until one exists it fails closed and stores zero rows.
+`bulgaria.geojson`, plus `greece.geojson`, `north-macedonia.geojson`,
+`romania.geojson`, `serbia.geojson` and `turkey.geojson` — one per code in
+`airbg.yaml`'s `upstream.countries`. Importing them is a **hard prerequisite for
+ingesting anything**: `collect` filters every incoming sensor against the
+`country`-kind areas with `ST_Covers`, and until at least one enabled country
+has a boundary it fails closed and stores zero rows. See
+`docs/ingest-filter.md` for why the filter is geometric and what the allow list
+does.
 
 ```bash
-airbg import-areas data/boundaries/bulgaria.geojson country
+for c in bulgaria greece north-macedonia romania serbia turkey; do
+  airbg import-areas data/boundaries/$c.geojson country
+done
 ```
 
-Run this once, after `airbg migrate`, before the first `collect`.
+Run this once, after `airbg migrate`, before the first `collect`. A country
+enabled in config with no boundary here ingests nothing and is named in a
+startup warning.
+
+Each file carries an `iso_a2` property, which is where `area.country_code` comes
+from — the filter scopes its boundary set by that code, so a file without one is
+rejected at import rather than imported invisibly. The `country` kind is
+excluded from `area_sensor`, so these do not become browsable areas: a foreign
+sensor appears in the hex grid and in no oblast or city aggregate.
 
 **Source:** [Natural Earth](https://www.naturalearthdata.com/) 1:10m Admin 0 –
-Countries, feature `ADM0_A3 = BGR`, geometry unmodified. Natural Earth is public
-domain, so it is committed here rather than left as a deployment step.
+Countries, geometry unmodified, one feature per `ADM0_A3` (`BGR`, `GRC`, `MKD`,
+`ROU`, `SRB`, `TUR`). Natural Earth is public domain, so these are committed
+here rather than left as a deployment step. All six come from the same release,
+which matters: mixing releases can leave a sliver of unclaimed or doubly-claimed
+territory along a shared border.
 
-**Extent:** longitude 22.3450–28.6035, latitude 41.2381–44.2284. 879 vertices,
-single polygon, no holes.
+| file | geometry | vertices | size |
+|---|---|---|---|
+| `bulgaria.geojson` | Polygon | 879 | 19 KB |
+| `greece.geojson` | MultiPolygon, 74 parts | 12,192 | 142 KB |
+| `north-macedonia.geojson` | Polygon | 726 | 9 KB |
+| `romania.geojson` | Polygon | 2,396 | 28 KB |
+| `serbia.geojson` | Polygon | 1,880 | 22 KB |
+| `turkey.geojson` | MultiPolygon, 6 parts | 7,280 | 85 KB |
+
+Greece is a MultiPolygon because of the islands, and dropping the small parts to
+save bytes would drop the sensors on them.
 
 Verified by point-in-polygon before committing: Sofia, Varna, Plovdiv, Musala,
-and the far-eastern coastal towns Balchik and Shabla fall inside; London,
-Bucharest, Thessaloniki, Istanbul, Skopje and Belgrade fall outside. The
-neighbour checks matter — Bulgaria's bounding box overlaps Romania, Greece,
-Turkey, Serbia and North Macedonia, so a box test would wrongly accept all five.
+and the far-eastern coastal towns Balchik and Shabla fall inside Bulgaria;
+London falls inside none of the six; and Athens, Skopje, Bucharest, Belgrade and
+Istanbul each fall inside exactly one — no overlap along any shared border, which
+is the property `FilterByBoundary` would otherwise have to resolve with its
+`ORDER BY country_code LIMIT 1` tiebreak on every cycle. The neighbour checks
+matter — Bulgaria's bounding box overlaps all five, so a box test would wrongly
+accept every one of them.
 
 ### Not to be confused with the test fixture
 
@@ -142,7 +172,8 @@ currently has no colliding city. Cities keep their bare slug (`varna`,
 `plovdiv`) because a city is what a reader searches for, and the slug is what
 appears in its URL (`/area/varna`). Sofia district slugs are untouched.
 
-Checked and confirmed collision-free (28+27+24+1 = 80 distinct slugs, `bulgaria` included):
+Checked and confirmed collision-free (28+27+24+6 = 85 distinct slugs, the six
+country slugs included):
 oblast vs. city (the only pair that collided, now fixed by the suffix), city
 vs. Sofia district, oblast vs. Sofia district, and every one of the three
 files against `bulgaria.geojson`'s own `bulgaria` slug. Any future fourth or

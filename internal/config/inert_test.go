@@ -169,7 +169,10 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			{"listen.addr", cfg.Listen.Addr, "127.0.0.1:8080"},
 			{"listen.metrics_addr", cfg.Listen.MetricsAddr, "127.0.0.1:9090"},
 			{"listen.base_url", cfg.Listen.BaseURL, "http://localhost:8080"},
-			{"upstream.url", cfg.Upstream.URL, "https://data.sensor.community/airrohr/v1/filter/country=BG"},
+			// The country filter moved out of the url and into
+			// upstream.countries, which builds it — see fetchURL and
+			// TestCommittedConfigEnablesBulgariaAndItsNeighbours.
+			{"upstream.url", cfg.Upstream.URL, "https://data.sensor.community/airrohr/v1/filter/"},
 			{"series.default_metric", cfg.Series.DefaultMetric, "P2"},
 			{"frontend.no_data_colour", cfg.Frontend.NoDataColour, "#9ca3af"},
 			{"frontend.marker_stroke_colour", cfg.Frontend.MarkerStrokeColour, "#ffffff"},

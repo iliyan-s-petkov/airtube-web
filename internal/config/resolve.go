@@ -99,7 +99,11 @@ type Cache struct {
 }
 
 type Upstream struct {
-	URL             string
+	URL string
+	// Countries is the ISO 3166-1 alpha-2 allow list. One list, two
+	// enforcement points: it builds the upstream fetch filter and it scopes
+	// the boundaries area.FilterByBoundary tests against.
+	Countries       []string
 	RequestTimeout  time.Duration
 	PollInterval    time.Duration
 	MinPollInterval time.Duration
@@ -301,6 +305,7 @@ func resolve(r *raw) Config {
 		},
 		Upstream: Upstream{
 			URL:             *r.Upstream.URL,
+			Countries:       *r.Upstream.Countries,
 			RequestTimeout:  r.Upstream.RequestTimeout.Std(),
 			PollInterval:    r.Upstream.PollInterval.Std(),
 			MinPollInterval: r.Upstream.MinPollInterval.Std(),

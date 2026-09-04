@@ -79,7 +79,7 @@ func main() {
 
 	case "collect":
 		client := upstream.New(cfg.Upstream)
-		ing := ingest.New(client, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series), quality.NewHistory(cfg.Quality.HistoryDepth), quality.NewScorer(cfg.Quality), cfg.Database.StatementTimeouts.Assign)
+		ing := ingest.New(client, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series), quality.NewHistory(cfg.Quality.HistoryDepth), quality.NewScorer(cfg.Quality), cfg.Database.StatementTimeouts.Assign, cfg.Upstream.Countries)
 		ing.Loop(ctx, cfg.Upstream.PollInterval)
 
 	case "backfill":
@@ -255,6 +255,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		quality.NewHistory(cfg.Quality.HistoryDepth),
 		quality.NewScorer(cfg.Quality),
 		cfg.Database.StatementTimeouts.Assign,
+		cfg.Upstream.Countries,
 	)
 	ing.SetSnapshotPublisher(pub)
 

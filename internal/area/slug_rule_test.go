@@ -3,6 +3,8 @@ package area_test
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -126,16 +128,22 @@ func TestCommittedSlugsFollowTheDocumentedRule(t *testing.T) {
 // database; this catches it in the files, without needing Postgres, so it also
 // runs on a machine with no Docker.
 func TestSlugsAreUniqueAcrossEveryFile(t *testing.T) {
-	const wantTotal = 80 // 1 country + 28 oblasti + 27 cities + 24 districts
+	// 6 countries (Bulgaria and the five neighbours in upstream.countries) +
+	// 28 oblasti + 27 cities + 24 Sofia districts.
+	const wantTotal = 85
+
+	// Globbed rather than listed: the list is the thing that goes stale. A
+	// sixth boundary file added without a matching edit here would otherwise
+	// be committed with its slugs never checked against the other files'.
+	paths, err := filepath.Glob("../../data/boundaries/*.geojson")
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	sort.Strings(paths)
 
 	seen := map[string]string{}
 	total := 0
-	for _, path := range []string{
-		"../../data/boundaries/bulgaria.geojson",
-		"../../data/boundaries/oblasti.geojson",
-		"../../data/boundaries/cities.geojson",
-		"../../data/boundaries/sofia-districts.geojson",
-	} {
+	for _, path := range paths {
 		for _, feat := range readBoundaries(t, path).Features {
 			total++
 			slug := feat.Properties.Slug
@@ -147,7 +155,7 @@ func TestSlugsAreUniqueAcrossEveryFile(t *testing.T) {
 		}
 	}
 	if total != wantTotal {
-		t.Errorf("read %d features across the four files, want %d", total, wantTotal)
+		t.Errorf("read %d features across %d files, want %d", total, len(paths), wantTotal)
 	}
 	if len(seen) != total {
 		t.Errorf("%d distinct slugs across %d features", len(seen), total)

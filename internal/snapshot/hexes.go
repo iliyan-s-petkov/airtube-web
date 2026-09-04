@@ -17,13 +17,10 @@ import (
 // cacheable.
 const HexResolutionKM = 15.0
 
-// hexCountry is the country code stamped on every bin. The ingest path rejects
-// every sensor outside the national boundary (internal/ingest, task 17), so the
-// store holds Bulgarian sensors only and a modal country would be "BG" for all
-// of them. The field is on the wire anyway because it is the one thing that has
-// to change if the boundary filter is ever widened, and a client written
-// against a payload without it would have to be rewritten rather than extended.
-const hexCountry = "BG"
+// hexCountryUnknown is the code used for a bin whose sensors all predate the
+// sensor.country_code column. Spelled out rather than left empty so a client
+// never has to decide what "" means, and distinct from any real ISO code.
+const hexCountryUnknown = "??"
 
 // hexRefLat is the latitude the equirectangular projection is true at. Bulgaria
 // spans 41.2–44.3°N; taking the middle keeps the east-west scale error under
@@ -59,6 +56,26 @@ type hexBin struct {
 	n     int
 	sums  map[string]float64
 	count map[string]int
+	// countries counts sensors per country code. A 15 km bin straddling a
+	// border holds sensors from both, and the bin has to name one; the modal
+	// value names the country most of the bin's data actually came from.
+	countries map[string]int
+}
+
+// modalCountry returns the most common country in the bin, ties broken by code
+// so the payload — and therefore its ETag — does not depend on map iteration
+// order.
+func (b *hexBin) modalCountry() string {
+	best, bestN := "", 0
+	for code, n := range b.countries {
+		if n > bestN || (n == bestN && code < best) {
+			best, bestN = code, n
+		}
+	}
+	if best == "" {
+		return hexCountryUnknown
+	}
+	return best
 }
 
 // hexPayloadFrom bins sensors onto a fixed pointy-top hex grid.
@@ -73,10 +90,14 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading) hexPayload {
 		c := hexOf(sr.Lon, sr.Lat)
 		b := bins[c]
 		if b == nil {
-			b = &hexBin{coord: c, sums: map[string]float64{}, count: map[string]int{}}
+			b = &hexBin{coord: c, sums: map[string]float64{},
+				count: map[string]int{}, countries: map[string]int{}}
 			bins[c] = b
 		}
 		b.n++
+		if sr.Country != "" {
+			b.countries[sr.Country]++
+		}
 		for _, m := range upstream.CanonicalMetrics() {
 			if v, ok := sr.Values[m]; ok {
 				b.sums[m] += v
@@ -118,7 +139,7 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading) hexPayload {
 			Lon:     round4(lon),
 			Lat:     round4(lat),
 			N:       b.n,
-			Country: hexCountry,
+			Country: b.modalCountry(),
 			Values:  values,
 		})
 	}

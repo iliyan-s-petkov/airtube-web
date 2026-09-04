@@ -119,8 +119,11 @@ type SensorReading struct {
 	Lon        float64
 	Lat        float64
 	AreaSlugs  []string
-	Quality    string
-	Values     map[string]float64
+	// Country is the ISO 3166-1 alpha-2 code of the boundary that admitted
+	// this sensor at ingest. Empty for rows written before the column existed.
+	Country string
+	Quality string
+	Values  map[string]float64
 }
 
 const latestSensorsSQL = `
@@ -133,6 +136,7 @@ WITH latest AS (
 )
 SELECT s.sensor_id, s.sensor_type,
        ST_X(s.location::geometry), ST_Y(s.location::geometry),
+       COALESCE(s.country_code, ''),
        COALESCE(
            (SELECT array_agg(asx.area_slug ORDER BY asx.area_slug)
               FROM area_sensor asx WHERE asx.sensor_id = s.sensor_id),
@@ -146,7 +150,7 @@ SELECT s.sensor_id, s.sensor_type,
            FILTER (WHERE l.quality = ANY($2::quality_flag[]))
   FROM sensor s
   JOIN latest l ON l.sensor_id = s.sensor_id
- GROUP BY s.sensor_id, s.sensor_type, s.location
+ GROUP BY s.sensor_id, s.sensor_type, s.location, s.country_code
  ORDER BY s.sensor_id`
 
 // LatestSensors returns one row per sensor with a fresh reading, carrying every
@@ -167,7 +171,7 @@ func (s *Store) LatestSensors(ctx context.Context) ([]SensorReading, error) {
 		var sr SensorReading
 		var values map[string]float64
 		if err := rows.Scan(&sr.SensorID, &sr.SensorType, &sr.Lon, &sr.Lat,
-			&sr.AreaSlugs, &sr.Quality, &values); err != nil {
+			&sr.Country, &sr.AreaSlugs, &sr.Quality, &values); err != nil {
 			return nil, fmt.Errorf("store: scan sensor: %w", err)
 		}
 		if values == nil {

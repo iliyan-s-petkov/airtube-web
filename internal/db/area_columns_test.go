@@ -56,21 +56,24 @@ func TestDefaultZoomByKind(t *testing.T) {
 	// only the trigger-computed columns are under test.
 	const poly = `MULTIPOLYGON(((23.0 42.0, 23.1 42.0, 23.1 42.1, 23.0 42.1, 23.0 42.0)))`
 
+	// code is what area_country_code_check demands of each kind: present on a
+	// country row, absent on every other.
 	for _, tc := range []struct {
 		kind     string
+		code     any
 		wantZoom int16
 	}{
-		{"country", 7},
-		{"oblast", 9},
-		{"city", 11},
-		{"neighbourhood", 13},
+		{"country", "BG", 7},
+		{"oblast", nil, 9},
+		{"city", nil, 11},
+		{"neighbourhood", nil, 13},
 	} {
 		var zoom int16
 		err := pool.QueryRow(ctx,
-			`INSERT INTO area (slug, kind, name_bg, name_en, geom)
-			 VALUES ($1, $2, 'x', 'x', ST_GeomFromText($3, 4326)::geography)
+			`INSERT INTO area (slug, kind, name_bg, name_en, country_code, geom)
+			 VALUES ($1, $2, 'x', 'x', $4, ST_GeomFromText($3, 4326)::geography)
 			 RETURNING default_zoom`,
-			"zoomtest-"+tc.kind, tc.kind, poly).Scan(&zoom)
+			"zoomtest-"+tc.kind, tc.kind, poly, tc.code).Scan(&zoom)
 		if err != nil {
 			t.Fatalf("insert %s: %v", tc.kind, err)
 		}

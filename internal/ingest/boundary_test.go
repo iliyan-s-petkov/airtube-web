@@ -26,7 +26,7 @@ func noBoundaryIngester(t *testing.T, f ingest.Fetcher) (context.Context, *store
 		t.Fatalf("Migrate: %v", err)
 	}
 	st := store.New(pool, testStoreConfig(), testSeriesTimeout)
-	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout)
+	return ctx, st, ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout, testCountries)
 }
 
 // TestRunOnceRejectsSensor48524 is task-17's mandatory regression test at the

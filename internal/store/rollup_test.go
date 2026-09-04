@@ -21,7 +21,7 @@ func TestRollupHourExcludesFlaggedReadings(t *testing.T) {
 		// the published number is 316 instead of 25.
 		sample(1, "P1", 900, quality.FlagSpatialOutlier, bucket.Add(3*time.Minute)),
 	}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -57,7 +57,7 @@ func TestRollupHourIncludesNoNeighbours(t *testing.T) {
 		sample(1, "P1", 20, quality.FlagOK, bucket.Add(1*time.Minute)),
 		sample(1, "P1", 30, quality.FlagNoNeighbours, bucket.Add(2*time.Minute)),
 	}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -84,7 +84,7 @@ func TestRollupHourIsIdempotent(t *testing.T) {
 	bucket := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	scored := []quality.Scored{sample(1, "P1", 20, quality.FlagOK, bucket.Add(time.Minute))}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -125,7 +125,7 @@ func TestRollupHourBucketBoundariesAreHalfOpen(t *testing.T) {
 		sample(1, "P1", 20, quality.FlagOK, bucketStart.Add(30*time.Minute)), // interior
 		sample(1, "P1", 30, quality.FlagOK, nextBucketStart),                 // exactly T+1h
 	}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -169,7 +169,7 @@ func TestRollupBacklogAdvancesWatermarkToBucketActuallyRolledUp(t *testing.T) {
 	bucket := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	scored := []quality.Scored{sample(1, "P1", 20, quality.FlagOK, bucket.Add(time.Minute))}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -224,7 +224,7 @@ func TestRollupBacklogDrainsGapNotJustNewestBucket(t *testing.T) {
 	for i, h := range hours {
 		scored = append(scored, sample(1, "P1", float64(10*(i+1)), quality.FlagOK, h.Add(time.Minute)))
 	}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -281,7 +281,7 @@ func TestRollupBacklogHonoursPerCallCap(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		scored = append(scored, sample(1, "P1", float64(i), quality.FlagOK, base.Add(time.Duration(i)*time.Hour+time.Minute)))
 	}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -333,7 +333,7 @@ func TestRollupBacklogBootstrapsAtCurrentHourOnly(t *testing.T) {
 	current := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	scored := []quality.Scored{sample(1, "P1", 20, quality.FlagOK, current.Add(time.Minute))}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -367,7 +367,7 @@ func TestRollupBacklogIsIdempotentOverAlreadyRolledUpRange(t *testing.T) {
 	for i, h := range hours {
 		scored = append(scored, sample(1, "P1", float64(10*(i+1)), quality.FlagOK, h.Add(time.Minute)))
 	}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -444,7 +444,7 @@ func TestRollupBacklogStopsExactlyWhereADrainFails(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		scored = append(scored, sample(1, "P1", float64(i), quality.FlagOK, base.Add(time.Duration(i)*time.Hour+time.Minute)))
 	}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {
@@ -512,7 +512,7 @@ func TestRollupBacklogReAggregatesPreviousHourAfterLateArrival(t *testing.T) {
 	h := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 
 	early := []quality.Scored{sample(1, "P1", 10, quality.FlagOK, h.Add(time.Minute))}
-	if err := s.UpsertSensors(ctx, early); err != nil {
+	if err := s.UpsertSensors(ctx, early, nil); err != nil {
 		t.Fatalf("UpsertSensors (early): %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, early); err != nil {
@@ -539,7 +539,7 @@ func TestRollupBacklogReAggregatesPreviousHourAfterLateArrival(t *testing.T) {
 	// A reading lands in H after the tick that already rolled H up and moved
 	// the watermark past it.
 	late := []quality.Scored{sample(1, "P1", 999, quality.FlagOK, h.Add(45*time.Minute))}
-	if err := s.UpsertSensors(ctx, late); err != nil {
+	if err := s.UpsertSensors(ctx, late, nil); err != nil {
 		t.Fatalf("UpsertSensors (late): %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, late); err != nil {
@@ -586,7 +586,7 @@ func TestRollupBacklogReturnsCommittedWatermarkOnMidDrainFailure(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		scored = append(scored, sample(1, "P1", float64(i), quality.FlagOK, base.Add(time.Duration(i)*time.Hour+time.Minute)))
 	}
-	if err := s.UpsertSensors(ctx, scored); err != nil {
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
 		t.Fatalf("UpsertSensors: %v", err)
 	}
 	if _, err := s.WriteReadings(ctx, scored); err != nil {

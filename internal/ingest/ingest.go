@@ -80,10 +80,17 @@ type Ingester struct {
 	// assignTimeout scopes statement_timeout for AssignSensors' area x sensor
 	// join — see internal/db.StatementTimeoutValue.
 	assignTimeout time.Duration
+	// countries is the ISO 3166-1 alpha-2 allow list, the same one that built
+	// the fetch URL. Held here rather than read from config per cycle so the
+	// boundary set cannot drift from the set that was fetched.
+	countries []string
 }
 
-func New(f Fetcher, s *store.Store, hist *quality.History, scorer *quality.Scorer, assignTimeout time.Duration) *Ingester {
-	return &Ingester{fetcher: f, store: s, history: hist, scorer: scorer, now: time.Now, assignTimeout: assignTimeout}
+func New(f Fetcher, s *store.Store, hist *quality.History, scorer *quality.Scorer, assignTimeout time.Duration, countries []string) *Ingester {
+	return &Ingester{
+		fetcher: f, store: s, history: hist, scorer: scorer, now: time.Now,
+		assignTimeout: assignTimeout, countries: countries,
+	}
 }
 
 // SetClockForTesting overrides RunOnce's notion of "now" and returns a
@@ -153,13 +160,29 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 
 		// Geographic filter (task 17): upstream's self-reported country is
 		// not trusted — sensor 48524 reports "BG" from London — so
-		// membership is decided by ST_Covers against the national boundary
-		// instead, before anything reaches quality.Score. Placement matters:
-		// the spatial outlier check derives its median/MAD from geographic
-		// neighbours, and a foreign sensor thousands of kilometres away
-		// would already have distorted that neighbourhood by the time the
+		// membership is decided by ST_Covers against the configured
+		// countries' boundaries, before anything reaches quality.Score.
+		// Placement matters: the spatial outlier check derives its median/MAD
+		// from geographic neighbours, and a sensor thousands of kilometres
+		// away would already have distorted that neighbourhood by the time the
 		// scorer saw it. Filtering here means it never does.
-		accepted, rejected, boundaryPresent, filterErr := area.FilterByBoundary(ctx, i.store.Pool(), readings)
+		//
+		// Widening the list to Bulgaria's neighbours makes that check better
+		// rather than worse near the border: a Sofia-region sensor's nearest
+		// neighbours now include Serbian and Macedonian ones instead of the
+		// filter having removed them.
+		res, filterErr := area.FilterByBoundary(ctx, i.store.Pool(), readings, i.countries)
+		accepted, rejected, boundaryPresent := res.Accepted, res.RejectedSensors, res.BoundaryPresent
+		if len(res.MissingCountries) > 0 {
+			// Configured but with no geometry to test against. Warn rather
+			// than fail: the remaining countries still ingest correctly, and
+			// an operator widening the list before sourcing the boundary is a
+			// normal intermediate state. Silence would be indistinguishable
+			// from that country simply having no sensors.
+			slog.Warn("configured countries have no imported boundary and are ingesting nothing; run: airbg import-areas <path.geojson> country",
+				"countries", res.MissingCountries,
+				"required_kind", area.NationalBoundaryKind)
+		}
 		switch {
 		case filterErr != nil:
 			pipelineErr = fmt.Errorf("ingest: boundary filter: %w", filterErr)
@@ -222,7 +245,7 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 			}
 
 			if len(scored) > 0 {
-				if err := i.store.UpsertSensors(ctx, scored); err != nil {
+				if err := i.store.UpsertSensors(ctx, scored, res.Country); err != nil {
 					pipelineErr = fmt.Errorf("ingest: upsert sensors: %w", err)
 				} else if written, err := i.store.WriteReadings(ctx, scored); err != nil {
 					pipelineErr = fmt.Errorf("ingest: write readings: %w", err)

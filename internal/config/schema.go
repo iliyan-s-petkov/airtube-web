@@ -106,6 +106,7 @@ type rawCache struct {
 
 type rawUpstream struct {
 	URL             *string   `yaml:"url"`
+	Countries       *[]string `yaml:"countries"`
 	RequestTimeout  *Duration `yaml:"request_timeout"`
 	PollInterval    *Duration `yaml:"poll_interval"`
 	MinPollInterval *Duration `yaml:"min_poll_interval"`

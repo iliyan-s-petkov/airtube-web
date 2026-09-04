@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"airbg.org/internal/config"
@@ -160,12 +161,33 @@ type Client struct {
 
 // New builds a Client from configuration. maxPayload bounds what will be read
 // from upstream, so a malformed or hostile response cannot exhaust memory.
+//
+// The country filter is appended here rather than being written into
+// upstream.url, so that one configured list governs both what is fetched and
+// which boundaries ingest tests against (area.FilterByBoundary). When the two
+// were separate, the URL said country=BG while the boundary set was a separate
+// question, and widening one without the other produced either a silently
+// BG-only map or sensors fetched and then thrown away.
 func New(cfg config.Upstream) *Client {
 	return &Client{
-		baseURL:    cfg.URL,
+		baseURL:    fetchURL(cfg.URL, cfg.Countries),
 		maxPayload: cfg.MaxPayloadBytes,
 		http:       &http.Client{Timeout: cfg.RequestTimeout},
 	}
+}
+
+// fetchURL joins the configured base to sensor.community's country filter
+// segment. The upstream API takes a comma-separated list, so several countries
+// cost one request rather than one request each — which matters against a
+// volunteer-run service the poll interval is already throttled for.
+func fetchURL(base string, countries []string) string {
+	if len(countries) == 0 {
+		return base
+	}
+	if !strings.HasSuffix(base, "/") {
+		base += "/"
+	}
+	return base + "country=" + strings.Join(countries, ",")
 }
 
 func (c *Client) Fetch(ctx context.Context) (Batch, error) {

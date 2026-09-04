@@ -18,6 +18,12 @@ type featureCollection struct {
 			Slug   string `json:"slug"`
 			NameBG string `json:"name_bg"`
 			NameEN string `json:"name_en"`
+			// ISOA2 is required on country boundaries and ignored on every
+			// other kind. Natural Earth's admin-0 export already carries it,
+			// which is why the code is read from the file rather than passed
+			// on the command line: the operator cannot mislabel Greece as "RO"
+			// without editing the boundary itself.
+			ISOA2 string `json:"iso_a2"`
 		} `json:"properties"`
 		Geometry json.RawMessage `json:"geometry"`
 	} `json:"features"`
@@ -98,17 +104,34 @@ func Import(ctx context.Context, pool *pgxpool.Pool, path, kind string) (int, er
 		if err := validateGeometry(ctx, pool, path, f.Properties.Slug, string(f.Geometry)); err != nil {
 			return 0, err
 		}
+
+		// A country boundary with no code is invisible to the ingest allow
+		// list, which names countries by code. Importing it would appear to
+		// succeed and then filter nothing — the same silent-success failure
+		// mode the empty-geometry check above exists to prevent, so it is
+		// rejected here rather than left to the column's CHECK, which cannot
+		// name the file or the feature.
+		var code *string
+		if kind == NationalBoundaryKind {
+			c, err := normaliseCountryCode(f.Properties.ISOA2)
+			if err != nil {
+				return 0, fmt.Errorf("area: %s: feature %q: %w", path, f.Properties.Slug, err)
+			}
+			code = &c
+		}
+
 		batch.Queue(
-			`INSERT INTO area (slug, kind, name_bg, name_en, geom)
-			 VALUES ($1, $2, $3, $4,
-			         ST_Multi(ST_GeomFromGeoJSON($5))::geography)
+			`INSERT INTO area (slug, kind, name_bg, name_en, country_code, geom)
+			 VALUES ($1, $2, $3, $4, $5,
+			         ST_Multi(ST_GeomFromGeoJSON($6))::geography)
 			 ON CONFLICT (slug) DO UPDATE
 			   SET kind = EXCLUDED.kind,
 			       name_bg = EXCLUDED.name_bg,
 			       name_en = EXCLUDED.name_en,
+			       country_code = EXCLUDED.country_code,
 			       geom = EXCLUDED.geom`,
 			f.Properties.Slug, kind, f.Properties.NameBG, f.Properties.NameEN,
-			string(f.Geometry))
+			code, string(f.Geometry))
 	}
 	if err := pool.SendBatch(ctx, batch).Close(); err != nil {
 		return 0, fmt.Errorf("area: import %s: %w", path, err)

@@ -12,6 +12,11 @@ import (
 // country parameter: upstream.Reading carries no Country field to filter on
 // — trusting that field is exactly the bug this task fixes — so every test
 // below decides acceptance purely from (lon, lat).
+// testCountries is the allow list these tests filter under. Only BG, because
+// testdata carries only bulgaria.geojson; a wider list would name boundaries
+// that do not exist in the test database.
+var testCountries = []string{"BG"}
+
 func reading(id int64, lon, lat float64) upstream.Reading {
 	return upstream.Reading{
 		SensorID:   id,
@@ -32,7 +37,8 @@ func TestFilterByBoundaryAcceptsSensorInsideBulgaria(t *testing.T) {
 
 	// Sofia.
 	rs := []upstream.Reading{reading(1, 23.3327, 42.6957)}
-	accepted, rejected, present, err := area.FilterByBoundary(ctx, pool, rs)
+	res, err := area.FilterByBoundary(ctx, pool, rs, testCountries)
+	accepted, rejected, present := res.Accepted, res.RejectedSensors, res.BoundaryPresent
 	if err != nil {
 		t.Fatalf("FilterByBoundary: %v", err)
 	}
@@ -63,7 +69,8 @@ func TestFilterByBoundaryRejectsSensor48524(t *testing.T) {
 
 	// London, as reported by the real sensor 48524 in upstream data.
 	rs := []upstream.Reading{reading(48524, -0.1276, 51.5074)}
-	accepted, rejected, present, err := area.FilterByBoundary(ctx, pool, rs)
+	res, err := area.FilterByBoundary(ctx, pool, rs, testCountries)
+	accepted, rejected, present := res.Accepted, res.RejectedSensors, res.BoundaryPresent
 	if err != nil {
 		t.Fatalf("FilterByBoundary: %v", err)
 	}
@@ -113,7 +120,8 @@ func TestFilterByBoundaryRejectsPointInsideBoundingBoxButOutsideBulgaria(t *test
 	}
 
 	rs := []upstream.Reading{reading(2, testLon, testLat)}
-	accepted, rejected, present, err := area.FilterByBoundary(ctx, pool, rs)
+	res, err := area.FilterByBoundary(ctx, pool, rs, testCountries)
+	accepted, rejected, present := res.Accepted, res.RejectedSensors, res.BoundaryPresent
 	if err != nil {
 		t.Fatalf("FilterByBoundary: %v", err)
 	}
@@ -136,7 +144,8 @@ func TestFilterByBoundaryAcceptsPointJustInsideBoundary(t *testing.T) {
 
 	// Plovdiv: well inside the interior, away from any edge ambiguity.
 	rs := []upstream.Reading{reading(3, 24.7453, 42.1354)}
-	accepted, rejected, present, err := area.FilterByBoundary(ctx, pool, rs)
+	res, err := area.FilterByBoundary(ctx, pool, rs, testCountries)
+	accepted, rejected, present := res.Accepted, res.RejectedSensors, res.BoundaryPresent
 	if err != nil {
 		t.Fatalf("FilterByBoundary: %v", err)
 	}
@@ -168,7 +177,8 @@ func TestFilterByBoundaryCoordinateOrderNotSwapped(t *testing.T) {
 	// lon 42.6957, lat 23.3327 — nowhere near Bulgaria (lon 42.7 is in the
 	// Middle East, lat 23.3 is well south of it).
 	rs := []upstream.Reading{reading(4, 42.6957, 23.3327)}
-	accepted, rejected, present, err := area.FilterByBoundary(ctx, pool, rs)
+	res, err := area.FilterByBoundary(ctx, pool, rs, testCountries)
+	accepted, rejected, present := res.Accepted, res.RejectedSensors, res.BoundaryPresent
 	if err != nil {
 		t.Fatalf("FilterByBoundary: %v", err)
 	}
@@ -189,7 +199,8 @@ func TestFilterByBoundaryAbsentBoundaryReportsNotPresent(t *testing.T) {
 	// loaded.
 
 	rs := []upstream.Reading{reading(5, 23.3327, 42.6957)}
-	accepted, rejected, present, err := area.FilterByBoundary(ctx, pool, rs)
+	res, err := area.FilterByBoundary(ctx, pool, rs, testCountries)
+	accepted, rejected, present := res.Accepted, res.RejectedSensors, res.BoundaryPresent
 	if err != nil {
 		t.Fatalf("FilterByBoundary: %v", err)
 	}
@@ -211,7 +222,8 @@ func TestFilterByBoundaryEmptyBatchReportsPresentWithoutQuerying(t *testing.T) {
 	// surface a false "boundary absent" signal on a cycle where upstream
 	// simply returned nothing.
 
-	accepted, rejected, present, err := area.FilterByBoundary(ctx, pool, nil)
+	res, err := area.FilterByBoundary(ctx, pool, nil, testCountries)
+	accepted, rejected, present := res.Accepted, res.RejectedSensors, res.BoundaryPresent
 	if err != nil {
 		t.Fatalf("FilterByBoundary: %v", err)
 	}

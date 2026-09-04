@@ -150,7 +150,10 @@ cache:
   scales_max_age: "86400s"
 
 upstream:
-  url: "https://data.sensor.community/airrohr/v1/filter/country=BG"
+  url: "https://data.sensor.community/airrohr/v1/filter/"
+  # ISO 3166-1 alpha-2 allow list: builds the fetch filter and scopes the
+  # boundaries a sensor is geometrically tested against. See docs/ingest-filter.md.
+  countries: ["BG", "GR", "MK", "RO", "RS", "TR"]
   request_timeout: "30s"
   poll_interval: "5m"
   # Floor on poll_interval. Polling a volunteer-run public API faster than this

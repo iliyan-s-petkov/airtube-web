@@ -173,8 +173,11 @@ func TestRunOnceEscalatesWhenBoundaryRejectsEverySensor(t *testing.T) {
 	ctx, st, ing := noBoundaryIngester(t, f)
 
 	if _, err := st.Pool().Exec(ctx,
-		`INSERT INTO area (slug, kind, name_bg, name_en, geom)
-		 VALUES ('misplaced', 'country', 'Грешно', 'Misplaced',
+		// country_code 'BG' so the boundary is in the allow list these tests
+		// ingest under: the case being exercised is a boundary that is present
+		// and enabled but geometrically useless, not one the filter skips.
+		`INSERT INTO area (slug, kind, name_bg, name_en, country_code, geom)
+		 VALUES ('misplaced', 'country', 'Грешно', 'Misplaced', 'BG',
 		         ST_Multi(ST_SetSRID(ST_MakeEnvelope($1, $2, $3, $4), 4326))::geography)`,
 		-30.0, 0.0, -29.0, 1.0); err != nil {
 		t.Fatalf("insert misplaced boundary: %v", err)

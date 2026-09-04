@@ -27,7 +27,11 @@ func New(pool *pgxpool.Pool, cfg config.Store, seriesTimeout time.Duration) *Sto
 
 // UpsertSensors records every distinct sensor in the batch. Location is
 // refreshed on conflict because sensors are occasionally relocated upstream.
-func (s *Store) UpsertSensors(ctx context.Context, scored []quality.Scored) error {
+// country maps sensor ID to the ISO 3166-1 alpha-2 code of the boundary that
+// admitted it, as decided geometrically by area.FilterByBoundary. A sensor
+// missing from the map keeps whatever code it already had rather than being
+// reset to NULL: COALESCE, not EXCLUDED, below.
+func (s *Store) UpsertSensors(ctx context.Context, scored []quality.Scored, country map[int64]string) error {
 	seen := make(map[int64]bool, len(scored))
 	batch := &pgx.Batch{}
 
@@ -37,15 +41,20 @@ func (s *Store) UpsertSensors(ctx context.Context, scored []quality.Scored) erro
 			continue
 		}
 		seen[r.SensorID] = true
+		var code *string
+		if c, ok := country[r.SensorID]; ok {
+			code = &c
+		}
 		batch.Queue(
-			`INSERT INTO sensor (sensor_id, sensor_type, location, last_seen)
-			 VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5)
+			`INSERT INTO sensor (sensor_id, sensor_type, location, last_seen, country_code)
+			 VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6)
 			 ON CONFLICT (sensor_id) DO UPDATE
 			   SET location = EXCLUDED.location,
 			       sensor_type = EXCLUDED.sensor_type,
 			       last_seen = EXCLUDED.last_seen,
+			       country_code = COALESCE(EXCLUDED.country_code, sensor.country_code),
 			       active = true`,
-			r.SensorID, r.SensorType, r.Lon, r.Lat, r.Timestamp)
+			r.SensorID, r.SensorType, r.Lon, r.Lat, r.Timestamp, code)
 	}
 	if batch.Len() == 0 {
 		return nil

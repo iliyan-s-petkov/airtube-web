@@ -202,6 +202,35 @@ func (c Config) validateUpstreamAndCache(p *problems) {
 		p.addf("upstream.url = %q must use http or https", c.Upstream.URL)
 	} else if u.Host == "" {
 		p.addf("upstream.url = %q must be absolute", c.Upstream.URL)
+	} else if strings.Contains(u.Path, "country=") {
+		// The country filter is now built from upstream.countries. A URL that
+		// still carries its own would win silently — the client appends a
+		// second segment and sensor.community honours the first — leaving the
+		// fetch narrower than the boundary set, which looks exactly like
+		// "those countries have no sensors".
+		p.addf("upstream.url = %q still contains a country= filter; move the countries to upstream.countries and end the url at the filter path", c.Upstream.URL)
+	}
+
+	// An empty list is rejected rather than treated as "everything": it would
+	// fetch the entire global feed and then have no boundary to filter it
+	// against, which is the unfiltered-ingest hole task 17 closed.
+	if len(c.Upstream.Countries) == 0 {
+		p.addf("upstream.countries is empty; list at least one ISO 3166-1 alpha-2 code, e.g. [\"BG\"]")
+	}
+	seenCountry := make(map[string]bool, len(c.Upstream.Countries))
+	for i, code := range c.Upstream.Countries {
+		if !IsCountryCode(code) {
+			p.addf("upstream.countries[%d] = %q, must be an uppercase two-letter ISO 3166-1 alpha-2 code such as \"BG\"", i, code)
+			continue
+		}
+		if seenCountry[code] {
+			// A duplicate changes no sensor's fate — the boundary query uses
+			// ANY() and the LATERAL join takes one row — but it does repeat
+			// the code in the fetch URL and in the "configured but not
+			// imported" warning, so it is a typo worth naming.
+			p.addf("upstream.countries[%d] = %q is listed more than once", i, code)
+		}
+		seenCountry[code] = true
 	}
 	p.positive("upstream.request_timeout", c.Upstream.RequestTimeout)
 	p.positive("upstream.min_poll_interval", c.Upstream.MinPollInterval)
