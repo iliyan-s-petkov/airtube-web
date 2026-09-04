@@ -62,13 +62,29 @@
     }));
   }
 
+  /* Once the tile path is abandoned it stays abandoned. MapLibre can still emit
+   * `load` AFTER an error has torn the canvas out, and the first version let that
+   * re-announce `tiles`: the frame said data-basemap="tiles", the layer control
+   * re-appeared with every category ticked, and there was no map in the document
+   * for any of it to act on. A control offering to switch layers on a map that
+   * has been removed is the dead control this system keeps re-inventing — this
+   * time built out of its own recovery path. */
+  var downed = false;
+
   function stand_down(why) {
+    if (downed) return;
+    downed = true;
     frames.forEach(function (f) {
       f.setAttribute('data-basemap', 'local');
       announce(f, 'local');
     });
     // Not console.error: this is a supported state, not a fault.
-    if (window.console) console.info('map-tiles: SVG basemap in use — ' + why);
+    /* console.warn, not info: this line is the whole explanation for a screen
+     * with no basemap on it, and an info-level message is filtered out of most
+     * consoles and most bug reports. A reviewer reporting "zero console errors"
+     * while looking at a stood-down map is reporting accurately and still
+     * missing the only sentence that mattered. */
+    if (window.console) console.warn('map-tiles: SVG basemap in use — ' + why);
   }
 
   /* MapLibre 6 is ESM-ONLY and has no UMD build, so there is no global to
@@ -184,6 +200,7 @@
       }
 
       map.on('load', function () {
+        if (downed) return;   // a tile error already handed this frame back
         frame.setAttribute('data-basemap', 'tiles');
         announce(frame, 'tiles', map);
         publish();
@@ -219,6 +236,13 @@
       });
 
       frame.__airbgTileMap = map;                 // for the zoom/pan controls
+      /* Reaching the camera from a devtools console is the difference between
+       * one `evaluate` and six screenshots when diagnosing a blank map. It is
+       * published only where origins.js already allows an override — i.e. never
+       * on airbg.org — so production gains no new global. */
+      if (window.AIRBG_ORIGINS && window.AIRBG_ORIGINS.overridden()) {
+        window.AIRBG_TILEMAP = map;
+      }
     });
   }
 })();

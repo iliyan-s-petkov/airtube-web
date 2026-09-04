@@ -1578,6 +1578,37 @@ never steerable by URL. Sixteen checks, and four mutants killed: the loopback
 gate removed, any protocol accepted, the query outranking markup, and the
 default moved.
 
+**The stand-down did not latch, and it rebuilt the dead control out of its own
+recovery path.** MapLibre can emit `load` *after* an error has already torn the
+canvas out. The first version let that second event re-announce `tiles`: the
+frame ended up marked `data-basemap="tiles"`, the layer control re-appeared with
+every category ticked, and **there was no map in the document for any of it to
+act on**. Reproduced exactly — host absent, canvas absent, control visible,
+attribute still claiming tiles. A recovery path that can be undone by a late
+event is not a recovery path; `downed` now latches and the `load` handler
+returns early.
+
+**And the one line explaining the whole screen was `console.info`.** A reviewer
+looking at a stood-down kit reported *zero console errors* — accurately, because
+the stand-down logged at info level, which most consoles filter and every bug
+report omits. It is `console.warn` now. **A message nobody sees is not a
+message**, and this one is the difference between "the basemap is broken" and
+"the basemap was handed back on purpose, here is why."
+
+**The camera is reachable from a console, on the loopback gate.** Diagnosing a
+blank map through screenshots because `getStyle()` cannot be called is six
+round trips where one `evaluate` would do. `window.AIRBG_TILEMAP` is published
+only where `origins.js` already permits an override — never on airbg.org — so
+production gains no new global.
+
+**Verified by breaking it first.** The failure was triggered with a deliberately
+malformed PMTiles archive (190 bytes, hand-built, invalid varint in its root
+directory), which is a cheaper and more reliable way to reach the error path
+than waiting for a real tile server to misbehave. Before the fix:
+`data-basemap="tiles"`, control visible, zero canvas. After: `local`, control
+hidden, and the SVG fallback drawing 28 provinces and 105 labels — which is the
+promise the fallback exists to keep.
+
 **The style is a deploy, not a build.** `tools/basemap/style.json` is served
 from `/var/lib/airbg/tiles/style.json`; changing it is a copy and a reload. The
 archive is untouched, so none of the 217 MB is regenerated and `tiles.archive`
