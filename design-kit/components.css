@@ -1494,3 +1494,23 @@ body.has-faux-full { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .scale--onmap .scale__toggle::before { transition: none; }
 }
+
+/* ---- Progressive scale ----------------------------------------------------
+ * The bar is now ONE continuous gradient rather than six blocks. The stops are
+ * the served band colours at equal spacing — the same mapping rampColour() uses
+ * for the fills, so the key and the map interpolate identically.
+ *
+ * The gradient itself is written by map-legend.js from window.AIRBG_RAMP(),
+ * NOT here: a hand-typed gradient in CSS would be a second copy of the ramp,
+ * free to drift the first time a band colour changes server-side (§2.1). This
+ * block only shapes it. */
+.scale--progressive .scale__bands { position: relative; }
+.scale--progressive .scale__band-swatch { background: none !important; }
+/* One bar, painted by the JS-set --ramp custom property. */
+.scale--progressive .scale__bar {
+  inline-size: 20px;
+  border: 0;
+  background-image: var(--ramp);
+  align-self: stretch;
+}
+.scale--progressive .scale__band { background: none; }

@@ -291,6 +291,89 @@
       }
       return bands[bands.length - 1];
     }
+    /* ---- The progressive ramp ------------------------------------------
+     * Requested: a continuous scale rather than six steps. The risk it carries
+     * is the one this document warns about most — a smooth KEY over a banded
+     * MAP shows colours nothing on screen uses, and the key looks right while
+     * being wrong. So the interpolation lives here, in one function, and both
+     * the fills and the legend gradient are built from it. They cannot disagree
+     * because there is only one of them.
+     *
+     * The stops are still the SERVED colours (§2.1) — nothing is invented at
+     * the ends. What is new is that a value between two breaks now lands
+     * between their two colours instead of snapping to one.
+     *
+     * Position is by BAND INDEX, not by raw value: 0–5 and 50+ on one linear
+     * axis makes the bands people actually sit in invisible. Equal segments
+     * per band, interpolating inside each — which is also exactly how the
+     * legend bar is laid out, so the two share a mapping as well as a palette. */
+    function hex2rgb(h) {
+      h = String(h).replace('#', '');
+      if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+      var n = parseInt(h, 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+    /* Mixed in OKLab, not sRGB. A straight sRGB lerp between the two dark ends
+     * (#960032 -> #7d2181) passes through a muddy grey that is in neither band;
+     * OKLab keeps the path perceptually straight. */
+    function srgb2lin(c) { c /= 255; return c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); }
+    function lin2srgb(c) { c = c <= 0.0031308 ? c*12.92 : 1.055*Math.pow(c, 1/2.4)-0.055;
+      return Math.max(0, Math.min(255, Math.round(c*255))); }
+    function rgb2oklab(rgb) {
+      var r = srgb2lin(rgb[0]), g = srgb2lin(rgb[1]), b = srgb2lin(rgb[2]);
+      var l = Math.cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*b);
+      var m = Math.cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*b);
+      var s2 = Math.cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*b);
+      return [0.2104542553*l + 0.7936177850*m - 0.0040720468*s2,
+              1.9779984951*l - 2.4285922050*m + 0.4505937099*s2,
+              0.0259040371*l + 0.7827717662*m - 0.8086757660*s2];
+    }
+    function oklab2rgb(L) {
+      var l = Math.pow(L[0] + 0.3963377774*L[1] + 0.2158037573*L[2], 3);
+      var m = Math.pow(L[0] - 0.1055613458*L[1] - 0.0638541728*L[2], 3);
+      var s2 = Math.pow(L[0] - 0.0894841775*L[1] - 1.2914855480*L[2], 3);
+      return [lin2srgb( 4.0767416621*l - 3.3077115913*m + 0.2309699292*s2),
+              lin2srgb(-1.2684380046*l + 2.6097574011*m - 0.3413193965*s2),
+              lin2srgb(-0.0041960863*l - 0.7034186147*m + 1.7076147010*s2)];
+    }
+    function mix(a, b, t) {
+      var A = rgb2oklab(hex2rgb(a)), B = rgb2oklab(hex2rgb(b));
+      var c = oklab2rgb([A[0]+(B[0]-A[0])*t, A[1]+(B[1]-A[1])*t, A[2]+(B[2]-A[2])*t]);
+      return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+    }
+    /* Where a value sits on the bar, 0..1, by band index. */
+    function rampT(v) {
+      if (v == null || !bands.length) return null;
+      for (var i = 0; i < bands.length; i++) {
+        var lo = i ? bands[i-1].upper : 0, hi = bands[i].upper;
+        if (hi == null) return 1;                       /* the open top band */
+        if (v <= hi) return (i + (v - lo) / (hi - lo)) / bands.length;
+      }
+      return 1;
+    }
+    function rampColour(v) {
+      var t = rampT(v);
+      if (t == null) return null;
+      var n = bands.length - 1, x = Math.max(0, Math.min(n, t * n));
+      var i = Math.min(n - 1, Math.floor(x));
+      return mix(bands[i].colour, bands[i+1].colour, x - i);
+    }
+    /* Published so the legend bar is built from the SAME stops the map paints
+     * with. A second gradient written in CSS would be a second answer. */
+    window.AIRBG_RAMP = function () {
+      return { stops: bands.map(function (b) { return b.colour; }),
+               colourFor: rampColour, positionFor: rampT };
+    };
+    /* And SAY that it exists. The legend paints from this, and it was painting
+     * on airbg:datachange — which fires when the data lands, before the render
+     * pass that defines the ramp has run. So the bar asked for a ramp that did
+     * not exist yet, got nothing, and silently stayed on the six-block
+     * fallback: the map interpolated and the key did not.
+     *
+     * Same shape as i18n.js loading after the component that reads it. The fix
+     * is a seam, not a retry: whoever owns the value announces it. */
+    document.dispatchEvent(new CustomEvent('airbg:rampchange'));
+
     function bandName(b) {
       if (!b) return t('legend.none');
       return lang() === 'en' ? b.label : b.label_bg;
@@ -764,7 +847,7 @@
       var linked = true;   // every province links, except to the page you are on
       var reported = 0, labelled = 0, named = 0, silentLabelled = 0, taken = [];
       shapes.forEach(function (sh) {
-        var b = band(valueOf(sh.o)), fill = b && b.colour;
+        var b = band(valueOf(sh.o)), fill = rampColour(valueOf(sh.o));
         if (fill) reported++;
         sh.fill = fill;
         /* Over the tiles, a solid choropleth hides the streets the reader
@@ -895,7 +978,8 @@
             /* `colour`, not `color`: the served band uses the British spelling
              * (§0.2), and `b.color` is silently undefined — which paints every
              * hex black while the node count and the tooltips all look right. */
-            if (b && b.colour) poly.setAttribute('fill', b.colour);
+            var rc = rampColour(v);
+            if (rc) poly.setAttribute('fill', rc);
             else poly.setAttribute('class', cls + ' map-hex--none');
             var ti = el('title');
             ti.textContent = num(v) + ' µg/m³ · ' + (b ? bandName(b) + ' · ' : '') +
@@ -1264,7 +1348,7 @@
           .sort(function (a, b) { return (b.p2 == null) - (a.p2 == null); })
           .forEach(function (a) {
             var av = metric === 'p10' ? a.p10 : a.p2;
-            var ab = band(av), af = ab && ab.colour;
+            var ab = band(av), af = rampColour(av);
             var g = el('g', {
               class: 'map-point' + (av == null ? ' map-point--none' : ''),
               tabindex: '0', role: 'button', 'data-slug': a.slug, 'data-kind': a.kind
