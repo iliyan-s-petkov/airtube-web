@@ -1543,15 +1543,49 @@ correct; the render itself is not. **Confirming the inputs is not confirming
 the output**, and this document has recorded enough controls that were correct
 in the DOM and dead on screen to keep those two apart.
 
-**Loopback does not substitute, and finding out why was worth the probe.** Both
-review servers already serve the kit — `:8080` and `:8091` answer 200 on
-`/design-kit/ui_kits/app/map-home.html` — but that route's CSP is
+**Loopback does not substitute AS CONFIGURED, and finding out why was worth the
+probe.** Both review servers already serve the kit — `:8080` and `:8091` answer
+200 on `/design-kit/ui_kits/app/map-home.html` — but that route's CSP is
 `connect-src 'self'`, with no tile host. So on loopback the tile request is
 refused by the CSP *before* CORS is consulted, and the kit stands down to the
 SVG basemap exactly as designed. Two independent blocks, not one: the local CSP
 and the origin. A local review therefore exercises the fallback and says
 nothing about the tiled path, which is the opposite of what it looks like it is
 doing.
+
+**CORRECTION — that is a fact about one configuration, and it was written as a
+fact about loopback.** The sentence above became "the tiled path can only be
+reviewed in production", which is false and cost two sessions an access request
+each. Both blocks are **config**, and both are locally overridable:
+`internal/config/load.go:41` derives an environment override for every key
+generically — `"AIRBG_" + upper(path with "." → "_")` — so `AIRBG_LISTEN_CSP`
+and `AIRBG_TILES_DIR` need no code change and no permission from anyone.
+
+**The move is local-to-local, not "allow one more reader".** Run a loopback
+tiles listener, point `AIRBG_TILES_DIR` at a directory holding the archive and
+glyphs, name *that* listener in `connect-src`, and rewrite the `tiles.airbg.org`
+URL inside a local copy of `style.json` to match. The public host never enters
+it. Reaching for `tiles.airbg.org` from `127.0.0.1` instead fails twice over:
+`internal/config/validate.go` couples `listen.csp` to the configured tiles host,
+so a mismatch fails config validation rather than quietly, and the tiles
+listener's ACAO names the app origin exactly, so it refuses a loopback origin
+outright. Same shape as the CORS fix above — **move to the side that already has
+the permission rather than widening who may read** — one level down, and this
+time the side to move to is a server you start yourself.
+
+**A local `serve` starts the collector, and that is a production-write hazard.**
+`ingest.Loop` calls `RunOnce` before its first tick, so a local run whose
+`AIRBG_DATABASE_URL` points at production writes to it within seconds — 6 120
+rows, once, nobody asked for them. Set `AIRBG_UPSTREAM_URL=http://127.0.0.1:1/dead`
+and confirm `grep -c 'written='` is 0 before trusting anything else about the run.
+
+**And the measurement this was all blocking had already been taken.** The POI
+counts recorded below were reproduced independently on a local stack against
+`7242d83` — 201 / 134, transport 92, health 12, education 5, `poi-shop` and
+`poi-shop-name` flipping together and reversibly (#239 comment 507). Two
+sessions arrived at the same figures by different routes, which is worth more
+than either run alone. **Before asking for access, ask whether the thing it
+would prove has already been proved.**
 
 **A constant three files away decided what could be tested, and that is the
 defect.** `map-tiles.js` hardcoded the style URL and `airbg-data.js` hardcoded
@@ -2833,6 +2867,15 @@ in §1 make likely. Committing one is a defect, not a preference.
   state; the basemap's neutrals are what it gets.
 - ❌ Shortening a category list so its panel fits the viewport. Cap and scroll —
   a dropped category is a layer with no way to reach it.
+- ❌ Recording a fact about one configuration as a fact about an environment.
+  "Loopback cannot exercise the tiled path" was true of the config in front of
+  me and false of loopback; it hardened into a reason to request production
+  access. Check whether the blocker is a setting before it becomes a permission.
+- ❌ Requesting access to prove something that has already been proved. Ask what
+  the access would establish, then ask whether anyone has established it.
+- ❌ Running the app locally against a production `AIRBG_DATABASE_URL`. The
+  collector's first `RunOnce` precedes its first tick, so the writes land before
+  anyone notices the run was pointed at the wrong database.
 - ❌ Treating a first-party service on a second hostname as an external one.
   Read the CSP the app already ships; it names what is allowed.
 - ❌ Duplicating geometry the backend already serves. Two owners for one
