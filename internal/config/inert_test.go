@@ -198,6 +198,12 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 		if got := cfg.Tiles.AllowedOrigins; len(got) != 0 {
 			t.Errorf("tiles.allowed_origins = %q, want empty; the site's own origin is allowed without being listed", got)
 		}
+		// A bool, so it is not in the table either. Shipped off: it widens the
+		// allowlist by rule rather than by name, and an operator who has not
+		// asked for a preview host must not get one.
+		if cfg.Tiles.AllowLoopbackOrigins {
+			t.Error("tiles.allow_loopback_origins = true, want false; it is an opt-in for design-preview hosts")
+		}
 	})
 
 	t.Run("csp", func(t *testing.T) {

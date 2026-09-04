@@ -225,11 +225,12 @@ type rawFrontend struct {
 // would also route a credential through assignScalar's value-echoing parse
 // errors, the same reason rawDatabase has no url field.
 type rawTiles struct {
-	Addr           *string   `yaml:"addr"`
-	Dir            *string   `yaml:"dir"`
-	PublicURL      *string   `yaml:"public_url"`
-	Archive        *string   `yaml:"archive"`
-	AllowedOrigins *[]string `yaml:"allowed_origins"`
+	Addr                 *string   `yaml:"addr"`
+	Dir                  *string   `yaml:"dir"`
+	PublicURL            *string   `yaml:"public_url"`
+	Archive              *string   `yaml:"archive"`
+	AllowedOrigins       *[]string `yaml:"allowed_origins"`
+	AllowLoopbackOrigins *bool     `yaml:"allow_loopback_origins"`
 }
 
 // rawI18n holds only an override directory, never message text. Copy belongs in

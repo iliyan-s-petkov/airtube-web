@@ -230,6 +230,13 @@ type Tiles struct {
 	// outside the all-or-nothing rule above: it is optional, so an empty list
 	// must not read as a half-configured tiles block.
 	AllowedOrigins []string
+	// AllowLoopbackOrigins additionally permits any http origin on this
+	// machine — 127.0.0.0/8, ::1 or localhost, on any port. It exists for
+	// design-preview hosts, which bind an ephemeral port and so cannot be named
+	// in AllowedOrigins: the port changes on every launch, and the handler
+	// matches that list byte for byte. A separate switch rather than a wildcard
+	// entry, so the no-wildcards rule the list depends on stays intact.
+	AllowLoopbackOrigins bool
 }
 
 // I18n points at operator-supplied message overrides.
@@ -398,11 +405,12 @@ func resolve(r *raw) Config {
 			DefaultLat:         *r.Frontend.DefaultLat,
 		},
 		Tiles: Tiles{
-			Addr:           *r.Tiles.Addr,
-			Dir:            *r.Tiles.Dir,
-			PublicURL:      *r.Tiles.PublicURL,
-			Archive:        *r.Tiles.Archive,
-			AllowedOrigins: *r.Tiles.AllowedOrigins,
+			Addr:                 *r.Tiles.Addr,
+			Dir:                  *r.Tiles.Dir,
+			PublicURL:            *r.Tiles.PublicURL,
+			Archive:              *r.Tiles.Archive,
+			AllowedOrigins:       *r.Tiles.AllowedOrigins,
+			AllowLoopbackOrigins: *r.Tiles.AllowLoopbackOrigins,
 		},
 		I18n: I18n{
 			Dir: *r.I18n.Dir,

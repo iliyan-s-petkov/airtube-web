@@ -173,7 +173,8 @@ func New(opts Options) (*Server, error) {
 		// letting an operator configure — and tiles.allowed_origins appends
 		// whatever else may read it, normally a design or preview host.
 		origins := append([]string{opts.Config.Listen.BaseURL}, opts.Config.Tiles.AllowedOrigins...)
-		h, err := tiles.NewHandler(opts.Config.Tiles.Dir, opts.Config.Tiles.Archive, origins)
+		h, err := tiles.NewHandler(opts.Config.Tiles.Dir, opts.Config.Tiles.Archive, origins,
+			opts.Config.Tiles.AllowLoopbackOrigins)
 		if err != nil {
 			return nil, fmt.Errorf("server: tiles: %w", err)
 		}

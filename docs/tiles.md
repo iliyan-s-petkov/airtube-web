@@ -257,13 +257,49 @@ of its own.
 
 **The design kit is deliberately not in this list.** It is served from
 `https://airbg.org/design-kit/`, so its fetches come from an origin that is
-already allowed, and the preview it renders is the one production renders. The
-alternative considered and rejected was a loopback origin: the kit's dev server
-picks its port per install, so the committed value would name one machine and
-rot on the next. Because the kit is same-origin, the app's `connect-src` is what
-governs its tile fetches — the deployed policy already names
-`tiles.public_url`'s origin, and startup validation fails loudly if it stops
-doing so.
+already allowed, and the preview it renders is the one production renders.
+Because the kit is same-origin, the app's `connect-src` is what governs its tile
+fetches — the deployed policy already names `tiles.public_url`'s origin, and
+startup validation fails loudly if it stops doing so. A *mirror* of the kit
+served from somewhere else is a different question: see 5c.
+
+## 5c. Loopback origins
+
+```yaml
+tiles:
+  allow_loopback_origins: false   # shipped setting
+```
+
+Allows any `http` origin on the requesting machine — anything in `127.0.0.0/8`,
+`::1`, or the name `localhost`, on any port — in addition to everything in 5b.
+
+It exists for **design-preview hosts that bind an ephemeral port**. OpenDesign
+serves its mirror of the kit from `http://127.0.0.1:<port>` and picks a new port
+on every launch, so the origin is not knowable when the config is written. It
+cannot be an `allowed_origins` entry for the same reason `*` cannot: that list
+is matched byte for byte, so a wildcard there would match nothing while looking
+correct — the silent failure 5b's validation exists to refuse. A separate rule
+keeps that guarantee intact.
+
+The failure it fixes is a quiet one. Without the header the preview falls back
+to plain SVG shapes, and since the hex overlay only draws over a real basemap,
+the reviewer sees the *previous* design rather than an error. A correct build
+and a broken one look identical.
+
+Matching is by parse, not by prefix: `http://127.0.0.1.evil.test` and
+`http://evil.test.localhost` both begin or end with the string a looser check
+would accept, and neither is loopback. `https` loopback is refused too — a
+preview server serves plain `http`, and accepting TLS would extend the rule to
+whatever terminates it on that host's behalf.
+
+**What it does and does not widen.** It widens *who* may read, never *what*: the
+path allowlist, the archive name and the cache headers are unchanged. And the
+restriction it relaxes was never a secrecy control — the tiles are OSM-derived
+public data, and a non-browser client gets `200` with no `Origin` header at all.
+`Access-Control-Allow-Origin` constrains browsers; it is a hotlinking and
+bandwidth control, which is what makes this switch cheap. Production runs it on
+for exactly that reason; it ships off so an operator who never asked for a
+preview host does not get one.
 
 ## 6. The firewall rule
 

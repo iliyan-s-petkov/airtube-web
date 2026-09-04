@@ -28,7 +28,7 @@ const archive = "bulgaria-20260815.pmtiles"
 
 func handler(t *testing.T) http.Handler {
 	t.Helper()
-	h, err := tiles.NewHandler("testdata", archive, []string{origin, kitOrigin})
+	h, err := tiles.NewHandler("testdata", archive, []string{origin, kitOrigin}, false)
 	if err != nil {
 		t.Fatalf("NewHandler error = %v, want nil", err)
 	}
@@ -161,7 +161,7 @@ func TestRejectsAnythingOutsideTheAllowlist(t *testing.T) {
 		t.Fatalf("seeding notes.txt: %v", err)
 	}
 
-	h, err := tiles.NewHandler(dir, archive, []string{origin})
+	h, err := tiles.NewHandler(dir, archive, []string{origin}, false)
 	if err != nil {
 		t.Fatalf("NewHandler error = %v, want nil", err)
 	}
@@ -457,7 +457,7 @@ func TestRangeReadIsReadable(t *testing.T) {
 // handler by another route.
 func TestConstructorRejectsAWildcardOrigin(t *testing.T) {
 	for _, origins := range [][]string{{"*"}, {origin, "*"}, {origin, ""}} {
-		if _, err := tiles.NewHandler("testdata", archive, origins); err == nil {
+		if _, err := tiles.NewHandler("testdata", archive, origins, false); err == nil {
 			t.Errorf("NewHandler with allowOrigins = %q returned nil error, want an error", origins)
 		}
 	}
@@ -482,14 +482,14 @@ func TestPreflight(t *testing.T) {
 // guards against.
 func TestConstructorRejectsAnIncompleteDirectory(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := tiles.NewHandler(dir, archive, []string{origin}); err == nil {
+	if _, err := tiles.NewHandler(dir, archive, []string{origin}, false); err == nil {
 		t.Fatal("NewHandler on an empty directory returned nil error, want an error")
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "style.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := tiles.NewHandler(dir, archive, []string{origin})
+	_, err := tiles.NewHandler(dir, archive, []string{origin}, false)
 	if err == nil {
 		t.Fatal("NewHandler with style.json but no archive returned nil error, want an error")
 	}
@@ -514,7 +514,7 @@ func TestServesTheConfiguredArchiveAndNoOther(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h, err := tiles.NewHandler(dir, archive, []string{origin})
+	h, err := tiles.NewHandler(dir, archive, []string{origin}, false)
 	if err != nil {
 		t.Fatalf("NewHandler error = %v, want nil", err)
 	}
@@ -528,7 +528,7 @@ func TestServesTheConfiguredArchiveAndNoOther(t *testing.T) {
 	// The converse, so this cannot be satisfied by an allowlist that happens to
 	// accept any *.pmtiles: point the config at the other file and the two
 	// answers must swap.
-	h2, err := tiles.NewHandler(dir, other, []string{origin})
+	h2, err := tiles.NewHandler(dir, other, []string{origin}, false)
 	if err != nil {
 		t.Fatalf("NewHandler(%q) error = %v, want nil", other, err)
 	}
@@ -546,7 +546,7 @@ func TestServesTheConfiguredArchiveAndNoOther(t *testing.T) {
 // whole reason this constructor validates at all.
 func TestConstructorRejectsAnArchiveThatIsNotThere(t *testing.T) {
 	dir := copyTestdata(t)
-	if _, err := tiles.NewHandler(dir, "bulgaria-19990101.pmtiles", []string{origin}); err == nil {
+	if _, err := tiles.NewHandler(dir, "bulgaria-19990101.pmtiles", []string{origin}, false); err == nil {
 		t.Fatal("NewHandler with an archive name that names no file returned nil error, want an error")
 	}
 }
@@ -562,20 +562,104 @@ func TestConstructorRejectsANonPlainArchiveName(t *testing.T) {
 		".",
 		"..",
 	} {
-		if _, err := tiles.NewHandler("testdata", name, []string{origin}); err == nil {
+		if _, err := tiles.NewHandler("testdata", name, []string{origin}, false); err == nil {
 			t.Errorf("NewHandler with archive = %q returned nil error, want an error", name)
 		}
 	}
 }
 
 func TestConstructorRejectsEmptyArguments(t *testing.T) {
-	if _, err := tiles.NewHandler("testdata", "", []string{origin}); err == nil {
+	if _, err := tiles.NewHandler("testdata", "", []string{origin}, false); err == nil {
 		t.Error("NewHandler with an empty archive returned nil error, want an error")
 	}
-	if _, err := tiles.NewHandler("", archive, []string{origin}); err == nil {
+	if _, err := tiles.NewHandler("", archive, []string{origin}, false); err == nil {
 		t.Error("NewHandler with an empty dir returned nil error, want an error")
 	}
-	if _, err := tiles.NewHandler("testdata", archive, nil); err == nil {
+	if _, err := tiles.NewHandler("testdata", archive, nil, false); err == nil {
 		t.Error("NewHandler with an empty allowOrigin returned nil error, want an error")
+	}
+}
+
+// TestLoopbackOriginsAreRefusedByDefault pins the shipped posture: the switch
+// is a deliberate opt-in, so a handler built without it treats a preview host
+// exactly like any other stranger.
+func TestLoopbackOriginsAreRefusedByDefault(t *testing.T) {
+	h := handler(t) // built with allowLoopback = false
+	hdr := http.Header{}
+	hdr.Set("Origin", "http://127.0.0.1:60659")
+	resp := do(t, h, http.MethodGet, "/style.json", hdr)
+	if _, ok := resp.Header["Access-Control-Allow-Origin"]; ok {
+		t.Error("a loopback origin got Access-Control-Allow-Origin with the switch off, want it absent")
+	}
+}
+
+// TestLoopbackOriginsWhenAllowed is the reason the switch exists — and the
+// reason it is not a wildcard. The preview host's port is ephemeral, so the
+// accepted cases must span ports and both loopback families, while the refused
+// cases are the ones a prefix or Contains match would wrongly let through.
+func TestLoopbackOriginsWhenAllowed(t *testing.T) {
+	h, err := tiles.NewHandler("testdata", archive, []string{origin}, true)
+	if err != nil {
+		t.Fatalf("NewHandler error = %v, want nil", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		o     string
+		allow bool
+	}{
+		{"an ephemeral port", "http://127.0.0.1:60659", true},
+		{"a different ephemeral port", "http://127.0.0.1:60662", true},
+		{"elsewhere in 127.0.0.0/8", "http://127.0.0.2:8080", true},
+		{"IPv6 loopback", "http://[::1]:60659", true},
+		{"localhost by name", "http://localhost:3000", true},
+		{"the site's own origin still", origin, true},
+
+		// Each of the following starts with, contains, or ends with a string a
+		// sloppier check would accept.
+		{"a hostname that merely starts with 127.0.0.1", "http://127.0.0.1.evil.test", false},
+		{"a hostname that merely starts with localhost", "http://localhost.evil.test", false},
+		{"a hostname that merely ends with localhost", "http://evil.test.localhost", false},
+		{"a hostname that merely contains localhost", "http://x.localhost.evil.test", false},
+		{"a public address", "http://93.184.216.34:8080", false},
+		// A preview server serves plain http. Accepting TLS would extend the
+		// rule to whatever terminates it on the host's behalf.
+		{"loopback over https", "https://127.0.0.1:60659", false},
+		{"loopback with a path", "http://127.0.0.1:60659/", false},
+		{"loopback with userinfo", "http://user@127.0.0.1:60659", false},
+		{"no Origin header at all", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hdr := http.Header{}
+			hdr.Set("Origin", tc.o)
+			resp := do(t, h, http.MethodGet, "/style.json", hdr)
+
+			got := resp.Header.Get("Access-Control-Allow-Origin")
+			if tc.allow {
+				// Echoed, not a canonical form: the browser compares ACAO to
+				// the Origin it sent, byte for byte, so any normalisation on
+				// the way out is a refusal wearing an allow's clothes.
+				if got != tc.o {
+					t.Errorf("Origin %q: Access-Control-Allow-Origin = %q, want it echoed", tc.o, got)
+				}
+				return
+			}
+			if _, ok := resp.Header["Access-Control-Allow-Origin"]; ok {
+				t.Errorf("Origin %q: Access-Control-Allow-Origin = %q, want the header absent", tc.o, got)
+			}
+		})
+	}
+}
+
+// The switch widens who may read; it must not widen WHAT they read. A preview
+// host gets the same three artefacts and the same 404 for anything else.
+func TestLoopbackOriginDoesNotWidenThePathAllowlist(t *testing.T) {
+	h, err := tiles.NewHandler("testdata", archive, []string{origin}, true)
+	if err != nil {
+		t.Fatalf("NewHandler error = %v, want nil", err)
+	}
+	hdr := http.Header{}
+	hdr.Set("Origin", "http://127.0.0.1:60659")
+	if got := do(t, h, http.MethodGet, "/secret.txt", hdr).StatusCode; got != http.StatusNotFound {
+		t.Errorf("GET /secret.txt from a loopback origin = %d, want %d", got, http.StatusNotFound)
 	}
 }

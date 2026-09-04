@@ -377,6 +377,10 @@ tiles:
   # Empty on purpose: the design kit is served from the site's own origin, so it
   # needs no entry. See docs/tiles.md §5b.
   allowed_origins: []
+  # Also allow any http origin on the requesting machine (127.0.0.0/8, ::1,
+  # localhost, any port) — for design-preview hosts, whose port is ephemeral and
+  # so cannot be listed above. See docs/tiles.md §5c.
+  allow_loopback_origins: false
 
 # Message overrides. The site's copy lives in the embedded catalogues
 # (internal/i18n/bg.json and en.json); this points at a directory of
