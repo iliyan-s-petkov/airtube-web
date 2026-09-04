@@ -1473,10 +1473,17 @@ body.has-faux-full { overflow: hidden; }
 
 /* The fold. <details> owns the state, the keyboard and the accessible name, so
  * nothing else records whether it is open — one owner, as everywhere else here. */
+/* Icon only, and sized as a real target rather than as a line of text: 24px
+ * square is the compact floor for something a finger has to find on a map. */
+/* The fold spans the whole width so the bar starts at the panel's own left
+ * edge. As a grid ITEM it sat in column 1 and pushed the scale ~120px right —
+ * which is what "move it further to the left" was describing. */
+.scale--onmap .scale__toggle { grid-column: 1 / -1; justify-self: start; }
 .scale--onmap .scale__toggle {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; letter-spacing: 0.32px; color: var(--fg);
-  cursor: pointer; list-style: none; padding: 2px 0; margin-block-end: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  inline-size: 24px; block-size: 24px;
+  color: var(--fg); cursor: pointer; list-style: none;
+  margin-block-end: 4px;
 }
 .scale--onmap .scale__toggle::-webkit-details-marker { display: none; }
 /* The marker is drawn, not a character: a glyph beside a translatable label is
@@ -1496,21 +1503,64 @@ body.has-faux-full { overflow: hidden; }
 }
 
 /* ---- Progressive scale ----------------------------------------------------
- * The bar is now ONE continuous gradient rather than six blocks. The stops are
- * the served band colours at equal spacing — the same mapping rampColour() uses
- * for the fills, so the key and the map interpolate identically.
+ * One continuous bar with the band edges beside it. The stops come from
+ * window.AIRBG_RAMP() via map-legend.js — the same function the hexes are
+ * filled with — so the key cannot show a colour the map does not use. Nothing
+ * here writes a gradient by hand.
  *
- * The gradient itself is written by map-legend.js from window.AIRBG_RAMP(),
- * NOT here: a hand-typed gradient in CSS would be a second copy of the ramp,
- * free to drift the first time a band colour changes server-side (§2.1). This
- * block only shapes it. */
-.scale--progressive .scale__bands { position: relative; }
-.scale--progressive .scale__band-swatch { background: none !important; }
-/* One bar, painted by the JS-set --ramp custom property. */
-.scale--progressive .scale__bar {
-  inline-size: 20px;
-  border: 0;
-  background-image: var(--ramp);
-  align-self: stretch;
+ * The first attempt made the bar a grid SIBLING of the band list and asked it
+ * to `align-self: stretch`. It did not: it took one row's height and sat as a
+ * 30px stub at the top, while the six swatches — blanked with
+ * `background: none` but still carrying their borders — stayed behind as empty
+ * dashed boxes. Two bars, one of them a ghost.
+ *
+ * The bar is now absolutely positioned over the full height of the band list,
+ * and the swatches are removed from the flow entirely rather than made
+ * invisible. An element that paints nothing should not be laid out. */
+.scale--progressive .scale__bands {
+  position: relative;
+  padding-inline-start: 28px;      /* room for the bar, which floats over it */
 }
-.scale--progressive .scale__band { background: none; }
+/* (0,3,0) to match `.scale--vertical .scale__bands--vertical .scale__band-swatch`,
+ * which sizes them. At (0,2,0) this lost and the six blanked swatches stayed in
+ * the flow as empty dashed boxes beside the real bar. Source order does not
+ * decide a specificity contest — third time in this file. */
+.scale--progressive .scale__bands--vertical .scale__band-swatch { display: none; }
+/* (0,3,0), matching the rules that size its siblings, and an EXPLICIT height.
+ * `inset-block: 0` on an absolutely positioned child of a flex container did
+ * resolve — computed top and bottom both read 0px — and the box still came out
+ * 16px tall. Rather than keep arguing with it, the height is stated: the
+ * containing block is .scale__bands, which is the list this bar exists to
+ * span. */
+.scale--progressive .scale__bands--vertical .scale__bar {
+  list-style: none;
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  block-size: 100%;
+  inline-size: 20px;
+  min-block-size: 0;
+  background-image: var(--ramp);
+  border: 0;
+}
+/* Each row is now just its edge number and its name, sitting against the bar. */
+.scale--progressive .scale__band {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: end;
+  min-block-size: 34px;
+  position: relative;
+}
+.scale--progressive .scale__band-edge {
+  position: absolute;
+  inset-inline-start: -22px;       /* on the bar's own edge, where it divides */
+  inset-block-start: -0.6em;
+}
+.scale--progressive .scale__band-name { align-self: center; }
+
+/* Everything in the on-map scale stacks in one left-aligned column: the fold,
+ * the unit caption, then the bar with its numbers. The two-column rule this
+ * inherits from .scale--vertical was written for the version that sat under
+ * the map with room to spare. */
+.scale--onmap.scale--vertical { grid-template-columns: 1fr; }
+.scale--onmap .scale__label { margin-block-end: 6px; }

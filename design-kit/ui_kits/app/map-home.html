@@ -131,9 +131,11 @@
          would have shared a corner. Over Greece and North Macedonia, which
          are context and carry no reading (§5.2), so it covers no data. -->
     <details class="scale scale--named scale--vertical scale--onmap" data-od-id="map-legend" open>
-      <summary class="scale__toggle" data-od-id="legend-toggle">
-        <span data-i18n="legend.title">Скала</span>
-      </summary>
+      <!-- Icon only. The word was a label for a control whose triangle already
+           says what it does, and it pushed the whole scale to the right of it.
+           The name survives as aria-label, written from the catalogue on every
+           render (§5.2a: an icon-only control still has a name). -->
+      <summary class="scale__toggle" data-od-id="legend-toggle"></summary>
       <!-- Composed at runtime from the current metric (§5.12: one string, one
            owner), so no data-i18n key here. The ranges below are rewritten from
            the served bands too — the PM10 edges are not the PM2.5 edges. -->
@@ -145,8 +147,11 @@
            equal height rather than proportional to value, because 0–5 and 50+ on
            one linear axis makes the bands people actually sit in invisible.
            The edge numbers sit between the segments they divide. -->
-      <div class="scale__bar" aria-hidden="true"></div>
       <ol class="scale__bands scale__bands--vertical">
+        <!-- INSIDE the list, because that is what it has to span. As a sibling
+             its containing block was its own grid area and it resolved to one
+             row's height — a 16px stub at the top of a 204px list. -->
+        <li class="scale__bar" aria-hidden="true"></li>
         <li class="scale__band">
           <span class="chip__swatch chip__swatch--eaqi scale__band-swatch" data-band="Изключително лошо"></span>
           <span class="scale__band-name" data-i18n="band.extreme">Изключително лошо</span>

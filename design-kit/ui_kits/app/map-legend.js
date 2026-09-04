@@ -38,6 +38,15 @@
   function paint() {
     var scale = document.querySelector('[data-od-id="map-legend"]');
     if (!scale) return;
+    /* The fold is a bare triangle, so its accessible name has to come from
+     * somewhere — and from the catalogue on every paint, not baked into the
+     * markup, or it is untranslated by construction (§5.2a). */
+    var toggle = scale.querySelector('.scale__toggle');
+    if (toggle) {
+      var name = (window.AIRBG_T ? window.AIRBG_T('legend.title') : 'Скала');
+      toggle.setAttribute('aria-label', name);
+      toggle.setAttribute('title', name);
+    }
     /* The class goes on only when the ramp is actually available. Without it
      * the six-block bar stays exactly as it was — a scale that silently loses
      * its colours is worse than one that never changed. */
@@ -58,6 +67,7 @@
   document.addEventListener('airbg:rampchange', paint);
   document.addEventListener('airbg:datachange', paint);
   document.addEventListener('airbg:metricchange', paint);
+  document.addEventListener('airbg:languagechange', paint);
   if (document.readyState !== 'loading') paint();
   else document.addEventListener('DOMContentLoaded', paint);
 }());
