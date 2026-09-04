@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -108,6 +109,23 @@ func (c *Client) requestURL(points []Point) string {
 	return c.cfg.URL + "?" + q.Encode()
 }
 
+// normaliseDirection folds the API's 0-360 into the half-open 0-360 the stored
+// row requires: the model reports a due northerly as 360, and wind_forecast's
+// own CHECK is direction_deg < 360, so an unfolded 360 aborted the entire write
+// batch — one hex an hour out of a few hundred took the whole cycle down.
+//
+// A bearing is modular, so this loses nothing: 360 and 0 name the same
+// direction. Folded here, where the provider's convention already lives, rather
+// than relaxed in the constraint — the constraint is what makes "0-360" one
+// value per direction instead of two.
+func normaliseDirection(deg float64) float64 {
+	d := math.Mod(deg, 360)
+	if d < 0 {
+		d += 360
+	}
+	return d
+}
+
 // Parse maps a response onto the points that produced it, by position.
 //
 // Position is the only correct join. The coordinates in the response are the
@@ -150,7 +168,7 @@ func Parse(payload []byte, points []Point) ([]Forecast, error) {
 				R:         points[i].R,
 				ValidAt:   t,
 				SpeedMS:   *h.Speed[j],
-				Direction: *h.Direction[j],
+				Direction: normaliseDirection(*h.Direction[j]),
 			})
 		}
 	}

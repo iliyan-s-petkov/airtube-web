@@ -81,6 +81,29 @@ func TestNullHoursAreDroppedNotZeroed(t *testing.T) {
 	}
 }
 
+// Caught in production: the model reports a due northerly as 360, and
+// wind_forecast's CHECK is direction_deg < 360, so one hex-hour out of a few
+// hundred aborted the whole write batch and the overlay served 503 all day.
+func TestDueNorthIsFoldedToZero(t *testing.T) {
+	payload := []byte(`[
+	  {"hourly":{"time":["2026-09-05T00:00"],"wind_speed_10m":[3.0],"wind_direction_10m":[360]}},
+	  {"hourly":{"time":["2026-09-05T00:00"],"wind_speed_10m":[3.0],"wind_direction_10m":[359.5]}}
+	]`)
+
+	got, err := wind.Parse(payload, points())
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got[0].Direction != 0 {
+		t.Errorf("direction 360 stored as %v, want 0 — the column's CHECK is < 360", got[0].Direction)
+	}
+	// Only 360 itself folds: rounding 359.5 down to something else would move
+	// the arrow.
+	if got[1].Direction != 359.5 {
+		t.Errorf("direction 359.5 stored as %v, want it unchanged", got[1].Direction)
+	}
+}
+
 func TestTimestampsAreParsedAsUTC(t *testing.T) {
 	payload := []byte(`[
 	  {"hourly":{"time":["2026-09-05T13:00"],"wind_speed_10m":[3.5],"wind_direction_10m":[270]}},
