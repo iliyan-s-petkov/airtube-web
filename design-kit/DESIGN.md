@@ -1519,6 +1519,30 @@ malformed expression or a layer matching nothing renders a **blank map with no
 error**. There is nothing on screen to debug, and no build stands between this
 file and the server.
 
+**The zoom gates were checked against the archive, and a proposal to change
+them was withdrawn.** A rendered count at Младост z15.4 showed transport at 92
+against education's 5, and that was read as "transport is the clutter, move it
+to z15". Decoding the z14 tiles directly — five cities, **16 540 POI features**,
+grouped by evaluating `style.json`'s own filters rather than by a hand-written
+list — inverts the ranking: `poi-shop` **42,5 %**, `poi-other` **39,5 %**,
+`poi-transport` **11,6 %**, `poi-health` 4,0 %, `poi-education` 2,4 %. The two
+dense groups are already the two gated latest (z15 and z16). The gates are
+correct as shipped and nothing changed.
+
+**Rendered counts and archive counts answer different questions.**
+`queryRenderedFeatures` reports what survived the zoom gate, the viewport and
+`text-optional` at one camera position — which is the right instrument for *does
+the control drive the map* and the wrong one for *which category is dense*. Ask
+the archive about density; ask the map about behaviour.
+
+**And the same pass verified disjointness against data.**
+`tools/basemap/style.test.mjs` proves every POI class lands in exactly one group
+by evaluating the filters; running the same predicates over 16 540 real features
+returned **no feature in zero groups and none in two**. Two independent methods,
+one answer — which is worth more than either, because the test could have been
+wrong about the algebra and the archive could have carried a class nobody
+enumerated.
+
 **The archive stops at z14, and everything above it is overzoom.** Read off
 the PMTiles header on the live server rather than assumed: max zoom **14**, and
 `poi` is present at **z12–14** carrying a `name:bg` field. So the POI gates at
