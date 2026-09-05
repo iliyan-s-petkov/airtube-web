@@ -629,6 +629,25 @@
       hexesWillDraw = !!(hexes && hexes.hexes && hexes.hexes.length);
 
 
+      /* Names printed by the province layer, so the marker layer can avoid
+       * repeating them. */
+      var provinceNames = {};
+      /* ONE list of every label already on the map, province names and marker
+       * names alike. Two lists meant each layer avoided only itself, so
+       * "София-град" and "София" — different places, both legitimate — printed
+       * on top of one another. Whether a word fits is a question about the
+       * pixels, not about which layer drew it. */
+      var placedLabels = [];
+      var LGAP = 3;
+      function hitsMarker(b) {
+        for (var i = 0; i < placedLabels.length; i++) {
+          var o = placedLabels[i];
+          if (b.x0 - LGAP < o.x1 && b.x1 + LGAP > o.x0 &&
+              b.y0 - LGAP < o.y1 && b.y1 + LGAP > o.y0) return true;
+        }
+        return false;
+      }
+
       var VH = H;
       try {
         var cssH = parseFloat(getComputedStyle(frame).getPropertyValue('--map-view-h'));
@@ -1460,7 +1479,19 @@
           if (ink) n.setAttribute('fill', ink);
           n.textContent = part;
           labels.appendChild(n);
+          /* Into the shared list, so a marker will not land on it. */
+          var pw = widthOf(part, false, nameSize);
+          var py = top + nameSize + 2 + li * (nameSize + 1);
+          placedLabels.push({ x0: at[0] - pw / 2, x1: at[0] + pw / 2,
+                              y0: py - nameSize, y1: py + 2 });
         });
+        /* Remember what the PROVINCE layer already said, so the marker layer
+         * does not say it again twenty pixels away. Габрово, Пловдив and Стара
+         * Загора are each both an oblast and a city, so the two layers printed
+         * the same word twice — which reads as a rendering fault, not as two
+         * real places. The province label carries the area's reading and is
+         * placed first; the marker keeps its dot and its tooltip. */
+        provinceNames[label] = 1;
         named++;
       });
 
@@ -1713,7 +1744,20 @@
           if (a.oblast === focus) return true;
           return showNeighbours && onScreen(a.lon, a.lat);
         })
-          .sort(function (a, b) { return (b.p2 == null) - (a.p2 == null); })
+          /* Order decides who KEEPS a name when two collide, so it has to
+           * rank by how much each mark is worth, not by whether it happens to
+           * have a reading. A city outranks a neighbourhood — at province zoom
+           * the reader is looking for towns — and within a tier the one
+           * standing on more sensors wins, because it is the better-evidenced
+           * claim. Silent places sort last: a place with no reading has the
+           * least to say and should be the first name dropped. */
+          .sort(function (a, b) {
+            var ar = a.kind === 'city' ? 0 : 1, br = b.kind === 'city' ? 0 : 1;
+            if (ar !== br) return ar - br;
+            var an = a.p2 == null && a.p10 == null, bn = b.p2 == null && b.p10 == null;
+            if (an !== bn) return an ? 1 : -1;
+            return (b.sensor_count || 0) - (a.sensor_count || 0);
+          })
           .forEach(function (a) {
             var av = metric === 'p10' ? a.p10 : a.p2;
             var ab = band(av), af = rampColour(av);
@@ -1770,7 +1814,26 @@
             /* The name sits tight to a 4px navigation dot, not below a 14px
              * disc that is no longer there. */
             if (navOnly) lab.setAttribute('y', (cy + R + 11).toFixed(1));
-            g.appendChild(lab);
+            /* The NAME is dropped when it has nowhere to go; the dot stays.
+             *
+             * Every marker used to print its name unconditionally, so at
+             * province zoom София's twenty-odd neighbourhoods stacked their
+             * labels into an unreadable pile — Връбница over Искър over
+             * Възраждане over Витоша — and the pile obscured the readings it
+             * was meant to annotate. Zooming out made it worse, which is
+             * backwards: less room should mean less said.
+             *
+             * A dot with no name is still a place the reader can click and
+             * still carries its reading in the tooltip. A name printed over
+             * three other names is worth nothing to anybody. */
+            var labW = widthOf(lab.textContent, false, 11);
+            var labBox = { x0: cx - labW / 2, x1: cx + labW / 2,
+                           y0: cy + R + 2, y1: cy + R + 16 };
+            var named = !provinceNames[lab.textContent] && !hitsMarker(labBox);
+            if (named) {
+              g.appendChild(lab);
+              placedLabels.push(labBox);
+            }
             // The name is the accessible name; the reading and its tier follow,
             // so a screen reader never gets a bare number (§9.1).
             var ttl = el('title');
@@ -1790,11 +1853,15 @@
             points.push(a);
             /* What the marker occupies, so a district name never lands on it.
              * The mark and the name under it are one claim on the map. */
-            var lw = widthOf(lab.textContent, false, 11);
-            markerNames[lab.textContent] = 1;
+            /* Only a name that was actually PRINTED reserves space and
+             * suppresses the district of the same name. Recording a label the
+             * reader never saw would push district names off the map to avoid
+             * something that is not there. */
             markerBoxes.push({ x0: cx - R, x1: cx + R, y0: cy - R, y1: cy + R });
-            markerBoxes.push({ x0: cx - lw / 2, x1: cx + lw / 2,
-                               y0: cy + R + 2, y1: cy + R + 16 });
+            if (named) {
+              markerNames[lab.textContent] = 1;
+              markerBoxes.push(labBox);
+            }
           });
         svg.appendChild(pts);
       }
