@@ -35,6 +35,14 @@ type Listen struct {
 	TrustedProxyCIDRs []string
 	CSP               string
 	PermissionsPolicy string
+
+	// AllowLoopbackOrigins lets any http origin on this machine read the JSON
+	// API cross-origin, alongside BaseURL. Separate from the tiles switch of
+	// the same name because the two surfaces are not the same risk: the tiles
+	// listener holds nothing, while this one carries the rate limiters and the
+	// edge-cached overview. Widening the basemap should not silently widen the
+	// data API.
+	AllowLoopbackOrigins bool
 }
 
 type Timeouts struct {
@@ -290,13 +298,14 @@ func (t Tiles) StyleURL() string {
 func resolve(r *raw) Config {
 	cfg := Config{
 		Listen: Listen{
-			Addr:              *r.Listen.Addr,
-			MetricsAddr:       *r.Listen.MetricsAddr,
-			BaseURL:           *r.Listen.BaseURL,
-			MaxConns:          *r.Listen.MaxConns,
-			TrustedProxyCIDRs: *r.Listen.TrustedProxyCIDRs,
-			CSP:               *r.Listen.CSP,
-			PermissionsPolicy: *r.Listen.PermissionsPolicy,
+			Addr:                 *r.Listen.Addr,
+			MetricsAddr:          *r.Listen.MetricsAddr,
+			BaseURL:              *r.Listen.BaseURL,
+			MaxConns:             *r.Listen.MaxConns,
+			TrustedProxyCIDRs:    *r.Listen.TrustedProxyCIDRs,
+			CSP:                  *r.Listen.CSP,
+			PermissionsPolicy:    *r.Listen.PermissionsPolicy,
+			AllowLoopbackOrigins: *r.Listen.AllowLoopbackOrigins,
 		},
 		Timeouts: Timeouts{
 			ReadHeader:    r.Timeouts.ReadHeader.Std(),

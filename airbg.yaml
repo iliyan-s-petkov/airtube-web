@@ -68,6 +68,10 @@ listen:
   # just third parties, which silently broke the button until Task 13's E2E
   # spec (web/e2e/locate.spec.js) caught it against this exact file.
   permissions_policy: "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+  # Also answer CORS for any http origin on this machine, alongside base_url —
+  # for a design-preview host, whose port is ephemeral. Separate from the tiles
+  # switch: this surface has the rate limiters. See docs/tiles.md §5c.
+  allow_loopback_origins: false
 
 timeouts:
   read_header: "5s"

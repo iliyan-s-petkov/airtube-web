@@ -27,13 +27,14 @@ type raw struct {
 }
 
 type rawListen struct {
-	Addr              *string   `yaml:"addr"`
-	MetricsAddr       *string   `yaml:"metrics_addr"`
-	BaseURL           *string   `yaml:"base_url"`
-	MaxConns          *int32    `yaml:"max_conns"`
-	TrustedProxyCIDRs *[]string `yaml:"trusted_proxy_cidrs"`
-	CSP               *string   `yaml:"csp"`
-	PermissionsPolicy *string   `yaml:"permissions_policy"`
+	Addr                 *string   `yaml:"addr"`
+	MetricsAddr          *string   `yaml:"metrics_addr"`
+	BaseURL              *string   `yaml:"base_url"`
+	MaxConns             *int32    `yaml:"max_conns"`
+	TrustedProxyCIDRs    *[]string `yaml:"trusted_proxy_cidrs"`
+	CSP                  *string   `yaml:"csp"`
+	PermissionsPolicy    *string   `yaml:"permissions_policy"`
+	AllowLoopbackOrigins *bool     `yaml:"allow_loopback_origins"`
 }
 
 type rawTimeouts struct {

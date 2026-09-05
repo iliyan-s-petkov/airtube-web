@@ -204,6 +204,12 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 		if cfg.Tiles.AllowLoopbackOrigins {
 			t.Error("tiles.allow_loopback_origins = true, want false; it is an opt-in for design-preview hosts")
 		}
+		// The same switch on the other surface, and the more consequential of
+		// the two: this one fronts the data API and its rate limiters, not a
+		// directory of static files.
+		if cfg.Listen.AllowLoopbackOrigins {
+			t.Error("listen.allow_loopback_origins = true, want false; it is an opt-in for design-preview hosts")
+		}
 	})
 
 	t.Run("csp", func(t *testing.T) {

@@ -301,6 +301,37 @@ bandwidth control, which is what makes this switch cheap. Production runs it on
 for exactly that reason; it ships off so an operator who never asked for a
 preview host does not get one.
 
+## 5d. The same switch on the JSON API
+
+```yaml
+listen:
+  allow_loopback_origins: false   # shipped setting
+```
+
+A basemap without data is a blank map with hexes missing, so the preview needs
+`/api/v1/*` cross-origin too. `listen.base_url` is always allowed; this key adds
+the same loopback rule 5c describes, sharing one matcher (`internal/origin`) so
+the two surfaces cannot drift apart on what "loopback" means.
+
+**A separate key, deliberately.** The tiles listener holds nothing — no pool, no
+snapshot, no limiter. This one carries the per-client rate limiters, the
+enumeration tiering, and responses the CDN caches. Widening the basemap should
+not silently widen the data API, and the key path should name the surface it
+opens.
+
+Two things make this safe where a naive CORS patch would not be:
+
+- **The limiter still applies.** `httpx.CORS` sits *inside* the middleware
+  chain, so a cross-origin request is rate-limited before it reaches the header
+  logic. It widens who may read, never how much.
+- **`Vary: Origin` on every response, including refusals** — and added on the
+  way *out*, not the way in. The API handlers `Set` `Vary` rather than adding to
+  it, so a value written before the handler runs is erased before the response
+  leaves. Since the overview responses are `Cache-Control: public` behind a CDN,
+  a cache keyed without `Origin` would store one origin's response — `ACAO` and
+  all — and replay it to every other. Refusals need the header for the same
+  reason: a refusal is a cacheable response too.
+
 ## 6. The firewall rule
 
 This is load-bearing, not advisory. Serving tiles from the origin means a

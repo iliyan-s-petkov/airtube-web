@@ -15,12 +15,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"strings"
+
+	"airbg.org/internal/origin"
 )
 
 // styleFile is the one artefact name that is fixed. The style document is
@@ -97,7 +97,8 @@ func (h *handler) cacheControlFor(p string) string {
 // knowable at startup and the port changes on every launch. It cannot be a
 // wildcard entry in allowOrigins either — those are matched byte for byte, so a
 // wildcard there would match nothing while looking like it should, which is the
-// silent failure validateTileOrigins exists to refuse. See loopbackOrigin.
+// silent failure validateTileOrigins exists to refuse. See origin.Loopback,
+// which the JSON API's CORS middleware shares.
 //
 // It returns an error rather than serving 404s if dir is not a tile directory,
 // so a mis-set path — or a tiles.archive naming a file that is not there —
@@ -118,23 +119,9 @@ func NewHandler(dir string, archive string, allowOrigins []string, allowLoopback
 	if strings.ContainsAny(archive, `/\`) || archive == "." || archive == ".." {
 		return nil, fmt.Errorf("tiles: archive = %q must be a plain filename", archive)
 	}
-	if len(allowOrigins) == 0 {
-		// Not defaulted to "*": that would let any page on the internet read
-		// the tiles, and the values we want are already known at startup.
-		return nil, errors.New("tiles: allowOrigins is empty")
-	}
-	origins := make(map[string]bool, len(allowOrigins))
-	for _, o := range allowOrigins {
-		if o == "" {
-			return nil, errors.New("tiles: allowOrigins contains an empty origin")
-		}
-		// "*" is refused here as well as in config validation, because this
-		// constructor is the only thing between a caller and the wildcard —
-		// and a wildcard is not a wider allowlist, it is no allowlist.
-		if o == "*" {
-			return nil, errors.New(`tiles: allowOrigins contains "*"; name each origin`)
-		}
-		origins[o] = true
+	origins, err := origin.NewAllowlist(allowOrigins, allowLoopback)
+	if err != nil {
+		return nil, fmt.Errorf("tiles: %w", err)
 	}
 
 	fsys := os.DirFS(dir)
@@ -152,54 +139,13 @@ func NewHandler(dir string, archive string, allowOrigins []string, allowLoopback
 	}
 
 	files := http.FileServerFS(fsys)
-	return &handler{files: files, archive: archive, origins: origins, allowLoopback: allowLoopback}, nil
+	return &handler{files: files, archive: archive, origins: origins}, nil
 }
 
 type handler struct {
-	files         http.Handler
-	archive       string
-	origins       map[string]bool
-	allowLoopback bool
-}
-
-// allows reports whether o may read the basemap cross-origin.
-func (h *handler) allows(o string) bool {
-	if o == "" {
-		return false
-	}
-	if h.origins[o] {
-		return true
-	}
-	return h.allowLoopback && loopbackOrigin(o)
-}
-
-// loopbackOrigin reports whether o is a plain http origin on this machine.
-//
-// Parsed, never prefix-matched. "http://127.0.0.1.evil.test" and
-// "http://localhost.evil.test" both begin with the strings a Contains or
-// HasPrefix check would look for, and neither is loopback; net.ParseIP on the
-// hostname is what tells 127.0.0.1 apart from a name that merely starts with
-// it. IsLoopback covers all of 127.0.0.0/8 and ::1 rather than the one address
-// people happen to type.
-//
-// "localhost" is accepted by name because it is the other host a local preview
-// server binds, and it is the one name a browser is required to treat as
-// loopback — it cannot be pointed elsewhere by DNS the way an ordinary name can.
-//
-// https is refused: a loopback origin over TLS is not something a preview
-// server produces, and accepting it would widen the rule to hosts reachable
-// through a proxy that terminates TLS on their behalf.
-func loopbackOrigin(o string) bool {
-	u, err := url.Parse(o)
-	if err != nil || u.Scheme != "http" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
-		return false
-	}
-	host := u.Hostname()
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	files   http.Handler
+	archive string
+	origins *origin.Allowlist
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +165,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// other allowed origin is the same as returning nothing — and returning
 	// nothing is exactly what an origin off the list gets. No empty header, no
 	// fallback to a default: an absent ACAO is the unambiguous refusal.
-	if o := r.Header.Get("Origin"); h.allows(o) {
+	if o := r.Header.Get("Origin"); h.origins.Allows(o) {
 		head.Set("Access-Control-Allow-Origin", o)
 		head.Set("Access-Control-Allow-Headers", "Range")
 		// Content-Length as well as Content-Range: PMTiles reads the archive by

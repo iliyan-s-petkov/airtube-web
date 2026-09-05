@@ -26,6 +26,7 @@ import (
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/metrics"
+	"airbg.org/internal/origin"
 	"airbg.org/internal/ratelimit"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/tiles"
@@ -112,7 +113,15 @@ func New(opts Options) (*Server, error) {
 	// root so exactly one middleware chain wraps the whole surface — a second
 	// chain is a second place for a header to be forgotten.
 	root := http.NewServeMux()
-	root.Handle("/api/", apiMux)
+	// base_url is always allowed, so the site's own pages keep working if a
+	// browser ever labels their fetches cross-origin; the loopback rule is what
+	// a design-preview host needs, and it ships off.
+	apiOrigins, err := origin.NewAllowlist([]string{opts.Config.Listen.BaseURL},
+		opts.Config.Listen.AllowLoopbackOrigins)
+	if err != nil {
+		return nil, fmt.Errorf("server: api origins: %w", err)
+	}
+	root.Handle("/api/", httpx.CORS(apiMux, apiOrigins))
 	root.Handle("/", renderer.Routes())
 
 	// The kit rides the public listener and its middleware chain deliberately:
