@@ -116,8 +116,30 @@
        * the style failed — and they have nothing in common as fixes. The line
        * now separates them without anyone having to hover, open a console, or
        * ask me. */
-      note.textContent = (window.AIRBG_T ? window.AIRBG_T('map.basemapLocal') :
-                          'Схематична карта') + ' · ' + why + ' · ' + location.origin;
+      /* Also: did ANY cross-origin fetch succeed on this page?
+       *
+       * The style failing with "Failed to fetch" has two very different causes
+       * and they need opposite fixes. If the API succeeded from the same
+       * document, the network works and something is specific to the tile host
+       * or to pmtiles' range requests. If the API ALSO fell back to the bundled
+       * snapshot, then fetch is refused wholesale for this document — the
+       * signature of a frame whose URL is about:srcdoc, where the origin reads
+       * normally but no request may leave — and no server change can help.
+       *
+       * The frame records which envelope drew it, so the note can say. One line
+       * in a screenshot decides which of the two we are in. */
+      function say() {
+        var hf = document.querySelector('[data-hex-source]');
+        note.textContent = (window.AIRBG_T ? window.AIRBG_T('map.basemapLocal') :
+                            'Схематична карта') + ' · ' + why + ' · ' +
+                           location.origin + ' · data ' +
+                           (hf ? hf.getAttribute('data-hex-source') : 'pending');
+      }
+      say();
+      /* The basemap stands down BEFORE the data lands, so the first paint would
+       * always read "pending" and the line would answer nothing. Re-say it when
+       * the render pass has recorded which envelope it drew from. */
+      document.addEventListener('airbg:datachange', say);
       note.setAttribute('title', why + ' [origin ' + location.origin + ']');
       announce(f, 'local');
     });
