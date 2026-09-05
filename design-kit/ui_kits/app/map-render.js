@@ -1039,7 +1039,19 @@
         var hcx = hexes.window ? (hexes.window.lon[0] + hexes.window.lon[1]) / 2 : 25.5;
         var kmDeg = 111.32 * Math.cos(hexes.lat_ref * Math.PI / 180);
         var pxPerKm = Math.abs(X(hcx + 1 / kmDeg) - X(hcx));
-        var hr = hexes.bin_km * pxPerKm;
+        /* CIRCUMRADIUS, derived from the centre spacing — not the bin size.
+         *
+         * `resolution_km` is the distance BETWEEN CENTRES (measured: median
+         * nearest-neighbour spacing is 15.01 km on a 15 km grid). Drawing a
+         * hexagon whose circumradius is that number makes it √3 × 15 = 25.98 km
+         * flat-to-flat, so every cell overlapped its neighbours by 1.73× and
+         * the map showed a pile of stacked hexagons with two sets of counts
+         * showing through each other.
+         *
+         * For a hex grid, flat-to-flat = √3 · circumradius. Setting
+         * r = spacing / √3 makes adjacent cells share an edge exactly: a
+         * tessellation, which is the whole reason to use hexagons. */
+        var hr = (hexes.bin_km * pxPerKm) / Math.sqrt(3);
         var drawnHex = 0, thinHex = 0, foreignHex = 0;
         /* An optional layer must fail as an optional layer. A missing or
          * malformed lat_ref/bin_km makes hr NaN, and NaN passed to the
