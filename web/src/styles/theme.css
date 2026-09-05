@@ -8,12 +8,27 @@
 @import '../../../design-kit/components.css';
 
 /* Site-only tokens: app.css uses these and the kit defines no counterpart.
-   Kept after the imports so anything the kit does define still wins. */
+   Kept after the imports so anything the kit does define still wins.
+
+   Every one of these is expressed through the palette rather than as a
+   literal. Written as literals they were light values that survived into the
+   dark theme the kit brought with it, so the map overlays stayed white boxes
+   while their text turned near-white: the legend, "Намери ме" and "Вятър" all
+   measured about 1.1:1. A literal here is a token that only works in one
+   theme. */
 :root {
-  --border-faint: #e0e0e0;
-  --notice-bg: #fcf4d6;
-  --map-placeholder-bg: #f4f4f4;
+  --border-faint: var(--border-soft);
+  --map-placeholder-bg: var(--surface);
+  --text-page: var(--text-title);
+
+  /* Stated twice on purpose: the literal is the floor for a browser without
+     color-mix, where an unresolved value would drop the declaration entirely
+     and leave the overlay transparent. */
   --overlay-bg: rgba(255, 255, 255, 0.9);
+  --overlay-bg: color-mix(in srgb, var(--bg) 90%, transparent);
+  --notice-bg: #fcf4d6;
+  --notice-bg: color-mix(in srgb, var(--warn) 18%, var(--bg));
+
+  /* Layout, not colour, so it has nothing to follow. */
   --map-cap: 78vh;
-  --text-page: 2.63rem;
 }

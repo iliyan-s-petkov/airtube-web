@@ -260,6 +260,44 @@ func TestEveryCSSVarUsedIsDefinedInTheBuiltPalette(t *testing.T) {
 	}
 }
 
+// Importing the kit brought its prefers-color-scheme block with it, so the site
+// has a dark theme whether or not anyone designed for one. The site-only tokens
+// did not follow: they were light literals, and in dark mode the map overlays
+// stayed white while their text went near-white — the legend, the locate button
+// and the wind button all measured about 1.1:1 against their own background.
+// Nothing failed; the page was simply unreadable for anyone whose OS is dark.
+//
+// So a site-only token may not END on a colour literal. A literal as a fallback
+// before a palette-derived value is fine and is why this checks the last
+// definition rather than any of them.
+func TestSiteOnlyTokensFollowTheTheme(t *testing.T) {
+	data, err := os.ReadFile(themeEntryPath)
+	if err != nil {
+		t.Fatalf("ReadFile %s error = %v", themeEntryPath, err)
+	}
+	last := map[string]string{}
+	var order []string
+	for _, line := range strings.Split(string(data), "\n") {
+		m := cssVarAnyDef.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		if _, seen := last[m[1]]; !seen {
+			order = append(order, m[1])
+		}
+		_, value, _ := strings.Cut(line, ":")
+		last[m[1]] = value
+	}
+	if len(order) == 0 {
+		t.Fatal("the theme entry defines no site-only tokens; the pattern no longer matches")
+	}
+	for _, name := range order {
+		if found := cssColour.FindAllString(last[name], -1); len(found) != 0 {
+			t.Errorf("%s is finally defined as the literal colour %v; derive it from a kit token so it follows the dark theme the kit ships", name, found)
+		}
+	}
+}
+
 // The same undefined-token failure, but inside the kit's own files rather than
 // app.css. Adopting components.css brought in .place__name, whose font
 // shorthand read a --text-subhead that the type scale never defined: the whole
