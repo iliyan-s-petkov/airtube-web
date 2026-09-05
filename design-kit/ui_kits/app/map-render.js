@@ -79,6 +79,9 @@
    * 2.5 px/km: a national road is a line rather than a hair.
    * 25 px/km: a ~5 km city spans ~125 px, which is enough to read its shape. */
   var ROADS_PX_KM = 2.5, STREETS_PX_KM = 25;
+  /* The national highways come in far earlier than the full network: at country
+   * zoom (~1.05 px/km) they are the difference between a map and a diagram. */
+  var MAJOR_PX_KM = 0.8;
   /* The minor network — tertiary, residential, unclassified, living street,
    * pedestrian — and the street names that come with it.
    *
@@ -1500,11 +1503,28 @@
         districtLayer = dg;
       }
       var lines = 0, streetNames = [], streetSeen = {}, streetLayer = null, streetCandidates = 0;
-      if (!tiled() && pxPerKm >= ROADS_PX_KM) {
+      /* MAJOR_PX_KM, below ROADS_PX_KM, so the country zoom is not bare.
+       *
+       * Country zoom measures ~1.05 px/km, under the 2.5 gate, so the schematic
+       * map drew no roads at all — provinces and hexes floating on blank paper.
+       * That is the "no OpenStreetMap background" the reader sees wherever the
+       * tiles cannot load, and it was a threshold choice rather than missing
+       * data: the asset carries 75 ways marked c:1, the national highways,
+       * which is a real backdrop at a cost of 75 lines.
+       *
+       * These ARE OpenStreetMap geometry — the same source as the tiles,
+       * bundled and simplified, credited in the same footer. The distinction
+       * the reader cares about is streets-and-labels versus none, and this is
+       * the honest middle. */
+      if (!tiled() && pxPerKm >= MAJOR_PX_KM) {
+        var majorOnly = pxPerKm < ROADS_PX_KM;
         var rl = el('g', { class: 'map-roads' });
         function lay(set, cls) {
           if (!set || !set.roads) return;
           set.roads.forEach(function (r) {
+            /* Below the full-network gate only the highways draw. A secondary
+             * road at 1px/km is a smudge, and 738 smudges is noise, not a map. */
+            if (majorOnly && r.c !== 1) return;
             var pts = r.p.map(function (c) { return [X(c[0]), Y(c[1])]; });
             // Off-frame lines cost paint and say nothing.
             var on = pts.some(function (q) {
