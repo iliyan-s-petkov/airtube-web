@@ -1256,9 +1256,25 @@
             if (rc) poly.setAttribute('fill', rc);
             else poly.setAttribute('class', cls + ' map-hex--none');
             var ti = el('title');
-            ti.textContent = num(v) + ' µg/m³ · ' + (b ? bandName(b) + ' · ' : '') +
-              t(h.thin ? 'hex.tierThin' : 'hex.tier', { n: h.n }) +
+            /* A sensor names itself; a bin says how many it holds.
+             *
+             * At resolution 0 the row IS a device, so "средно от 1 сензор" is
+             * both wrong and useless — it is not an average of anything. The id
+             * is the identifying fact, published on the owner's decision of
+             * 2026-09-05, and it is what makes a mark traceable back to
+             * sensor.community rather than an anonymous dot. */
+            ti.textContent = num(v) + ' µg/m³ · ' +
+              (b ? bandName(b) + ' · ' : '') +
+              (perSensor
+                 ? (h.sensor_id != null ? '#' + h.sensor_id : t('hex.sensor', {}))
+                 : t(h.thin ? 'hex.tierThin' : 'hex.tier', { n: h.n })) +
               (h.country !== 'BG' ? ' · ' + h.country : '');
+            /* On the element too, so the id can be found without hovering —
+             * the same reason every other diagnostic on this map moved out of
+             * a title attribute. */
+            if (perSensor && h.sensor_id != null) {
+              poly.setAttribute('data-sensor-id', h.sensor_id);
+            }
             poly.appendChild(ti);
             hl.appendChild(poly);
 
