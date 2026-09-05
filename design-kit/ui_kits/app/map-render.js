@@ -583,7 +583,10 @@
       /* Set before anything paints: the province pass reads it, and the hex
        * pass below re-derives the same condition. Both must agree or the map
        * shows a choropleth under hexes, or neither. */
-      hexesWillDraw = !!(hexes && hexes.hexes && hexes.hexes.length && tiled());
+      /* Must stay identical to the draw pass's own condition below — the
+       * comment above is not decoration, the two disagreeing is what puts a
+       * choropleth underneath the hexes. tiled() is gone from BOTH. */
+      hexesWillDraw = !!(hexes && hexes.hexes && hexes.hexes.length);
 
       var VH = H;
       try {
@@ -892,7 +895,11 @@
          * territories from evidence that ranges from 558 sensors to none.
          * The province keeps its outline, its name and its link — what it
          * gives up is the claim to a reading across ground nobody measured. */
-        sh.outlineOnly = (tiled() && hexesWillDraw) || tiled() &&
+        /* The hex clause no longer needs tiled() either: wherever the hexes
+         * draw, the province must yield, basemap or not. The second clause
+         * keeps it, because "the reader has zoomed in past the province" is a
+         * statement about the tile camera and means nothing without one. */
+        sh.outlineOnly = hexesWillDraw || tiled() &&
           (view.mode === 'province' || window.AIRBG_MAP_PROJECT.zoom >= 9);
         /* A province is a way into its own page from ANY map, so it is a real
          * `<a>` — focusable, middle-clickable, shown in the status bar on
@@ -961,7 +968,19 @@
        * neither enumerates a sensor nor invents a reading for empty ground.
        * Drawn only over the real basemap — on the SVG fallback there is no
        * OSM underneath and a field of floating hexes explains nothing. */
-      if (hexes && hexes.hexes && tiled()) {
+      /* NOT gated on tiled() any more. The original rule was "hexes only over
+       * the real basemap, because a field of floating hexes over nothing
+       * explains nothing" — and that was wrong in the case that matters most:
+       * wherever WebGL is unavailable, the reader lost the hexes AND the
+       * basemap together and was left with the province choropleth, which is
+       * the very mark the hexes exist to replace. A design preview pane is
+       * exactly that case.
+       *
+       * The province outlines are enough context for a hex to mean something.
+       * They are not OSM, but they carry the border, and a hex sitting inside a
+       * named province still says "this much was measured here" — which is more
+       * honest than a province painted one colour from two sensors. */
+      if (hexes && hexes.hexes) {
         var hl = el('g', { class: 'map-hexes' });
         var hk = window.AIRBG_MAP_PROJECT;
         /* One hex's radius in screen pixels, measured through the SAME

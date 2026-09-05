@@ -82,6 +82,12 @@
     window.AIRBG_TILEMAP = null;
     frames.forEach(function (f) {
       f.setAttribute('data-basemap', 'local');
+      /* The REASON, on the element. `data-basemap="local"` says the SVG drew;
+       * it does not say why, and the why is the whole question when someone is
+       * looking at a map that should have OSM under it. A console warning is
+       * invisible to anyone reviewing in a preview pane with no console — which
+       * is most of the people this kit is for. */
+      f.setAttribute('data-basemap-reason', why);
       announce(f, 'local');
     });
     // Not console.error: this is a supported state, not a fault.
