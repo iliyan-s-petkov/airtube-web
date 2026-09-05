@@ -2,6 +2,10 @@
    The kit is the source of truth; see design-kit/README-repo.md. */
 @import '../../../design-kit/tokens.css';
 @import '../../../design-kit/colors_and_type.css';
+/* Component rules, so the site's markup is styled by the kit rather than by a
+   second description of the same components in app.css. Loaded before app.css,
+   which therefore still wins where the two define the same selector. */
+@import '../../../design-kit/components.css';
 
 /* Site-only tokens: app.css uses these and the kit defines no counterpart.
    Kept after the imports so anything the kit does define still wins. */

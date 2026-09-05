@@ -555,7 +555,10 @@ body {
 }
 .place__head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap;
   padding-block-end: var(--space-3); border-block-end: 1px solid var(--border-soft); }
-.place__name { margin: 0; font: var(--weight-body) var(--text-subhead)/var(--leading-subhead) var(--font-body); }
+/* Card step, not a "subhead" step: the scale in colors_and_type.css has no
+   subhead, so the old token was undefined and dropped the whole font shorthand,
+   leaving the place name at inherited body type. */
+.place__name { margin: 0; font: var(--weight-body) var(--text-card)/var(--leading-card) var(--font-body); }
 .place__tier { margin: 0; color: var(--fg-2);
   font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
   letter-spacing: var(--track-compact); }
@@ -1718,7 +1721,9 @@ body.has-faux-full { overflow: hidden; }
   block-size: 100%;
   inline-size: 20px;
   min-block-size: 0;
-  background-image: var(--ramp);
+  /* Runtime-set from /api/v1/scales, like --chip-ramp, so it needs the same
+     fallback: without one an unset --ramp invalidates the declaration. */
+  background-image: var(--ramp, none);
   border: 0;
 }
 /* Each row is now just its edge number and its name, sitting against the bar. */

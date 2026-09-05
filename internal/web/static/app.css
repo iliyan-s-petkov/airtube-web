@@ -124,15 +124,15 @@ main > #map, main > #area-map {
 .map-legend { top: var(--space-2); max-width: 15rem; }
 .legend-title { font-weight: var(--weight-emphasis); margin: 0 0 var(--space-1); }
 .legend-ramp { list-style: none; margin: 0; padding: 0; }
-.legend-ramp li { display: flex; align-items: center; gap: var(--space-2); }
 /* The swatch carries a server-defined band colour as an SVG fill attribute, so
    it needs a size here and nothing else — see renderLegend on why a styled
    span cannot work under the CSP. */
 .legend-swatch { width: 8px; height: 8px; flex: none; }
 .legend-range { margin-left: auto; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 /* What a dot aggregates at this zoom. Separated from the ramp by a rule because
-   it answers a different question than the colours above it. */
-.legend-tier { margin: var(--space-1) 0 0; padding-top: var(--space-1); border-top: 1px solid var(--border-faint); color: var(--fg-2); }
+   it answers a different question than the colours above it. Colour and type
+   come from the kit's .legend__tier, which the element also carries. */
+.legend-tier { margin: var(--space-1) 0 0; padding-top: var(--space-1); border-top: 1px solid var(--border-faint); }
 .map-hint { bottom: var(--space-2); color: var(--fg-2); }
 .map-hint[hidden] { display: none; }
 /* Below the legend, not the hint: the hint is about the viewport (comes and

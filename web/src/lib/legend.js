@@ -40,7 +40,13 @@ function rangeText(lower, upper) {
 // server data, so the only CSS route would be a style attribute — and the CSP
 // has no 'unsafe-inline' for style-src, so the browser drops it silently and
 // the swatch renders invisible. A presentation attribute is not an inline
-// style and is not covered by style-src.
+// style and is not covered by style-src. This is also why the kit's
+// .chip__swatch is not used here: it paints from var(--chip-ramp), a property
+// the app can only set per-row through the attribute the CSP forbids.
+//
+// The classes the kit does own — legend__row, legend__label, legend__tier —
+// are used directly, so components.css styles this DOM and app.css keeps only
+// what is genuinely site-specific (the overlay box, the ramp's own layout).
 export function renderLegend(el, { title, rows, tierText }) {
   el.replaceChildren()
 
@@ -53,10 +59,11 @@ export function renderLegend(el, { title, rows, tierText }) {
   list.className = 'legend-ramp'
   for (const row of rows) {
     const item = document.createElement('li')
+    item.className = 'legend__row'
     item.appendChild(swatch(row.colour))
 
     const label = document.createElement('span')
-    label.className = 'legend-label'
+    label.className = 'legend__label'
     label.textContent = row.label
     item.appendChild(label)
 
@@ -75,7 +82,7 @@ export function renderLegend(el, { title, rows, tierText }) {
   // exactly the page where the reader most needs to know what a dot aggregates.
   if (tierText) {
     const tier = document.createElement('p')
-    tier.className = 'legend-tier'
+    tier.className = 'legend-tier legend__tier'
     tier.textContent = tierText
     el.appendChild(tier)
   }

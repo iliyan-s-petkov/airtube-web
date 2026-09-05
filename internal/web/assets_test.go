@@ -157,6 +157,9 @@ func TestAppCSSHasNoLiteralColours(t *testing.T) {
 var (
 	cssVarUse = regexp.MustCompile(`var\(\s*(--[a-zA-Z0-9-]+)`)
 	cssVarDef = regexp.MustCompile(`(?m)^\s*(--[a-zA-Z0-9-]+)\s*:`)
+
+	cssVarAnyDef        = regexp.MustCompile(`(?m)(?:^|[;{])\s*(--[a-zA-Z0-9-]+)\s*:`)
+	cssVarUseNoFallback = regexp.MustCompile(`var\(\s*(--[a-zA-Z0-9-]+)\s*(,)?`)
 )
 
 const themeEntryPath = "../../web/src/styles/theme.css"
@@ -253,6 +256,39 @@ func TestEveryCSSVarUsedIsDefinedInTheBuiltPalette(t *testing.T) {
 	for _, m := range cssVarUse.FindAllStringSubmatch(string(data), -1) {
 		if !defined[m[1]] {
 			t.Errorf("app.css uses %s, which the built palette (design kit + site-only block) does not define", m[1])
+		}
+	}
+}
+
+// The same undefined-token failure, but inside the kit's own files rather than
+// app.css. Adopting components.css brought in .place__name, whose font
+// shorthand read a --text-subhead that the type scale never defined: the whole
+// declaration was dropped and the name rendered at inherited body type. Only
+// fallback-less uses count — var(--ramp, none) is how the kit marks a property
+// the consuming app sets at runtime, and those are correct by design.
+func TestTheKitUsesNoTokenTheBuiltPaletteLacks(t *testing.T) {
+	imports := themeEntryImports(t)
+	defined := map[string]bool{}
+	for _, p := range append(imports, themeEntryPath) {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("ReadFile %s error = %v", p, err)
+		}
+		// Not cssVarDef: the kit also declares tokens inline inside a rule
+		// (".map { --map-view-h: 382; }"), which an anchored pattern misses.
+		for _, m := range cssVarAnyDef.FindAllStringSubmatch(string(data), -1) {
+			defined[m[1]] = true
+		}
+	}
+	for _, p := range imports {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("ReadFile %s error = %v", p, err)
+		}
+		for _, m := range cssVarUseNoFallback.FindAllStringSubmatch(string(data), -1) {
+			if m[2] == "" && !defined[m[1]] {
+				t.Errorf("%s uses %s with no fallback, and nothing in the built palette defines it: the declaration is dropped", p, m[1])
+			}
 		}
 	}
 }

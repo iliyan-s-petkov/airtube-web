@@ -2,6 +2,9 @@
 //
 // jsdom for the renderLegend half: the swatch is built with createElementNS and
 // the assertion that matters is on a real attribute, not on a string of markup.
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
 import { legendRows, renderLegend } from '../legend.js'
 
@@ -85,6 +88,28 @@ describe('renderLegend', () => {
   it('states what a dot means, and omits the line when the tier is unknown', () => {
     expect(draw().querySelector('.legend-tier').textContent).toBe('Всяка точка е средно за град')
     expect(draw({ tierText: '' }).querySelector('.legend-tier')).toBeNull()
+  })
+
+  // The legend is styled by the design kit, so every kit class it emits has to
+  // be a class the kit actually defines. A misspelt BEM name is the worst kind
+  // of failure here: nothing errors, no test that only looks for the element
+  // fails, and the row simply renders unstyled. Read from components.css rather
+  // than restated, so the kit renaming a class breaks this and not production.
+  it('emits only kit classes that components.css defines', () => {
+    // join(dirname(fileURLToPath(...))), not new URL(..., import.meta.url) —
+    // see panel.test.js: Vite turns the latter into an asset import and then
+    // rejects the path for being outside the project root.
+    const here = dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(
+      join(here, '..', '..', '..', '..', 'design-kit', 'components.css'), 'utf8')
+    const emitted = new Set()
+    for (const node of draw().querySelectorAll('*')) {
+      for (const c of node.classList) if (c.includes('__')) emitted.add(c)
+    }
+    expect([...emitted].sort()).toEqual(['legend__label', 'legend__row', 'legend__tier'])
+    for (const c of emitted) {
+      expect(css, `components.css defines no .${c}`).toMatch(new RegExp(`\\.${c}\\b`))
+    }
   })
 
   // showLegend is called on every refresh, including passes that fetch nothing.
