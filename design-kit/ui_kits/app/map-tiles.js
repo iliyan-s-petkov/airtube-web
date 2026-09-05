@@ -87,7 +87,12 @@
        * looking at a map that should have OSM under it. A console warning is
        * invisible to anyone reviewing in a preview pane with no console — which
        * is most of the people this kit is for. */
-      f.setAttribute('data-basemap-reason', why);
+      /* The ORIGIN belongs in the reason. A basemap that stands down because
+       * the tile host refused this page is indistinguishable, from the outside,
+       * from one that stood down because the machine cannot draw it — and the
+       * two have completely different fixes. The origin is the fact that tells
+       * them apart, and it is the exact string an operator has to allowlist. */
+      f.setAttribute('data-basemap-reason', why + ' [origin ' + location.origin + ']');
       /* And ON SCREEN, not only in an attribute. A reader looking at a map with
        * no streets under it cannot tell "this build is broken" from "this
        * machine cannot draw it", and those need completely different responses.
@@ -105,7 +110,7 @@
        * data-basemap-reason, where whoever is debugging will look. */
       note.textContent = (window.AIRBG_T ? window.AIRBG_T('map.basemapLocal') :
                           'Схематична карта');
-      note.setAttribute('title', why);
+      note.setAttribute('title', why + ' [origin ' + location.origin + ']');
       announce(f, 'local');
     });
     // Not console.error: this is a supported state, not a fault.
