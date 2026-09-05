@@ -1059,6 +1059,19 @@
         var hcx = hexes.window ? (hexes.window.lon[0] + hexes.window.lon[1]) / 2 : 25.5;
         var kmDeg = 111.32 * Math.cos(hexes.lat_ref * Math.PI / 180);
         var pxPerKm = Math.abs(X(hcx + 1 / kmDeg) - X(hcx));
+        /* Published so the FETCH can ask for a resolution suited to this
+         * camera. Measured through the same projection the marks use, so the
+         * request and the drawing can never disagree about what scale the
+         * reader is at. */
+        window.AIRBG_MAP_PXPERKM = function () { return pxPerKm; };
+        window.AIRBG_MAP_BBOX = function () {
+          var inv = window.AIRBG_MAP_UNPROJECT;
+          if (!inv) return null;
+          var a = inv(0, 0), b2 = inv(W, VH);
+          if (!a || !b2) return null;
+          return [Math.min(a[0], b2[0]), Math.min(a[1], b2[1]),
+                  Math.max(a[0], b2[0]), Math.max(a[1], b2[1])];
+        };
         /* CIRCUMRADIUS, derived from the centre spacing — not the bin size.
          *
          * `resolution_km` is the distance BETWEEN CENTRES (measured: median
@@ -2048,6 +2061,25 @@
          * verified the fallback and never the code the reader actually gets.
          * Say which source is on screen, loudly, and record it on the frame so
          * a harness can assert on it. */
+        /* What the current camera could use, in km, snapped to the tiers the
+         * server is likely to publish. Null when there is no camera yet — the
+         * first load asks for nothing and takes the default. */
+        function wantedResolutionKm() {
+          var st = window.AIRBG_MAP_STATE && window.AIRBG_MAP_STATE('map');
+          var pk = window.AIRBG_MAP_PXPERKM && window.AIRBG_MAP_PXPERKM();
+          if (!pk || !isFinite(pk) || pk <= 0) return null;
+          var km = 26 / pk;                       /* a cell ≈ TARGET_PX across */
+          var TIERS = [15, 5, 2];
+          for (var i = 0; i < TIERS.length; i++) if (km >= TIERS[i]) return TIERS[i];
+          return TIERS[TIERS.length - 1];
+        }
+        /* The lon/lat box the reader can currently see, rounded — a bbox that
+         * changes on every pixel of pan would defeat any cache in front of it. */
+        function visibleBBox() {
+          var b = window.AIRBG_MAP_BBOX && window.AIRBG_MAP_BBOX();
+          if (!b) return null;
+          return b.map(function (v) { return Math.round(v * 10) / 10; });
+        }
         function local(why) {
           if (why) console.warn('map-render: hexes fell back to the bundled ' +
                                 'snapshot — ' + why + '. This is NOT the live ' +
@@ -2057,7 +2089,26 @@
             .then(function (a) { a.live = false; return a; });
         }
         if (!api) return local('no API origin configured').catch(function () { return null; });
-        return fetch(api + 'hexes').then(function (r) {
+        /* Ask for the resolution this camera can actually use.
+         *
+         * The kit never assumes what it will get: `resolution_km` comes back in
+         * the envelope and the draw pass sizes from that, so a server that
+         * ignores the parameter — as ours does today — is served correctly and
+         * nothing here has to change when it stops ignoring it.
+         *
+         * The wanted resolution is derived from the camera, not from a zoom
+         * number: at a given scale a cell should land near TARGET_PX across, so
+         * wanted_km ≈ TARGET_PX / pxPerKm. Sent as a hint, honoured or not.
+         *
+         * The bbox is sent for the same reason: a 2 km national grid is order
+         * 10⁴ cells and nobody needs the ones off screen. Both are additive —
+         * an older server sees query parameters it does not read. */
+        var want = wantedResolutionKm();
+        var q = [];
+        if (want) q.push('resolution_km=' + want);
+        var bb = visibleBBox();
+        if (bb) q.push('bbox=' + bb.join(','));
+        return fetch(api + 'hexes' + (q.length ? '?' + q.join('&') : '')).then(function (r) {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         }).then(function (d) {
