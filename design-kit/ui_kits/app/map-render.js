@@ -1110,7 +1110,12 @@
              * Below ~13px there is no room for a glyph, and a number too small
              * to read is worse than none — the tooltip and the dashed edge
              * still carry it there. */
-            if (hr >= 13) {
+            /* 8, not 13. The threshold was chosen against the old radius, which
+             * was √3 too large because it treated centre spacing as a
+             * circumradius. Fixing the geometry shrank every cell to 9.13 px at
+             * country zoom and silently took every count off the map — a
+             * constant tuned against a bug, outliving it. */
+            if (hr >= 8) {
               var nt = el('text', {
                 class: 'map-hex__n', x: cx.toFixed(1), y: (cy + hr * 0.52).toFixed(1)
               });
