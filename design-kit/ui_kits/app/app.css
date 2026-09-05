@@ -96,6 +96,31 @@
    later can never cover a neighbour's reading. It sits above the links, so it
    must not intercept the pointer — the shape underneath is what is clickable. */
 .map-labels { pointer-events: none; }
+/* Every label gets a page-coloured halo, drawn UNDER its own glyphs.
+ *
+ * The ink is computed from the province's served fill, which was sound when a
+ * label only ever sat on that fill. It no longer does: the hex layer draws on
+ * top of the provinces and under the labels, so a label computed as white for a
+ * dark province can land on a pale hex, or on the light-blue no-data fill, and
+ * become unreadable. That is what "the font is hard to read" was.
+ *
+ * A halo fixes it without touching the ink, so the §2.1 rule that the label
+ * takes its colour from the served band still holds — the glyph keeps its
+ * meaning and gains a background it can be read against, whatever it lands on.
+ * paint-order is what keeps the stroke behind the fill; without it the stroke
+ * is painted over the glyph and thickens it into a blur. */
+.map-labels text {
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+/* Where hexes are drawn, the province ink stops being computed from a fill the
+ * reader can no longer see. Near-black on the halo, every time. */
+[data-hexes] .map-area__value,
+[data-hexes] .map-area__name { fill: var(--fg); }
+[data-hexes] .map-area__value--none,
+[data-hexes] .map-area__name--none { fill: var(--fg-2); }
 /* The name under the reading: body weight, so the number stays the thing you
    read first. Same ink as the value — computed from the served fill (§2.1). */
 .map-area__name {
@@ -135,15 +160,26 @@
   transition: transform var(--dur-base) var(--ease-standard),
               filter var(--dur-base) var(--ease-standard);
 }
+/* The lift is gone. It scaled the hovered province by 4.5% about its own
+ * centre, and the hex layer above it does NOT move — so every hex over that
+ * province suddenly sat wrong, its edges cut across by a border that had
+ * slid out from under it. The province looked lifted; the data looked broken.
+ *
+ * A hover that moves geometry is only safe when nothing is registered to that
+ * geometry. Once a second layer is pinned to the same coordinates, the map has
+ * to stay still and say "you are here" some other way. */
 .map-area--link:hover,
 .map-area--link:focus-visible {
-  transform: scale(1.045);
-  filter: drop-shadow(0 3px 8px rgb(0 0 0 / 0.35));
+  transform: none;
+  filter: none;
 }
 /* The lifted shape also takes a page-coloured edge, so it reads as separated
    from the provinces it now overlaps rather than merged into them. */
+/* The hover is stated on the EDGE instead, which changes no coordinate: a
+ * dark 2.5px border reads clearly under a field of hexes, where a
+ * page-coloured 1.5px one disappeared into the hex strokes. */
 .map-area--link:hover .map-area__shape,
-.map-area--link:focus-visible .map-area__shape { stroke: var(--bg); stroke-width: 1.5; }
+.map-area--link:focus-visible .map-area__shape { stroke: var(--fg); stroke-width: 2.5; }
 /* Keyboard focus is stated on the shape itself: an SVG child cannot carry the
    Carbon double ring, so the equivalent is a 2px --accent outline on the edge
    the reader is actually on. */
