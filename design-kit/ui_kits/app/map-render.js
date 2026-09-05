@@ -1657,14 +1657,30 @@
        * neighbour's reading, and the national outline stays topmost. The guard keeps the move idempotent, so
        * a pointer that stays put does not churn the DOM. */
       {
+        /* The province rises above its NEIGHBOURS, and stops below the hexes.
+         *
+         * This used to insert before `labels`, which sits after the hex layer —
+         * so the hovered province was lifted over the hexes as well. For a
+         * province with a reading that only tinted them; for a province with
+         * NO reading, whose fill is opaque, it painted them out completely.
+         * Hovering Ямбол or Пазарджик erased every hex overlapping it, which
+         * read as the hexes being sliced along that border.
+         *
+         * A hex overlapping a silent province is exactly the case the layer
+         * exists for: the bin holds sensors from across the border, and that is
+         * evidence about air the province itself cannot report. It must not be
+         * hidden by the shape that has nothing to say. */
+        function lift(a) {
+          var ceiling = svg.querySelector('.map-hexes') || labels;
+          if (a && a.nextSibling !== ceiling) svg.insertBefore(a, ceiling);
+        }
         svg.addEventListener('pointerover', function (e) {
           var a = e.target.closest && e.target.closest('.map-area--link');
-          if (!a || a.nextSibling === labels) return;
-          svg.insertBefore(a, labels);
+          if (a) lift(a);
         });
         svg.addEventListener('focusin', function (e) {
           var a = e.target.closest && e.target.closest('.map-area--link');
-          if (a && a.nextSibling !== labels) svg.insertBefore(a, labels);
+          if (a) lift(a);
         });
       }
 
