@@ -210,6 +210,7 @@ type Frontend struct {
 	MarkerStrokeColour string
 	MarkerLabelColour  string
 	EmptyBasemapColour string
+	HexOpacity         float64
 	ChartLineColour    string
 	ZoomCity           int
 	ZoomSensor         int
@@ -426,6 +427,7 @@ func resolve(r *raw) Config {
 			MarkerStrokeColour: *r.Frontend.MarkerStrokeColour,
 			MarkerLabelColour:  *r.Frontend.MarkerLabelColour,
 			EmptyBasemapColour: *r.Frontend.EmptyBasemapColour,
+			HexOpacity:         *r.Frontend.HexOpacity,
 			ChartLineColour:    *r.Frontend.ChartLineColour,
 			ZoomCity:           *r.Frontend.ZoomCity,
 			ZoomSensor:         *r.Frontend.ZoomSensor,

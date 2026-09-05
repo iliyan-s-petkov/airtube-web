@@ -15,6 +15,7 @@ import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales } from '../lib/sensors.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { nearestArea } from '../lib/nearest.js'
+import { hexesURL, hexFeatures } from '../lib/hexes.js'
 import { WIND_SOURCE_ID, WIND_LAYER_ID, windFeatures, windLabel, arrowLayout, arrowPaint } from './wind.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
@@ -25,6 +26,10 @@ const MOVE_DEBOUNCE_MS = 250
 const SOURCE_ID = 'airbg-data'
 const LAYER_ID = 'airbg-markers'
 const LABEL_LAYER_ID = 'airbg-marker-labels'
+
+const HEX_SOURCE_ID = 'airbg-hexes'
+const HEX_LAYER_ID = 'airbg-hex-fill'
+const HEX_OUTLINE_LAYER_ID = 'airbg-hex-outline'
 
 export function mount(el) {
   const cfg = readConfig(el)
@@ -49,9 +54,10 @@ export function mount(el) {
   installErrorHandler(map)
 
   // On /area/{slug} the slug is fixed, one area, ever. On / it starts empty and
-  // is only ever set by a deliberate click — never derived from the viewport,
-  // which would be a client-side bbox query and is exactly what the API's
-  // no-bbox rule forbids.
+  // is only ever set by a deliberate click — never derived from the viewport.
+  // Deriving it would turn the area endpoints into a rectangle query, which is
+  // what they are built not to answer. The hex layer below does follow the
+  // viewport; it is allowed to because it serves aggregates, not areas.
   //
   // areas: the raw {slug, lon, lat, zoom, ...} area payload (see refresh's own
   // comment on why it must be the raw body, not the lossy GeoJSON features
@@ -62,7 +68,9 @@ export function mount(el) {
   // before there is anything to compare against. Accepted: fetching the
   // overview solely to populate this would be the extra request the brief
   // rules out ("no new request").
-  const state = { slug: cfg.slug, tier: null, scales: null, areas: null }
+  // hexUrl/hexBody are the hex layer's own dedup and cache: the grid follows
+  // the viewport, so it changes on passes where tier and slug do not.
+  const state = { slug: cfg.slug, tier: null, scales: null, areas: null, hexUrl: null, hexBody: null }
 
   // The wind overlay's own state, separate from `state` above: it is off by
   // default and never follows the viewport, the tier, or the metric — one
@@ -82,6 +90,28 @@ export function mount(el) {
   let unsubscribe = null
 
   map.on('load', async () => {
+    // The hex grid goes in FIRST, so every later layer draws over it. It is the
+    // background density field — where sensors are and roughly what they read —
+    // and the area markers and sensor dots are the foreground a visitor clicks.
+    // Added before the marker source for that ordering alone; MapLibre paints in
+    // insertion order.
+    map.addSource(HEX_SOURCE_ID, { type: 'geojson', data: emptyCollection() })
+    map.addLayer({
+      id: HEX_LAYER_ID,
+      type: 'fill',
+      source: HEX_SOURCE_ID,
+      paint: { 'fill-color': ['get', 'colour'], 'fill-opacity': cfg.hexOpacity },
+    })
+    // A separate hairline outline rather than a fill-outline-color: MapLibre's
+    // fill outline is always one pixel and cannot be faded, and at the address
+    // tier a solid grid of them reads as a mesh rather than as cells.
+    map.addLayer({
+      id: HEX_OUTLINE_LAYER_ID,
+      type: 'line',
+      source: HEX_SOURCE_ID,
+      paint: { 'line-color': ['get', 'colour'], 'line-width': 0.5, 'line-opacity': cfg.hexOpacity },
+    })
+
     map.addSource(SOURCE_ID, { type: 'geojson', data: emptyCollection() })
     map.addLayer({
       id: LAYER_ID,
@@ -158,7 +188,10 @@ export function mount(el) {
     if (!cfg.slug) await locateVisitor(map, state, cfg, chrome)
   })
 
-  map.on('moveend', debounce(() => refresh(map, state, cfg, chrome), MOVE_DEBOUNCE_MS))
+  map.on('moveend', debounce(() => {
+    refresh(map, state, cfg, chrome)
+    refreshHexes(map, state, cfg)
+  }, MOVE_DEBOUNCE_MS))
 
   // One layer, two kinds of feature (see sensorFeatures/areaFeatures): an
   // aggregate marker carries `slug` and clicking it is what selects an area
@@ -251,6 +284,12 @@ function onMetricChange(map, state, cfg, chrome, metric) {
   }))
   chrome.showNote(metricNote(state.scales, metric, cfg.t.unscaled))
   refresh(map, state, cfg, chrome, true)
+  // Also the grid's FIRST paint: mount() invokes this callback once at load for
+  // the metric the page opened on, so initData does not call refreshHexes as
+  // well — that would only be a second request for the same URL. On every later
+  // call the URL is unchanged, and refreshHexes recolours the body it holds
+  // rather than refetching.
+  refreshHexes(map, state, cfg)
 }
 
 // initData is the whole body of the MapLibre 'load' handler after the source and
@@ -352,6 +391,45 @@ async function refresh(map, state, cfg, chrome, force = false) {
     ? sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
     : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
   map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
+}
+
+// refreshHexes fetches the hex grid for the current zoom and viewport and
+// repaints the background layer.
+//
+// This is the ONE layer that follows the viewport. It is allowed to, and the
+// area tiers still are not, because the two answer different questions: an
+// aggregate bin names no area and spends no enumeration budget, whereas
+// /area/{slug}/sensors returns identified sensors and is bounded by deliberate
+// clicks. See the §7.1 amendment in the Phase 1 design.
+//
+// Separate from refresh() rather than folded into it: the hex grid changes on
+// every zoom step and most pans, and the area tier changes on neither, so
+// sharing one dedup key would refetch the areas on every pinch.
+//
+// The response body is retained so a metric switch repaints from memory. Only
+// the colours change — the bins, their counts and their geometry do not — so a
+// refetch would return bytes the client already holds.
+export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
+  const url = hexesURL(map.getZoom(), map.getBounds?.())
+  if (url !== state.hexUrl) {
+    let body
+    try {
+      body = await fetchJSON(url)
+    } catch (err) {
+      // Deliberately quiet, unlike refresh()'s own failure. The hex grid is a
+      // background layer over a working map: the markers, the panel and the
+      // legend are all unaffected, so a hint claiming the data is unavailable
+      // would misdescribe the page the visitor is looking at. The last good
+      // grid stays on screen.
+      console.error('hex grid:', err)
+      return
+    }
+    state.hexUrl = url
+    state.hexBody = body
+  }
+  const bands = bandsFor(state.scales, cfg.metric)
+  const features = hexFeatures(state.hexBody, cfg.metric, bands, cfg.noDataColour, colourFor)
+  map.getSource(HEX_SOURCE_ID)?.setData({ type: 'FeatureCollection', features })
 }
 
 // locateVisitor asks the server where the visitor is and, only for a genuine
@@ -553,6 +631,11 @@ export function readConfig(el) {
     // was coming from the wrong place.
     labelColour: d.markerLabelColour,
     emptyBasemapColour: d.emptyBasemapColour,
+    // How solidly the hex grid paints. A paint value like the colours above,
+    // and server-rendered for the same reason: no CSS rule reaches a WebGL
+    // layer, and a fallback here that agreed with today's airbg.yaml would hide
+    // a server that stopped rendering the attribute.
+    hexOpacity: Number(d.hexOpacity),
     zoomCity: Number(d.zoomCity),
     zoomSensor: Number(d.zoomSensor),
     // Strings come from the server, not from a JS catalogue: Go owns the

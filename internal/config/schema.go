@@ -212,6 +212,7 @@ type rawFrontend struct {
 	MarkerStrokeColour *string `yaml:"marker_stroke_colour"`
 	MarkerLabelColour  *string `yaml:"marker_label_colour"`
 	EmptyBasemapColour *string `yaml:"empty_basemap_colour"`
+	HexOpacity         *float64 `yaml:"hex_opacity"`
 	ChartLineColour    *string `yaml:"chart_line_colour"`
 	ZoomCity           *int    `yaml:"zoom_city"`
 	ZoomSensor         *int    `yaml:"zoom_sensor"`

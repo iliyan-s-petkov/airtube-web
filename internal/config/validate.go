@@ -427,6 +427,12 @@ func (c Config) validateFrontend(p *problems) {
 	if lat := c.Frontend.DefaultLat; lat < -90 || lat > 90 {
 		p.addf("frontend.default_lat = %v, must be between -90 and 90", lat)
 	}
+	// Fully opaque hexes hide the basemap the visitor navigates by; fully
+	// transparent ones are a layer that fetches data and draws nothing, which
+	// looks like a broken map rather than a configured one.
+	if o := c.Frontend.HexOpacity; o <= 0 || o > 1 {
+		p.addf("frontend.hex_opacity = %v, must be in (0, 1]", o)
+	}
 	if c.Frontend.ZoomCity >= c.Frontend.ZoomSensor {
 		p.addf("frontend.zoom_city (%d) must be below frontend.zoom_sensor (%d); the tiers are country, then city, then sensor", c.Frontend.ZoomCity, c.Frontend.ZoomSensor)
 	}

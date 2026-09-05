@@ -338,6 +338,11 @@ frontend:
   marker_label_colour: "#161616"
   empty_basemap_colour: "#eef2f5"
   chart_line_colour: "#2563eb"
+  # How solidly the hex density grid paints over the basemap. The grid is the
+  # background layer under the markers, so it has to stay readable through:
+  # streets and place names are what a visitor navigates by when the cells get
+  # down to address size.
+  hex_opacity: 0.55
   # Zoom thresholds for the country -> city -> sensor tiering. Below zoom_city
   # the map shows country-level aggregates; below zoom_sensor, city-level.
   zoom_city: 9

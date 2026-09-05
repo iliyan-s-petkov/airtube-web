@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, locateVisitor, locateMe, areaPath } from '../map.js'
+import { urlFor, bandsFor, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, locateVisitor, locateMe, areaPath } from '../map.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
@@ -65,6 +65,7 @@ function mountTestMap({ metric }) {
   el.dataset.emptyBasemapColour = '#eef2f5'
   el.dataset.zoomCity = '9'
   el.dataset.zoomSensor = '11'
+  el.dataset.hexOpacity = '0.55'
 
   const { map, chrome } = mount(el)
   // Fired, not awaited: mount()'s 'load' handler registers the metric
@@ -445,7 +446,10 @@ describe('initData ordering', () => {
     return {
       painted,
       getZoom: () => zoom,
-      getSource: () => ({ setData: (data) => painted.push(data) }),
+      // Only the marker source is recorded: the hex layer draws over the same
+      // map from its own source, and counting its setData here would make this
+      // test about how many layers exist rather than about marker colour.
+      getSource: (id) => (id === 'airbg-data' ? { setData: (data) => painted.push(data) } : undefined),
     }
   }
 
@@ -691,6 +695,54 @@ describe('unscaled metrics', () => {
 // in this file (or in another file sharing this Vitest worker) would decide
 // every later test's starting metric/hash. resetViewStateForTests() is a
 // test-only export added specifically for this hazard.
+// The hex layer's wiring, as opposed to its logic: refreshHexes is tested
+// directly further down, but nothing there proves mount() ever calls it. These
+// two assert the layer is actually driven — once on load, again when the
+// viewport moves — which is the difference between a working grid and dead
+// code.
+describe('mount() drives the hex layer', () => {
+  beforeEach(() => { resetViewStateForTests(); clearCache() })
+  afterEach(() => { resetViewStateForTests() })
+
+  function stubHexFetch() {
+    return vi.fn(async (url) => ({
+      ok: true, status: 200, headers: new Headers(),
+      json: async () => (String(url).startsWith('/api/v1/hexes')
+        ? { resolution_km: 15, hexes: [] }
+        : { areas: [] }),
+    }))
+  }
+
+  const hexCalls = (f) => f.mock.calls.filter((c) => String(c[0]).startsWith('/api/v1/hexes'))
+
+  it('asks for the grid on first load', async () => {
+    const fetchSpy = stubHexFetch()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    mountTestMap({ metric: 'P2' })
+
+    await vi.waitFor(() => expect(hexCalls(fetchSpy)).toHaveLength(1))
+  })
+
+  it('asks again, at the new resolution, once the viewport settles', async () => {
+    const fetchSpy = stubHexFetch()
+    vi.stubGlobal('fetch', fetchSpy)
+    const { map } = mountTestMap({ metric: 'P2' })
+    await vi.waitFor(() => expect(hexCalls(fetchSpy)).toHaveLength(1))
+
+    // A real zoom change, not just another moveend: an identical view produces
+    // an identical URL, which refreshHexes deliberately does not refetch.
+    map.getZoom.mockReturnValue(13)
+    map.handlers.moveend()
+
+    await vi.waitFor(() => {
+      const calls = hexCalls(fetchSpy)
+      expect(calls).toHaveLength(2)
+      expect(calls[1][0]).not.toBe(calls[0][0])
+    }, { timeout: 2000 })
+  })
+})
+
 describe('mount() follows the store metric', () => {
   beforeEach(() => { resetViewStateForTests() })
   afterEach(() => { resetViewStateForTests() })
@@ -1082,5 +1134,84 @@ describe('mount() wires the locate button to a real click', () => {
     const hint = el.querySelector('.map-hint')
     expect(hint.textContent).toBe('LOCATE DENIED MARKER')
     expect(hint.hidden).toBe(false)
+  })
+})
+
+
+// refreshHexes is the ONE layer that follows the viewport. These tests fix the
+// three things that makes it different from refresh(): it dedupes on the URL,
+// it repaints from the retained body when only the metric changed, and a failed
+// fetch leaves the rest of the map alone rather than surfacing chrome.
+describe('refreshHexes', () => {
+  const hexCfg = { metric: 'P2', noDataColour: '#cccccc' }
+  const scales = [{ metric: 'P2', bands: [{ upper: 10, colour: '#00ff00' }, { upper: null, colour: '#ff0000' }] }]
+
+  function hexMap(zoom = 12) {
+    const painted = []
+    return {
+      painted,
+      getZoom: () => zoom,
+      getBounds: () => ({ getWest: () => 23.3, getSouth: () => 42.6, getEast: () => 23.4, getNorth: () => 42.7 }),
+      getSource: (id) => (id === 'airbg-hexes' ? { setData: (d) => painted.push(d) } : undefined),
+    }
+  }
+
+  const body = { resolution_km: 1, hexes: [{ lon: 23.32, lat: 42.65, n: 4, values: { P2: 5 } }] }
+
+  it('fetches once for a view and repaints from memory on the next pass', async () => {
+    const map = hexMap()
+    const state = { scales, hexUrl: null, hexBody: null }
+    const fetchJSON = vi.fn(async () => body)
+
+    await refreshHexes(map, state, hexCfg, fetchJSON)
+    await refreshHexes(map, state, hexCfg, fetchJSON)
+
+    // One request, two paints: the second pass is what a metric switch does.
+    expect(fetchJSON).toHaveBeenCalledTimes(1)
+    expect(map.painted).toHaveLength(2)
+    expect(map.painted[1].features[0].properties.colour).toBe('#00ff00')
+  })
+
+  it('refetches when the viewport moves to a different URL', async () => {
+    const state = { scales, hexUrl: null, hexBody: null }
+    const fetchJSON = vi.fn(async () => body)
+
+    await refreshHexes(hexMap(12), state, hexCfg, fetchJSON)
+    await refreshHexes(hexMap(15), state, hexCfg, fetchJSON)
+
+    expect(fetchJSON).toHaveBeenCalledTimes(2)
+    expect(fetchJSON.mock.calls[0][0]).not.toBe(fetchJSON.mock.calls[1][0])
+  })
+
+  it('recolours the same bins when only the metric changed', async () => {
+    const map = hexMap()
+    const state = { scales, hexUrl: null, hexBody: null }
+    const twoMetrics = { resolution_km: 1, hexes: [{ lon: 23.32, lat: 42.65, n: 4, values: { P2: 5, P1: 40 } }] }
+    const fetchJSON = vi.fn(async () => twoMetrics)
+
+    await refreshHexes(map, state, hexCfg, fetchJSON)
+    await refreshHexes(map, state, { ...hexCfg, metric: 'P1' }, fetchJSON)
+
+    expect(fetchJSON).toHaveBeenCalledTimes(1)
+    // P1 has no band table here, so it takes the no-data colour — the same rule
+    // the markers follow for an unscaled metric.
+    expect(map.painted[1].features[0].properties.colour).toBe('#cccccc')
+    expect(map.painted[1].features[0].properties.value).toBe(40)
+  })
+
+  it('leaves the map untouched and caches nothing when the fetch fails', async () => {
+    const map = hexMap()
+    const state = { scales, hexUrl: null, hexBody: null }
+    const fetchJSON = vi.fn(async () => { throw new Error('502') })
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await refreshHexes(map, state, hexCfg, fetchJSON)
+
+    expect(map.painted).toHaveLength(0)
+    // Not cached: the next pass over the same view must try again.
+    expect(state.hexUrl).toBe(null)
+    await refreshHexes(map, state, hexCfg, fetchJSON)
+    expect(fetchJSON).toHaveBeenCalledTimes(2)
+    err.mockRestore()
   })
 })
