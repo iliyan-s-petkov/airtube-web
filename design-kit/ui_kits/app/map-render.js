@@ -362,28 +362,65 @@
       var c = oklab2rgb([A[0]+(B[0]-A[0])*t, A[1]+(B[1]-A[1])*t, A[2]+(B[2]-A[2])*t]);
       return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
     }
-    /* Where a value sits on the bar, 0..1, by band index. */
+    /* ---- The reference ramp --------------------------------------------
+     * Measured off the supplied reference (image-10.png) rather than guessed:
+     * the bar was sampled every 5 % of its height and its axis read off its own
+     * ticks. Two facts came out of it, and both matter.
+     *
+     * 1. The axis is PIECEWISE, not linear. 0–100 µg/m³ occupies the lower
+     *    ~79 % of the bar and 100–500 the top ~21 %. That is what lets one key
+     *    serve both an ordinary day and a wildfire without the useful range
+     *    collapsing into a sliver.
+     * 2. The colours run teal → green → amber → orange → red → magenta, with
+     *    red HELD across roughly 63–88 before it turns.
+     *
+     * These stops are values in µg/m³, not band indices, so the colour a
+     * reading gets no longer depends on how many bands the scale happens to
+     * have. */
+    var KNEE = 100, KNEE_AT = 0.794, TOP = 500;
+    var RAMP = [
+      [0, '#00796b'], [13, '#37835b'], [19, '#dfa32d'], [25, '#f4921c'],
+      [32, '#ef7811'], [38, '#e95d05'], [44, '#e54b00'], [50, '#e13e00'],
+      [57, '#de3300'], [63, '#dd2c00'], [88, '#dd2c00'], [95, '#c11d2f'],
+      [112, '#8f027f'], [208, '#8c0084'], [500, '#8c0084']
+    ];
+    var RAMP_TICKS = [0, 25, 50, 75, 100, 500];
+
+    /* Where a value sits on the bar, 0..1, on the reference's own axis. */
     function rampT(v) {
-      if (v == null || !bands.length) return null;
-      for (var i = 0; i < bands.length; i++) {
-        var lo = i ? bands[i-1].upper : 0, hi = bands[i].upper;
-        if (hi == null) return 1;                       /* the open top band */
-        if (v <= hi) return (i + (v - lo) / (hi - lo)) / bands.length;
-      }
-      return 1;
+      if (v == null) return null;
+      if (v <= 0) return 0;
+      if (v >= TOP) return 1;
+      return v <= KNEE ? (v / KNEE) * KNEE_AT
+                       : KNEE_AT + ((v - KNEE) / (TOP - KNEE)) * (1 - KNEE_AT);
     }
+    /* Interpolated BY VALUE between the two stops that bracket it. */
     function rampColour(v) {
-      var t = rampT(v);
-      if (t == null) return null;
-      var n = bands.length - 1, x = Math.max(0, Math.min(n, t * n));
-      var i = Math.min(n - 1, Math.floor(x));
-      return mix(bands[i].colour, bands[i+1].colour, x - i);
+      if (v == null) return null;
+      if (v <= RAMP[0][0]) return RAMP[0][1];
+      for (var i = 0; i < RAMP.length - 1; i++) {
+        if (v <= RAMP[i + 1][0]) {
+          var lo = RAMP[i][0], hi = RAMP[i + 1][0];
+          return mix(RAMP[i][1], RAMP[i + 1][1], hi === lo ? 0 : (v - lo) / (hi - lo));
+        }
+      }
+      return RAMP[RAMP.length - 1][1];
     }
     /* Published so the legend bar is built from the SAME stops the map paints
      * with. A second gradient written in CSS would be a second answer. */
     window.AIRBG_RAMP = function () {
-      return { stops: bands.map(function (b) { return b.colour; }),
-               colourFor: rampColour, positionFor: rampT };
+      return {
+        /* Each stop carries its own POSITION now. Handing the legend a bare
+         * list of colours made it space them evenly, which on a piecewise axis
+         * is a different gradient from the one the map paints — the exact
+         * key-disagrees-with-map defect this seam exists to prevent. */
+        stops: RAMP.map(function (s) {
+          return { colour: s[1], pos: rampT(s[0]), value: s[0] };
+        }),
+        ticks: RAMP_TICKS.map(function (v) { return { value: v, pos: rampT(v) }; }),
+        unit: 'µg/m³',
+        colourFor: rampColour, positionFor: rampT
+      };
     };
     /* And SAY that it exists. The legend paints from this, and it was painting
      * on airbg:datachange — which fires when the data lands, before the render

@@ -1342,6 +1342,42 @@ body.has-faux-full { overflow: hidden; }
   pointer-events: none;
   max-inline-size: 46ch;
 }
+/* Tick numbers on the progressive bar, placed by VALUE rather than by row.
+ * The band rows stay in the DOM as the accessible copy and are hidden from
+ * sight, because a screen reader reading a gradient needs the named bands. */
+.scale--progressive .scale__bands--vertical .scale__band-name,
+.scale--progressive .scale__bands--vertical .scale__band-edge {
+  display: none;
+}
+.scale--progressive .scale__ticks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 26px;
+  inline-size: max-content;
+}
+.scale--progressive .scale__tick {
+  position: absolute;
+  inset-inline-start: 0;
+  transform: translateY(50%);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg);
+  white-space: nowrap;
+}
+/* The tick's own hairline, so a number points at a height rather than floating
+ * beside one. */
+.scale--progressive .scale__tick::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -6px;
+  inset-block-start: 50%;
+  inline-size: 4px;
+  block-size: 1px;
+  background: var(--fg);
+}
 .map-hexes { pointer-events: none; }
 .map-hex {
   stroke: var(--bg);

@@ -22,16 +22,38 @@
     var ramp = window.AIRBG_RAMP && window.AIRBG_RAMP();
     if (!ramp || !ramp.stops || ramp.stops.length < 2) return false;
 
-    /* Equal spacing per band, matching rampT()'s band-index mapping exactly.
-     * Spacing by raw value instead would make 0–5 a sliver and 25–50 half the
-     * bar — the low bands are where most readings actually sit. */
-    var n = ramp.stops.length - 1;
-    var stops = ramp.stops.map(function (c, i) {
-      return c + ' ' + (100 * i / n).toFixed(2) + '%';
+    /* Each stop states its own position, because the axis is piecewise: 0–100
+     * over the lower ~79 % and 100–500 above it. Spacing them evenly here
+     * would draw a gradient the map does not paint. */
+    var stops = ramp.stops.map(function (s) {
+      return s.colour + ' ' + (100 * s.pos).toFixed(2) + '%';
     });
     /* `to top`, because the bar reads upward: worst at the top, like the
      * numbers beside it. */
     scale.style.setProperty('--ramp', 'linear-gradient(to top, ' + stops.join(', ') + ')');
+
+    /* The tick numbers come from the ramp too. They were authored into the
+     * markup as EAQI edges (5/10/20/25/50), one per band row, which on this
+     * axis is wrong twice over: wrong values, and positioned by row rather
+     * than by where the value actually falls on the bar. */
+    var host = scale.querySelector('.scale__bands');
+    if (host && ramp.ticks) {
+      var list = host.querySelector('.scale__ticks');
+      if (!list) {
+        list = document.createElement('ul');
+        list.className = 'scale__ticks';
+        list.setAttribute('aria-hidden', 'true');   /* the bands list is the accessible copy */
+        host.appendChild(list);
+      }
+      list.textContent = '';
+      ramp.ticks.forEach(function (t, i) {
+        var li = document.createElement('li');
+        li.className = 'scale__tick';
+        li.style.insetBlockEnd = (100 * t.pos).toFixed(2) + '%';
+        li.textContent = t.value + (i === 0 && ramp.unit ? ' ' + ramp.unit : '');
+        list.appendChild(li);
+      });
+    }
     return true;
   }
 
