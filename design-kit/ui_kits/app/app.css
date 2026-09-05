@@ -91,6 +91,35 @@
    the colour they enclose. */
 .map-area__shape { stroke: var(--bg); stroke-width: 0.75; }
 .map-area__shape--none { fill: var(--surface-2); }   /* absence, not the ramp (§2.3) */
+
+/* ---- When OSM is the basemap, our own ground gets out of the way ---------
+ *
+ * Every fill listed here is a STAND-IN for a basemap we did not have: the
+ * landmass is the country's ground, the context fills are the sea and the
+ * neighbours, the grey is a province with no reading. Drawn over real tiles
+ * they stop being context and become an opaque sheet — the streets, the
+ * coastline and the place names render perfectly underneath and are completely
+ * invisible. That is the "OpenStreetMap is hidden" case.
+ *
+ * data-basemap is written by map-tiles.js, the single owner of "is there a
+ * camera" (§5.2). Asking it here rather than re-deriving the answer keeps the
+ * two from disagreeing. On the SVG fallback it reads `local`, every fill below
+ * stays exactly as it is, and the schematic map is still the whole map.
+ *
+ * Only the FILL goes. Borders, hexes, labels and the national outline all keep
+ * drawing: a province outline over OSM still says where the province is, and
+ * the hexes are the reading either way. */
+[data-basemap="tiles"] .map-landmass,
+[data-basemap="tiles"] .map-context__sea,
+[data-basemap="tiles"] .map-context__land,
+[data-basemap="tiles"] .map-area__shape,
+[data-basemap="tiles"] .map-area__shape--none { fill: none; }
+/* A province edge over OSM has to read against roads and rooftops rather than
+ * against our own flat page colour, which disappears on tiles. */
+[data-basemap="tiles"] .map-area__shape {
+  stroke: var(--fg-2);
+  stroke-opacity: 0.55;
+}
 .map-area__value {
   text-anchor: middle;
   font: var(--weight-emphasis) var(--text-caption)/1 var(--font-body);
