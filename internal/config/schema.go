@@ -34,6 +34,8 @@ type rawListen struct {
 	TrustedProxyCIDRs    *[]string `yaml:"trusted_proxy_cidrs"`
 	CSP                  *string   `yaml:"csp"`
 	PermissionsPolicy    *string   `yaml:"permissions_policy"`
+	AllowedOrigins       *[]string `yaml:"allowed_origins"`
+	AllowedOriginSchemes *[]string `yaml:"allowed_origin_schemes"`
 	AllowLoopbackOrigins *bool     `yaml:"allow_loopback_origins"`
 }
 
@@ -231,6 +233,7 @@ type rawTiles struct {
 	PublicURL            *string   `yaml:"public_url"`
 	Archive              *string   `yaml:"archive"`
 	AllowedOrigins       *[]string `yaml:"allowed_origins"`
+	AllowedOriginSchemes *[]string `yaml:"allowed_origin_schemes"`
 	AllowLoopbackOrigins *bool     `yaml:"allow_loopback_origins"`
 }
 

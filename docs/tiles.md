@@ -332,6 +332,51 @@ Two things make this safe where a naive CORS patch would not be:
   all — and replay it to every other. Refusals need the header for the same
   reason: a refusal is a cacheable response too.
 
+## 5e. Origins that are not http
+
+```yaml
+tiles:
+  allowed_origins: ["od://app"]
+  allowed_origin_schemes: ["od"]
+listen:
+  allowed_origins: ["od://app"]
+  allowed_origin_schemes: ["od"]
+```
+
+The loopback rule in 5c covers a preview daemon on `http://127.0.0.1:<port>`.
+It does not cover OpenDesign, which registers `od:` as a standard, secure,
+CORS-enabled scheme and renders the preview frame at **`od://app`** — a real,
+specific origin that is neither loopback nor https. Nothing in 5b or 5c can
+name it, so the style fetch was refused and the preview fell back to the SVG
+basemap: correct behaviour, visually identical to a broken build.
+
+**Why a second key rather than widening the check.** `allowed_origins` is
+matched byte for byte, so the validator's job is to refuse entries that can
+never match anything — and restricting schemes to http and https is what
+catches `htps://kit.example`, an entry that looks right and matches nothing
+forever. Dropping that check to admit one scheme would trade a silent,
+permanent failure mode for a keystroke. Declaring the scheme instead keeps the
+default set meaningful and makes the unusual thing something an operator wrote
+down.
+
+**What the declaration grants.** Only that an origin using that scheme may be
+*listed*. `allowed_origin_schemes: ["od"]` does not admit `od://` traffic; it
+admits `od://app` because `allowed_origins` names it. `od://somewhere-else`
+stays refused. Every other shape rule still applies — no wildcard, no path, no
+trailing slash.
+
+**What it costs, stated plainly.** `od://app` is the origin of *any* OpenDesign
+install on any machine, not one person's. Allowlisting it means "any copy of
+that desktop app may read this". For the basemap that is uncontroversial: the
+tiles are OSM-derived public data on a public map, and the ACAO header is a
+hotlinking control, not a secrecy one — a client sending no `Origin` already
+gets the bytes. For the JSON API the same reasoning holds and the guarantees of
+5d still bind: the rate limiter runs first, no credentials are sent (there is no
+`Access-Control-Allow-Credentials`, so no cookie rides along), and a
+cross-origin reader gets exactly what a server-side `fetch` already gets. It is
+still a wider grant than 5c, which at least required being on the machine.
+Removing both entries returns the surface to base-url-only.
+
 ## 6. The firewall rule
 
 This is load-bearing, not advisory. Serving tiles from the origin means a

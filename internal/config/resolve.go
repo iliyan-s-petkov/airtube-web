@@ -36,6 +36,18 @@ type Listen struct {
 	CSP               string
 	PermissionsPolicy string
 
+	// AllowedOrigins are the origins, besides BaseURL, permitted to read the
+	// JSON API cross-origin. Empty is the shipped setting. Separate from
+	// Tiles.AllowedOrigins on purpose: an origin trusted to draw the basemap is
+	// not automatically one trusted to read the data behind it, and a single
+	// list would make widening one silently widen the other.
+	AllowedOrigins []string
+	// AllowedOriginSchemes are the URL schemes, beyond http and https, that
+	// AllowedOrigins entries may use — "od" for a desktop design tool serving
+	// its preview from od://app, say. Naming the scheme does not admit every
+	// origin using it; the list is still matched byte for byte.
+	AllowedOriginSchemes []string
+
 	// AllowLoopbackOrigins lets any http origin on this machine read the JSON
 	// API cross-origin, alongside BaseURL. Separate from the tiles switch of
 	// the same name because the two surfaces are not the same risk: the tiles
@@ -238,6 +250,12 @@ type Tiles struct {
 	// outside the all-or-nothing rule above: it is optional, so an empty list
 	// must not read as a half-configured tiles block.
 	AllowedOrigins []string
+	// AllowedOriginSchemes are the URL schemes, beyond http and https, that
+	// AllowedOrigins entries may use. A desktop design tool that serves its
+	// preview from a registered scheme — od://app — has a real, specific origin
+	// that is neither loopback nor https, and this is how it gets named without
+	// weakening the check that catches a mistyped https.
+	AllowedOriginSchemes []string
 	// AllowLoopbackOrigins additionally permits any http origin on this
 	// machine — 127.0.0.0/8, ::1 or localhost, on any port. It exists for
 	// design-preview hosts, which bind an ephemeral port and so cannot be named
@@ -305,6 +323,8 @@ func resolve(r *raw) Config {
 			TrustedProxyCIDRs:    *r.Listen.TrustedProxyCIDRs,
 			CSP:                  *r.Listen.CSP,
 			PermissionsPolicy:    *r.Listen.PermissionsPolicy,
+			AllowedOrigins:       *r.Listen.AllowedOrigins,
+			AllowedOriginSchemes: *r.Listen.AllowedOriginSchemes,
 			AllowLoopbackOrigins: *r.Listen.AllowLoopbackOrigins,
 		},
 		Timeouts: Timeouts{
@@ -419,6 +439,7 @@ func resolve(r *raw) Config {
 			PublicURL:            *r.Tiles.PublicURL,
 			Archive:              *r.Tiles.Archive,
 			AllowedOrigins:       *r.Tiles.AllowedOrigins,
+			AllowedOriginSchemes: *r.Tiles.AllowedOriginSchemes,
 			AllowLoopbackOrigins: *r.Tiles.AllowLoopbackOrigins,
 		},
 		I18n: I18n{

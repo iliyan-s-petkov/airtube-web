@@ -131,6 +131,10 @@ func (c Config) validateListen(p *problems) {
 	if c.Listen.PermissionsPolicy == "" {
 		p.addf("listen.permissions_policy is empty; write an explicit denial list instead")
 	}
+	validateOriginSchemes(p, "listen.allowed_origin_schemes", "listen.allowed_origins",
+		c.Listen.AllowedOriginSchemes)
+	validateOrigins(p, "listen.allowed_origins", "listen.allowed_origin_schemes",
+		c.Listen.AllowedOrigins, c.Listen.AllowedOriginSchemes)
 }
 
 func (c Config) validateTimeouts(p *problems) {
@@ -450,7 +454,10 @@ func (c Config) validateTiles(p *problems) {
 	// are optional, so a list on its own is not a half-configured basemap — but
 	// a malformed entry in one is still worth refusing at startup rather than
 	// letting it sit in the allowlist matching nothing.
-	c.validateTileOrigins(p)
+	validateOriginSchemes(p, "tiles.allowed_origin_schemes", "tiles.allowed_origins",
+		c.Tiles.AllowedOriginSchemes)
+	validateOrigins(p, "tiles.allowed_origins", "tiles.allowed_origin_schemes",
+		c.Tiles.AllowedOrigins, c.Tiles.AllowedOriginSchemes)
 
 	if len(filled) == 0 {
 		// No basemap configured. Legal: the map renders markers over
@@ -548,17 +555,49 @@ func (c Config) validateTiles(p *problems) {
 	}
 }
 
-// validateTileOrigins checks each extra origin allowed to read the basemap.
+// schemePattern is RFC 3986's scheme production, lowercased. A scheme is
+// written on its own here — "od", never "od://" — so anything carrying a colon
+// or a slash is a misunderstanding of the key rather than an unusual scheme.
+var schemePattern = regexp.MustCompile(`^[a-z][a-z0-9+.-]*$`)
+
+// validateOriginSchemes checks the schemes an operator has declared beyond http
+// and https, for the allowed-origins list named by originsKey.
+//
+// The declaration does not admit a scheme's origins wholesale: it only lets an
+// origin using that scheme be NAMED in the list, which is still matched byte
+// for byte with no wildcards. Declaring "od" permits "od://app" to be listed;
+// it does not permit "od://anything-else". The key exists so that the unusual
+// thing is stated by an operator rather than inferred from a typo — see
+// validateOrigins, where http and https are the whole default set precisely so
+// that "htp://x" is caught instead of quietly matching nothing forever.
+func validateOriginSchemes(p *problems, key, originsKey string, schemes []string) {
+	for _, s := range schemes {
+		switch {
+		case s == "":
+			p.addf("%s contains an empty entry; remove it or name a scheme", key)
+		case !schemePattern.MatchString(s):
+			p.addf("%s contains %q; name a scheme alone and in lower case, as %q would be written in %s without the %q",
+				key, s, s, originsKey, "://")
+		}
+	}
+}
+
+// validateOrigins checks each extra origin allowed to read a surface
+// cross-origin. extraSchemes are the schemes declared acceptable beyond http
+// and https, already checked by validateOriginSchemes.
 //
 // The handler compares these to the browser's Origin header byte for byte, so
 // every one of the shapes refused below — a trailing slash, a path, a wildcard
 // — produces an entry that can never match anything. That failure is silent and
 // looks exactly like the bug it was meant to fix: the other host still cannot
-// read the tiles, and nothing on either side says why. Refusing at startup, by
-// value, is the only place it is visible.
-func (c Config) validateTileOrigins(p *problems) {
-	for _, o := range c.Tiles.AllowedOrigins {
-		const key = "tiles.allowed_origins"
+// read the surface, and nothing on either side says why. Refusing at startup,
+// by value, is the only place it is visible.
+func validateOrigins(p *problems, key, schemesKey string, origins, extraSchemes []string) {
+	allowed := map[string]bool{"http": true, "https": true}
+	for _, s := range extraSchemes {
+		allowed[s] = true
+	}
+	for _, o := range origins {
 		if o == "" {
 			p.addf("%s contains an empty entry; remove it or name an origin", key)
 			continue
@@ -573,8 +612,12 @@ func (c Config) validateTileOrigins(p *problems) {
 		switch {
 		case err != nil:
 			p.addf("%s contains %q, which is not a URL: %s", key, o, parseErrorReason(err))
-		case u.Scheme != "http" && u.Scheme != "https":
-			p.addf("%s contains %q; an origin must use http or https", key, o)
+		case !allowed[u.Scheme]:
+			// The scheme is named back rather than just "must be http or
+			// https", because the fix for a deliberate od:// entry is to
+			// declare it, not to rewrite it as http.
+			p.addf("%s contains %q, whose scheme %q is not one of %s; use http or https, or declare the scheme in %s",
+				key, o, u.Scheme, strings.Join(sorted(keysOf(allowed)), ", "), schemesKey)
 		case u.User != nil:
 			p.addf("%s contains %q; an origin must not contain userinfo", key, o)
 		case u.Host == "":
@@ -592,6 +635,16 @@ func (c Config) validateTileOrigins(p *problems) {
 			p.addf("%s contains %q; an origin must not carry a query or fragment", key, o)
 		}
 	}
+}
+
+// keysOf returns a set's members, unordered; pair it with sorted before showing
+// them to anyone.
+func keysOf(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	return out
 }
 
 // sorted returns a sorted copy, so a problem message reads the same on every

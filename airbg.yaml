@@ -68,6 +68,12 @@ listen:
   # just third parties, which silently broke the button until Task 13's E2E
   # spec (web/e2e/locate.spec.js) caught it against this exact file.
   permissions_policy: "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+  # Extra origins allowed to read the JSON API cross-origin; base_url is always
+  # allowed and is not listed here. Separate from tiles.allowed_origins on
+  # purpose. See docs/tiles.md §5d.
+  allowed_origins: []
+  # Schemes beyond http/https that allowed_origins may use. See docs/tiles.md §5e.
+  allowed_origin_schemes: []
   # Also answer CORS for any http origin on this machine, alongside base_url —
   # for a design-preview host, whose port is ephemeral. Separate from the tiles
   # switch: this surface has the rate limiters. See docs/tiles.md §5c.
@@ -381,6 +387,10 @@ tiles:
   # Empty on purpose: the design kit is served from the site's own origin, so it
   # needs no entry. See docs/tiles.md §5b.
   allowed_origins: []
+  # Schemes beyond http/https that allowed_origins may use — a desktop design
+  # tool serving its preview from od://app, say. Naming a scheme does not admit
+  # every origin using it; the list above is still exact. See docs/tiles.md §5e.
+  allowed_origin_schemes: []
   # Also allow any http origin on the requesting machine (127.0.0.0/8, ::1,
   # localhost, any port) — for design-preview hosts, whose port is ephemeral and
   # so cannot be listed above. See docs/tiles.md §5c.

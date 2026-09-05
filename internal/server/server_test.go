@@ -179,6 +179,66 @@ func get(t *testing.T, addr, path string) *http.Response {
 	return resp
 }
 
+// getWithOrigin is get plus an Origin header, which is the only difference
+// between a same-origin fetch and the cross-origin one CORS governs.
+func getWithOrigin(t *testing.T, addr, path, origin string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "http://"+addr+path, nil)
+	if err != nil {
+		t.Fatalf("new request %s: %v", path, err)
+	}
+	req.Header.Set("Origin", origin)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s with Origin %s: %v", path, origin, err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
+}
+
+// TestConfiguredOriginsReachBothAllowlists. Config keys that are parsed,
+// validated and then never passed to the handler are the failure this whole
+// area keeps producing: everything looks configured, startup is silent, and the
+// browser is still refused. Both lists are asserted through a running server,
+// on the listener each belongs to, so an allowlist that is built from the wrong
+// slice — or from no slice at all — fails here rather than in production.
+//
+// od://app is the real case: a desktop design tool registers od: as a standard,
+// secure, CORS-enabled scheme and previews from that single origin. It is not
+// loopback and not https, so it exercises the declared-scheme path end to end.
+func TestConfiguredOriginsReachBothAllowlists(t *testing.T) {
+	const allowed = "od://app"
+	// Same scheme, different host. It proves the grant is the named origin and
+	// not the scheme: od:// is one desktop app, but the host is what identifies
+	// the surface inside it.
+	const refused = "od://somewhere-else"
+
+	public, _, tiles := runningWithTiles(t, tilesDir(t), func(c *config.Config) {
+		c.Listen.AllowedOrigins = []string{allowed}
+		c.Listen.AllowedOriginSchemes = []string{"od"}
+		c.Tiles.AllowedOrigins = []string{allowed}
+		c.Tiles.AllowedOriginSchemes = []string{"od"}
+	})
+
+	for _, tc := range []struct{ name, addr, path string }{
+		{"the JSON API", public, "/api/v1/overview"},
+		{"the basemap", tiles, "/style.json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := getWithOrigin(t, tc.addr, tc.path, allowed)
+			if got := resp.Header.Get("Access-Control-Allow-Origin"); got != allowed {
+				t.Errorf("Access-Control-Allow-Origin = %q, want %q; the configured origin never reached the allowlist", got, allowed)
+			}
+			// Echoed byte for byte or not at all: a browser compares ACAO to the
+			// Origin it sent, so any other value is a refusal wearing a header.
+			resp = getWithOrigin(t, tc.addr, tc.path, refused)
+			if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+				t.Errorf("Access-Control-Allow-Origin = %q for the unlisted origin %q, want absent", got, refused)
+			}
+		})
+	}
+}
+
 func TestPublicListenerServesPagesAndAPI(t *testing.T) {
 	public, _ := running(t)
 

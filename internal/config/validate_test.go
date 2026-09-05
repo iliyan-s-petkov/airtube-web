@@ -333,16 +333,20 @@ func TestTilesArchiveShape(t *testing.T) {
 // message anywhere says why. Startup is the only place that is visible.
 func TestTilesAllowedOriginsShape(t *testing.T) {
 	for name, tc := range map[string]struct{ origin, want string }{
-		"plain https":     {"https://kit.example", ""},
-		"http":            {"http://localhost:5173", ""},
-		"with a port":     {"https://kit.example:8443", ""},
-		"no scheme":       {"kit.example", "must use http or https"},
-		"ftp":             {"ftp://kit.example", "must use http or https"},
-		"userinfo":        {"https://user:pass@kit.example", "must not contain userinfo"},
-		"empty host":      {"https:///", "names no host"},
-		"empty entry":     {"", "empty entry"},
-		"wildcard":        {"*", "wildcards are not matched"},
-		"scheme wildcard": {"https://*.example", "wildcards are not matched"},
+		"plain https": {"https://kit.example", ""},
+		"http":        {"http://localhost:5173", ""},
+		"with a port": {"https://kit.example:8443", ""},
+		"no scheme":   {"kit.example", "is not one of http, https"},
+		"ftp":         {"ftp://kit.example", "is not one of http, https"},
+		// Refused for the same reason as ftp: a scheme is only allowed once an
+		// operator has declared it. TestOriginSchemesAdmitADeclaredScheme
+		// covers the other half.
+		"undeclared custom scheme": {"od://app", "is not one of http, https"},
+		"userinfo":                 {"https://user:pass@kit.example", "must not contain userinfo"},
+		"empty host":               {"https:///", "names no host"},
+		"empty entry":              {"", "empty entry"},
+		"wildcard":                 {"*", "wildcards are not matched"},
+		"scheme wildcard":          {"https://*.example", "wildcards are not matched"},
 		// The two that look right and are not. url.Parse gives a trailing
 		// slash a Path of "/", and an Origin header carries neither.
 		"trailing slash": {"https://kit.example/", "no path or trailing slash"},
@@ -375,6 +379,110 @@ func TestTilesAllowedOriginsShape(t *testing.T) {
 				t.Errorf("Validate error %v does not name the offending value %q", err, tc.origin)
 			}
 		})
+	}
+}
+
+// TestOriginSchemesAdmitADeclaredScheme. Declaring a scheme is what lets an
+// origin using it be NAMED; it must not admit the scheme wholesale. A desktop
+// design tool previews from od://app, a real single origin that is neither
+// loopback nor https, and the point of the key is that od://anything-else stays
+// refused unless it too is listed.
+func TestOriginSchemesAdmitADeclaredScheme(t *testing.T) {
+	for name, tc := range map[string]struct {
+		origins, schemes []string
+		wantErr          bool
+	}{
+		"declared scheme, named origin":     {[]string{"od://app"}, []string{"od"}, false},
+		"declared scheme, no origin named":  {nil, []string{"od"}, false},
+		"undeclared scheme":                 {[]string{"od://app"}, nil, true},
+		"a different scheme declared":       {[]string{"od://app"}, []string{"figma"}, true},
+		"http still works when od declared": {[]string{"https://kit.example"}, []string{"od"}, false},
+		// Declaring the scheme does not relax the rest of the shape rules: the
+		// entry is still matched byte for byte against an Origin header.
+		"declared scheme, trailing slash": {[]string{"od://app/"}, []string{"od"}, true},
+		"declared scheme, with a path":    {[]string{"od://app/preview"}, []string{"od"}, true},
+		"declared scheme, wildcard host":  {[]string{"od://*"}, []string{"od"}, true},
+		// The schemes list itself. "od://" is the shape an operator reaches for
+		// first, and it must not silently fail to match the origin's scheme.
+		"scheme written as a prefix": {[]string{"od://app"}, []string{"od://"}, true},
+		"scheme with a colon":        {[]string{"od://app"}, []string{"od:"}, true},
+		"upper-case scheme":          {[]string{"od://app"}, []string{"OD"}, true},
+		"empty scheme entry":         {nil, []string{""}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Asserted on both surfaces in one loop: the two lists are separate
+			// config keys sharing one validator, and a copy that drifted would
+			// be a rule enforced on the basemap and not on the data API.
+			for _, surface := range []string{"tiles", "listen"} {
+				cfg := validConfig(t)
+				switch surface {
+				case "tiles":
+					cfg.Tiles = Tiles{AllowedOrigins: tc.origins, AllowedOriginSchemes: tc.schemes}
+				case "listen":
+					cfg.Listen.AllowedOrigins = tc.origins
+					cfg.Listen.AllowedOriginSchemes = tc.schemes
+				}
+				err := cfg.Validate()
+				if tc.wantErr && err == nil {
+					t.Errorf("%s.allowed_origins = %q with schemes %q returned nil, want an error",
+						surface, tc.origins, tc.schemes)
+				}
+				if !tc.wantErr && err != nil {
+					t.Errorf("%s.allowed_origins = %q with schemes %q returned %v, want nil",
+						surface, tc.origins, tc.schemes, err)
+				}
+			}
+		})
+	}
+}
+
+// TestOriginSchemeSyntaxIsNamedAsSuch. A malformed scheme is refused twice
+// over — once here and once by validateOrigins, which will not match "od://" to
+// the scheme "od" either — so the entry is rejected regardless. What is only
+// true if this check exists is that the operator is told WHICH key is wrong.
+// Without it the message is about the origin, and an operator reading "od://app
+// has an unknown scheme" after declaring od:// has been sent to correct the
+// line that was already right.
+func TestOriginSchemeSyntaxIsNamedAsSuch(t *testing.T) {
+	for _, scheme := range []string{"od://", "od:", "OD", "1od", "od app"} {
+		t.Run(scheme, func(t *testing.T) {
+			cfg := validConfig(t)
+			cfg.Listen.AllowedOriginSchemes = []string{scheme}
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("listen.allowed_origin_schemes = [%q] returned nil, want an error", scheme)
+			}
+			if !strings.Contains(err.Error(), "listen.allowed_origin_schemes") {
+				t.Errorf("error %v does not name listen.allowed_origin_schemes as the wrong key", err)
+			}
+			if !strings.Contains(err.Error(), "name a scheme alone") {
+				t.Errorf("error %v does not say how to write a scheme", err)
+			}
+		})
+	}
+}
+
+// TestListenAllowedOriginsAreSeparateFromTiles. The two keys exist so that
+// trusting an origin with the public basemap does not silently also trust it
+// with the data API. If either list were ever wired to both surfaces, one of
+// these halves fails.
+func TestListenAllowedOriginsAreSeparateFromTiles(t *testing.T) {
+	cfg := validConfig(t)
+	cfg.Tiles = Tiles{AllowedOrigins: []string{"od://app"}, AllowedOriginSchemes: []string{"od"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("declaring od for tiles alone returned %v, want nil", err)
+	}
+	if got := cfg.Listen.AllowedOrigins; len(got) != 0 {
+		t.Errorf("listen.allowed_origins = %q after configuring tiles only, want empty", got)
+	}
+
+	// And the reverse: declaring od on listen must not make it legal in the
+	// tiles list, which is the same key name one level up.
+	cfg = validConfig(t)
+	cfg.Listen.AllowedOriginSchemes = []string{"od"}
+	cfg.Tiles = Tiles{AllowedOrigins: []string{"od://app"}}
+	if err := cfg.Validate(); err == nil {
+		t.Error("listen.allowed_origin_schemes made od://app legal in tiles.allowed_origins, want an error")
 	}
 }
 

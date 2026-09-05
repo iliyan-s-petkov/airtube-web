@@ -115,8 +115,12 @@ func New(opts Options) (*Server, error) {
 	root := http.NewServeMux()
 	// base_url is always allowed, so the site's own pages keep working if a
 	// browser ever labels their fetches cross-origin; the loopback rule is what
-	// a design-preview host needs, and it ships off.
-	apiOrigins, err := origin.NewAllowlist([]string{opts.Config.Listen.BaseURL},
+	// a design-preview host needs, and it ships off. listen.allowed_origins
+	// appends whatever else may read the data — deliberately its own list, not
+	// tiles.allowed_origins, so that trusting an origin with the basemap does
+	// not silently also trust it with the API.
+	apiOrigins, err := origin.NewAllowlist(
+		append([]string{opts.Config.Listen.BaseURL}, opts.Config.Listen.AllowedOrigins...),
 		opts.Config.Listen.AllowLoopbackOrigins)
 	if err != nil {
 		return nil, fmt.Errorf("server: api origins: %w", err)

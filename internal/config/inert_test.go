@@ -210,6 +210,22 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 		if cfg.Listen.AllowLoopbackOrigins {
 			t.Error("listen.allow_loopback_origins = true, want false; it is an opt-in for design-preview hosts")
 		}
+		// The four remaining origin lists, all shipped empty. A scheme list that
+		// arrived non-empty would be the quiet half of the pair: it grants
+		// nothing on its own, so nothing visibly breaks, and it sits there
+		// waiting to make a later typo validate.
+		for _, tt := range []struct {
+			name string
+			got  []string
+		}{
+			{"tiles.allowed_origin_schemes", cfg.Tiles.AllowedOriginSchemes},
+			{"listen.allowed_origins", cfg.Listen.AllowedOrigins},
+			{"listen.allowed_origin_schemes", cfg.Listen.AllowedOriginSchemes},
+		} {
+			if len(tt.got) != 0 {
+				t.Errorf("%s = %q, want empty; http and https are the whole default set", tt.name, tt.got)
+			}
+		}
 	})
 
 	t.Run("csp", func(t *testing.T) {
