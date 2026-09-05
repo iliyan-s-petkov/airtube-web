@@ -1150,7 +1150,29 @@
           });
           hr = hr * merge;
         }
+        /* ---- Zooming IN past the grid ----------------------------------
+         *
+         * A 15 km cell is 11px across at country zoom and 350px at z11: three
+         * blobs filling the screen. Nothing overlaps — measured 0.986 — but the
+         * mark stops being useful, and the reader zoomed in expecting MORE
+         * detail and got less.
+         *
+         * We cannot subdivide: where inside a 15 km bin the readings came from
+         * is exactly what the server did not tell us, and inventing it is the
+         * one thing this layer must not do. So the cell is capped on screen and
+         * SAYS it is capped — a hexagon at the cap is no longer claiming to
+         * cover the ground it sits on, so it is drawn as an outline with its
+         * centre marked, not as a filled territory. The reader sees "an
+         * aggregate is centred here", which is true, instead of "this whole
+         * neighbourhood reads 4.9", which is not.
+         *
+         * The real fix is finer bins from the server (context/
+         * hex-zoom-proposal.md). This is the honest behaviour until then. */
+        var MAX_PX = 64;
+        var capped = hr > MAX_PX;
+        if (capped) hr = MAX_PX;
         frame.setAttribute('data-hex-merge', merge + 'x');
+        frame.setAttribute('data-hex-capped', capped ? 'yes' : 'no');
 
         var drawnHex = 0, thinHex = 0, foreignHex = 0;
         /* An optional layer must fail as an optional layer. A missing or
@@ -1172,7 +1194,7 @@
               pts.push([cx + hr * Math.cos(a), cy + hr * Math.sin(a)]);
             }
             var b = band(v);
-            var cls = 'map-hex';
+            var cls = 'map-hex' + (capped ? ' map-hex--capped' : '');
             /* A single sensor cannot be cross-checked, and 55 % of cells hold
              * exactly one. It still carries its reading — that reading is real
              * — but it says so, rather than looking as settled as a cell built

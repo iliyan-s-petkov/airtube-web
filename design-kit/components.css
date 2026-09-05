@@ -1462,6 +1462,16 @@ body.has-faux-full { overflow: hidden; }
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
   padding: 8px 10px;
 }
+/* Zoomed in past the served resolution. The cell is no longer drawn at the size
+ * of the ground it aggregates, so it must stop looking like a filled territory:
+ * an outline says "an aggregate is centred here", which is true, where a filled
+ * shape at the wrong size would say "this neighbourhood reads 4.9", which is
+ * not. The served colour stays on the edge, so the reading is still legible. */
+.map-hex--capped {
+  fill-opacity: 0.12;
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+}
 .map-hexes { pointer-events: none; }
 .map-hex {
   stroke: var(--bg);
