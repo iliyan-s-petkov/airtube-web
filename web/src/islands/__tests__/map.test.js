@@ -1215,3 +1215,23 @@ describe('refreshHexes', () => {
     err.mockRestore()
   })
 })
+
+// The point tier needs a layer that paints points. The fill and line layers on
+// the hex source only draw Polygons, so without this one the devices arrive and
+// nothing appears — the exact failure the site had while the API was already
+// serving them.
+describe('mount() gives the point tier a layer to paint into', () => {
+  beforeEach(() => { resetViewStateForTests(); clearCache() })
+  afterEach(() => { resetViewStateForTests() })
+
+  it('adds a circle layer on the hex source', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const layers = map.addLayer.mock.calls.map((c) => c[0])
+    const point = layers.find((l) => l.source === 'airbg-hexes' && l.type === 'circle')
+
+    expect(point, 'no circle layer on the hex source').toBeTruthy()
+    // Coloured by the same property the cells use, so a device and a cell at
+    // the same reading are the same colour.
+    expect(point.paint['circle-color']).toEqual(['get', 'colour'])
+  })
+})

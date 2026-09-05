@@ -25,6 +25,18 @@ const M_PER_PX_Z0 = (2 * Math.PI * EARTH_RADIUS_KM * 1000) / 256 * Math.cos(radi
 // and hit the one pre-encoded country-wide body the server built at ingest.
 export const BBOX_MIN_ZOOM = 8
 
+// The finest cell the server publishes, in km — the last entry of
+// snapshot.HexTiersKM. Another deliberate duplicate, for the same reason as the
+// projection constants above, and it earns its keep: past this size the server
+// has no smaller bin to snap to, so asking for one only re-requests the 250 m
+// grid under a different URL. That is where the point tier begins instead.
+const FINEST_TIER_KM = 0.25
+
+// The resolution that means "not a grid at all": one entry per sensor, each
+// naming its device. Zero is the limit of the tier list — a cell small enough
+// to hold one sensor IS that sensor.
+export const POINT_RESOLUTION_KM = 0
+
 // The grid a requested bounding box is snapped out to, in degrees. Raw viewport
 // edges would give every pixel of pan its own URL and no two visitors would ever
 // share a cache entry. Snapped OUTWARD on all four sides, never inward, so the
@@ -61,8 +73,22 @@ export function hexesURL(zoom, bounds) {
   // making: it changes the cell by 2x, which is a tier, and everything between
   // is the same picture.
   const z = Math.round(zoom)
-  const params = new URLSearchParams({ resolution_km: String(round(resolutionForZoom(z), 4)) })
+  const res = resolutionForZoom(z)
   const bbox = bboxParam(z, bounds)
+
+  // Past the finest published cell, the grid stops and individual sensors
+  // begin. Conditional on HAVING a box, not merely on the zoom: the server
+  // refuses resolution_km=0 without one — deliberately, so an unbounded request
+  // cannot become a national device registry — and a request we know will 400
+  // is not worth sending. Without a box we ask for the finest grid instead,
+  // which is still a map.
+  if (res < FINEST_TIER_KM && bbox) {
+    return `/api/v1/hexes?${new URLSearchParams({
+      resolution_km: String(POINT_RESOLUTION_KM), bbox,
+    })}`
+  }
+
+  const params = new URLSearchParams({ resolution_km: String(round(res, 4)) })
   if (bbox) params.set('bbox', bbox)
   return `/api/v1/hexes?${params}`
 }
@@ -127,17 +153,34 @@ export function hexPolygon(lon, lat, resKM) {
  * colour, the same rule the area markers follow.
  */
 export function hexFeatures(body, metric, bands, noDataColour, colourFor) {
-  const resKM = Number(body?.resolution_km)
-  if (!(resKM > 0)) return []
+  // Read as a number rather than coerced with Number(): now that zero is a
+  // meaningful tier rather than nonsense, Number(null) and Number('') would
+  // both land on it, and a malformed response would be drawn as a street full
+  // of devices instead of as nothing.
+  const resKM = typeof body?.resolution_km === 'number' ? body.resolution_km : NaN
+  // Negative and NaN are still nothing to draw; zero is the point tier.
+  if (!(resKM >= 0)) return []
+  const points = resKM === POINT_RESOLUTION_KM
+
   return (body?.hexes ?? []).map((h) => {
     const value = h.values?.[metric] ?? null
     return {
       type: 'Feature',
-      geometry: { type: 'Polygon', coordinates: [hexPolygon(h.lon, h.lat, resKM)] },
+      // A device gets a Point, not a hexagon: a cell says "somewhere in here",
+      // which is the honest shape for an aggregate and a false one for a
+      // position we were given outright. The two geometries share a source —
+      // MapLibre draws each layer only over the geometry type it paints, so the
+      // fill and outline skip points and the circle layer skips cells.
+      geometry: points
+        ? { type: 'Point', coordinates: [h.lon, h.lat] }
+        : { type: 'Polygon', coordinates: [hexPolygon(h.lon, h.lat, resKM)] },
       properties: {
         colour: colourFor(value, bands, noDataColour),
         value,
         n: h.n,
+        // Undefined on every aggregate tier, so a popup can tell a device from
+        // a bin without also having to know which resolution it asked for.
+        sensorId: h.sensor_id,
       },
     }
   })

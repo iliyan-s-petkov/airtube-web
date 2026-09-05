@@ -234,8 +234,86 @@ describe('hexFeatures', () => {
   })
 
   it('draws nothing rather than guessing when the response has no resolution', () => {
-    for (const b of [null, undefined, {}, { hexes: [] }, { resolution_km: 0, hexes: body.hexes }]) {
+    // resolution_km: 0 is NOT in this list any more — it is the point tier.
+    // The values that are here all coerce to 0 under Number(), which is why
+    // hexFeatures reads the field as a number instead of coercing it: a
+    // malformed body must stay blank rather than become a street of devices.
+    for (const b of [
+      null, undefined, {}, { hexes: [] },
+      { resolution_km: null, hexes: body.hexes },
+      { resolution_km: '', hexes: body.hexes },
+    ]) {
       expect(hexFeatures(b, 'P1', bands, '#ccc', colourFor)).toEqual([])
     }
+  })
+})
+
+// Past the finest published cell the grid stops and devices begin. Below that
+// zoom it must stay a grid: asking for points at country zoom would be asking
+// for every sensor in Bulgaria.
+describe('the point tier', () => {
+  const bounds = {
+    getWest: () => 23.2, getSouth: () => 42.6,
+    getEast: () => 23.5, getNorth: () => 42.8,
+  }
+  // Parsed rather than substring-matched: 'resolution_km=0' is a prefix of
+  // 'resolution_km=0.0876', so a toContain assertion here passes on the grid
+  // tier it is meant to reject.
+  const params = (z, b) => new URLSearchParams(hexesURL(z, b).split('?')[1])
+
+  it('asks for points only once the grid runs out', () => {
+    // 0.25 km is the finest tier; resolutionForZoom crosses it between 14 and
+    // 15, so those two zooms are the boundary this asserts.
+    expect(params(14, bounds).get('resolution_km')).not.toBe('0')
+    expect(params(15, bounds).get('resolution_km')).toBe('0')
+    expect(params(16, bounds).get('resolution_km')).toBe('0')
+  })
+
+  it('never asks for points without a bounding box', () => {
+    // The server answers 400, by design — an unbounded point request would be
+    // a national device registry. A request we know will fail is not worth
+    // sending, so it falls back to the finest grid instead.
+    const p = params(16, null)
+    expect(p.get('resolution_km')).not.toBe('0')
+    expect(p.get('bbox')).toBeNull()
+  })
+
+  it('sends a bbox with every point request', () => {
+    const p = params(16, bounds)
+    expect(p.get('resolution_km')).toBe('0')
+    expect(p.get('bbox')).toBeTruthy()
+  })
+})
+
+describe('hexFeatures at the point tier', () => {
+  const body = {
+    resolution_km: 0,
+    hexes: [{ lon: 23.356, lat: 42.676, sensor_id: 2888, n: 1, values: { P1: 33 } }],
+  }
+  const colourFor = () => '#123456'
+
+  it('draws a device as a point, not as a cell', () => {
+    const [f] = hexFeatures(body, 'P1', [], '#eee', colourFor)
+    expect(f.geometry.type).toBe('Point')
+    expect(f.geometry.coordinates).toEqual([23.356, 42.676])
+  })
+
+  it('carries the sensor id through', () => {
+    const [f] = hexFeatures(body, 'P1', [], '#eee', colourFor)
+    expect(f.properties.sensorId).toBe(2888)
+  })
+
+  it('leaves the id undefined on an aggregate tier', () => {
+    const [f] = hexFeatures(
+      { resolution_km: 1, hexes: [{ lon: 23.3, lat: 42.7, n: 4, values: { P1: 20 } }] },
+      'P1', [], '#eee', colourFor,
+    )
+    expect(f.geometry.type).toBe('Polygon')
+    expect(f.properties.sensorId).toBeUndefined()
+  })
+
+  it('still draws nothing for a body with no resolution', () => {
+    expect(hexFeatures({ hexes: [{ lon: 1, lat: 2 }] }, 'P1', [], '#eee', colourFor)).toEqual([])
+    expect(hexFeatures({ resolution_km: -1, hexes: [{}] }, 'P1', [], '#eee', colourFor)).toEqual([])
   })
 })

@@ -30,6 +30,7 @@ const LABEL_LAYER_ID = 'airbg-marker-labels'
 const HEX_SOURCE_ID = 'airbg-hexes'
 const HEX_LAYER_ID = 'airbg-hex-fill'
 const HEX_OUTLINE_LAYER_ID = 'airbg-hex-outline'
+const HEX_POINT_LAYER_ID = 'airbg-hex-point'
 
 export function mount(el) {
   const cfg = readConfig(el)
@@ -110,6 +111,31 @@ export function mount(el) {
       type: 'line',
       source: HEX_SOURCE_ID,
       paint: { 'line-color': ['get', 'colour'], 'line-width': 0.5, 'line-opacity': cfg.hexOpacity },
+    })
+    // The point tier, sharing the hex source: past the finest published cell
+    // the server sends devices rather than bins, and a device is drawn as a
+    // mark rather than as a cell. The two coexist on one source because the
+    // fill and line layers above ignore Point geometry and this one ignores
+    // Polygons, so the tier that happens to be loaded is the tier that paints.
+    //
+    // Fully opaque, unlike the cells behind it: a cell is a summary and reads
+    // as a wash, a device is a fact and should not.
+    map.addLayer({
+      id: HEX_POINT_LAYER_ID,
+      type: 'circle',
+      source: HEX_SOURCE_ID,
+      paint: {
+        'circle-color': ['get', 'colour'],
+        // Grows with zoom so a dense city does not read as one blob when a
+        // reader zooms in to separate it — which is the reason to be at this
+        // tier at all.
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 4, 18, 9],
+        'circle-stroke-width': 1,
+        // The same stroke the sensor dots use, not a new config key: this IS a
+        // sensor dot — the difference is which endpoint delivered it, which is
+        // not a distinction a reader should have to see.
+        'circle-stroke-color': cfg.markerStrokeColour,
+      },
     })
 
     map.addSource(SOURCE_ID, { type: 'geojson', data: emptyCollection() })
