@@ -21,7 +21,7 @@ func TestNearbySensorsShareOneHex(t *testing.T) {
 	p := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorAt(1, 23.3219, 42.6977, map[string]float64{"P1": 20}),
 		sensorAt(2, 23.3260, 42.7001, map[string]float64{"P1": 30}),
-	})
+	}, HexResolutionKM)
 	if len(p.Hexes) != 1 {
 		t.Fatalf("want 1 hex, got %d", len(p.Hexes))
 	}
@@ -38,7 +38,7 @@ func TestDistantSensorsGetSeparateHexes(t *testing.T) {
 	p := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorAt(1, 23.3219, 42.6977, map[string]float64{"P1": 20}),
 		sensorAt(2, 27.9147, 43.2141, map[string]float64{"P1": 40}),
-	})
+	}, HexResolutionKM)
 	if len(p.Hexes) != 2 {
 		t.Fatalf("want 2 hexes, got %d", len(p.Hexes))
 	}
@@ -50,14 +50,14 @@ func TestDistantSensorsGetSeparateHexes(t *testing.T) {
 func TestEveryPointLandsInItsNearestHex(t *testing.T) {
 	for lon := 22.4; lon <= 28.6; lon += 0.31 {
 		for lat := 41.3; lat <= 44.2; lat += 0.17 {
-			c := hexOf(lon, lat)
+			c := hexOf(lon, lat, HexResolutionKM)
 			x, y := project(lon, lat)
-			cx, cy := project(hexCentre(c))
+			cx, cy := project(hexCentre(c, HexResolutionKM))
 			best := math.Hypot(x-cx, y-cy)
 
 			for dq := -2; dq <= 2; dq++ {
 				for dr := -2; dr <= 2; dr++ {
-					nx, ny := project(hexCentre(axial{c.q + dq, c.r + dr}))
+					nx, ny := project(hexCentre(axial{c.q + dq, c.r + dr}, HexResolutionKM))
 					if d := math.Hypot(x-nx, y-ny); d < best-1e-9 {
 						t.Fatalf("(%.2f,%.2f) binned to %v at %.3f km, but %v is %.3f km away",
 							lon, lat, c, best, axial{c.q + dq, c.r + dr}, d)
@@ -72,10 +72,10 @@ func TestEveryPointLandsInItsNearestHex(t *testing.T) {
 // rather than a property.
 func TestNeighbouringHexCentresAreOneResolutionApart(t *testing.T) {
 	origin := axial{3, -7}
-	ox, oy := project(hexCentre(origin))
+	ox, oy := project(hexCentre(origin, HexResolutionKM))
 	neighbours := []axial{{4, -7}, {2, -7}, {3, -6}, {3, -8}, {4, -8}, {2, -6}}
 	for _, n := range neighbours {
-		nx, ny := project(hexCentre(n))
+		nx, ny := project(hexCentre(n, HexResolutionKM))
 		d := math.Hypot(ox-nx, oy-ny)
 		if math.Abs(d-HexResolutionKM) > 0.01 {
 			t.Errorf("centre distance to %v = %.3f km, want %.1f", n, d, HexResolutionKM)
@@ -88,11 +88,11 @@ func TestNeighbouringHexCentresAreOneResolutionApart(t *testing.T) {
 func TestBinningDoesNotDependOnTheOtherSensors(t *testing.T) {
 	alone := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorAt(1, 23.3219, 42.6977, map[string]float64{"P1": 20}),
-	})
+	}, HexResolutionKM)
 	withCompany := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorAt(1, 23.3219, 42.6977, map[string]float64{"P1": 20}),
 		sensorAt(2, 27.9147, 43.2141, map[string]float64{"P1": 40}),
-	})
+	}, HexResolutionKM)
 	var moved bool
 	for _, h := range withCompany.Hexes {
 		if h.N == 1 && h.Values["P1"] == 20 {
@@ -116,11 +116,11 @@ func TestHexETagIgnoresTimeAndInputOrder(t *testing.T) {
 	}
 	b := []store.SensorReading{a[2], a[0], a[1]}
 
-	first, err := encode(hexPayloadFrom(time.Unix(1000, 0), a))
+	first, err := encode(hexPayloadFrom(time.Unix(1000, 0), a, HexResolutionKM))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := encode(hexPayloadFrom(time.Unix(9000, 0), b))
+	second, err := encode(hexPayloadFrom(time.Unix(9000, 0), b, HexResolutionKM))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestHexETagIgnoresTimeAndInputOrder(t *testing.T) {
 func TestAbsentMetricIsOmittedRatherThanZero(t *testing.T) {
 	p := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorAt(1, 23.3219, 42.6977, map[string]float64{"P1": 20}),
-	})
+	}, HexResolutionKM)
 	if _, ok := p.Hexes[0].Values["P2"]; ok {
 		t.Error("P2 present in a bin where no sensor reported it")
 	}
@@ -147,7 +147,7 @@ func TestAbsentMetricIsOmittedRatherThanZero(t *testing.T) {
 func TestHexEntryCarriesNoSensorIdentity(t *testing.T) {
 	p := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorAt(4242, 23.3219, 42.6977, map[string]float64{"P1": 20}),
-	})
+	}, HexResolutionKM)
 	body, err := encode(p)
 	if err != nil {
 		t.Fatal(err)

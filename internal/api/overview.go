@@ -3,8 +3,10 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
+	"airbg.org/internal/snapshot"
 	"airbg.org/internal/upstream"
 )
 
@@ -51,21 +53,43 @@ func (d Deps) handleAreas(w http.ResponseWriter, r *http.Request) {
 	serveBody(w, r, snap.Areas, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
 }
 
-// handleHexes serves the aggregate hex grid.
+// handleHexes serves the aggregate hex grid, at a requested resolution and
+// optionally clipped to a viewport.
 //
-// Like handleOverview it takes no spatial parameter, and for the same reason —
-// but the constant that matters most here is the resolution. A "resolution"
-// query parameter would turn one endpoint into an unbounded family of them, and
-// a fine enough setting would return the sensor list one bin at a time. The grid
-// is snapshot.HexResolutionKM for everyone, which is also what keeps this
-// response public rather than private: there is nothing per-caller in it.
+// Both parameters were once refused. The resolution is now accepted because it
+// is snapped onto a closed list of tiers that share one nested lattice, so a
+// caller cannot invent a finer grid than we publish and cannot learn anything
+// by comparing tiers — see snapshot.HexResolutionKM for why that reasoning
+// changed, and what it does and does not buy.
+//
+// Neither parameter carries anything per-caller, so the response stays public:
+// two callers asking the same question get the same bytes and the same ETag.
+// The viewport is a bandwidth optimisation and nothing more — it does not
+// narrow what is obtainable, since the tiers are public and a caller may ask
+// for any box. The rate limiter, not this parameter, is what stands between a
+// reader and a bulk download.
 func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 	snap := d.Snapshots.Load()
 	if snap == nil {
 		writeUnavailable(w)
 		return
 	}
-	serveBody(w, r, snap.Hexes, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
+
+	// Parsed, not validated: HexBody snaps whatever it is given onto a published
+	// tier, so an out-of-range number needs no handling here and an unparseable
+	// one just means the caller named no resolution.
+	res := snapshot.HexResolutionKM
+	if f, err := strconv.ParseFloat(r.URL.Query().Get("resolution_km"), 64); err == nil {
+		res = f
+	}
+	bb, clip := snapshot.ParseBBox(r.URL.Query().Get("bbox"))
+
+	body, err := snap.HexBody(res, bb, clip)
+	if err != nil {
+		writeUnavailable(w)
+		return
+	}
+	serveBody(w, r, body, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
 }
 
 // handleWind serves the forecast overlay.

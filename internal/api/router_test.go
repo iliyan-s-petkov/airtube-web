@@ -100,6 +100,7 @@ func fixture(t *testing.T) *snapshot.Snapshot {
 		Overview:     body(`{"areas":[{"slug":"sofia"}]}`),
 		OverviewCity: body(`{"areas":[{"slug":"sofia-center"}]}`),
 		Areas:        body(`{"areas":[{"slug":"sofia"}]}`),
+		Hexes:        body(`{"hexes":[{"lon":23.3,"lat":42.7,"n":2}]}`),
 		AreaSensors: map[string]snapshot.Body{
 			"sofia": body(`{"sensors":{"id":[1]}}`),
 		},

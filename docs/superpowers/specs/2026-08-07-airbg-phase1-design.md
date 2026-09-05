@@ -204,6 +204,21 @@ Tiering serves two purposes.
 
 This does **not** make the data confidential, and the spec does not claim otherwise. sensor.community already publishes every sensor's coordinates and readings, plus daily archive CSVs; anyone wanting the dataset obtains it more easily from upstream. Tiering protects the server's cost profile, not the data.
 
+#### Amendment, 2026-09-05: the hex grid takes a resolution and a viewport
+
+The rule above — a caller gets no spatial parameter, only a tier — is **overturned for `/api/v1/hexes`**. That endpoint now accepts `resolution_km` and `bbox`. The three area tiers are unchanged; `/overview` still takes no bounding box.
+
+Why the original reasoning does not hold here:
+
+- **The choice is not free.** `resolution_km` is snapped onto a closed list — 15, 5, 2, 1, 0.5, 0.25 km — so there is no arbitrarily fine grid to request. The finest cell we will ever draw is fixed in code, not chosen by the caller.
+- **The grid does not move under the caller.** Every tier is anchored at the same projected origin. The extraction a free resolution invites is the *sliding* grid: nudge the same cell size a few metres and the moving intersections isolate a point. A fixed anchor has no such seam.
+- **Coarse tiers add nothing.** Hexagons do not subdivide into hexagons, so tiers cannot be differenced cell-for-cell. The question is settled more simply: the 250 m tier is published outright, so no combination of coarser answers locates anything more precisely than it already does.
+- **`bbox` buys no privacy either way.** A scraper requests every box in a loop. It is a bandwidth optimisation for the browser, and the rate limiter — not the absence of the parameter — is the control.
+
+What this costs, stated plainly: at 250 m with no minimum-count floor, a bin holding one sensor is that sensor's street block. This publishes device positions at roughly address precision. It is a deliberate product decision, taken to match maps.sensor.community, whose upstream API already publishes exact sensor coordinates — so it discloses little that is not already public. It is nonetheless a reversal of this document's original position, recorded here rather than left as a silent contradiction. `HexTiersKM` in `internal/snapshot/hexes.go` is the number to revisit if the decision is reconsidered.
+
+Cacheability is preserved: neither parameter carries anything per-caller, so two visitors asking the same question receive the same bytes under the same ETag.
+
 ### 7.2 Browser endpoints
 
 Unauthenticated, because any endpoint the browser calls is by construction callable by anyone. Embedding a credential in frontend JavaScript would be security theatre.
@@ -220,7 +235,9 @@ Unauthenticated, because any endpoint the browser calls is by construction calla
 
 All except `/locate` are served from memory or from narrow indexed queries, carry `ETag` and `Cache-Control`, and take no parameter that lets a caller increase server work.
 
-The absence of a bounding-box parameter is deliberate. `/overview` has exactly one response, so it is a single globally shared cache entry that the edge serves without consulting the origin. The legacy `location.php?bounds=` is the opposite: every distinct viewport produced an uncached, unbounded InfluxQL query.
+The absence of a bounding-box parameter on the area endpoints is deliberate. `/overview` has exactly one response per tier, so it is a single globally shared cache entry that the edge serves without consulting the origin. The legacy `location.php?bounds=` is the opposite: every distinct viewport produced an uncached, unbounded InfluxQL query.
+
+`/api/v1/hexes` is the exception (§7.1 amendment). It takes `bbox` and `resolution_km`, but it answers from pre-binned memory rather than from a query, so a viewport costs a filter over an in-memory slice and never reaches the database. The property this section actually protects — no parameter that lets a caller increase server work — still holds.
 
 ### 7.3 Payload format
 

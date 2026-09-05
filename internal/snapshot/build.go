@@ -151,7 +151,16 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	// grid is a different view of the same cycle's readings, and a separate
 	// poller would both double the upstream load and let the two views disagree
 	// about what "now" means.
-	if snap.Hexes, err = encode(hexPayloadFrom(now, sensors)); err != nil {
+	//
+	// Every tier is binned from the same sensors in the same cycle, so the
+	// lattice stays nested and a coarse bin is exactly the union of the fine
+	// bins under it — which is what makes serving several resolutions no more
+	// revealing than serving the finest one alone.
+	snap.hexTiers = make(map[float64]hexPayload, len(HexTiersKM))
+	for _, res := range HexTiersKM {
+		snap.hexTiers[res] = hexPayloadFrom(now, sensors, res)
+	}
+	if snap.Hexes, err = encode(snap.hexTiers[HexResolutionKM]); err != nil {
 		return nil, fmt.Errorf("snapshot: encode hexes: %w", err)
 	}
 

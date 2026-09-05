@@ -26,7 +26,7 @@ func TestStraddlingBinTakesTheMajorityCountry(t *testing.T) {
 		sensorIn(2, lon, lat, "BG", map[string]float64{"P1": 10}),
 		sensorIn(3, lon, lat, "BG", map[string]float64{"P1": 10}),
 		sensorIn(4, lon, lat, "GR", map[string]float64{"P1": 10}),
-	})
+	}, HexResolutionKM)
 	if len(p.Hexes) != 1 {
 		t.Fatalf("got %d hexes, want 1", len(p.Hexes))
 	}
@@ -48,9 +48,9 @@ func TestTiedBinPicksTheSameCountryEveryTime(t *testing.T) {
 		sensorIn(2, lon, lat, "GR", map[string]float64{"P1": 10}),
 		sensorIn(3, lon, lat, "MK", map[string]float64{"P1": 10}),
 	}
-	first := hexPayloadFrom(time.Now(), sensors).Hexes[0].Country
+	first := hexPayloadFrom(time.Now(), sensors, HexResolutionKM).Hexes[0].Country
 	for i := 0; i < 50; i++ {
-		if got := hexPayloadFrom(time.Now(), sensors).Hexes[0].Country; got != first {
+		if got := hexPayloadFrom(time.Now(), sensors, HexResolutionKM).Hexes[0].Country; got != first {
 			t.Fatalf("country = %q on build %d, %q on the first — a tie must not depend on map order", got, i, first)
 		}
 	}
@@ -65,7 +65,7 @@ func TestTiedBinPicksTheSameCountryEveryTime(t *testing.T) {
 func TestBinWithNoKnownCountryIsMarkedUnknown(t *testing.T) {
 	p := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorAt(1, 23.3219, 42.6977, map[string]float64{"P1": 20}),
-	})
+	}, HexResolutionKM)
 	if got := p.Hexes[0].Country; got != hexCountryUnknown {
 		t.Errorf("country = %q, want %q", got, hexCountryUnknown)
 	}
@@ -77,7 +77,7 @@ func TestForeignSensorsGetTheirOwnBins(t *testing.T) {
 	p := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorIn(1, 23.3327, 42.6957, "BG", map[string]float64{"P1": 20}), // Sofia
 		sensorIn(2, 21.4254, 41.9981, "MK", map[string]float64{"P1": 40}), // Skopje
-	})
+	}, HexResolutionKM)
 	if len(p.Hexes) != 2 {
 		t.Fatalf("got %d hexes, want 2 — Sofia and Skopje are ~170 km apart", len(p.Hexes))
 	}

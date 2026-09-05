@@ -48,7 +48,10 @@ func windPayloadFrom(now, validAt time.Time, model string, modelResDeg float64, 
 		Vectors:  make([]windVector, 0, len(vs)),
 	}
 	for _, v := range vs {
-		lon, lat := hexCentre(axial{q: v.Q, r: v.R})
+		// The default resolution, matching HexGridOf: these coordinates were
+		// asked of the met model on that grid, so reading them back on a finer
+		// one would move the arrows off the cells they describe.
+		lon, lat := hexCentre(axial{q: v.Q, r: v.R}, HexResolutionKM)
 		p.Vectors = append(p.Vectors, windVector{
 			Lon:          round4(lon),
 			Lat:          round4(lat),

@@ -98,6 +98,13 @@ type Snapshot struct {
 	// has named no area at all.
 	Hexes Body
 
+	// hexTiers holds every published resolution as unencoded bins, because a
+	// viewport request has to filter before it serializes. Kept alongside the
+	// pre-encoded Hexes rather than replacing it: the default question — no
+	// resolution, no viewport — is the common one and still answers from bytes
+	// built once per cycle.
+	hexTiers map[float64]hexPayload
+
 	// Wind is the forecast overlay, and is the one Body that is legitimately
 	// empty: the layer is optional, its provider is external, and a zero value
 	// means the handler answers 503 rather than drawing a stale field.
