@@ -179,6 +179,22 @@ describe('hexesURL', () => {
   it('is stable for an unchanged view, so the cache can serve it', () => {
     expect(hexesURL(13, bounds)).toBe(hexesURL(13, bounds))
   })
+
+  // The fix for a real production observation: MapLibre reports a fractional
+  // zoom that moves every frame of a flyTo, and one zoom-to-street flight spent
+  // three requests on 44.85, 40.89 and 37.29 km — three URLs, one 15 km answer.
+  it('collapses a fractional zoom onto its whole level', () => {
+    expect(hexesURL(12.7, bounds)).toBe(hexesURL(13, bounds))
+    expect(hexesURL(13.4, bounds)).toBe(hexesURL(13, bounds))
+    expect(hexesURL(13.6, bounds)).not.toBe(hexesURL(13, bounds))
+  })
+
+  // The bbox threshold reads the same rounded zoom, so a request cannot carry a
+  // resolution from one level and a bbox decision from another.
+  it('decides the bbox on the same rounded zoom as the resolution', () => {
+    expect(hexesURL(BBOX_MIN_ZOOM - 0.4, bounds)).toBe(hexesURL(BBOX_MIN_ZOOM, bounds))
+    expect(hexesURL(BBOX_MIN_ZOOM - 0.6, bounds)).not.toContain('bbox')
+  })
 })
 
 describe('hexFeatures', () => {

@@ -52,8 +52,17 @@ export function resolutionForZoom(zoom) {
  * null or a zoom below BBOX_MIN_ZOOM yields the unclipped country-wide URL.
  */
 export function hexesURL(zoom, bounds) {
-  const params = new URLSearchParams({ resolution_km: String(round(resolutionForZoom(zoom), 4)) })
-  const bbox = bboxParam(zoom, bounds)
+  // Rounded to a whole zoom level first, for the same reason the bbox is snapped
+  // to a grid: MapLibre reports a fractional zoom that changes on every frame of
+  // a flyTo, and an unrounded resolution gives each of those frames its own URL.
+  // Measured on the live site, one zoom-to-street flight spent three separate
+  // requests on 44.85, 40.89 and 37.29 km — three URLs the server answers with
+  // the identical 15 km body. A whole level is the finest distinction worth
+  // making: it changes the cell by 2x, which is a tier, and everything between
+  // is the same picture.
+  const z = Math.round(zoom)
+  const params = new URLSearchParams({ resolution_km: String(round(resolutionForZoom(z), 4)) })
+  const bbox = bboxParam(z, bounds)
   if (bbox) params.set('bbox', bbox)
   return `/api/v1/hexes?${params}`
 }
