@@ -8,8 +8,9 @@
 <link rel="canonical" href="{{.CanonicalURL}}">
 {{range .Alternates}}<link rel="alternate" hreflang="{{.Lang}}" href="{{.URL}}">
 {{end}}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/theme.css">
-<link rel="stylesheet" href="/static/app.css">
+{{with .Assets.Style "theme"}}<link rel="stylesheet" href="{{.}}">
+{{else}}<link rel="stylesheet" href="/static/theme.css">
+{{end}}<link rel="stylesheet" href="/static/app.css">
 {{with .Assets.Style "main"}}<link rel="stylesheet" href="{{.}}">
 {{end}}</head>
 <body>

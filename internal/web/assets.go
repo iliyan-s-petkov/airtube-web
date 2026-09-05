@@ -91,7 +91,15 @@ func parseManifest(raw []byte) (Assets, error) {
 		if !e.IsEntry || e.Name == "" || e.File == "" {
 			continue
 		}
-		a.scripts[e.Name] = assetPrefix + path.Clean(e.File)
+		resolved := assetPrefix + path.Clean(e.File)
+		// A CSS-only entry (the "theme" entry) has a stylesheet as its own File
+		// and no CSS list. Routed by extension, because putting it in scripts
+		// would emit a <script src> pointing at a stylesheet.
+		if path.Ext(e.File) == ".css" {
+			a.styles[e.Name] = resolved
+			continue
+		}
+		a.scripts[e.Name] = resolved
 		if len(e.CSS) > 0 {
 			a.styles[e.Name] = assetPrefix + path.Clean(e.CSS[0])
 		}

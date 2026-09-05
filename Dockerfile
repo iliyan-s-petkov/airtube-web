@@ -11,6 +11,8 @@ COPY web/package.json web/package-lock.json ./
 # transitive package nobody reviewed.
 RUN npm ci --ignore-scripts
 COPY web/ ./
+# Build input: web/src/styles/theme.css imports the kit's tokens.
+COPY design-kit /src/design-kit
 # `npm run build` runs `npm audit --audit-level=high` first, so a
 # high-severity advisory FAILS THE BUILD rather than printing a warning
 # nobody reads. Must be invoked with cwd=web/: vite.config.js's `root: '.'`

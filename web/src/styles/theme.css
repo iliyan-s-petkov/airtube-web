@@ -1,0 +1,15 @@
+/* The site's tokens, read from the design kit rather than restated here.
+   The kit is the source of truth; see design-kit/README-repo.md. */
+@import '../../../design-kit/tokens.css';
+@import '../../../design-kit/colors_and_type.css';
+
+/* Site-only tokens: app.css uses these and the kit defines no counterpart.
+   Kept after the imports so anything the kit does define still wins. */
+:root {
+  --border-faint: #e0e0e0;
+  --notice-bg: #fcf4d6;
+  --map-placeholder-bg: #f4f4f4;
+  --overlay-bg: rgba(255, 255, 255, 0.9);
+  --map-cap: 78vh;
+  --text-page: 2.63rem;
+}

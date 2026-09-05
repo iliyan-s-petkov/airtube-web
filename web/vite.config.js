@@ -67,7 +67,9 @@ export default {
     // `Cache-Control: immutable` without ever serving a stale bundle.
     // Without the manifest, Go cannot know the hashed name.
     manifest: true,
-    rollupOptions: { input: 'src/main.js' },
+    // 'theme' is a CSS-only entry: it exists so the design kit's tokens are
+    // inlined into the build instead of restated in internal/web/static.
+    rollupOptions: { input: { main: 'src/main.js', theme: 'src/styles/theme.css' } },
   },
   // Svelte's package.json exports a separate build per condition: 'browser'
   // resolves to the client runtime (the one with a working mount()/$effect),

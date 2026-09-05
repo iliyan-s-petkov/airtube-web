@@ -129,13 +129,20 @@ func TestNewRendererFailsClosedOnEmptyPeriodNames(t *testing.T) {
 // <head> is load-bearing: a browser that requested app.css first would apply
 // it before the custom properties it references exist, which is silently
 // wrong rather than a visible error.
+// The palette is the built "theme" entry when a manifest is present and
+// /static/theme.css when it is not, so this looks for whichever shipped
+// rather than for one fixed href — but exactly one must, or app.css has no
+// custom properties at all.
 func TestThemeCSSLoadsBeforeAppCSS(t *testing.T) {
 	body := fetch(t, renderer(t, fixture(t)), "/").Body.String()
 
 	theme := strings.Index(body, `<link rel="stylesheet" href="/static/theme.css">`)
+	if theme < 0 {
+		theme = strings.Index(body, `href="/static/build/assets/theme-`)
+	}
 	app := strings.Index(body, `<link rel="stylesheet" href="/static/app.css">`)
 	if theme < 0 {
-		t.Fatal("the page does not link /static/theme.css")
+		t.Fatal("the page links neither /static/theme.css nor a built theme entry")
 	}
 	if app < 0 {
 		t.Fatal("the page does not link /static/app.css")
