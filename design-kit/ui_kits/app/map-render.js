@@ -1032,6 +1032,26 @@
        * honest than a province painted one colour from two sensors. */
       if (hexes && hexes.hexes) {
         var hl = el('g', { class: 'map-hexes' });
+        /* ---- Zoom-aware cell size --------------------------------------
+         *
+         * The served grid is one fixed resolution, so a cell is a fixed size
+         * ON THE GROUND and therefore a shrinking size on screen as the reader
+         * zooms out: at country zoom the cells collapse towards specks, and the
+         * counts stop fitting.
+         *
+         * Merging fixes the zoomed-OUT half honestly. k neighbouring cells are
+         * combined into one coarser cell whenever the served cell would draw
+         * smaller than TARGET_PX, and the merged value is the count-weighted
+         * mean of its parts — which is what an average over the larger area
+         * actually is. Nothing is invented: a merged cell is a coarser
+         * aggregate of aggregates, and it carries the SUM of the sensor counts,
+         * so the number on it stays true.
+         *
+         * Zooming IN cannot be fixed here and this deliberately does not try.
+         * Subdividing a 15 km bin would mean inventing where inside it the
+         * readings came from. Finer cells have to be binned by the server from
+         * data it has and we do not (see context/hex-zoom-proposal.md). */
+        var TARGET_PX = 26;         /* a cell wide enough to hold two digits */
         var hk = window.AIRBG_MAP_PROJECT;
         /* One hex's radius in screen pixels, measured through the SAME
          * projection the marks use — never a constant. The bin is a distance
@@ -1052,6 +1072,86 @@
          * r = spacing / √3 makes adjacent cells share an edge exactly: a
          * tessellation, which is the whole reason to use hexagons. */
         var hr = (hexes.bin_km * pxPerKm) / Math.sqrt(3);
+
+        /* How many served cells wide the drawn cell has to be to reach
+         * TARGET_PX. 1 means "draw the served grid as it came". */
+        var merge = Math.max(1, Math.round(TARGET_PX / Math.max(hr, 0.001)));
+        var cells = hexes.hexes;
+        if (merge > 1) {
+          /* Bin the served centres onto a coarser grid whose spacing is
+           * `merge` × the served spacing, keyed on the same axes the server
+           * used, so a merged cell is always a whole number of served cells
+           * and never straddles them. */
+          /* A HEX lattice, not a square one.
+           *
+           * Rounding lon/lat to a rectangular grid and placing each merged cell
+           * at its members' centroid produced centres that were neither evenly
+           * spaced nor on any lattice, so the merged hexagons overlapped by up
+           * to 3.08×. Hexagons do not tile a square grid, and a centroid is not
+           * a lattice point.
+           *
+           * Axial coordinates for a FLAT-TOP hexagon — the orientation the draw
+           * loop emits, vertices every 60° starting at 0°. Cube rounding picks
+           * the nearest cell, and the centre is computed back FROM the lattice,
+           * so merged cells tessellate by construction rather than by luck.
+           * Work in kilometres so the maths is planar and isotropic. */
+          var Rkm = (hexes.bin_km * merge) / Math.sqrt(3);   /* circumradius */
+          function axial(lon, lat) {
+            var x = lon * kmDeg, y = lat * 111.32;
+            var q = (2 / 3 * x) / Rkm;
+            var r = (-1 / 3 * x + Math.sqrt(3) / 3 * y) / Rkm;
+            /* cube rounding: round all three, fix the one that moved most */
+            var cx3 = q, cz3 = r, cy3 = -cx3 - cz3;
+            var rx = Math.round(cx3), ry = Math.round(cy3), rz = Math.round(cz3);
+            var dx = Math.abs(rx - cx3), dy = Math.abs(ry - cy3), dz = Math.abs(rz - cz3);
+            if (dx > dy && dx > dz) rx = -ry - rz;
+            else if (dy > dz) ry = -rx - rz;
+            else rz = -rx - ry;
+            return [rx, rz];
+          }
+          function centreOf(q, r) {
+            var x = Rkm * 1.5 * q;
+            var y = Rkm * Math.sqrt(3) * (r + q / 2);
+            return { lon: x / kmDeg, lat: y / 111.32 };
+          }
+          var buckets = {};
+          cells.forEach(function (h) {
+            var ax = axial(h.lon, h.lat);
+            var gx = ax[0], gy = ax[1];
+            var key = gx + ':' + gy;
+            var b = buckets[key];
+            if (!b) {
+              var c = centreOf(gx, gy);
+              b = buckets[key] = { lon: c.lon, lat: c.lat, n: 0, wP1: 0, wP2: 0,
+                                   nP1: 0, nP2: 0, bg: 0, parts: 0, country: h.country };
+            }
+            /* Count-weighted, because a cell holding 30 sensors should not be
+             * averaged equally with one holding 1 — that would let a single
+             * device outvote a city. */
+            b.parts++; b.n += h.n;
+            if (h.P1 != null) { b.wP1 += h.P1 * h.n; b.nP1 += h.n; }
+            if (h.P2 != null) { b.wP2 += h.P2 * h.n; b.nP2 += h.n; }
+            if (h.country === 'BG') b.bg += h.n;
+          });
+          cells = Object.keys(buckets).map(function (k) {
+            var b = buckets[k];
+            return {
+              /* The LATTICE centre, not the members' centroid — a centroid
+               * drifts off the grid and the tessellation stops closing. */
+              lon: b.lon, lat: b.lat, n: b.n,
+              P1: b.nP1 ? b.wP1 / b.nP1 : null,
+              P2: b.nP2 ? b.wP2 / b.nP2 : null,
+              /* A merged cell is thin only if the whole of it rests on one
+               * sensor — merging must not launder a single reading into
+               * something that looks corroborated. */
+              thin: b.n === 1,
+              country: b.bg * 2 >= b.n ? 'BG' : b.country
+            };
+          });
+          hr = hr * merge;
+        }
+        frame.setAttribute('data-hex-merge', merge + 'x');
+
         var drawnHex = 0, thinHex = 0, foreignHex = 0;
         /* An optional layer must fail as an optional layer. A missing or
          * malformed lat_ref/bin_km makes hr NaN, and NaN passed to the
@@ -1061,7 +1161,7 @@
          * caused it. */
         if (!isFinite(hr)) hr = 0;
         if (hr >= 3) {                       /* below this a hex is a speck */
-          hexes.hexes.forEach(function (h) {
+          cells.forEach(function (h) {
             var v = (metric === 'p10') ? h.P1 : h.P2;
             if (v == null) return;
             var cx = X(h.lon), cy = Y(h.lat);
