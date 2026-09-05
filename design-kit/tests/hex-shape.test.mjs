@@ -44,7 +44,11 @@ console.log('\n2. nothing clips or masks the hex layer');
    * added HERE cannot pass it. */
   const start = render.indexOf("el('g', { class: 'map-hexes' })");
   ok('the hex layer is found', start > 0);
-  const region = render.slice(start, start + 9000);
+  /* To the layer's real END, not a character count. Twice now the region
+   * was a fixed window and twice new code inside the layer pushed the
+   * cull past it, failing the check for its own scoping rather than for
+   * anything the code did. The layer ends where it is appended. */
+  const region = render.slice(start, render.indexOf('svg.appendChild(hl)', start));
 
   ok('no clip-path on the hex layer',
      !/clip-?path/i.test(region), 'a clipped hex claims a smaller bin than it measured');
@@ -57,7 +61,11 @@ console.log('\n2. nothing clips or masks the hex layer');
 console.log('\n3. a hex is not filtered out for crossing a border');
 {
   const start = render.indexOf("el('g', { class: 'map-hexes' })");
-  const region = render.slice(start, start + 9000);
+  /* To the layer's real END, not a character count. Twice now the region
+   * was a fixed window and twice new code inside the layer pushed the
+   * cull past it, failing the check for its own scoping rather than for
+   * anything the code did. The layer ends where it is appended. */
+  const region = render.slice(start, render.indexOf('svg.appendChild(hl)', start));
   /* The only cull allowed is the viewport one: a hex entirely off screen is
    * not drawn. A cull by country, province or coastline is not. */
   ok('hexes are culled by the viewport only',

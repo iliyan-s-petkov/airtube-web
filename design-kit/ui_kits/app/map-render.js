@@ -1077,7 +1077,21 @@
          * TARGET_PX. 1 means "draw the served grid as it came". */
         var merge = Math.max(1, Math.round(TARGET_PX / Math.max(hr, 0.001)));
         var cells = hexes.hexes;
-        if (merge > 1) {
+        /* ALWAYS bin, even at merge = 1.
+         *
+         * The served centres are not a perfect lattice: nearest-neighbour
+         * spacing runs 13.76–15.01 km on a grid declared as 15 km. Sizing every
+         * cell from the declared spacing therefore overlaps the pairs that sit
+         * closer than declared — measured 90 overlapping pairs at merge 1, up
+         * to 5.1px of penetration, which is the pattern of dark rhombi at every
+         * vertex the reader reported.
+         *
+         * Running the served grid through the same axial lattice snaps each
+         * centre to a regular cell, so the drawn hexagons tessellate whatever
+         * the upstream spacing did. Where two served cells fall in one lattice
+         * cell they merge, counts sum, and the value stays count-weighted —
+         * the same honest arithmetic as any other merge. */
+        if (merge >= 1) {
           /* Bin the served centres onto a coarser grid whose spacing is
            * `merge` × the served spacing, keyed on the same axes the server
            * used, so a merged cell is always a whole number of served cells
@@ -1148,7 +1162,11 @@
               country: b.bg * 2 >= b.n ? 'BG' : b.country
             };
           });
-          hr = hr * merge;
+          /* The drawn radius is the LATTICE's circumradius in pixels, so the
+           * mark and the grid it was snapped to are the same size by
+           * construction rather than by a multiplication that has to be kept
+           * in step. */
+          hr = Rkm * pxPerKm;
         }
         /* ---- Zooming IN past the grid ----------------------------------
          *
