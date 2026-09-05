@@ -2034,6 +2034,32 @@
   }
 
   var cache = {};
+
+  /* ---- Re-ask for the hexes when the camera earns a finer grid -------------
+   *
+   * The asset bundle is fetched ONCE and memoised, which is right for the
+   * outline, the provinces and the roads: they do not change with the camera.
+   * The hexes now do. The server publishes 15/5/2/1 km and the kit derives the
+   * one this scale can use — but the derivation happens on the first load,
+   * before any camera exists, so it asked for nothing and then never asked
+   * again. Tiers were live on the server and unreachable from the UI.
+   *
+   * So: after a zoom settles, if the wanted tier differs from the one already
+   * on screen, drop the memo and redraw. Only the hex fetch is affected; every
+   * other asset is served from the browser cache on the second pass.
+   *
+   * Guarded on the tier, not on the zoom, because zoom changes constantly and a
+   * tier changes rarely — this must not become a request per wheel notch. */
+  var servedTier = null;
+  function retierIfNeeded() {
+    var want = cache.wanted && cache.wanted();
+    if (!want || want === servedTier) return;
+    servedTier = want;
+    cache.p = null;                       /* next assets() re-fetches the hexes */
+    if (window.AIRBG_DATA) draw(window.AIRBG_DATA);
+  }
+  document.addEventListener('airbg:zoomsettled', retierIfNeeded);
+
   function assets() {
     if (cache.p) return cache.p;
     cache.p = Promise.all([
@@ -2084,12 +2110,21 @@
         /* What the current camera could use, in km, snapped to the tiers the
          * server is likely to publish. Null when there is no camera yet — the
          * first load asks for nothing and takes the default. */
+        /* Published on the cache so the re-tier check can ask the same question
+         * this fetch answers — one definition, so the request and the trigger
+         * cannot drift apart. */
+        cache.wanted = wantedResolutionKm;
         function wantedResolutionKm() {
           var st = window.AIRBG_MAP_STATE && window.AIRBG_MAP_STATE('map');
           var pk = window.AIRBG_MAP_PXPERKM && window.AIRBG_MAP_PXPERKM();
           if (!pk || !isFinite(pk) || pk <= 0) return null;
           var km = 26 / pk;                       /* a cell ≈ TARGET_PX across */
-          var TIERS = [15, 5, 2];
+          /* The tiers the server actually publishes. 1 km is included because
+           * it exists; whether it SHOULD be reachable is the open
+           * anti-enumeration question, and that gate belongs on the server —
+           * the kit asking for a tier it is not allowed is a refusal, not a
+           * leak. */
+          var TIERS = [15, 5, 2, 1];
           for (var i = 0; i < TIERS.length; i++) if (km >= TIERS[i]) return TIERS[i];
           return TIERS[TIERS.length - 1];
         }

@@ -149,9 +149,20 @@
       if (d.state === 'tiles' && d.map) {
         d.map.on('zoomend', paint);
         d.map.on('moveend', paint);
+        /* The hex layer asks the server for a grid suited to the scale, so it
+         * needs to know when the scale has finished changing. Announced once
+         * the camera has SETTLED, not per frame: a request per wheel notch
+         * would be a request storm, and the tier only changes rarely. */
+        d.map.on('zoomend', settled);
+        d.map.on('moveend', settled);
       }
       paint();
     });
+    function settled() {
+      document.dispatchEvent(new CustomEvent('airbg:zoomsettled'));
+    }
+    /* The SVG camera announces itself through the renderer's own event. */
+    document.addEventListener('airbg:viewchange', settled);
     paint();
   });
 
