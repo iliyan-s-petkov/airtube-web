@@ -1,10 +1,3 @@
-/* examples/theme.css — the shipping form of this design system for the source app.
- * Concatenation of tokens.css + colors_and_type.css + components.css, in load order.
- * Port target: internal/web/static/theme.css. Regenerate with:
- *   cat tokens.css colors_and_type.css components.css > examples/theme.css
- * The consuming app's CSP forbids inline styles, so every value must live here.
- */
-
 /* airbg.org tokens — derived from DESIGN.md in this project.
  * Draft for the D3 port into internal/web/static/theme.css. Not served from here.
  *
@@ -87,7 +80,7 @@
 
   /* Shadow means "this genuinely floats". Cards get none. */
   --elev-float: 0 2px 6px rgba(0, 0, 0, 0.12);
-  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
   --control-height: 48px;
   --control-height-compact: 40px;
@@ -120,25 +113,6 @@
   --ramp-none: var(--muted);
 }
 
-/* ── Dark theme ──────────────────────────────────────────────────────────────
- * Values are Carbon's Gray 100 theme, not invented darkenings of the light set.
- * The light palette is a hand port of Carbon's White theme (see DESIGN.md
- * provenance); its dark counterpart already exists and is contrast-tested, so
- * inventing one here would be the same error as drawing a flag from memory.
- *
- * Three states, and the order below is what makes them work:
- *   1. :root                       light, the default
- *   2. @media (prefers-color-scheme: dark)   follow the system, unless the
- *      reader has explicitly chosen light
- *   3. [data-theme="dark"]         the reader's explicit choice, last so it wins
- *
- * The air-quality ramp is NOT redefined here. It is served (§2.1), and a design
- * system that re-tints served data in dark mode is restating it.
- */
-:root {
-  color-scheme: light;
-}
-
 @media (prefers-reduced-motion: reduce) {
   :root {
     --dur-fast: 0.01ms;
@@ -169,6 +143,14 @@
   --bg: #ffffff;
   --surface: #f4f4f4;
   --surface-2: #e0e0e0;
+  /* Basemap water. The one place this system spends a hue outside the accent
+     and outside the served ramp (§2.1): water is a real referent, not UI state
+     and not a reading, and grey water is the reason a reader could not tell the
+     Black Sea from Romania. Derived in OKLCh, low chroma, far from the ramp's
+     teal. --fg-2 measures 5.48:1 on it; the river clears the 3:1 UI floor at
+     3.7:1. */
+  --map-sea: oklch(0.88 0.05 236);      /* #b9ddf5 */
+  --map-river: oklch(0.52 0.13 236);    /* #0072a9 */
   --surface-hover: #e8e8e8;
   --surface-sel: #edf5ff;
 
@@ -196,7 +178,11 @@
   --warn: #f1c21b;
   --success: #24a148;
 
-  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+  /* var(--bg), not a literal: the inner ring is the gap that separates the
+     accent ring from whatever is behind it, so it must follow the theme.
+     A literal here needs re-stating in every dark block, and each one is a
+     white halo on a dark page if it is ever missed. */
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 }
 
 /* State pairs. Foreground and background always move together; contrast after a
@@ -297,6 +283,79 @@
 
 /* Absence of data is not an error: no colour, no icon, body size. */
 .t-empty { color: var(--muted); font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body); }
+
+/* ── Dark theme ──────────────────────────────────────────────────────────────
+ * Carbon's Gray 100 theme, not darkened light values (DESIGN.md §5.2a).
+ *
+ * This lives HERE, at the end of the file that owns the palette, and that
+ * placement is load-bearing. `:root` and `[data-theme="dark"]` have identical
+ * specificity (0,1,0), so source order alone decides which wins. The dark rules
+ * were originally in tokens.css, which loads BEFORE this file — so the light
+ * `:root` below re-declared every colour afterwards and the explicit dark
+ * choice silently lost. The picker set the attribute correctly and the page
+ * never changed.
+ *
+ * Rule that follows from it: a theme override belongs in the same file as the
+ * palette it overrides, after it. Split them across files and the cascade is
+ * decided by link order in every page that happens to include them.
+ */
+:root { color-scheme: light; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #161616;
+    --surface: #262626;
+    --surface-2: #393939;
+  /* Gray-100 counterpart: the same hue, inverted lightness. --meta (#a8a8a8)
+     measures 5.68:1 on it and the river 4.26:1. */
+  --map-sea: oklch(0.30 0.035 236);     /* #1c313d */
+  --map-river: oklch(0.65 0.09 236);    /* #5598bf */
+    --surface-hover: #333333;
+    --surface-sel: #001d6c;
+    --fg: #f4f4f4;
+    --fg-2: #c6c6c6;
+    --muted: #a8a8a8;
+    --meta: #a8a8a8;
+    --border: #6f6f6f;
+    --border-soft: #393939;
+    --accent: #4589ff;
+    --accent-on: #161616;
+    --accent-hover: #78a9ff;
+    --accent-active: #a6c8ff;
+    --danger: #ff8389;
+    --warn: #f1c21b;
+    --success: #42be65;
+    --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+}
+
+[data-theme="dark"] {
+color-scheme: dark;
+  --bg: #161616;
+  --surface: #262626;
+  --surface-2: #393939;
+  /* Gray-100 counterpart: the same hue, inverted lightness. --meta (#a8a8a8)
+     measures 5.68:1 on it and the river 4.26:1. */
+  --map-sea: oklch(0.30 0.035 236);     /* #1c313d */
+  --map-river: oklch(0.65 0.09 236);    /* #5598bf */
+  --surface-hover: #333333;
+  --surface-sel: #001d6c;
+  --fg: #f4f4f4;
+  --fg-2: #c6c6c6;
+  --muted: #a8a8a8;
+  --meta: #a8a8a8;
+  --border: #6f6f6f;
+  --border-soft: #393939;
+  --accent: #4589ff;
+  --accent-on: #161616;
+  --accent-hover: #78a9ff;
+  --accent-active: #a6c8ff;
+  --danger: #ff8389;
+  --warn: #f1c21b;
+  --success: #42be65;
+  --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
 /* components.css — airbg.org design system
  * Depends on tokens.css + colors_and_type.css. Load all three, in that order.
  * Every component below is specified in DESIGN.md §5. No inline styles anywhere:
@@ -366,7 +425,17 @@ body {
               background-color var(--dur-base) var(--ease-standard);
 }
 .masthead__link:hover { color: #ffffff; background: #262626; }
-.masthead__link[aria-current] { color: #ffffff; border-bottom-color: #ffffff; }
+/* The current tab was a 2px underline in the same white as hover text — too
+   close to the hover state to read as "you are here". It now carries a lifted
+   background AND a 3px rule, so the current tab differs from every other state
+   on two channels, not one. */
+.masthead__link[aria-current] {
+  color: #ffffff;
+  background: #262626;
+  border-bottom-width: 3px;
+  border-bottom-color: #ffffff;
+  font-weight: var(--weight-emphasis);
+}
 /* The language switcher is two identically styled links, not bare text beside
    a link. The current one carries aria-current. */
 .masthead__lang { display: flex; }
@@ -417,19 +486,38 @@ body {
    nothing, which is the safe failure direction. */
 .map--hero {
   --map-cap: 78vh;
-  width: 100%;
-  aspect-ratio: auto;
-  height: max(calc(100vw * 382 / 926), var(--map-cap));
-  min-height: 22rem;
+  /* The legend is not something under the map, it is part of reading the map:
+     a colour scale the reader has to scroll to find does not explain the
+     colours they are already looking at. So the viewport budget covers the
+     masthead, the page head, the toolbar AND the legend, and the map takes
+     what is left. Measured against the real screens, not guessed. */
+  /* The legend moved ONTO the map, so the reserve no longer holds room for
+     it: 272px of chrome above plus slack, and nothing for a key that is no
+     longer below the frame. Leaving 30rem here would have kept the map
+     short to protect something that had moved. */
+  --map-reserve: 19rem;   /* 272px of chrome above + slack */
+  --map-budget: min(var(--map-cap), calc(100svh - var(--map-reserve)));
+
+  /* The fit is a ratio, so a short viewport is paid for in WIDTH, never in
+     height (§1): cropping the country is forbidden, and a map narrower than
+     full-bleed is simply taller than the fit, which is always safe. On a
+     normal-height desktop the budget does not bind and the band stays full
+     width; only a short window pulls the edges in. */
+  inline-size: 100%;
+  /* The shell already caps this; the map fills it. Capping in both places is
+     two owners for one width. */
+  max-inline-size: 100%;
+  margin-inline: auto;
+  aspect-ratio: 926 / 382;
+  block-size: auto;
+  min-block-size: 22rem;             /* taller than the fit — safe by the same rule */
   border-inline: 0;
 }
 @media (max-width: 1056px) {
-  /* Portrait phones: 78vh of a tall viewport would swallow the legend, and the
-     width-derived floor already dominates. Let the fit lead. */
-  .map--hero { --map-cap: 52vh; }
+  /* Portrait phones: the width-derived fit already dominates, and the reserve
+     is smaller because the toolbar and legend stack. */
+  .map--hero { --map-cap: 52vh; --map-reserve: 26rem; }  /* phone: the scale is below the frame again, so its room is still reserved */
 }
-
-.chart { height: 18rem; position: relative; }
 
 /* The hover readout genuinely floats — the legitimate shadow case (§4.4). */
 .readout-float {
@@ -497,6 +585,10 @@ body {
 .btn--primary:active { background: var(--accent-active); }
 .btn--ghost { background: var(--btn-ghost-bg); color: var(--btn-ghost-fg); border-color: transparent; }
 .btn--ghost:hover { background: var(--btn-ghost-bg-hover); color: var(--btn-ghost-fg-hover); }
+.btn--compact {
+  min-block-size: var(--control-height-compact); padding-inline: var(--space-3);
+  font-size: var(--text-compact); letter-spacing: var(--track-compact);
+}
 .btn--secondary { background: var(--bg); color: var(--accent); border-color: var(--border); }
 .btn--secondary:hover { background: var(--surface-hover); color: var(--accent-hover); border-color: var(--accent); }
 .btn[disabled] { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
@@ -665,6 +757,300 @@ body {
 .map__full-ico--out,
 .map__full[aria-pressed="true"] .map__full-ico--in { display: none; }
 .map__full[aria-pressed="true"] .map__full-ico--out { display: block; }
+
+/* Zoom cluster: same 40px square, same fill, same corner logic as the
+   full-screen control — one control language for everything that sits on the
+   map. Stacked under it with a 1px seam so the group reads as one object
+   rather than three loose buttons. */
+.map-zoom {
+  position: absolute; inset-block-start: calc(var(--space-2) + 48px);
+  inset-inline-end: var(--space-2);
+  z-index: 2;
+  display: grid; gap: 1px;
+  background: var(--border);            /* the seam between the buttons */
+  border: 1px solid var(--border);
+}
+.map-zoom__btn {
+  display: grid; place-items: center;
+  inline-size: 40px; block-size: 40px; padding: 0;
+  border: 0; border-radius: 0;
+  background: var(--bg); color: var(--fg);
+  font: inherit; cursor: pointer;
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+.map-zoom__btn:hover:not(:disabled) { background: var(--surface-2); }
+.map-zoom__btn:focus-visible { box-shadow: var(--focus-ring); outline: none; z-index: 1; }
+/* Disabled is the one state allowed to drop contrast (§7); it states the limit
+   rather than letting a click do nothing. */
+.map-zoom__btn:disabled { color: var(--muted); cursor: default; }
+
+/* The map is grabbable, and says so before it is grabbed. */
+.map--grabbable .map-canvas { cursor: grab; }
+.map--grabbable .map-canvas:active { cursor: grabbing; }
+.map-canvas:focus-visible { box-shadow: var(--focus-ring); outline: none; }
+
+/* Touch: vertical drags stay the page's, horizontal drags pan the map.
+   A full-bleed map that claimed every touch would trap the reader on the home
+   screen with no way to scroll past it — so the map gives up the axis the page
+   needs and keeps the one it can use. In full screen there is no page left to
+   scroll, so there the map takes the whole gesture and pinch works too. */
+.map-canvas { touch-action: pan-y; }
+.map:fullscreen .map-canvas { touch-action: none; }
+
+/* The wheel hint: shown only when a plain wheel arrives over the map, which is
+   the moment the reader has just discovered the map does not take it. Bottom
+   centre, clear of the zoom cluster and the full-screen button in the opposite
+   corner. It is chrome, not data, so it sits on a solid fill rather than a
+   translucent wash (§5.2). */
+.map-hint {
+  position: absolute; inset-block-end: var(--space-4);
+  inset-inline-start: 50%; transform: translateX(-50%);
+  z-index: 2; margin: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg); color: var(--fg-2);
+  border: 1px solid var(--border);
+  font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact);
+  pointer-events: none;
+}
+
+/* A city or neighbourhood aggregate. A point is the honest mark here — the API
+   gives these places a coordinate and no boundary — unlike a province, where
+   the territory is the mark. The dot takes the served band colour as an
+   attribute (§2.1); the ring is the page colour so it reads against any band. */
+/* The minor network: side streets, drawn only when the reader is close enough
+   for one to be a line rather than a speck. Thinner than a secondary road and
+   carried by the same casing, because hierarchy here is weight, never a second
+   hue (§2.2) and never opacity over a served fill (§2.1). */
+.map-road--minor.map-road__casing { stroke-width: 2.4; }
+.map-road--minor.map-road { stroke-width: 0.9; stroke-opacity: 0.75; }
+/* A street name sits on its own street, rotated onto it, with a halo of the
+   page colour so it reads over any band. `paint-order` puts the stroke under
+   the fill — one element, no second node per label. */
+.map-street__name {
+  fill: var(--fg-2); font: var(--weight-body) 10px/1 var(--font-body);
+  letter-spacing: 0.32px; text-anchor: middle;
+  paint-order: stroke fill; stroke: var(--bg); stroke-width: 2.5px;
+  stroke-linejoin: round; pointer-events: none;
+}
+/* The type rides the street; this lifts it just off the line so the casing
+   does not cut through the descenders. `dominant-baseline` is not it —
+   on a textPath the offset that behaves consistently is the shift. */
+.map-street__name textPath { baseline-shift: 3px; }
+
+/* THE VECTOR BASEMAP (path A). The tile canvas fills the frame and the data
+   SVG sits over it in screen pixels. Both are inside the frame's own stacking
+   context, so neither needs a z-index race. */
+/* Doubled class, deliberately: the element also carries `.maplibregl-map`, whose
+ * own `position: relative` ties this at (0,1,0) and wins on source order because
+ * the vendor stylesheet loads after this one. Relative meant the container took
+ * its height from content it has none of — 0px, overflow hidden — so the tile
+ * canvas kept a stale 300px inside a zero-height box and the basemap was
+ * invisible while every diagnostic said it had mounted and rendered.
+ * `.map-tiles.map-tiles` is (0,2,0) and cannot lose to a later vendor rule. */
+.map-tiles.map-tiles { position: absolute; inset: 0; }
+.map--tiled .map-canvas, [data-basemap="tiles"] .map-canvas { position: absolute; inset: 0; }
+.map-svg--overlay { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; }
+/* The overlay must not eat the gestures that pan the basemap, so it is
+   transparent to the pointer EXCEPT on the marks that are themselves controls.
+   Without this the reader drags the map and nothing moves — the dead control
+   in its purest form. */
+.map-svg--overlay { pointer-events: none; }
+.map-svg--overlay .map-area, .map-svg--overlay .map-point { pointer-events: auto; }
+/* Outline mode: the served band moves from fill to stroke so the streets
+   underneath stay visible. Same colour, full strength, different property —
+   not a re-tint (§2.1). */
+/* `pointer-events: all` makes the fill REGION hit-testable even though nothing
+ * is painted there. Without it an outline-only province is clickable on its
+ * 2.5px border and nowhere else — the shape looks like a target, behaves like a
+ * hairline, and the province page becomes unreachable exactly when the hexes
+ * are drawn over it. A control must be as big as it looks. */
+.map-area__shape--outline { fill: none; stroke-width: 2.5; pointer-events: all; }
+[data-basemap="tiles"] .map-hint { display: none; }
+
+/* City districts (райони). No fill — a tint over a served band would re-colour
+   data (§2.1) — so the boundary carries itself: a page-coloured casing under a
+   thin dashed core, which reads on every band from the palest teal to the
+   darkest purple. Dashed, so an administrative line inside a province is never
+   mistaken for the solid province border. Hierarchy is weight and pattern,
+   never a second hue (§2.2). */
+.map-districts { pointer-events: none; }
+.map-district__casing { fill: none; stroke: var(--bg); stroke-width: 3; stroke-opacity: 0.75; }
+.map-district { fill: none; stroke: var(--fg-2); stroke-width: 1; stroke-dasharray: 5 3; }
+/* The name sits on the map, so it takes a halo of the page colour rather than
+   a box: `paint-order` puts the stroke under the fill, which is the one way to
+   do this without a second element per label. */
+.map-district__name {
+  fill: var(--fg-2); font: var(--weight-body) 11px/1 var(--font-body);
+  letter-spacing: 0.16px; text-anchor: middle;
+  paint-order: stroke fill; stroke: var(--bg); stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.map-points { pointer-events: auto; }
+.map-point { cursor: pointer; }
+/* NO `fill` here. The dot's fill is a presentation attribute carrying the
+   served band (§2.1), and a class rule beats a presentation attribute — so
+   `fill: var(--surface-2)` on this selector painted every marker the same grey
+   no matter what was measured there, while the attribute sat on the element
+   looking correct. The default for a marker with no reading is stated on
+   `.map-point--none` below, where it is the only rule that applies. */
+.map-point__dot {
+  stroke: var(--bg); stroke-width: 2;
+  transition: r var(--dur-base) var(--ease-standard);
+}
+/* The reading inside the mark. Tabular figures, like every measured value
+   (§3), and the ink is set as an attribute because it is computed from the
+   served band rather than chosen here (§2.1). */
+/* The place card: everything measured about the place the reader just picked.
+   It is a data surface, so it takes the frame width and the layered depth
+   rather than a shadow (§4.4), and square corners like every other panel. */
+.place-host { display: block; margin-block-start: var(--space-4); }
+.place {
+  border: 1px solid var(--border-soft);
+  background: var(--bg);
+  padding: var(--space-4);
+}
+.place__head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap;
+  padding-block-end: var(--space-3); border-block-end: 1px solid var(--border-soft); }
+.place__name { margin: 0; font: var(--weight-body) var(--text-subhead)/var(--leading-subhead) var(--font-body); }
+.place__tier { margin: 0; color: var(--fg-2);
+  font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact); }
+
+.place__grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1px; background: var(--border-soft);
+  border: 1px solid var(--border-soft); border-block-start: 0;
+  margin-block-start: var(--space-3);
+}
+.place__cell { background: var(--bg); padding: var(--space-3); display: grid; gap: var(--space-1); }
+.place__label { color: var(--fg-2);
+  font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
+  letter-spacing: var(--track-caption); }
+.place__value {
+  font: var(--weight-display) var(--text-readout)/var(--leading-readout) var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+.place__unit { font: var(--weight-body) var(--text-body)/1 var(--font-body); color: var(--fg-2); }
+.place__band { color: var(--fg-2); display: flex; align-items: center; gap: var(--space-2);
+  font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body);
+  letter-spacing: var(--track-compact); }
+/* The swatch carries a served colour, so the colour arrives as an SVG fill
+   attribute rather than through CSS (§2.1). Nothing here sets it. */
+.place__swatch { flex: none; display: block; }
+
+.place__history { margin-block-start: var(--space-4); }
+.place__subhead { margin: 0 0 var(--space-2);
+  font: var(--weight-body) var(--text-card)/var(--leading-card) var(--font-body); }
+.place__periods { display: flex; gap: 1px; background: var(--border);
+  border: 1px solid var(--border); inline-size: fit-content; margin-block-end: var(--space-3); }
+.place__period {
+  min-block-size: 40px; padding-inline: var(--space-4);
+  border: 0; border-radius: 0; background: var(--bg); color: var(--fg);
+  font: inherit; font-size: var(--text-compact); cursor: pointer;
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+.place__period:hover { background: var(--surface-2); }
+.place__period:focus-visible { box-shadow: var(--focus-ring); outline: none; z-index: 1; }
+/* aria-pressed already carries the state, so it selects the styling too — a
+   parallel class would be a second record of one fact (§5.2a). */
+.place__period[aria-pressed="true"] { background: var(--accent); color: var(--accent-on); }
+.place__note { margin: var(--space-2) 0 0; color: var(--muted);
+  font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
+  letter-spacing: var(--track-caption); }
+
+.place-chart { display: block; inline-size: 100%; block-size: 180px; }
+.place-chart__grid { stroke: var(--border-soft); stroke-opacity: 0.55; stroke-width: 1; }
+.place-chart__tick { fill: var(--fg-2); text-anchor: end;
+  font: var(--weight-body) var(--text-caption)/1 var(--font-body);
+  font-variant-numeric: tabular-nums; }
+/* The x labels carry their own anchor, and CSS must not overrule it.
+   `.place-chart__tick` sets `text-anchor: end` for the value axis; that rule
+   also matched the clock labels, so the one at the right edge was centred on
+   the frame and printed as "21:3". A presentation attribute loses to a class
+   rule — so the anchor is expressed as a class here too, one per position. */
+.place-chart__tick--x     { text-anchor: middle; }
+.place-chart__tick--start { text-anchor: start; }
+.place-chart__tick--end   { text-anchor: end; }
+.place-chart__area { fill: var(--accent); fill-opacity: 0.14; }
+.place-chart__line { fill: none; stroke: var(--accent); stroke-width: 2;
+  stroke-linejoin: round; stroke-linecap: round; }
+
+@media (prefers-reduced-motion: reduce) { .place__period { transition: none; } }
+
+.map-point__value {
+  text-anchor: middle;
+  font: var(--weight-emphasis) var(--text-caption)/1 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  fill: var(--fg-2);
+  pointer-events: none;
+}
+.map-point__name {
+  text-anchor: middle;
+  fill: var(--fg);
+  font: var(--weight-emphasis) var(--text-caption)/1 var(--font-body);
+  letter-spacing: var(--track-caption);
+  paint-order: stroke;                  /* a halo, so a name stays legible on any band */
+  stroke: var(--bg); stroke-width: 3; stroke-linejoin: round;
+  pointer-events: none;
+}
+.map-point--none .map-point__dot { fill: var(--surface-2); }
+.map-point:hover .map-point__dot,
+.map-point:focus-visible .map-point__dot { stroke: var(--fg); stroke-width: 2.5; }
+.map-point:focus-visible { outline: none; }
+.map-point:focus-visible .map-point__dot { stroke: var(--accent); stroke-width: 2.5; }
+
+/* The basemap. Real road geometry over the served fill.
+ *
+ * The fill underneath is data and keeps its exact served colour (§2.1), so the
+ * roads cannot rely on transparency to be visible — a translucent choropleth
+ * would be a re-tinted one. They rely on a casing instead: a wider stroke in
+ * the page colour under a thin dark core. That is the ordinary cartographic
+ * device, and it reads on every band of the ramp, from the palest teal to the
+ * darkest purple, without altering one pixel of the value beneath it.
+ *
+ * It is context, not data: no ramp hue, no pointer events, nothing measurable
+ * (§2.1). Grey lines over a coloured province are streets; they are never a
+ * reading. */
+.map-roads { pointer-events: none; }
+.map-road__casing {
+  fill: none;
+  stroke: var(--bg);
+  stroke-opacity: 0.55;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.2;
+}
+.map-road {
+  fill: none;
+  stroke: var(--fg);
+  stroke-opacity: 0.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1;
+}
+/* A motorway is a thicker line than a side street, which is the one piece of
+   hierarchy this layer carries. It is weight, not colour: a second hue here
+   would be a second accent (§2.2) or a ramp hue on a data surface (§2.1). */
+/* A motorway is a thicker line than a side street, which is the one piece of
+   hierarchy this layer carries. It is weight, not colour: a second hue here
+   would be a second accent (§2.2) or a ramp hue on a data surface (§2.1).
+
+   Every selector below is compound — tier AND role. The tier class sits on the
+   casing and the core alike, so a bare `.map-road--street { stroke-width }`
+   also hits the casing and collapses it to the width of the line it exists to
+   carry. Two classes on one element means two-class selectors. */
+.map-road.map-road--major  { stroke-width: 1.7; stroke-opacity: 0.62; }
+.map-road__casing.map-road--major { stroke-width: 4.2; }
+/* Streets are the finer tier and sit back a step, so a city does not turn into
+   a mat of equal lines the moment it comes into view. */
+.map-road.map-road--street { stroke-width: 0.8; stroke-opacity: 0.42; }
+.map-road__casing.map-road--street { stroke-width: 2.6; }
+
+@media (prefers-reduced-motion: reduce) {
+  .map-zoom__btn, .map-point__dot { transition: none; }
+}
 
 
 /* Real fullscreen: the frame becomes the viewport. */
@@ -895,19 +1281,6 @@ body.has-faux-full { overflow: hidden; }
   border: 0;
 }
 
-/* Announced, never painted. Used for the combobox's keyboard hint (§5.10):
-   a sighted user infers arrow-key navigation from the open list, a screen-reader
-   user does not, and a visible hint under a search field is clutter for both. */
-.sr-only {
-  position: absolute;
-  inline-size: 1px; block-size: 1px;
-  margin: -1px; padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
 /* ------------------------------------------------- Combobox (§5.10) */
 
 /* ARIA 1.2 combobox: a text input that owns a listbox. The input keeps
@@ -1015,6 +1388,25 @@ body.has-faux-full { overflow: hidden; }
 .colmenu__opt:has(input:disabled):hover { background: none; }
 .colmenu__opt input { inline-size: 16px; block-size: 16px; accent-color: var(--accent); flex: none; }
 
+/* The basemap layer control reuses the column menu whole — same disclosure,
+   same checkbox rows (§5.11). Only two things differ, and both are scoped to
+   it so the table's menu is untouched.
+
+   It does not stretch: it sits in a flex toolbar beside a search field that is
+   meant to take the free space. */
+.toolbar__layers { flex: none; align-self: end; }
+
+/* Twelve categories is a taller panel than three columns, and on a short
+   laptop window the last option would land under the fold with nothing saying
+   so. Capped and scrolled rather than shortened: dropping a category to make
+   the list fit would hide a layer the reader has no other way to reach. */
+.toolbar__layers .colmenu__panel {
+  max-block-size: min(26rem, 60svh);
+  overflow-y: auto;
+  overscroll-behavior: contain;   /* the page does not scroll when the list ends */
+}
+
+
 /* User choice hides columns; it never forces one back. The responsive rules
    below are a floor, so a column the viewport has dropped stays dropped even
    if it is ticked here. Anything else would reintroduce the horizontal scroll
@@ -1025,6 +1417,238 @@ body.has-faux-full { overflow: hidden; }
 .table[data-hidden~="pm10"] th.num--pm10,
 .table[data-hidden~="sensors"]      .sensors,
 .table[data-hidden~="sensors"] th.sensors,
+
+/* ------------------------------------------- Language picker (§5.12) */
+
+/* A disclosure on the dark masthead. Two languages would fit as two links,
+   but a picker states the CURRENT language in one place instead of asking the
+   reader to work out which of two is active — the defect the old pair had. */
+.langpick { position: relative; display: flex; }
+
+.langpick__btn {
+  display: flex; align-items: center; gap: var(--space-2);
+  height: 48px;
+  padding-inline: var(--space-4);
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: #c6c6c6;
+  font: var(--weight-body) var(--text-compact)/1 var(--font-body);
+  letter-spacing: var(--track-compact);
+  cursor: pointer;
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+.langpick__btn:hover { color: #ffffff; background: #262626; }
+.langpick__btn[aria-expanded="true"] { color: #ffffff; background: #262626; }
+.langpick__btn:focus-visible { box-shadow: var(--focus-ring); outline: 0; }
+
+/* Fixed slot so a flag and a bare code occupy identical space (§5.12). */
+.langpick__mark {
+  inline-size: 20px; block-size: 12px;
+  display: grid; place-items: center;
+  flex: none;
+  overflow: hidden;
+}
+.langpick__mark img { display: block; inline-size: 100%; block-size: 100%; }
+.langpick__mark--code {
+  font: var(--weight-emphasis) 9px/1 var(--font-body);
+  letter-spacing: 0.4px;
+  color: currentColor;
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+}
+/* Sensor bar: find one sensor, or choose which sensors the map shows.
+   One row above the map, because both questions are about the same set. */
+.sensor-bar {
+  display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-6);
+  margin-block: var(--space-6) var(--space-2);
+}
+.sensor-bar .field--search { flex: 1 1 22rem; }
+.toolbar__find { flex: 0 1 24rem; min-inline-size: 16rem; }
+
+.combobox__opt-off {
+  margin-inline-start: auto; color: var(--muted);
+  font-size: var(--text-caption); letter-spacing: var(--track-caption);
+}
+.sensor-picked {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface); border-inline-start: 2px solid var(--accent);
+  color: var(--fg); font-size: var(--text-compact); letter-spacing: var(--track-compact);
+}
+
+/* The map is now the full frame: the aside beside it was one empty-state line,
+   so it spent a third of the width saying nothing. */
+.map--wide { inline-size: 100%; container-type: inline-size; }
+
+/* The window's own aspect, and the ONE place it is written down.
+   926∶382 is the country fit (§1) — a wide letterbox, because Bulgaria is
+   wide. A single province is not: Пловдив is 84×118 in that same space, so
+   fitting it into the letterbox is limited by height and throws away the
+   width, which is why a correctly-computed zoom still read as "not zoomed".
+   A province view therefore gets a taller window. Taller is always safe (§1);
+   it is width that crops.
+   map-render.js reads this value off the frame rather than keeping its own
+   copy, so the viewBox and the box it is drawn into can never disagree. */
+.map { --map-view-h: 382; }
+[data-od-id="area-map"][data-view^="province"] { --map-view-h: 560; }
+
+/* --map-view-h sets the frame's DEFAULT shape. It is on the frame, not on the
+   canvas inside it, because the frame is what the reader can drag: an explicit
+   height written by the resize handle has to beat the default, and it can only
+   do that on the same element. */
+[data-od-id="area-map"][data-view^="province"] { aspect-ratio: 926 / var(--map-view-h); }
+
+/* The frame is resizable, and the browser's own handle does it.
+   No JS writes a height, which matters twice over: `style=""` is forbidden
+   outright by the CSP (§1), and the native handle already carries the pointer
+   behaviour, the cursor and the hit area that a hand-built grip would have to
+   re-implement. `resize` needs a non-visible overflow to apply at all.
+   Vertical only: the frame's width belongs to the page's containers (§4.1),
+   and width is also the axis that crops the country (§1). */
+.map {
+  resize: vertical;
+  overflow: hidden;
+  min-block-size: 22rem;   /* the fit floor, same number §5.2 already uses */
+}
+/* In full screen the map already owns the viewport, so a handle there would
+   offer to shrink the thing the reader just asked to fill the screen. */
+.map:fullscreen { resize: none; }
+
+/* Air-quality scale — a horizontal ramp under the map.
+ *
+ * The colours and the thresholds are the SERVED scale (/api/v1/scales, captured
+ * in airbg-snapshot.json), not values chosen here (§2.1). The previous legend on
+ * this screen printed 0–10 / 10–20 / 20–25 / 25–50 with empty swatches: wrong
+ * bands AND no colour, because the generic .chip__swatch is deliberately unset
+ * and nothing was binding it.
+ *
+ * The bands are rendered as HARD stops, not a blend. EAQI is banded — 12 µg/m³
+ * is squarely "Умерено", not a mix of two neighbours — so a smooth gradient
+ * would invent colours the scale does not define. Same rule as everywhere else
+ * here: render the data, do not improve it.
+ */
+.scale { margin-block: var(--space-4) var(--space-8); }
+.scale__label {
+  display: block; margin-block-end: var(--space-2);
+  color: var(--fg-2); font-size: var(--text-compact); letter-spacing: var(--track-compact);
+}
+.scale__bar {
+  block-size: 16px; inline-size: 100%;
+  border: 1px solid var(--border-soft);
+  background: linear-gradient(90deg,
+    #50f0e6 0 16.667%,      /* Добро              0–5   */
+    #50ccaa 16.667% 33.333%,/* Задоволително      5–10  */
+    #f0e641 33.333% 50%,    /* Умерено           10–20  */
+    #ff5050 50% 66.667%,    /* Лошо              20–25  */
+    #960032 66.667% 83.333%,/* Много лошо        25–50  */
+    #7d2181 83.333% 100%);  /* Изключително лошо  50+   */
+}
+/* Boundaries sit ON the divisions: seven labels across six equal bands. */
+.scale__ticks {
+  display: grid; grid-template-columns: repeat(6, 1fr);
+  margin-block-start: var(--space-1);
+  color: var(--fg-2);
+  font-size: var(--text-caption); letter-spacing: var(--track-caption);
+  font-variant-numeric: tabular-nums;
+}
+.scale__ticks span { transform: translateX(-50%); white-space: nowrap; }
+.scale__ticks span:first-child { transform: none; }
+.scale__ticks span:last-child { grid-column: 6; justify-self: end; transform: none; }
+.scale__none { margin-block: var(--space-3) 0; }
+
+/* Named scale — the home legend. Same statement as the area scale, but each
+ * band carries its own name, so it is built from adjacent blocks instead of a
+ * gradient: the blocks touch and read as one bar, and the swatch inherits its
+ * colour from .chip__swatch--eaqi[data-band]. That is the point — the ramp is
+ * written down once (§2.1), and this file does not get a second copy of it.
+ *
+ * There is no separate tick row: each band prints its own range, so the reader
+ * gets one set of numbers rather than two that could disagree. */
+.scale--named .scale__bands {
+  display: grid; grid-template-columns: repeat(6, 1fr);
+  gap: 0;                                   /* zero, or the bar is not a bar */
+  margin: 0; padding: 0; list-style: none;
+}
+.scale__band { display: grid; grid-template-rows: auto auto auto; align-content: start; }
+.scale__band-swatch {
+  display: block; inline-size: 100%; block-size: 16px;
+  margin-block-end: var(--space-2);
+  border: 0; border-radius: 0;
+}
+.scale__band-name,
+.scale__band-range {
+  padding-inline-end: var(--space-2);
+  font-size: var(--text-caption); letter-spacing: var(--track-caption);
+}
+.scale__band-name { color: var(--fg); }
+.scale__band-range { color: var(--fg-2); font-variant-numeric: tabular-nums; }
+
+/* On a phone six names cannot share one line, so the bar stands up: colour on
+ * the leading edge, name and range beside it. Same markup, same order, still
+ * continuous — the alternative was hiding the names, which is the half of the
+ * legend the reader actually needs. */
+@media (max-width: 672px) {
+  .scale--named .scale__bands { grid-template-columns: 1fr; }
+  .scale__band {
+    grid-template-rows: none; grid-template-columns: 44px 1fr auto;
+    align-items: center; column-gap: var(--space-3);
+  }
+  .scale__band-swatch { block-size: 28px; margin-block-end: 0; }
+  .scale__band-name, .scale__band-range { padding-inline-end: 0; font-size: var(--text-compact); }
+}
+
+@media (max-width: 672px) {
+  .sensor-bar { flex-direction: column; align-items: stretch; }
+  .scale__ticks { font-size: 11px; }
+}
+
+/* Theme picker icons. Drawn inline in currentColor so they inherit the
+ * masthead's text colour on the face and the menu's on each option — one asset
+ * fewer, and no icon font (§1). They sit in the same mark slot as the language
+ * flags, so both pickers align on one grid.
+ *
+ * The icons REPLACE the option labels, so every option carries its name on
+ * aria-label and title instead (set from the catalogue in theme.js). An icon
+ * with no accessible name is a control only sighted readers can use.
+ */
+.pick-ico { display: block; margin-inline: auto; }
+.langpick__opt .pick-ico { color: var(--fg); }
+.langpick__btn .pick-ico { color: inherit; }
+
+.langpick__caret {
+  inline-size: 0; block-size: 0; flex: none;
+  border-inline: 4px solid transparent;
+  border-block-start: 5px solid currentColor;
+}
+
+.langpick__list {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 100%;
+  z-index: 30;
+  min-inline-size: 12rem;
+  margin: 0; padding: 0;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--elev-float);   /* it floats — sanctioned shadow (§4.4) */
+}
+.langpick__opt {
+  display: flex; align-items: center; gap: var(--space-3);
+  min-block-size: 48px;            /* full touch target (§6) */
+  padding-inline: var(--space-4);
+  color: var(--fg);
+  text-decoration: none;
+  font: var(--weight-body) var(--text-body)/1.2 var(--font-body);
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+.langpick__opt:hover { background: var(--surface-hover); color: var(--fg); }
+.langpick__opt:focus-visible { box-shadow: var(--focus-ring); outline: 0; }
+/* The current language is stated, not merely implied by position. */
+.langpick__opt[aria-current] { background: var(--surface-sel); font-weight: var(--weight-emphasis); }
+.langpick__opt .langpick__mark--code { color: var(--fg); }
 
 /* --------------------------- Air-quality ramp (demo binding only) */
 
@@ -1041,54 +1665,438 @@ body.has-faux-full { overflow: hidden; }
 .chip__swatch--eaqi[data-band="Много лошо"] { background: #960032; }
 .chip__swatch--eaqi[data-band="Изключително лошо"] { background: #7d2181; }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #161616;
-    --surface: #262626;
-    --surface-2: #393939;
-    --surface-hover: #333333;
-    --surface-sel: #001d6c;
-    --fg: #f4f4f4;
-    --fg-2: #c6c6c6;
-    --muted: #a8a8a8;
-    --meta: #a8a8a8;
-    --border: #6f6f6f;
-    --border-soft: #393939;
-    --accent: #4589ff;
-    --accent-on: #161616;
-    --accent-hover: #78a9ff;
-    --accent-active: #a6c8ff;
-    --danger: #ff8389;
-    --warn: #f1c21b;
-    --success: #42be65;
-    /* The inner ring is the PAGE colour, not white — a white ring on a dark
-       page is a bright rectangle, not a focus indicator. */
-    --focus-ring: 0 0 0 2px #161616, 0 0 0 4px var(--accent);
-    --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+/* Quarters (квартали) — basemap context, never data. They carry no reading, so
+   they take no band colour (DESIGN.md §2.1) and sit below a district name in
+   the visual order: smaller, lighter, never bold. --fg-2 rather than --muted,
+   for the same contrast reason the province labels use it. */
+.map-quarter__name {
+  font-size: 10px; letter-spacing: var(--track-caption);
+  fill: var(--fg-2); text-anchor: middle; dominant-baseline: middle;
+  paint-order: stroke; stroke: var(--bg); stroke-width: 2.5px; stroke-linejoin: round;
+  pointer-events: none;
+}
+
+/* ---- Hexagonal aggregates (§5.2c) -----------------------------------------
+ * NO `fill` rule anywhere in this block, deliberately. The fill is the served
+ * band, set as a presentation attribute on each hex — and a class rule beats a
+ * presentation attribute, so a `fill` here would paint every hex one colour
+ * while the DOM still showed the right value. That exact defect has shipped
+ * twice on this map already. */
+/* Why the map is schematic, said on the map. Bottom-right, out of the legend's
+ * corner, quiet enough not to compete with the data and legible enough to be
+ * read by someone wondering where the streets went. */
+.map-basemap-note {
+  position: absolute;
+  inset-block-end: 6px;
+  inset-inline-end: 8px;
+  margin: 0;
+  z-index: 2;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--fg-muted, #666);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  padding: 2px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  max-inline-size: 46ch;
+}
+/* Tick numbers on the progressive bar, placed by VALUE rather than by row.
+ * The band rows stay in the DOM as the accessible copy and are hidden from
+ * sight, because a screen reader reading a gradient needs the named bands. */
+.scale--progressive .scale__bands--vertical .scale__band-name,
+.scale--progressive .scale__bands--vertical .scale__band-edge {
+  display: none;
+}
+.scale--progressive .scale__ticks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 26px;
+  inline-size: max-content;
+}
+.scale--progressive .scale__tick {
+  position: absolute;
+  inset-inline-start: 0;
+  transform: translateY(50%);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg);
+  white-space: nowrap;
+}
+/* The tick's own hairline, so a number points at a height rather than floating
+ * beside one. */
+.scale--progressive .scale__tick::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -6px;
+  inset-block-start: 50%;
+  inline-size: 4px;
+  block-size: 1px;
+  background: var(--fg);
+}
+/* The navigation-only marker: a place to click, not a reading. Deliberately
+ * outside the air-quality ramp (§2.1's two-palette rule) so it can never be
+ * mistaken for a measurement — it is UI, and it takes UI colours. */
+.map-point__dot--nav {
+  fill: var(--bg);
+  stroke: var(--fg-2);
+  stroke-width: 1.5;
+}
+.map-point:hover .map-point__dot--nav,
+.map-point:focus-visible .map-point__dot--nav { fill: var(--fg-2); }
+/* How many sensors the cell rests on. Deliberately quiet — it qualifies the
+ * reading, it is not the reading — but always legible, because a cell built
+ * from one device and a cell built from thirty must not look alike. */
+.map-hex__n {
+  text-anchor: middle;
+  font: var(--weight-body) 9px/1 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  fill: var(--fg-2);
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  /* Same 0.15em rule, on 9px type. 2.5px here was over a quarter of the em and
+   * turned a two-digit count into a smudge. */
+  stroke-width: 1.4px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+/* The on-map layer switcher: one icon button in the bottom-left stack, sitting
+ * directly above the scale. Same corner because they are the same kind of
+ * thing — controls for reading the map — and MapLibre owns bottom-right for
+ * attribution. */
+/* TOP-left, not bottom-left.
+ *
+ * Bottom-left is the scale's corner, and the scale is ~295px tall and ~175
+ * wide. Stacking the switcher above it worked only while the panel opened into
+ * empty map; opened upward it covered the key, and opened sideways it still
+ * crossed the key's column. Two pieces of furniture were competing for one
+ * corner, and every placement was a compromise between them.
+ *
+ * Top-left is empty on both pages — MapLibre attribution owns bottom-right, the
+ * zoom stack owns top-right, the scale owns bottom-left. The panel opens
+ * downward into map. Nothing overlaps anything. */
+.map__layers {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-start: 12px;
+  z-index: 3;
+}
+.map__layers .colmenu__btn {
+  inline-size: 32px;
+  block-size: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  cursor: pointer;
+}
+.map__layers .colmenu__btn:hover { background: var(--surface-2); }
+.map__layers .colmenu__btn[aria-expanded="true"] {
+  background: var(--fg);
+  color: var(--bg);
+}
+/* The panel opens UPWARD from the button — there is nothing but map below it,
+ * and a panel that opened downward would run off the frame. */
+/* Opens to the SIDE, not upward. Upward put it straight over the scale — the
+ * two share the bottom-left corner, and on a short frame the panel covered the
+ * key it sits next to. Sideways there is nothing but map. */
+.map__layers .colmenu__panel {
+  position: absolute;
+  inset-block-start: calc(100% + 6px);
+  inset-inline-start: 0;
+  min-inline-size: 232px;
+  max-block-size: 46vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+  padding: 8px 10px;
+}
+/* Zoomed in past the served resolution. The cell is no longer drawn at the size
+ * of the ground it aggregates, so it must stop looking like a filled territory:
+ * an outline says "an aggregate is centred here", which is true, where a filled
+ * shape at the wrong size would say "this neighbourhood reads 4.9", which is
+ * not. The served colour stays on the edge, so the reading is still legible. */
+.map-hex--capped {
+  fill-opacity: 0.12;
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+}
+/* One sensor, drawn where it is.
+ *
+ * Solid rather than the 0.82 the bins take: a bin is translucent so the basemap
+ * reads through a large area, and a 5px mark has no area to read through. Fully
+ * opaque also separates a device from an aggregate at a glance, which matters
+ * once both can appear on the same map at different zooms. */
+.map-hex--sensor {
+  fill-opacity: 1;
+  stroke-width: 1;
+}
+.map-hexes { pointer-events: none; }
+.map-hex {
+  stroke: var(--bg);
+  stroke-width: 0.6;
+  fill-opacity: 0.82;      /* the basemap has to stay legible underneath */
+  /* NOT `auto`. The parent group is pointer-events: none for a reason, and
+   * re-enabling it here put a full-bleed sheet of aggregates over every
+   * province link: the hexes cover the whole country, so they intercepted the
+   * clicks that are the only way into a province page. A hex is a READING, not
+   * a control — nothing about it is clickable, and it must not stand between
+   * the reader and the thing that is. */
+  pointer-events: none;
+}
+/* A cell holding one sensor. The reading is real and is drawn at full colour;
+ * what changes is that the cell stops claiming to be settled — a dashed edge
+ * and a smaller footprint say "measured here, once". This is the §2.3 rule
+ * about stating a limit where the value is, not hiding the value. */
+.map-hex--thin {
+  stroke-dasharray: 2 1.6;
+  stroke-width: 0.8;
+  fill-opacity: 0.5;
+}
+/* A foreign hex is real data, not context and not absence — §5.2 keeps those
+ * three apart. It keeps its served colour and takes a quieter edge, so the
+ * subject country still reads as the subject without the neighbour being
+ * demoted to background. */
+.map-hex--foreign { stroke: var(--border); stroke-width: 0.5; }
+/* No :hover rule: the layer takes no pointer events, so it could never match.
+ * A hover style on an element that cannot be hovered is a rule that reads as a
+ * feature and is dead on arrival. The hex's value is already printed on it. */
+/* Only a hex with no served band lands here, so this is the one rule allowed
+ * to set a fill — nothing has to lose a cascade fight to reach it. */
+.map-hex--none { fill: var(--surface-2); fill-opacity: 0.35; }
+/* The auto-refresh switch sits with the status it qualifies, not with the
+ * button: the button is the action, these two together are the answer to
+ * "how fresh is this, and is it staying fresh". */
+.data-refresh__auto { display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px; letter-spacing: 0.32px; color: var(--fg-2); cursor: pointer; }
+.data-refresh__auto input { inline-size: 16px; block-size: 16px; accent-color: var(--accent); }
+
+/* ---- Vertical scale (§5.2d) -----------------------------------------------
+ * The form of the sensor.community legend — one tall bar, ticked, unit at the
+ * base — with two deliberate departures.
+ *
+ * 1. HARD STOPS, not a blend. EAQI is banded; a gradient would show colours
+ *    between #50f0e6 and #50ccaa that the served scale never defines, which is
+ *    the same class of error as re-tinting served data for a theme (§2.1).
+ * Every selector here is scoped under .scale--vertical, not because it reads
+ * nicely but because `.scale--named .scale__bands` is (0,2,0) and a bare
+ * `.scale__bands--vertical` is (0,1,0) — it loses wherever it sits in the
+ * file. Source order only decides a tie.
+ *
+ * 2. The band NAMES stay. The reference drops them, and a colour with no name
+ *    only answers "how bad" relative to itself — the name is the half that says
+ *    what the colour means (§5.2). */
+.scale--vertical { display: grid; grid-template-columns: auto 1fr; gap: 0 16px;
+  align-items: start; }
+.scale--vertical .scale__label { grid-column: 1 / -1; }
+.scale--vertical .scale__bands--vertical {
+  display: flex; flex-direction: column; gap: 0;
+  margin: 0; padding: 0; list-style: none;
+  /* One bar: the segments touch, so it reads as a scale rather than as six
+   * separate chips in a column. */
+  inline-size: max-content;
+}
+.scale--vertical .scale__bands--vertical .scale__band {
+  display: grid; grid-template-columns: 20px auto; gap: 0 12px;
+  align-items: end; position: relative; min-block-size: 34px;
+}
+/* The swatch is the bar. No radius, no gap — §4.3, and touching segments are
+ * what makes six blocks read as one scale. */
+.scale--vertical .scale__bands--vertical .scale__band-swatch {
+  inline-size: 20px; block-size: 100%; min-block-size: 34px;
+  display: block; border-radius: 0; margin: 0;
+}
+.scale--vertical .scale__bands--vertical .scale__band-name {
+  font-size: 12px; letter-spacing: 0.32px; color: var(--fg-2);
+  align-self: center; white-space: nowrap;
+}
+/* The edge number divides the two segments it sits between, so it is aligned
+ * to the boundary rather than centred on either one. Tabular, because a scale
+ * whose numbers shift width as the metric changes is the §3 defect. */
+.scale__band-edge {
+  position: absolute; inset-inline-start: 26px; inset-block-start: -0.6em;
+  font-size: 12px; letter-spacing: 0.32px; color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+.scale__zero { display: block; margin-inline-start: 26px; margin-block-start: -0.6em;
+  font-size: 12px; letter-spacing: 0.32px; color: var(--fg-2);
+  font-variant-numeric: tabular-nums; }
+/* No phone override, and that is the point. §5.2 already established that six
+ * Bulgarian band names cannot share a 343px line — *Изключително лошо* alone is
+ * wider than a sixth of it — which is why the old horizontal bar stood up under
+ * 672px. A vertical bar is ALREADY that layout, so it needs no breakpoint.
+ *
+ * The first attempt added one anyway, flipping back to a row on a phone, and it
+ * put a horizontal scrollbar on the page at 390px: the names it had to fit were
+ * the same names the original rule existed to avoid fitting. Verified at 390:
+ * no horizontal scroll. */
+.scale--vertical { max-inline-size: 100%; }
+
+/* ---- The scale, on the map (§5.2d) ----------------------------------------
+ * Anchored bottom-left with one inset on every side, fully inside the frame.
+ * Bottom LEFT rather than right because MapLibre's attribution control sits
+ * bottom-right and the two would have shared a corner; over Greece and North
+ * Macedonia it also covers context rather than a reading (§5.2).
+ *
+ * This is one of the sanctioned floating cases (§4.4): it genuinely sits above
+ * the map, so it takes a background and a shadow. Solid, not translucent — a
+ * frosted panel over a choropleth tints the six served colours showing through
+ * it, which is the re-tint §2.1 forbids, and the swatches are the one thing
+ * here that must be exact. */
+/* The shell is the positioning context, not the map: on a phone the key has to
+ * sit BELOW the map, and inside .map that is still inside the map.
+ *
+ * It carries the SAME width cap as the map, because a short viewport is paid
+ * for in width (§5.2) — the map narrows and centres. A full-width shell then
+ * anchors the overlay 16px from the SHELL while the map's own edge is 95px
+ * further in, and the key hangs off the map. Measured at 1024: inset -79px
+ * before this, +16 after. The cap is the same expression, not a copy of the
+ * number, so the two cannot drift. */
+.map-shell {
+  position: relative;
+  max-inline-size: calc(var(--map-budget, 100vw) * 926 / 382);
+  margin-inline: auto;
+}
+
+.scale--onmap {
+  position: absolute;
+  inset-block-end: 16px;
+  inset-inline-start: 16px;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  /* NO panel. A box here hides the map it is explaining, and the map is the
+   * thing the reader came for. Legibility instead comes from a halo on the type
+   * — the same device the basemap's own POI labels use, so the two agree — and
+   * from the swatches, which are solid colour and need no help.
+   *
+   * paint-order:stroke draws the outline UNDER the glyph, so the letterform
+   * stays its own weight; a plain stroke would fatten every character. */
+  color: var(--fg);
+  -webkit-text-stroke: 3px var(--bg);
+  paint-order: stroke fill;
+  max-block-size: calc(100% - 32px);
+  pointer-events: auto;
+  cursor: default;
+}
+
+/* The map is grabbable (§5.2b), so the cursor must not read as "drag" while
+   the pointer is over a panel that does not drag. */
+.scale--onmap { cursor: default; }
+
+/* On a phone the map is short and the panel would cover most of it, so the
+   scale returns to its old place below the frame. Same markup, no overlay. */
+@media (max-width: 672px) {
+  .scale--onmap {
+    position: static;
+    max-block-size: none;
+    margin-block-start: 16px;
+    box-shadow: none;
+    border-inline: 0;
+    border-block-end: 0;
+    padding-inline: 0;
   }
 }
 
-[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #161616;
-  --surface: #262626;
-  --surface-2: #393939;
-  --surface-hover: #333333;
-  --surface-sel: #001d6c;
-  --fg: #f4f4f4;
-  --fg-2: #c6c6c6;
-  --muted: #a8a8a8;
-  --meta: #a8a8a8;
-  --border: #6f6f6f;
-  --border-soft: #393939;
-  --accent: #4589ff;
-  --accent-on: #161616;
-  --accent-hover: #78a9ff;
-  --accent-active: #a6c8ff;
-  --danger: #ff8389;
-  --warn: #f1c21b;
-  --success: #42be65;
-  --focus-ring: 0 0 0 2px #161616, 0 0 0 4px var(--accent);
-  --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+/* The fold. <details> owns the state, the keyboard and the accessible name, so
+ * nothing else records whether it is open — one owner, as everywhere else here. */
+/* Icon only, and sized as a real target rather than as a line of text: 24px
+ * square is the compact floor for something a finger has to find on a map. */
+/* The fold spans the whole width so the bar starts at the panel's own left
+ * edge. As a grid ITEM it sat in column 1 and pushed the scale ~120px right —
+ * which is what "move it further to the left" was describing. */
+.scale--onmap .scale__toggle { grid-column: 1 / -1; justify-self: start; }
+.scale--onmap .scale__toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  inline-size: 24px; block-size: 24px;
+  color: var(--fg); cursor: pointer; list-style: none;
+  margin-block-end: 4px;
 }
+.scale--onmap .scale__toggle::-webkit-details-marker { display: none; }
+/* The marker is drawn, not a character: a glyph beside a translatable label is
+ * something the language swap can write into (§5.12). */
+.scale--onmap .scale__toggle::before {
+  content: ""; inline-size: 0; block-size: 0;
+  border-inline: 4px solid transparent;
+  border-block-start: 5px solid currentColor;
+  transition: transform var(--dur-base) var(--ease-standard);
+}
+.scale--onmap:not([open]) .scale__toggle::before { transform: rotate(-90deg); }
+.scale--onmap .scale__toggle:focus-visible { box-shadow: var(--focus-ring); }
+/* Folded, the control is just its own name — it must not keep the bar's height. */
+.scale--onmap:not([open]) { max-block-size: none; }
+@media (prefers-reduced-motion: reduce) {
+  .scale--onmap .scale__toggle::before { transition: none; }
+}
+
+/* ---- Progressive scale ----------------------------------------------------
+ * One continuous bar with the band edges beside it. The stops come from
+ * window.AIRBG_RAMP() via map-legend.js — the same function the hexes are
+ * filled with — so the key cannot show a colour the map does not use. Nothing
+ * here writes a gradient by hand.
+ *
+ * The first attempt made the bar a grid SIBLING of the band list and asked it
+ * to `align-self: stretch`. It did not: it took one row's height and sat as a
+ * 30px stub at the top, while the six swatches — blanked with
+ * `background: none` but still carrying their borders — stayed behind as empty
+ * dashed boxes. Two bars, one of them a ghost.
+ *
+ * The bar is now absolutely positioned over the full height of the band list,
+ * and the swatches are removed from the flow entirely rather than made
+ * invisible. An element that paints nothing should not be laid out. */
+.scale--progressive .scale__bands {
+  position: relative;
+  padding-inline-start: 28px;      /* room for the bar, which floats over it */
+}
+/* (0,3,0) to match `.scale--vertical .scale__bands--vertical .scale__band-swatch`,
+ * which sizes them. At (0,2,0) this lost and the six blanked swatches stayed in
+ * the flow as empty dashed boxes beside the real bar. Source order does not
+ * decide a specificity contest — third time in this file. */
+.scale--progressive .scale__bands--vertical .scale__band-swatch { display: none; }
+/* (0,3,0), matching the rules that size its siblings, and an EXPLICIT height.
+ * `inset-block: 0` on an absolutely positioned child of a flex container did
+ * resolve — computed top and bottom both read 0px — and the box still came out
+ * 16px tall. Rather than keep arguing with it, the height is stated: the
+ * containing block is .scale__bands, which is the list this bar exists to
+ * span. */
+.scale--progressive .scale__bands--vertical .scale__bar {
+  list-style: none;
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  block-size: 100%;
+  inline-size: 20px;
+  min-block-size: 0;
+  background-image: var(--ramp);
+  border: 0;
+}
+/* Each row is now just its edge number and its name, sitting against the bar. */
+.scale--progressive .scale__band {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: end;
+  min-block-size: 34px;
+  position: relative;
+}
+.scale--progressive .scale__band-edge {
+  position: absolute;
+  inset-inline-start: -22px;       /* on the bar's own edge, where it divides */
+  inset-block-start: -0.6em;
+}
+.scale--progressive .scale__band-name { align-self: center; }
+
+/* Everything in the on-map scale stacks in one left-aligned column: the fold,
+ * the unit caption, then the bar with its numbers. The two-column rule this
+ * inherits from .scale--vertical was written for the version that sat under
+ * the map with room to spare. */
+.scale--onmap.scale--vertical { grid-template-columns: 1fr; }
+.scale--onmap .scale__label { margin-block-end: 6px; }

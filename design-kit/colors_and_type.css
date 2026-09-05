@@ -56,7 +56,11 @@
   --warn: #f1c21b;
   --success: #24a148;
 
-  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+  /* var(--bg), not a literal: the inner ring is the gap that separates the
+     accent ring from whatever is behind it, so it must follow the theme.
+     A literal here needs re-stating in every dark block, and each one is a
+     white halo on a dark page if it is ever missed. */
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 }
 
 /* State pairs. Foreground and background always move together; contrast after a
@@ -200,7 +204,6 @@
     --danger: #ff8389;
     --warn: #f1c21b;
     --success: #42be65;
-    --focus-ring: 0 0 0 2px #161616, 0 0 0 4px var(--accent);
     --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
   }
 }
@@ -229,6 +232,5 @@ color-scheme: dark;
   --danger: #ff8389;
   --warn: #f1c21b;
   --success: #42be65;
-  --focus-ring: 0 0 0 2px #161616, 0 0 0 4px var(--accent);
   --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
 }

@@ -203,6 +203,27 @@ func TestTheThemeEntryImportsTheDesignKit(t *testing.T) {
 	}
 }
 
+// The focus ring's inner band is the gap separating the accent ring from the
+// page, so it has to be var(--bg). Written as a literal it needs restating in
+// every dark block, and a missed one is a white halo on a dark page — a
+// contrast failure on the one affordance keyboard users navigate by.
+func TestTheFocusRingFollowsTheBackground(t *testing.T) {
+	for _, p := range append(themeEntryImports(t), themeEntryPath) {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("ReadFile %s error = %v", p, err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if !strings.Contains(line, "--focus-ring:") {
+				continue
+			}
+			if found := cssColour.FindAllString(line, -1); len(found) != 0 {
+				t.Errorf("%s defines --focus-ring with the literal colour %v; use var(--bg) so it follows the theme", p, found)
+			}
+		}
+	}
+}
+
 // In a real build the served palette is the "theme" Vite entry
 // (web/src/styles/theme.css), not static/theme.css — that one is only the
 // no-Node fallback. So the palette app.css is actually served with is the

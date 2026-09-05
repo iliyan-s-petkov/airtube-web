@@ -80,7 +80,7 @@
 
   /* Shadow means "this genuinely floats". Cards get none. */
   --elev-float: 0 2px 6px rgba(0, 0, 0, 0.12);
-  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
   --control-height: 48px;
   --control-height-compact: 40px;
