@@ -93,9 +93,9 @@ type Snapshot struct {
 	Areas        Body
 
 	// Hexes is the fixed-resolution aggregate grid. Below the area tiers in
-	// detail, not above it: it carries counts and means per bin and no sensor
-	// identity, so it is the one spatial payload safe to serve to a caller who
-	// has named no area at all.
+	// detail, not above it: it carries counts and medians per bin and no sensor
+	// identity, so it is the one spatial payload safe to serve country-wide to a
+	// caller who has named no area and no viewport at all.
 	Hexes Body
 
 	// hexTiers holds every published resolution as unencoded bins, because a
@@ -104,6 +104,12 @@ type Snapshot struct {
 	// resolution, no viewport — is the common one and still answers from bytes
 	// built once per cycle.
 	hexTiers map[float64]hexPayload
+
+	// points is the point tier: one entry per sensor, with its id. Held
+	// unencoded and never pre-encoded like Hexes, because a point request is
+	// required to carry a bounding box, so there is no country-wide body to
+	// build once — and deliberately no way to ask for one.
+	points []hexEntry
 
 	// Wind is the forecast overlay, and is the one Body that is legitimately
 	// empty: the layer is optional, its provider is external, and a zero value

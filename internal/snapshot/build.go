@@ -153,9 +153,11 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	// about what "now" means.
 	//
 	// Every tier is binned from the same sensors in the same cycle, so the
-	// lattice stays nested and a coarse bin is exactly the union of the fine
-	// bins under it — which is what makes serving several resolutions no more
-	// revealing than serving the finest one alone.
+	// tiers agree about the ground rather than describing two different
+	// moments. They are NOT nested — hexagons do not subdivide into hexagons,
+	// so a coarse bin is not the union of the fine bins under it. What makes
+	// serving several resolutions no more revealing than the finest one is that
+	// the finest one is published outright; see HexResolutionKM.
 	snap.hexTiers = make(map[float64]hexPayload, len(HexTiersKM))
 	for _, res := range HexTiersKM {
 		snap.hexTiers[res] = hexPayloadFrom(now, sensors, res)
@@ -163,6 +165,7 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	if snap.Hexes, err = encode(snap.hexTiers[HexResolutionKM]); err != nil {
 		return nil, fmt.Errorf("snapshot: encode hexes: %w", err)
 	}
+	snap.points = pointsFrom(sensors)
 
 	// The forecast overlay, read from our own table rather than fetched here:
 	// the met model updates hourly and the ingest cycle runs every five

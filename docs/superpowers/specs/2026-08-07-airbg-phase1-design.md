@@ -219,6 +219,27 @@ What this costs, stated plainly: at 250 m with no minimum-count floor, a bin hol
 
 Cacheability is preserved: neither parameter carries anything per-caller, so two visitors asking the same question receive the same bytes under the same ETag.
 
+#### Second amendment, 2026-09-05: the point tier publishes individual sensors, with their ids
+
+`resolution_km=0` is now a real tier, and it is not a grid. It returns one entry per sensor — position, readings, and **`sensor_id`** — inside a **required** `bbox`. The owner asked for it in those terms: to see all individual sensors, no matter how many they are, and to know which device each one is.
+
+This goes further than the first amendment. That one published *positions* at roughly address precision; this one attaches an *identity* to each position, which is the larger disclosure and was put to the owner as such before it was chosen. Row 3 of the tiering table above — local zoom reaching sensors "for one area only" — no longer describes the system: a caller with a viewport reaches sensors without naming an area at all.
+
+What is and is not new:
+
+- **Not new: per-sensor precision.** `/api/v1/area/{slug}/sensors` already publishes individual coordinates with ids for any area a caller names. This tier does not sharpen anything — coordinates are passed through exactly as sensor.community served them, which already applies its own fuzzing (`exact_location: 0`). We republish what is public; we do not improve on it.
+- **New: reach without naming an area.** The increment is that the whole country becomes reachable by panning rather than by enumerating 28 oblasti and their cities.
+
+`bbox` is therefore **mandatory** here, and the handler returns 400 without one. It buys no confidentiality — a caller can walk boxes — but it makes the walk a sequence of requests the rate limiter can see, rather than a national device registry available in a single unbounded call. The browser never sends `resolution_km=0` without a box; the server refuses it regardless, because the browser is not the only client.
+
+#### Third amendment, 2026-09-05: a hex cell reports a median, not a mean
+
+A cell holds a handful of low-cost devices, not a sample. One sensor indoors beside a stove, or drifting towards its ceiling, moves a mean of four far enough to recolour the cell; a median does not move for a single bad member.
+
+There is **no backfill behind this**, because there is nothing to backfill: cells are recomputed from live readings every ingest cycle and keep no archive. The changeover instant is published as `cell_statistic_changed_at` on `/api/v1/meta` so a client can annotate the step rather than let a reader mistake it for a change in the air.
+
+This applies to the **cell** axis only — aggregation across sensors at one instant. Aggregation across *time* (`reading_hourly.avg_value`, written by `internal/store/rollup.go` and read for periods beyond 30 days) is still a mean, and is untouched. That one *does* have a stored archive, so changing it is a migration rather than an edit, and no such change has been asked for.
+
 ### 7.2 Browser endpoints
 
 Unauthenticated, because any endpoint the browser calls is by construction callable by anyone. Embedding a credential in frontend JavaScript would be security theatre.

@@ -64,10 +64,11 @@ func (d Deps) handleAreas(w http.ResponseWriter, r *http.Request) {
 //
 // Neither parameter carries anything per-caller, so the response stays public:
 // two callers asking the same question get the same bytes and the same ETag.
-// The viewport is a bandwidth optimisation and nothing more — it does not
-// narrow what is obtainable, since the tiers are public and a caller may ask
-// for any box. The rate limiter, not this parameter, is what stands between a
-// reader and a bulk download.
+//
+// The viewport is a bandwidth optimisation on every tier but one. At
+// resolution_km=0 it becomes a requirement, because that tier serves individual
+// sensors with their ids rather than bins, and the box is what keeps a bulk
+// download a walk the rate limiter can see rather than a single request.
 func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 	snap := d.Snapshots.Load()
 	if snap == nil {
@@ -83,6 +84,27 @@ func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 		res = f
 	}
 	bb, clip := snapshot.ParseBBox(r.URL.Query().Get("bbox"))
+
+	// The point tier is the one request that is refused rather than snapped.
+	// Everywhere else a clumsy parameter still yields a usable map, because the
+	// answer is an aggregate and being handed a coarser one costs the caller
+	// nothing. Here it would be the opposite mistake: falling through would
+	// serve every sensor in the country, ids attached, to a caller who asked for
+	// a viewport. See snapshot.PointBody.
+	if res == snapshot.PointResolutionKM {
+		if !clip {
+			writeError(w, http.StatusBadRequest, "bad_request",
+				`A "bbox" of "w,s,e,n" is required at resolution_km=0.`)
+			return
+		}
+		body, err := snap.PointBody(bb)
+		if err != nil {
+			writeUnavailable(w)
+			return
+		}
+		serveBody(w, r, body, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
+		return
+	}
 
 	body, err := snap.HexBody(res, bb, clip)
 	if err != nil {
@@ -113,6 +135,8 @@ type metaBody struct {
 	Metrics             []string  `json:"metrics"`
 	AreaCount           int       `json:"area_count"`
 	CoveredAreaCount    int       `json:"covered_area_count"`
+	CellStatistic       string    `json:"cell_statistic"`
+	CellStatChangedAt   time.Time `json:"cell_statistic_changed_at"`
 	Attribution         string    `json:"attribution"`
 	BoundaryAttribution string    `json:"boundary_attribution"`
 	Disclaimer          string    `json:"disclaimer"`
@@ -144,6 +168,8 @@ func (d Deps) handleMeta(w http.ResponseWriter, r *http.Request) {
 		Metrics:             upstream.CanonicalMetrics(),
 		AreaCount:           len(snap.KnownSlugs),
 		CoveredAreaCount:    covered,
+		CellStatistic:       "median",
+		CellStatChangedAt:   snapshot.CellStatChangedAt,
 		Attribution:         DataAttribution,
 		BoundaryAttribution: BoundaryAttribution,
 		Disclaimer: "Low-cost sensor readings are indicative and are not " +

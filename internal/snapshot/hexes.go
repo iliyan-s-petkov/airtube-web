@@ -86,10 +86,11 @@ const hexRefLat = 42.75
 
 const earthRadiusKM = 6371.0
 
-// hexPayload is the aggregate map tier: a fixed grid of bins, each carrying a
-// count and mean values, and no sensor identity at all. It is the coarsest of
-// the three spatial tiers — coarser than the area choropleth, which at least
-// names its areas.
+// hexPayload carries both the aggregate grid and the point tier, because a
+// client draws them through one path and a second envelope would only make it
+// branch. resolution_km tells the two apart: above zero an entry is a bin, with
+// a count and median values and no sensor identity; at zero an entry is one
+// sensor and names it.
 type hexPayload struct {
 	GeneratedAt  time.Time  `json:"generated_at"`
 	ResolutionKM float64    `json:"resolution_km"`
@@ -97,11 +98,16 @@ type hexPayload struct {
 }
 
 type hexEntry struct {
-	Lon     float64            `json:"lon"`
-	Lat     float64            `json:"lat"`
-	N       int                `json:"n"`
-	Country string             `json:"country"`
-	Values  map[string]float64 `json:"values"`
+	Lon float64 `json:"lon"`
+	Lat float64 `json:"lat"`
+	// SensorID names the device, and is set ONLY on the point tier, where an
+	// entry is one sensor rather than a bin of them. Omitted everywhere else:
+	// a bin has no single sensor to name, and an id of 0 on an aggregate would
+	// read as a device rather than as "not applicable".
+	SensorID int64              `json:"sensor_id,omitempty"`
+	N        int                `json:"n"`
+	Country  string             `json:"country"`
+	Values   map[string]float64 `json:"values"`
 }
 
 // HexGridOf reduces sensor positions to the distinct hexes they fall in, with
@@ -173,6 +179,75 @@ func (s *Snapshot) HexBody(resKM float64, bb BBox, clip bool) (Body, error) {
 	return encode(out)
 }
 
+// PointResolutionKM is the resolution a caller names to ask for individual
+// sensors rather than bins. Zero, because it is the limit of the tier list: a
+// cell small enough to hold one device is that device.
+const PointResolutionKM = 0.0
+
+// CellStatChangedAt is the instant the hex cell's summary statistic changed from
+// mean to median.
+//
+// Published on /api/v1/meta so a chart can annotate the step rather than let a
+// reader mistake it for a change in the air. It is a constant and not a config
+// key because it is a fact about this build, not something an operator sets;
+// there is no backfill behind it because a cell is recomputed from live
+// readings every cycle and keeps no archive of its own.
+var CellStatChangedAt = time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
+
+// PointBody answers the point tier: one entry per sensor inside the box, each
+// naming its device.
+//
+// The box is REQUIRED, and the handler refuses the request without one. Every
+// other tier may be asked country-wide because a bin is an aggregate; this tier
+// is not, and an unbounded answer would be a downloadable registry of every
+// device in the country rather than a map view. Requiring the box does not make
+// the data secret — a determined caller can walk boxes — it makes the walk
+// visible to the rate limiter instead of free in one request.
+//
+// Coordinates are passed through exactly as sensor.community served them. That
+// upstream already applies its own fuzzing (exact_location: 0); republishing
+// what is public is the decision that was taken, sharpening it is not.
+func (s *Snapshot) PointBody(bb BBox) (Body, error) {
+	out := hexPayload{GeneratedAt: s.GeneratedAt, ResolutionKM: PointResolutionKM,
+		Hexes: make([]hexEntry, 0, len(s.points))}
+	for _, p := range s.points {
+		if bb.contains(p.Lon, p.Lat) {
+			out.Hexes = append(out.Hexes, p)
+		}
+	}
+	return encode(out)
+}
+
+// pointsFrom turns sensors into point-tier entries, ordered by sensor id.
+//
+// Ordered so the payload is a function of the readings alone: the source slice
+// arrives in whatever order the query returned, and reordering between cycles
+// would churn every ETag without a single value having changed.
+//
+// N is 1 on every entry. Not omitted: the client draws both catalogues through
+// one path, and a point is honestly a cell of one sensor.
+func pointsFrom(sensors []store.SensorReading) []hexEntry {
+	out := make([]hexEntry, 0, len(sensors))
+	for _, sr := range sensors {
+		values := make(map[string]float64, len(sr.Values))
+		for _, m := range upstream.CanonicalMetrics() {
+			if v, ok := sr.Values[m]; ok {
+				values[m] = round1(v)
+			}
+		}
+		country := sr.Country
+		if country == "" {
+			country = hexCountryUnknown
+		}
+		out = append(out, hexEntry{
+			Lon: sr.Lon, Lat: sr.Lat, SensorID: sr.SensorID,
+			N: 1, Country: country, Values: values,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].SensorID < out[j].SensorID })
+	return out
+}
+
 // BBox is a viewport in degrees: west, south, east, north.
 type BBox struct{ W, S, E, N float64 }
 
@@ -226,8 +301,11 @@ type axial struct{ q, r int }
 type hexBin struct {
 	coord axial
 	n     int
-	sums  map[string]float64
-	count map[string]int
+	// vals holds every sensor's reading for a metric, kept rather than summed
+	// because the bin reports a MEDIAN. A running sum cannot produce one — the
+	// middle of a set is not derivable from its total — so the values have to
+	// survive until the bin closes.
+	vals map[string][]float64
 	// countries counts sensors per country code. A 15 km bin straddling a
 	// border holds sensors from both, and the bin has to name one; the modal
 	// value names the country most of the bin's data actually came from.
@@ -262,8 +340,8 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 		c := hexOf(sr.Lon, sr.Lat, resKM)
 		b := bins[c]
 		if b == nil {
-			b = &hexBin{coord: c, sums: map[string]float64{},
-				count: map[string]int{}, countries: map[string]int{}}
+			b = &hexBin{coord: c, vals: map[string][]float64{},
+				countries: map[string]int{}}
 			bins[c] = b
 		}
 		b.n++
@@ -272,8 +350,7 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 		}
 		for _, m := range upstream.CanonicalMetrics() {
 			if v, ok := sr.Values[m]; ok {
-				b.sums[m] += v
-				b.count[m]++
+				b.vals[m] = append(b.vals[m], v)
 			}
 		}
 	}
@@ -299,12 +376,12 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 	}
 	for _, b := range ordered {
 		lon, lat := hexCentre(b.coord, resKM)
-		values := make(map[string]float64, len(b.sums))
-		for m, sum := range b.sums {
+		values := make(map[string]float64, len(b.vals))
+		for m, vs := range b.vals {
 			// A metric absent from every sensor in the bin is absent from the
 			// bin, rather than present as zero: 0 µg/m³ is a reading.
-			if n := b.count[m]; n > 0 {
-				values[m] = round1(sum / float64(n))
+			if len(vs) > 0 {
+				values[m] = round1(median(vs))
 			}
 		}
 		p.Hexes = append(p.Hexes, hexEntry{
@@ -381,6 +458,30 @@ func cubeRound(q, r float64) axial {
 
 func radians(d float64) float64 { return d * math.Pi / 180 }
 func degrees(r float64) float64 { return r * 180 / math.Pi }
+
+// median is the bin's summary statistic, replacing the mean it reported until
+// CellStatChangedAt.
+//
+// The reason is that a bin is a handful of low-cost devices, not a sample: one
+// sensor indoors beside a stove, or failing towards its ceiling, drags a mean of
+// four far enough to recolour the cell. The median simply does not move for a
+// single bad member, which is what a map of a neighbourhood should do.
+//
+// Sorts a copy, because the caller's slice is the bin's own record of what it
+// saw and reordering it would be a side effect of asking a question.
+func median(vs []float64) float64 {
+	s := append([]float64(nil), vs...)
+	sort.Float64s(s)
+	mid := len(s) / 2
+	// The even case averages the two middle values rather than taking either.
+	// Picking one would make the statistic depend on which side we favour, and
+	// a bin of two sensors — the common small case — would report one device's
+	// reading while claiming to summarise both.
+	if len(s)%2 == 0 {
+		return (s[mid-1] + s[mid]) / 2
+	}
+	return s[mid]
+}
 
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
 

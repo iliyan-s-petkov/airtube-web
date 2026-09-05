@@ -28,8 +28,11 @@ func TestNearbySensorsShareOneHex(t *testing.T) {
 	if p.Hexes[0].N != 2 {
 		t.Errorf("n = %d, want 2", p.Hexes[0].N)
 	}
+	// 25 is both the mean and the median of two values, so this asserts only
+	// that the bin summarises rather than sums. Which statistic it uses is
+	// TestBinReportsMedianNotMean's job.
 	if got := p.Hexes[0].Values["P1"]; got != 25 {
-		t.Errorf("P1 = %v, want 25 (the mean, not a sum)", got)
+		t.Errorf("P1 = %v, want 25 (a summary, not a sum)", got)
 	}
 }
 
