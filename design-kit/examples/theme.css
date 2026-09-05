@@ -1442,7 +1442,15 @@ body.has-faux-full { overflow: hidden; }
   transition: background-color var(--dur-base) var(--ease-standard);
 }
 .langpick__btn:hover { color: #ffffff; background: #262626; }
-.langpick__btn[aria-expanded="true"] { color: #ffffff; background: #262626; }
+/* Two mechanisms, one open state: a scripted button sets aria-expanded, a
+   native <details> sets [open] on the parent. The second is how a picker keeps
+   working with no JavaScript, so the kit styles both rather than leaving the
+   consumer to restate the colours. */
+.langpick__btn[aria-expanded="true"],
+.langpick[open] > .langpick__btn { color: #ffffff; background: #262626; }
+/* A <summary> is a list-item by default; the caret beside it is the kit's. */
+.langpick > summary.langpick__btn { list-style: none; }
+.langpick > summary.langpick__btn::-webkit-details-marker { display: none; }
 .langpick__btn:focus-visible { box-shadow: var(--focus-ring); outline: 0; }
 
 /* Fixed slot so a flag and a bare code occupy identical space (§5.12). */

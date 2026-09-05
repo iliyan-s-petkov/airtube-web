@@ -137,8 +137,14 @@ func TestPageEmitsNoScriptWithoutAManifest(t *testing.T) {
 	rr.assets, _ = loadAssetsFrom(os.DirFS(dir))
 
 	body := renderIndex(t, rr)
-	if strings.Contains(body, "<script") {
-		t.Errorf("page contains a script tag with no manifest:\n%s", body)
+	// The BUILT script, specifically. /static/theme-init.js is unconditional —
+	// it is not a manifest asset, it is a hand-written file in the static tree,
+	// and it has to run on a page with no bundle too or a reader's stored theme
+	// would apply only when the bundle happens to be present. So the assertion
+	// names the two things a manifest entry produces: the module type and the
+	// /static/build/ prefix every hashed asset carries.
+	if strings.Contains(body, `type="module"`) || strings.Contains(body, "/static/build/") {
+		t.Errorf("page contains a built asset with no manifest:\n%s", body)
 	}
 	if !strings.Contains(body, `data-island="map"`) {
 		t.Error("page lost its island placeholder")

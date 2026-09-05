@@ -131,7 +131,7 @@ func TestSwitcherListsEveryLoadedLanguage(t *testing.T) {
 	if strings.Contains(body, `href="https://airbg.org/area/sofia" hreflang="bg"`) {
 		t.Error("the switcher links to the page the reader is already on")
 	}
-	if !strings.Contains(body, `<span lang="bg" aria-current="true">`) {
+	if !strings.Contains(body, `<span class="langpick__opt" lang="bg" aria-current="true">`) {
 		t.Error("the current language is not marked in the switcher")
 	}
 	// The rel=alternate set must grow with it, or search engines never learn

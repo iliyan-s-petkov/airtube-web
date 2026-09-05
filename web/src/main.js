@@ -10,6 +10,7 @@ const ISLANDS = {
   chart: () => import('./islands/chart.js'),
   switcher: () => import('./islands/switcher.js'),
   panel: () => import('./islands/panel.js'),
+  theme: () => import('./islands/theme.js'),
 }
 
 // resolveLoader is the pure lookup at the heart of "leave the server-rendered

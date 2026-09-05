@@ -12,25 +12,31 @@ body {
 main { max-width: var(--frame); margin: 0 auto; padding: var(--space-4) var(--gutter); }
 main > * { max-width: var(--measure); margin-inline: auto; }
 main > #map, main > #area-map, main > .frame { max-width: var(--frame); }
-footer { max-width: var(--measure); margin: 0 auto; padding: var(--space-4) var(--gutter); }
+/* The masthead and the footer are the kit's now — .masthead, .masthead__brand,
+   .masthead__link, .langpick and .footer in components.css. The site's own
+   descriptions of both are gone rather than overridden: two descriptions of one
+   component is how they drift, and the element selectors this file used
+   (`body > header`, `footer`) would have kept winning over the kit's classes on
+   whatever they still named.
 
-/* Scoped to body > header so it cannot also catch .sensor-panel header. */
-body > header {
-  display: flex; gap: var(--space-4); align-items: center; justify-content: space-between;
-  min-height: var(--control-height); padding: 0 var(--gutter);
-  background: var(--fg); color: var(--accent-on);
+   The site keeps exactly one ruling of its own, below: the footer's body
+   colour. */
+
+/* The kit paints .footer p in --meta, which measures 3.02:1 on --surface at
+   12px — under the 4.5 floor. This file has made the same call before: a
+   contrast floor outranks a colour convention (DESIGN.md makes it too, for map
+   labels on --surface-2). Same selector as the kit's, later in the cascade. */
+.footer p { color: var(--fg-2); }
+
+/* A <button> inside the theme list where the language list has links: choosing
+   a theme is not navigation. It needs the type reset a link does not. */
+.langpick__opt {
+  inline-size: 100%;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: start;
 }
-/* The wordmark is the one header item that must not shrink. As an ordinary flex
-   child it was squeezed to 62px at 390px, so "Мръсен въздух" wrapped to two
-   lines inside a 48px bar — the D0 finding, and DESIGN.md 5.1 is explicit that
-   the masthead stays one line at 390. The nav absorbs the pressure instead:
-   it is short, and its items already wrap gracefully. */
-body > header > a:first-child { flex: 0 0 auto; }
-body > header nav { min-width: 0; }
-body > header a { color: var(--border); }
-body > header a:hover { color: var(--accent-on); }
-body > header [aria-current] { color: var(--accent-on); box-shadow: inset 0 -2px 0 currentColor; }
-nav a { margin-left: var(--space-4); font-size: var(--text-compact); letter-spacing: var(--track-compact); }
 
 h1 { font-size: var(--text-page); font-weight: var(--weight-display); line-height: 1.19; }
 h2 { font-size: var(--text-section); font-weight: var(--weight-body); line-height: 1.25; }
@@ -70,16 +76,6 @@ strong, b { font-weight: var(--weight-emphasis); }
    reader something is wrong. .notice's warning bar next to every city name
    would read as an error state on 27 healthy pages. */
 .notice-inline { color: var(--muted); font-size: var(--text-compact); letter-spacing: var(--track-compact); }
-/* --meta on --surface measures 3.02:1 at 12px — under the 4.5 floor, and D4
-   checks contrast against AA for every pair. DESIGN.md §5.5 asks for --meta
-   here, but the same document rules that a contrast floor outranks a colour
-   convention (it made the identical call for map labels on --surface-2). So
-   the footer takes --fg-2, which clears the floor and is still visibly quieter
-   than body ink. */
-footer { border-top: 1px solid var(--border); background: var(--surface); color: var(--fg-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); }
-/* The one footer line that must actually be read. */
-footer .disclaimer { font-size: var(--text-body); letter-spacing: 0; color: var(--fg-2); }
-
 /* The map is the primary surface, sized by RATIO not by pixels (DESIGN.md 5.2
    and the 1 fit). A fixed 24rem held the 926:382 fit at exactly one viewport
    width and cropped the country at every other, and it made the map one card

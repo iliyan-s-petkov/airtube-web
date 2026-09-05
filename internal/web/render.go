@@ -184,11 +184,29 @@ type alternate struct {
 // langLink is one entry in the language switcher. Name is that language's name
 // written IN that language ("Български", not "Bulgarian"): a reader who cannot
 // read the current page's language is exactly the reader the switcher is for.
+//
+// Flag is a path or "". A flag names a nation, and not every language has one —
+// English has several and belongs to none of them — so the picker falls back to
+// Code, the language's own two letters. Presence is decided by whether
+// static/flags/<lang>.svg exists, which keeps adding a language a matter of
+// dropping in files rather than editing this type.
 type langLink struct {
 	Lang    string
 	URL     string
 	Name    string
+	Code    string
+	Flag    string
 	Current bool
+}
+
+// langFlag returns the served path of a language's flag, or "" when the
+// checkout ships none for it.
+func langFlag(lang string) string {
+	name := "static/flags/" + lang + ".svg"
+	if _, err := staticFS.Open(name); err != nil {
+		return ""
+	}
+	return "/" + name
 }
 
 func (p PageData) T(key string) string { return p.cat.T(p.Lang, key) }
@@ -219,6 +237,11 @@ func (p PageData) Path(path string) string {
 }
 
 func (p PageData) CanonicalURL() string { return p.BaseURL + p.Path(p.RequestPath) }
+
+// OnPath reports whether the page being rendered IS the given route, so the
+// masthead can mark the current tab. Compared against RequestPath, which is
+// language-stripped — the English reader of /en/areas is on /areas.
+func (p PageData) OnPath(path string) bool { return p.RequestPath == path }
 
 // LangPrefix is Path's prefix on its own — "" for the default language,
 // "/<lang>" otherwise — rendered into the map island as data-lang-prefix.
@@ -251,6 +274,8 @@ func (p PageData) LangLinks() []langLink {
 			Lang:    lang,
 			URL:     other.BaseURL + other.Path(p.RequestPath),
 			Name:    p.cat.T(lang, "lang.name"),
+			Code:    p.cat.T(lang, "lang.code"),
+			Flag:    langFlag(lang),
 			Current: lang == p.Lang,
 		})
 	}

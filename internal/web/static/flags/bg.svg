@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 5 3" width="20" height="12" role="img" aria-label="Знаме на България">
+  <!-- Flag of Bulgaria. Official construction: ratio 3:5, three equal
+       horizontal bands. Colours per the state specification:
+       white #FFFFFF, green #00966E, red #D62612. -->
+  <rect width="5" height="1" y="0" fill="#FFFFFF"/>
+  <rect width="5" height="1" y="1" fill="#00966E"/>
+  <rect width="5" height="1" y="2" fill="#D62612"/>
+</svg>

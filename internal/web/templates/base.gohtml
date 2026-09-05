@@ -11,16 +11,45 @@
 {{with .Assets.Style "theme"}}<link rel="stylesheet" href="{{.}}">
 {{else}}<link rel="stylesheet" href="/static/theme.css">
 {{end}}<link rel="stylesheet" href="/static/app.css">
+{{/* Before the stylesheets finish and before anything paints: see the file. */}}
+<script src="/static/theme-init.js"></script>
 {{with .Assets.Style "main"}}<link rel="stylesheet" href="{{.}}">
 {{end}}</head>
 <body>
-<header>
-  <a href="{{.Path "/"}}"><strong>{{.T "site.title"}}</strong></a>
-  <nav>
-    <a href="{{.Path "/"}}">{{.T "nav.map"}}</a>
-    <a href="{{.Path "/areas"}}">{{.T "nav.areas"}}</a>
-    {{range .LangLinks}}{{if .Current}}<span lang="{{.Lang}}" aria-current="true">{{.Name}}</span>{{else}}<a href="{{.URL}}" hreflang="{{.Lang}}" lang="{{.Lang}}">{{.Name}}</a>{{end}}
-    {{end}}
+{{/* The brand is the domain, not the page title: "airbg.org" is the same in
+     every language, so it is written here rather than pulled from the
+     catalogue. The muted .org is the kit's lockup. */}}
+<header class="masthead">
+  <a class="masthead__brand" href="{{.Path "/"}}"><img src="/static/favicon.svg" width="20" height="20" alt="">airbg<span class="tld">.org</span></a>
+  <nav class="masthead__nav" aria-label="{{.T "nav.map"}}">
+    <a class="masthead__link" href="{{.Path "/"}}"{{if .OnPath "/"}} aria-current="page"{{end}}>{{.T "nav.map"}}</a>
+    <a class="masthead__link" href="{{.Path "/areas"}}"{{if .OnPath "/areas"}} aria-current="page"{{end}}>{{.T "nav.areas"}}</a>
+    {{/* A <details> rather than the kit's button + aria-expanded pair: the kit
+         drives that pair from a script, and this site's pages have to work with
+         no JavaScript at all. Native disclosure gives the same three states —
+         closed, open, current marked — with no bundle, and the kit's classes
+         style it unchanged. */}}
+    <details class="langpick">
+      <summary class="langpick__btn">
+        {{range .LangLinks}}{{if .Current}}{{if .Flag}}<span class="langpick__mark"><img src="{{.Flag}}" width="20" height="12" alt=""></span>{{else}}<span class="langpick__mark langpick__mark--code">{{.Code}}</span>{{end}}<span>{{.Code}}</span>{{end}}{{end}}
+        <span class="langpick__caret" aria-hidden="true"></span>
+      </summary>
+      <ul class="langpick__list">
+        {{/* The current language is a <span>, not an <a>: a link to the page the
+             reader is already on is a control that does nothing. It is still
+             listed, and still marked, so the picker states which language is
+             showing rather than leaving the reader to work it out. */}}
+        {{range .LangLinks}}<li>{{if .Current}}<span class="langpick__opt" lang="{{.Lang}}" aria-current="true">{{if .Flag}}<span class="langpick__mark"><img src="{{.Flag}}" width="20" height="12" alt=""></span>{{else}}<span class="langpick__mark langpick__mark--code">{{.Code}}</span>{{end}}{{.Name}}</span>{{else}}<a class="langpick__opt" href="{{.URL}}" hreflang="{{.Lang}}" lang="{{.Lang}}">{{if .Flag}}<span class="langpick__mark"><img src="{{.Flag}}" width="20" height="12" alt=""></span>{{else}}<span class="langpick__mark langpick__mark--code">{{.Code}}</span>{{end}}{{.Name}}</a>{{end}}</li>
+        {{end}}
+      </ul>
+    </details>
+    {{/* Hidden until the island unhides it. Without JavaScript there is nothing
+         for this control to do — the OS preference already applies and there is
+         no storage to write — and a control that does nothing is worse than an
+         absent one. */}}
+    <details class="langpick" data-island="theme" data-label="{{.T "theme.pick"}}"
+             data-auto="{{.T "theme.auto"}}" data-light="{{.T "theme.light"}}"
+             data-dark="{{.T "theme.dark"}}" hidden></details>
   </nav>
 </header>
 
@@ -28,7 +57,8 @@
 {{block "main" .}}{{end}}
 </main>
 
-<footer>
+<footer class="footer">
+  <div class="measure">
   {{/* The disclaimer states the limitation in one line; the link is where the
        rest of it lives. Placed immediately after, and on every page, because
        the caveats apply to every number the site shows — a reader who has
@@ -38,6 +68,7 @@
   <p>{{.T "footer.boundaries"}}</p>
   {{if .HasBasemap}}<p>{{.T "footer.basemap"}}</p>{{end}}
   {{if not .GeneratedAt.IsZero}}<p>{{.T "area.updated"}}: <time datetime="{{.GeneratedAtISO}}">{{.GeneratedAtHuman}}</time></p>{{end}}
+  </div>
 </footer>
 {{with .Assets.Script "main"}}<script type="module" src="{{.}}"></script>
 {{end}}</body>
