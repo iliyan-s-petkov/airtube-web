@@ -1472,6 +1472,16 @@ body.has-faux-full { overflow: hidden; }
   stroke-width: 2;
   stroke-dasharray: 5 3;
 }
+/* One sensor, drawn where it is.
+ *
+ * Solid rather than the 0.82 the bins take: a bin is translucent so the basemap
+ * reads through a large area, and a 5px mark has no area to read through. Fully
+ * opaque also separates a device from an aggregate at a glance, which matters
+ * once both can appear on the same map at different zooms. */
+.map-hex--sensor {
+  fill-opacity: 1;
+  stroke-width: 1;
+}
 .map-hexes { pointer-events: none; }
 .map-hex {
   stroke: var(--bg);

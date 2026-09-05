@@ -1107,7 +1107,15 @@
          * the upstream spacing did. Where two served cells fall in one lattice
          * cell they merge, counts sum, and the value stays count-weighted —
          * the same honest arithmetic as any other merge. */
-        if (merge >= 1) {
+        /* resolution 0 means the rows ARE sensors, not bins. Snapping them to a
+         * lattice would be exactly the aggregation the reader zoomed in to get
+         * past, so the binning is skipped entirely and each point is drawn
+         * where it is — at a fixed small size, because a sensor has no extent.
+         * `n` is 1 by definition and the count label is suppressed: "1" on
+         * every mark is noise, not information. */
+        var perSensor = hexes.bin_km === 0;
+        if (perSensor) { hr = 5; }
+        else if (merge >= 1) {
           /* Bin the served centres onto a coarser grid whose spacing is
            * `merge` × the served spacing, keyed on the same axes the server
            * used, so a merged cell is always a whole number of served cells
@@ -1228,7 +1236,8 @@
               pts.push([cx + hr * Math.cos(a), cy + hr * Math.sin(a)]);
             }
             var b = band(v);
-            var cls = 'map-hex' + (capped ? ' map-hex--capped' : '');
+            var cls = 'map-hex' + (capped ? ' map-hex--capped' : '')
+                                + (perSensor ? ' map-hex--sensor' : '');
             /* A single sensor cannot be cross-checked, and 55 % of cells hold
              * exactly one. It still carries its reading — that reading is real
              * — but it says so, rather than looking as settled as a cell built
@@ -1271,7 +1280,10 @@
              * circumradius. Fixing the geometry shrank every cell to 9.13 px at
              * country zoom and silently took every count off the map — a
              * constant tuned against a bug, outliving it. */
-            if (hr >= 8) {
+            /* No count on a single sensor: `1` on every mark is noise.
+             * Only a bin, which stands for several, has a number worth
+             * stating. */
+            if (hr >= 8 && !perSensor) {
               var nt = el('text', {
                 class: 'map-hex__n', x: cx.toFixed(1), y: (cy + hr * 0.52).toFixed(1)
               });
@@ -2124,7 +2136,18 @@
            * anti-enumeration question, and that gate belongs on the server —
            * the kit asking for a tier it is not allowed is a refusal, not a
            * leak. */
-          var TIERS = [15, 5, 2, 1];
+          /* 0 = individual sensors, not a bin size.
+           *
+           * The owner decided on 2026-09-05 that sensors are published at deep
+           * zoom (context/decision-publish-sensors.md — the objection is
+           * recorded there, it was heard and outweighed, not overlooked). The
+           * server takes resolution_km=0 with a REQUIRED bbox, so this is never
+           * a whole-country dump of every device.
+           *
+           * Reached only below 1 km per cell, where the finest bin has stopped
+           * telling the reader anything the points would not tell them
+           * better. */
+          var TIERS = [15, 5, 2, 1, 0];
           for (var i = 0; i < TIERS.length; i++) if (km >= TIERS[i]) return TIERS[i];
           return TIERS[TIERS.length - 1];
         }
@@ -2159,9 +2182,14 @@
          * 10⁴ cells and nobody needs the ones off screen. Both are additive —
          * an older server sees query parameters it does not read. */
         var want = wantedResolutionKm();
-        var q = [];
-        if (want) q.push('resolution_km=' + want);
         var bb = visibleBBox();
+        /* resolution 0 is per-sensor and REQUIRES a bbox. Without one the
+         * request would be "every device in the country", which is not what was
+         * decided and not what the server will answer. No box, no zero: fall
+         * back to the finest binned tier, which is safe at any extent. */
+        if (want === 0 && !bb) want = 1;
+        var q = [];
+        if (want !== null) q.push('resolution_km=' + want);
         if (bb) q.push('bbox=' + bb.join(','));
         return fetch(api + 'hexes' + (q.length ? '?' + q.join('&') : '')).then(function (r) {
           if (!r.ok) throw new Error('HTTP ' + r.status);
