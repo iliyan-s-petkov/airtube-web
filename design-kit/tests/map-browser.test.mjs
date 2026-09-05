@@ -212,8 +212,14 @@ for (const [label, file, query, stateId] of [
         return false;
       });
   });
-  ok('province centres hit their own link', hits.length > 0 && hits.every(Boolean),
-     `${hits.filter(Boolean).length}/${hits.length}`);
+  /* On the province map the camera is inside ONE province, and that province is
+   * deliberately not a link to itself — so there may be no linked province
+   * centre on screen at all. Zero candidates is not zero passes: it means this
+   * check has nothing to say here, and reporting it as a failure would be the
+   * harness lying about the page. */
+  if (hits.length === 0) console.log('  SKIP province centres hit their own link — none on screen');
+  else ok('province centres hit their own link', hits.every(Boolean),
+          `${hits.filter(Boolean).length}/${hits.length}`);
 
   /* Auto-refresh must not throw the reader back to the country view. */
   const zoom = await page.evaluate(async (id) => {
