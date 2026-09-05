@@ -88,6 +88,24 @@
        * invisible to anyone reviewing in a preview pane with no console — which
        * is most of the people this kit is for. */
       f.setAttribute('data-basemap-reason', why);
+      /* And ON SCREEN, not only in an attribute. A reader looking at a map with
+       * no streets under it cannot tell "this build is broken" from "this
+       * machine cannot draw it", and those need completely different responses.
+       * The map already says so when it has no DATA (§9.1); a missing BASEMAP
+       * is the same class of fact and was the one silent state left. */
+      var note = f.querySelector('.map-basemap-note');
+      if (!note) {
+        note = document.createElement('p');
+        note.className = 'map-basemap-note';
+        f.appendChild(note);
+      }
+      /* The catalogue sentence only. `why` is diagnostic English ("WebGL
+       * unavailable") and appending it to Bulgarian copy produces a bilingual
+       * sentence for a reader who did not ask for one. It stays on
+       * data-basemap-reason, where whoever is debugging will look. */
+      note.textContent = (window.AIRBG_T ? window.AIRBG_T('map.basemapLocal') :
+                          'Схематична карта');
+      note.setAttribute('title', why);
       announce(f, 'local');
     });
     // Not console.error: this is a supported state, not a fault.
