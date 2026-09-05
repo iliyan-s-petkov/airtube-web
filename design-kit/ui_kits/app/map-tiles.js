@@ -108,8 +108,16 @@
        * unavailable") and appending it to Bulgarian copy produces a bilingual
        * sentence for a reader who did not ask for one. It stays on
        * data-basemap-reason, where whoever is debugging will look. */
+      /* The reason and the origin are ON the note, not only in its title.
+       *
+       * A hover tooltip cannot be read from a screenshot, and screenshots are
+       * how this gets reported. Three different causes produce one identical
+       * grey map — the host refused this origin, the renderer has no WebGL, or
+       * the style failed — and they have nothing in common as fixes. The line
+       * now separates them without anyone having to hover, open a console, or
+       * ask me. */
       note.textContent = (window.AIRBG_T ? window.AIRBG_T('map.basemapLocal') :
-                          'Схематична карта');
+                          'Схематична карта') + ' · ' + why + ' · ' + location.origin;
       note.setAttribute('title', why + ' [origin ' + location.origin + ']');
       announce(f, 'local');
     });

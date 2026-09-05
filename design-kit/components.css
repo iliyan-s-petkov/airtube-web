@@ -1409,9 +1409,20 @@ body.has-faux-full { overflow: hidden; }
  * directly above the scale. Same corner because they are the same kind of
  * thing — controls for reading the map — and MapLibre owns bottom-right for
  * attribution. */
+/* TOP-left, not bottom-left.
+ *
+ * Bottom-left is the scale's corner, and the scale is ~295px tall and ~175
+ * wide. Stacking the switcher above it worked only while the panel opened into
+ * empty map; opened upward it covered the key, and opened sideways it still
+ * crossed the key's column. Two pieces of furniture were competing for one
+ * corner, and every placement was a compromise between them.
+ *
+ * Top-left is empty on both pages — MapLibre attribution owns bottom-right, the
+ * zoom stack owns top-right, the scale owns bottom-left. The panel opens
+ * downward into map. Nothing overlaps anything. */
 .map__layers {
   position: absolute;
-  inset-block-end: 316px;         /* clears the scale panel below it */
+  inset-block-start: 12px;
   inset-inline-start: 12px;
   z-index: 3;
 }
@@ -1435,9 +1446,12 @@ body.has-faux-full { overflow: hidden; }
 }
 /* The panel opens UPWARD from the button — there is nothing but map below it,
  * and a panel that opened downward would run off the frame. */
+/* Opens to the SIDE, not upward. Upward put it straight over the scale — the
+ * two share the bottom-left corner, and on a short frame the panel covered the
+ * key it sits next to. Sideways there is nothing but map. */
 .map__layers .colmenu__panel {
   position: absolute;
-  inset-block-end: calc(100% + 6px);
+  inset-block-start: calc(100% + 6px);
   inset-inline-start: 0;
   min-inline-size: 232px;
   max-block-size: 46vh;
@@ -1447,15 +1461,6 @@ body.has-faux-full { overflow: hidden; }
   border-radius: 3px;
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
   padding: 8px 10px;
-}
-@media (max-width: 640px) {
-  /* On a narrow screen the scale folds and the stack would collide, so the
-   * switcher takes the top-left instead — still on the map, still one tap. */
-  .map__layers { inset-block-end: auto; inset-block-start: 12px; }
-  .map__layers .colmenu__panel {
-    inset-block-end: auto;
-    inset-block-start: calc(100% + 6px);
-  }
 }
 .map-hexes { pointer-events: none; }
 .map-hex {
