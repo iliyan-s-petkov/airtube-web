@@ -506,20 +506,29 @@ body {
    allowance asks for, and can never fall under the fit. Raising --map-cap makes
    it taller with no risk to the country; lowering it below the floor does
    nothing, which is the safe failure direction. */
+/* The budget knobs sit on the SHELL as well as the map, in one block, because
+   the shell derives its width cap from --map-budget too and a property declared
+   on the map can never reach its own parent — inheritance runs downward. On the
+   map alone the shell fell back to 100vw and its cap resolved to 3491px at a
+   1440 viewport: a number that can never bind, so the cap was inert. Both
+   selectors share one declaration so the two cannot drift, and a hero map used
+   without a shell still carries its own budget.
+
+   The legend is not something under the map, it is part of reading the map: a
+   colour scale the reader has to scroll to find does not explain the colours
+   they are already looking at. So the viewport budget covers the masthead, the
+   page head, the toolbar AND the legend, and the map takes what is left.
+   Measured against the real screens, not guessed. The legend moved ONTO the
+   map, so the reserve no longer holds room for it — leaving 30rem here would
+   have kept the map short to protect something that had moved. */
+.map-shell:has(.map--hero),
 .map--hero {
   --map-cap: 78vh;
-  /* The legend is not something under the map, it is part of reading the map:
-     a colour scale the reader has to scroll to find does not explain the
-     colours they are already looking at. So the viewport budget covers the
-     masthead, the page head, the toolbar AND the legend, and the map takes
-     what is left. Measured against the real screens, not guessed. */
-  /* The legend moved ONTO the map, so the reserve no longer holds room for
-     it: 272px of chrome above plus slack, and nothing for a key that is no
-     longer below the frame. Leaving 30rem here would have kept the map
-     short to protect something that had moved. */
   --map-reserve: 19rem;   /* 272px of chrome above + slack */
   --map-budget: min(var(--map-cap), calc(100svh - var(--map-reserve)));
+}
 
+.map--hero {
   /* The fit is a ratio, so a short viewport is paid for in WIDTH, never in
      height (§1): cropping the country is forbidden, and a map narrower than
      full-bleed is simply taller than the fit, which is always safe. On a
@@ -538,6 +547,8 @@ body {
 @media (max-width: 1056px) {
   /* Portrait phones: the width-derived fit already dominates, and the reserve
      is smaller because the toolbar and legend stack. */
+  /* Both selectors again, for the same reason the base block carries both. */
+  .map-shell:has(.map--hero),
   .map--hero { --map-cap: 52vh; --map-reserve: 26rem; }  /* phone: the scale is below the frame again, so its room is still reserved */
 }
 
@@ -1993,11 +2004,21 @@ body.has-faux-full { overflow: hidden; }
  * anchors the overlay 16px from the SHELL while the map's own edge is 95px
  * further in, and the key hangs off the map. Measured at 1024: inset -79px
  * before this, +16 after. The cap is the same expression, not a copy of the
- * number, so the two cannot drift. */
+ * number, so the two cannot drift.
+ *
+ * The cap is scoped with :has() to the shell that actually wraps a hero, and
+ * the 926/382 in it is the COUNTRY fit. A province window is 926/560 (see
+ * --map-view-h), so applying this to every shell would narrow the area page's
+ * map by the wrong ratio on a short viewport. No fallback on --map-budget
+ * either: under this selector the property is always declared, so a missing
+ * value means the declaration was lost, and a fallback would hide that behind a
+ * cap too large to ever bind rather than letting it show. */
 .map-shell {
   position: relative;
-  max-inline-size: calc(var(--map-budget, 100vw) * 926 / 382);
   margin-inline: auto;
+}
+.map-shell:has(.map--hero) {
+  max-inline-size: calc(var(--map-budget) * 926 / 382);
 }
 
 .scale--onmap {

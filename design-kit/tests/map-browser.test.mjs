@@ -239,6 +239,60 @@ for (const [label, file, query, stateId] of [
   await page.close();
 }
 
+/* The shell's width cap, at a viewport short enough for it to bind.
+ *
+ * A short viewport is paid for in WIDTH (§5.2): the map narrows and centres.
+ * The shell has to narrow WITH it, because the on-map overlays are anchored to
+ * the shell — a shell left at full width anchors the key some tens of px
+ * outside the map's own edge, and the key hangs off the map.
+ *
+ * This is checked at 1200x700 and not at the 1440x900 above because at 1440 the
+ * cap works out wider than the viewport and never binds: the defect it guards
+ * (--map-budget declared on the map, which its own parent cannot inherit, so
+ * the shell silently fell back to a cap of 100vw*926/382 = far too large to
+ * ever apply) is invisible at the default size. */
+{
+  const short = await browser.newContext({ viewport: { width: 1200, height: 700 } });
+  const page = await short.newPage();
+  await page.goto(`${BASE}/ui_kits/app/map-home.html?cb=${Date.now()}`,
+                  { waitUntil: 'networkidle', timeout: 60000 });
+
+  const fit = await page.evaluate(() => {
+    const shell = document.querySelector('.map-shell');
+    const map = document.querySelector('.map--hero');
+    const key = document.querySelector('[data-od-id="map-legend"]');
+    const s = shell.getBoundingClientRect(), m = map.getBoundingClientRect();
+    return {
+      shellW: Math.round(s.width), mapW: Math.round(m.width),
+      viewportW: window.innerWidth,
+      cap: getComputedStyle(shell).maxInlineSize,
+      /* The consequence, not just the mechanism: how far the key sits inside
+         the map's own left edge. Negative means it has escaped. */
+      keyInset: key ? Math.round(key.getBoundingClientRect().left - m.left) : null
+    };
+  });
+
+  console.log('\n== shell cap at 1200x700 ==');
+  ok('the cap binds at all at this size', fit.shellW < fit.viewportW,
+     `shell ${fit.shellW} vs viewport ${fit.viewportW} (cap ${fit.cap})`);
+  ok('the shell hugs the map it wraps', fit.shellW === fit.mapW,
+     `shell ${fit.shellW} vs map ${fit.mapW}`);
+  if (fit.keyInset === null) console.log('  SKIP no legend on the map to measure');
+  else ok('the on-map key stays inside the map', fit.keyInset >= 0, `inset ${fit.keyInset}px`);
+
+  /* The country fit is 926/382; a province window is taller (--map-view-h 560).
+     Capping every shell by the country ratio would narrow this page's map by a
+     ratio that is not its own, so the cap is scoped to shells wrapping a hero. */
+  const area = await short.newPage();
+  await area.goto(`${BASE}/ui_kits/app/area-detail.html?oblast=${encodeURIComponent('София-град')}&cb=${Date.now()}`,
+                  { waitUntil: 'networkidle', timeout: 60000 });
+  const wide = await area.evaluate(() =>
+    getComputedStyle(document.querySelector('.map-shell')).maxInlineSize);
+  ok('a province shell takes no country-shaped cap', wide === 'none', wide);
+
+  await short.close();
+}
+
 await browser.close();
 server.close();
 console.log(`\n${pass} passed, ${fail} failed`);
