@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Карта · airbg.org</title>
 <link rel="icon" href="../../assets/favicon.svg">
-<link rel="stylesheet" href="../../tokens.css?v=39">
-<link rel="stylesheet" href="../../colors_and_type.css?v=39">
-<link rel="stylesheet" href="../../components.css?v=39">
-<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=39">
-<link rel="stylesheet" href="app.css?v=39">
+<link rel="stylesheet" href="../../tokens.css?v=40">
+<link rel="stylesheet" href="../../colors_and_type.css?v=40">
+<link rel="stylesheet" href="../../components.css?v=40">
+<link rel="stylesheet" href="../../assets/vendor/maplibre-gl.css?v=40">
+<link rel="stylesheet" href="app.css?v=40">
 </head>
 <body>
 <header class="masthead" data-od-id="masthead">
@@ -83,15 +83,6 @@
            `hidden` until map-tiles.js reports a camera: with the SVG basemap
            drawing there are no tile layers to switch, and a control over
            nothing is the dead control this system keeps hitting. -->
-      <div class="colmenu toolbar__layers" data-od-id="map-layers" hidden>
-        <button type="button" class="btn btn--secondary" id="map-layers-btn"
-                aria-expanded="false" aria-controls="map-layers-panel">Слоеве</button>
-        <div class="colmenu__panel" id="map-layers-panel" hidden>
-          <fieldset>
-            <legend>Показвай на картата</legend>
-          </fieldset>
-        </div>
-      </div>
       <button type="button" class="btn btn--secondary toolbar__refresh" data-od-id="refresh">
         <svg class="data-refresh__ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
           <path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -130,6 +121,33 @@
          LEFT because MapLibre puts its attribution bottom-right; the two
          would have shared a corner. Over Greece and North Macedonia, which
          are context and carry no reading (§5.2), so it covers no data. -->
+    <!-- The layer switcher sits ON the map now, immediately above the scale in
+         the same bottom-left stack, the way the reference map does it. It was
+         in the toolbar, which put a control for the map outside the map: the
+         reader had to leave the thing they were adjusting to adjust it, and on
+         a full-bleed map that is a long way to look.
+
+         Icon-only, like the fullscreen and zoom controls it now shares a
+         surface with. Its name comes from the catalogue via aria-label, not
+         from visible text, so it stays translated without a word competing
+         with the scale beside it. -->
+    <div class="colmenu map__layers" data-od-id="map-layers" hidden>
+      <button type="button" class="btn btn--icon colmenu__btn" id="map-layers-btn"
+              aria-expanded="false" aria-controls="map-layers-panel"
+              aria-label="Слоеве" title="Слоеве">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M8 1.75 1.75 5 8 8.25 14.25 5 8 1.75Z" fill="none" stroke="currentColor"
+                stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M1.75 8.5 8 11.75 14.25 8.5M1.75 11.75 8 15l6.25-3.25" fill="none"
+                stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div class="colmenu__panel" id="map-layers-panel" hidden>
+        <fieldset>
+          <legend>Показвай на картата</legend>
+        </fieldset>
+      </div>
+    </div>
     <details class="scale scale--named scale--vertical scale--onmap" data-od-id="map-legend" open>
       <!-- Icon only. The word was a label for a control whose triangle already
            says what it does, and it pushed the whole scale to the right of it.
@@ -221,21 +239,21 @@
     <p class="attribution" data-od-id="attribution" hidden></p>
   </div>
 </footer>
-<script src="origins.js?v=39"></script>
-<script src="i18n.js?v=39"></script>
-<script src="oblast-link.js?v=39"></script>
-<script src="airbg-data.js?v=39"></script>
-<script src="masthead.js?v=39"></script>
-<script src="map-provinces.js?v=39"></script>
-<script src="theme.js?v=39"></script>
-<script src="map-fullscreen.js?v=39"></script>
-<script src="map-metric.js?v=39"></script>
-<script src="../../assets/vendor/pmtiles.js?v=39"></script>
-<script src="map-render.js?v=39"></script>
-<script src="map-legend.js?v=39"></script>
-<script src="map-tiles.js?v=39"></script>
-<script src="map-layers.js?v=39"></script>
-<script src="map-zoom.js?v=39"></script>
-<script src="map-pan.js?v=39"></script>
+<script src="origins.js?v=40"></script>
+<script src="i18n.js?v=40"></script>
+<script src="oblast-link.js?v=40"></script>
+<script src="airbg-data.js?v=40"></script>
+<script src="masthead.js?v=40"></script>
+<script src="map-provinces.js?v=40"></script>
+<script src="theme.js?v=40"></script>
+<script src="map-fullscreen.js?v=40"></script>
+<script src="map-metric.js?v=40"></script>
+<script src="../../assets/vendor/pmtiles.js?v=40"></script>
+<script src="map-render.js?v=40"></script>
+<script src="map-legend.js?v=40"></script>
+<script src="map-tiles.js?v=40"></script>
+<script src="map-layers.js?v=40"></script>
+<script src="map-zoom.js?v=40"></script>
+<script src="map-pan.js?v=40"></script>
 </body>
 </html>

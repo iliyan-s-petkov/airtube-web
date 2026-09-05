@@ -131,8 +131,16 @@
      * render time and `data-i18n` cannot reach copy that did not exist when the
      * swap walked the DOM (§5.12). */
     function render() {
-      btn.textContent = t('layers.button', 'Слоеве');
-      btn.setAttribute('title', t('layers.title', 'Какво да показва картата'));
+      /* The button may be icon-only (it is, on the map). Writing textContent
+       * would delete the icon and put a word back in a 32px square. Where there
+       * is an SVG the name goes to aria-label; where there is not, the visible
+       * label is still the name. Both paths stay translated. */
+      var iconOnly = !!btn.querySelector('svg');
+      var name = t('layers.button', 'Слоеве');
+      if (iconOnly) btn.setAttribute('aria-label', name);
+      else btn.textContent = name;
+      btn.setAttribute('title', iconOnly ? name
+                                         : t('layers.title', 'Какво да показва картата'));
       legend.textContent = t('layers.legend', 'Показвай на картата');
       list.querySelectorAll('.colmenu__opt').forEach(function (n) { n.remove(); });
 
@@ -183,7 +191,23 @@
         apply(g, input.checked);
       });
     }
-    document.addEventListener('airbg:languagechange', function () { if (map) render(); });
+    document.addEventListener('airbg:languagechange', function () { render(); });
+
+    /* Build once NOW, without waiting for airbg:basemapchange.
+     *
+     * map-tiles.js is loaded BEFORE this file and its WebGL check is
+     * synchronous, so where WebGL is unavailable it stands down and fires
+     * basemapchange during its own script evaluation — before this listener
+     * exists. The event was missed, render() never ran, and the control stayed
+     * hidden forever on exactly the surface that needs it most: the SVG
+     * fallback, where the legend toggle is the only thing in here.
+     *
+     * A listener registered after the announcement is a listener that hears
+     * nothing. The fix is to derive the state rather than depend on catching
+     * the moment it changed — the event still updates it when a camera does
+     * arrive. */
+    render();
+    root.hidden = !list.querySelector('.colmenu__opt');
 
     /* map-tiles.js owns whether a camera exists and says so on this event. This
      * file never probes for one: two things deciding whether the basemap is

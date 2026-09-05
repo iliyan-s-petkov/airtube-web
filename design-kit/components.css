@@ -1378,6 +1378,85 @@ body.has-faux-full { overflow: hidden; }
   block-size: 1px;
   background: var(--fg);
 }
+/* The navigation-only marker: a place to click, not a reading. Deliberately
+ * outside the air-quality ramp (§2.1's two-palette rule) so it can never be
+ * mistaken for a measurement — it is UI, and it takes UI colours. */
+.map-point__dot--nav {
+  fill: var(--bg);
+  stroke: var(--fg-2);
+  stroke-width: 1.5;
+}
+.map-point:hover .map-point__dot--nav,
+.map-point:focus-visible .map-point__dot--nav { fill: var(--fg-2); }
+/* How many sensors the cell rests on. Deliberately quiet — it qualifies the
+ * reading, it is not the reading — but always legible, because a cell built
+ * from one device and a cell built from thirty must not look alike. */
+.map-hex__n {
+  text-anchor: middle;
+  font: var(--weight-body) 9px/1 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  fill: var(--fg-2);
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  /* Same 0.15em rule, on 9px type. 2.5px here was over a quarter of the em and
+   * turned a two-digit count into a smudge. */
+  stroke-width: 1.4px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+/* The on-map layer switcher: one icon button in the bottom-left stack, sitting
+ * directly above the scale. Same corner because they are the same kind of
+ * thing — controls for reading the map — and MapLibre owns bottom-right for
+ * attribution. */
+.map__layers {
+  position: absolute;
+  inset-block-end: 316px;         /* clears the scale panel below it */
+  inset-inline-start: 12px;
+  z-index: 3;
+}
+.map__layers .colmenu__btn {
+  inline-size: 32px;
+  block-size: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  cursor: pointer;
+}
+.map__layers .colmenu__btn:hover { background: var(--surface-2); }
+.map__layers .colmenu__btn[aria-expanded="true"] {
+  background: var(--fg);
+  color: var(--bg);
+}
+/* The panel opens UPWARD from the button — there is nothing but map below it,
+ * and a panel that opened downward would run off the frame. */
+.map__layers .colmenu__panel {
+  position: absolute;
+  inset-block-end: calc(100% + 6px);
+  inset-inline-start: 0;
+  min-inline-size: 232px;
+  max-block-size: 46vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+  padding: 8px 10px;
+}
+@media (max-width: 640px) {
+  /* On a narrow screen the scale folds and the stack would collide, so the
+   * switcher takes the top-left instead — still on the map, still one tap. */
+  .map__layers { inset-block-end: auto; inset-block-start: 12px; }
+  .map__layers .colmenu__panel {
+    inset-block-end: auto;
+    inset-block-start: calc(100% + 6px);
+  }
+}
 .map-hexes { pointer-events: none; }
 .map-hex {
   stroke: var(--bg);

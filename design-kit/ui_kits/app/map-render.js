@@ -891,6 +891,19 @@
         frame.setAttribute('data-context', drawn + ' rings, ' + ctxNamed + ' names');
       }
 
+      /* Bulgaria's own landmass, filled, under everything domestic.
+       *
+       * It never needed one before: the province choropleth WAS the fill, so
+       * the country was opaque by accident. Making provinces outline-only under
+       * the hexes removed that without replacing it, and the sea backdrop
+       * showed straight through — land and sea rendering the same blue, which
+       * is exactly as wrong as it looks. Water and ground are the one
+       * distinction a map cannot get away with blurring.
+       *
+       * Drawn from the same ring the national border uses, so the fill and the
+       * outline can never disagree about where the country is. */
+      svg.appendChild(el('path', { class: 'map-landmass', d: d(project(ring).pts) }));
+
       /* Draw the largest province first so a small one enclosed by it — София-град
        * inside Софийска — is never buried. Geography, not z-index guesswork. */
       var shapes = [];
@@ -1071,6 +1084,27 @@
               (h.country !== 'BG' ? ' · ' + h.country : '');
             poly.appendChild(ti);
             hl.appendChild(poly);
+
+            /* The count, ON the hex, once the cell is big enough to hold it.
+             *
+             * The reference map states it too ("you can see the amount of
+             * sensor in the area and the median value") and it is the single
+             * fact that answers "is each hexagon a sensor?" before a reader has
+             * to ask. 54 of our cells hold one sensor and 6 hold more than
+             * thirty; drawn identically, they claim identical authority. The
+             * dashed edge on a single-sensor cell was carrying that alone and
+             * was not read.
+             *
+             * Below ~13px there is no room for a glyph, and a number too small
+             * to read is worse than none — the tooltip and the dashed edge
+             * still carry it there. */
+            if (hr >= 13) {
+              var nt = el('text', {
+                class: 'map-hex__n', x: cx.toFixed(1), y: (cy + hr * 0.52).toFixed(1)
+              });
+              nt.textContent = h.n;
+              hl.appendChild(nt);
+            }
             drawnHex++;
           });
         }
@@ -1450,27 +1484,47 @@
              * for. The dot is now big enough to hold the number, filled with
              * the served band (§2.1) and inked from that fill's own luminance,
              * exactly as a province's value is. Same rule, one tier down. */
+            /* ...UNLESS the hexes are drawing, in which case it does not.
+             *
+             * A neighbourhood marker and a hex are two different aggregations
+             * of the SAME readings — the marker averages an administrative
+             * shape, the hex averages a 15 km bin — and drawn together, in the
+             * same ramp, they are two coloured answers to one question sitting
+             * on top of each other. A reader cannot tell which is the reading,
+             * and reasonably concludes the small marks must be the sensors
+             * themselves. They are not; nothing here is a sensor.
+             *
+             * So where hexes draw, the hex is the reading and the marker drops
+             * to what it still uniquely does: naming a place and being the way
+             * into it. No band fill, no number, no competing claim. */
             var cx = X(a.lon), cy = Y(a.lat);
-            var R = av == null ? 9 : 14;
+            var navOnly = hexesWillDraw;
+            var R = navOnly ? 4 : (av == null ? 9 : 14);
             var c = el('circle', {
-              class: 'map-point__dot', cx: cx.toFixed(1), cy: cy.toFixed(1), r: R
+              class: 'map-point__dot' + (navOnly ? ' map-point__dot--nav' : ''),
+              cx: cx.toFixed(1), cy: cy.toFixed(1), r: R
             });
-            if (af) c.setAttribute('fill', af);
+            if (af && !navOnly) c.setAttribute('fill', af);
             g.appendChild(c);
 
-            var vt = el('text', {
-              class: 'map-point__value', x: cx.toFixed(1), y: (cy + 4).toFixed(1)
-            });
-            vt.textContent = av == null ? '—' : num(av);
-            // Ink is computed from the band, never fixed: the fill is data.
-            if (af) vt.setAttribute('fill', inkFor(af));
-            g.appendChild(vt);
+            if (!navOnly) {
+              var vt = el('text', {
+                class: 'map-point__value', x: cx.toFixed(1), y: (cy + 4).toFixed(1)
+              });
+              vt.textContent = av == null ? '—' : num(av);
+              // Ink is computed from the band, never fixed: the fill is data.
+              if (af) vt.setAttribute('fill', inkFor(af));
+              g.appendChild(vt);
+            }
 
             // The name sits under the mark now that the number is inside it.
             var lab = el('text', {
               class: 'map-point__name', x: cx.toFixed(1), y: (cy + R + 12).toFixed(1)
             });
             lab.textContent = lang() === 'en' ? a.name_en : a.name_bg;
+            /* The name sits tight to a 4px navigation dot, not below a 14px
+             * disc that is no longer there. */
+            if (navOnly) lab.setAttribute('y', (cy + R + 11).toFixed(1));
             g.appendChild(lab);
             // The name is the accessible name; the reading and its tier follow,
             // so a screen reader never gets a bare number (§9.1).

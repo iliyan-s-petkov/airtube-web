@@ -83,7 +83,18 @@ const btn = root.querySelector('button');
 const panel = root.querySelector('.colmenu__panel');
 
 console.log('\n1. what is offered while the SVG basemap draws');
-ok('starts hidden, before anything has reported a basemap', root.hidden);
+/* SUPERSEDED. This asserted the control stays hidden until a basemap reports
+ * in — which encoded a real defect as a contract. map-tiles.js loads BEFORE
+ * this file and its WebGL check is synchronous, so where WebGL is unavailable
+ * it announces the stand-down during its own evaluation, before this file's
+ * listener exists. Waiting for that event meant waiting forever, and the
+ * control never appeared on the SVG fallback: the one surface where the legend
+ * toggle inside it has no other route.
+ *
+ * The rule now: build from derived state at load, and let the event UPDATE it.
+ * A listener registered after the announcement hears nothing. */
+ok('offered at load, without waiting for a basemap report',
+   !root.hidden && !!panel.querySelector('.colmenu__opt'));
 window.document.dispatchEvent(new window.CustomEvent('airbg:basemapchange', { detail: { state: 'local' } }));
 /* SUPERSEDED with the rule above it: a stood-down basemap has no layer
  * categories to switch, but the legend toggle still means something — and this

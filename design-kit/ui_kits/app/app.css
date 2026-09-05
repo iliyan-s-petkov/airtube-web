@@ -42,6 +42,11 @@
    is the mark; a dot would put a territorial average on a point it was never
    measured at. Fills are served colours, set as attributes (§2.1). */
 .map-svg { display: block; inline-size: 100%; block-size: 100%; }
+/* The country's ground. Same page colour the neighbouring land takes, because
+ * it is the same kind of thing — ground — and the sea is the one that differs.
+ * `.map-land` below is the OUTLINE of the same ring, drawn last; this is the
+ * fill, drawn first. Two paths, one geometry. */
+.map-landmass { fill: var(--bg); pointer-events: none; }
 .map-land { fill: none; stroke: var(--border); stroke-width: 1.25; }
 /* Neighbouring countries, under everything. Bulgaria on an empty field reads as
    a cut-out; with its actual surroundings drawn at the same projection it reads
@@ -112,13 +117,26 @@
 .map-labels text {
   paint-order: stroke fill;
   stroke: var(--bg);
-  stroke-width: 3px;
+  /* 1.8px, not 3px. A stroke straddles the glyph outline, so half of it grows
+   * INWARD: 3px on 12px type added ~1.5px to a stem about 1.5px wide, doubling
+   * every stroke and closing the counters in а, е, о. The text stopped looking
+   * like IBM Plex and started looking like a bolder, blurrier face — which is
+   * what "the fonts look weird" was. It was never the typeface.
+   *
+   * 0.15em is the practical ceiling for a halo before it deforms the letter.
+   * At 12px that is 1.8px, and it still separates the label from the hexes. */
+  stroke-width: 1.8px;
   stroke-linejoin: round;
+  stroke-linecap: round;
 }
 /* Where hexes are drawn, the province ink stops being computed from a fill the
  * reader can no longer see. Near-black on the halo, every time. */
-[data-hexes] .map-area__value,
-[data-hexes] .map-area__name { fill: var(--fg); }
+/* The reading is near-black; the place name is a step quieter. Both were --fg,
+ * which made a 12px name compete with the number it belongs to — and over a
+ * busy hex field two equal-weight lines read as one blob of text. The name is
+ * still well above the contrast floor on the halo. */
+[data-hexes] .map-area__value { fill: var(--fg); }
+[data-hexes] .map-area__name { fill: var(--fg-2); }
 [data-hexes] .map-area__value--none,
 [data-hexes] .map-area__name--none { fill: var(--fg-2); }
 /* The name under the reading: body weight, so the number stays the thing you
