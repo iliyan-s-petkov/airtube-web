@@ -628,6 +628,7 @@
        * choropleth underneath the hexes. tiled() is gone from BOTH. */
       hexesWillDraw = !!(hexes && hexes.hexes && hexes.hexes.length);
 
+
       var VH = H;
       try {
         var cssH = parseFloat(getComputedStyle(frame).getPropertyValue('--map-view-h'));
@@ -1033,6 +1034,30 @@
        * They are not OSM, but they carry the border, and a hex sitting inside a
        * named province still says "this much was measured here" — which is more
        * honest than a province painted one colour from two sensors. */
+      /* SCALE, published from every draw — outside the hex guard.
+       *
+       * It used to be set INSIDE the hex layer, which made it depend on hexes
+       * existing. That closed a loop with nothing in it: zoom past the point
+       * where any 15 km cell is in view, the hex block does not run, pxPerKm
+       * stops updating, the fetch keeps asking for 15 km, and 15 km has nothing
+       * to show at that zoom. Measured on production: marks 0 from z11 to z15,
+       * with only `resolution_km=15` ever requested. The map went blank and
+       * could not ask for the data that would have filled it.
+       *
+       * Here it is computed wherever the projection is final and published
+       * unconditionally, so the request that decides WHICH grid to fetch no
+       * longer depends on the grid it already has. Measured through the same
+       * projection the marks use, at the country's own latitude so a degree of
+       * longitude is a known distance. */
+      (function () {
+        var LAT = 42.7;
+        var kmDegLon = 111.32 * Math.cos(LAT * Math.PI / 180);
+        var px = Math.abs(X(25.5 + 1 / kmDegLon) - X(25.5));
+        if (isFinite(px) && px > 0) {
+          window.AIRBG_MAP_PXPERKM = function () { return px; };
+        }
+      }());
+
       if (hexes && hexes.hexes) {
         var hl = el('g', { class: 'map-hexes' });
         /* ---- Zoom-aware cell size --------------------------------------
@@ -1066,7 +1091,9 @@
          * camera. Measured through the same projection the marks use, so the
          * request and the drawing can never disagree about what scale the
          * reader is at. */
-        window.AIRBG_MAP_PXPERKM = function () { return pxPerKm; };
+        /* Not published here any more — see the SCALE block above. Publishing
+         * it from inside this layer made the request depend on the layer having
+         * something to draw, which is the deadlock. */
         window.AIRBG_MAP_BBOX = function () {
           var inv = window.AIRBG_MAP_UNPROJECT;
           if (!inv) return null;
