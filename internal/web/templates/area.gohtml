@@ -1,6 +1,10 @@
 {{define "title"}}{{.Area.Name}} — {{.T "site.title"}}{{end}}
 
 {{define "main"}}
+{{/* .frame, not .measure: this page carries a map and a chart, which need the
+     data width. Slice D gives it the kit's .readouts and .map--wide; the
+     container is what it needs now that <main> no longer clamps anything. */}}
+<div class="frame">
 <nav aria-label="breadcrumb"><a href="{{.Path "/"}}">{{.T "area.back_to_map"}}</a></nav>
 
 <h1>{{.Area.Name}}</h1>
@@ -54,7 +58,7 @@
      announced only as "Map". The description points at the province list
      below, which is already the text alternative and the no-JS fallback,
      so the two are connected rather than merely both present. */}}
-<div id="area-map" data-island="map"
+<div id="area-map" data-island="map" class="data-frame map"
      role="region" aria-label="{{.T "map.label"}}"
      aria-describedby="area-map-alt"
      data-slug="{{.Area.Slug}}"
@@ -113,4 +117,5 @@
      data-t-chart-time="{{.T "chart.axis.time"}}"
      data-t-chart-empty="{{.T "chart.empty"}}"
      data-t-chart-unavailable="{{.T "map.error.unavailable"}}"></div>
+</div>
 {{end}}

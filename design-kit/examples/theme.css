@@ -386,6 +386,28 @@ body {
 .stack   { display: grid; gap: var(--space-4); }
 .stack-lg { display: grid; gap: var(--space-8); }
 
+/* The page and its head. Every one of the kit's screens opens the same way —
+   a title, one line saying what the screen shows — so the rules belong here
+   with the containers rather than in each consumer's own stylesheet. */
+.page { padding-block-end: var(--space-12); }
+.page-head { padding-block: var(--space-8) var(--space-6); }
+.page-head h1 { margin: 0 0 var(--space-2); }
+.page-head p { margin: 0; color: var(--fg-2); max-width: 60ch; }
+
+/* On the map home the map leads, so the head is a caption for it, not a hero.
+   Tightened to 24/16 so the map crosses the fold on a 900px viewport. */
+.page-head--compact { padding-block: var(--space-6) var(--space-4); }
+
+/* Readout strip: a measured value, what it is, and the tier it aggregates.
+   The 1px gap over a --border-soft ground is what draws the dividers, so the
+   cells need no borders of their own and reflow without leaving a stray edge. */
+.readouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; background: var(--border-soft); border: 1px solid var(--border-soft); }
+.readout { background: var(--bg); padding: var(--space-4); display: grid; gap: var(--space-1); }
+.readout__label { color: var(--fg-2); font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body); letter-spacing: var(--track-caption); }
+.readout__value { font: var(--weight-display) var(--text-readout)/var(--leading-readout) var(--font-body); font-variant-numeric: tabular-nums; }
+.readout__unit { font: var(--weight-body) var(--text-body)/1 var(--font-body); color: var(--fg-2); }
+.readout__tier { color: var(--fg-2); font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body); letter-spacing: var(--track-compact); }
+
 /* --------------------------------------------------------- Focus (§5.6) */
 
 :where(a, button, input, select, [tabindex]):focus-visible {

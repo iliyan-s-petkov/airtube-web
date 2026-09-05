@@ -5,8 +5,12 @@
      also the one page that must render when there is no snapshot — see
      handleAbout — so it may not depend on .Areas or .Area. */}}
 {{define "main"}}
-<h1>{{.T "about.title"}}</h1>
-<p>{{.T "about.intro"}}</p>
+{{/* Prose, so .measure and not .frame: this page is read, not scanned. */}}
+<div class="measure">
+<div class="page-head">
+  <h1 class="t-title">{{.T "about.title"}}</h1>
+  <p class="t-body">{{.T "about.intro"}}</p>
+</div>
 
 <h2>{{.T "about.sensors.heading"}}</h2>
 <p>{{.T "about.sensors.body"}}</p>
@@ -26,4 +30,5 @@
 <p>{{.T "about.sources.body"}}</p>
 
 <p><a href="{{.Path "/"}}">{{.T "area.back_to_map"}}</a></p>
+</div>
 {{end}}

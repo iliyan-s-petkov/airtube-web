@@ -53,7 +53,11 @@
   </nav>
 </header>
 
-<main>
+{{/* No width of its own: the kit's .frame (data) and .measure (prose) are what
+     contain a page's content, and they have to be per-block because the map
+     runs full-bleed between two contained blocks. A width on <main> would have
+     been a third opinion the two containers then had to fight. */}}
+<main class="page">
 {{block "main" .}}{{end}}
 </main>
 

@@ -1,6 +1,13 @@
 {{define "main"}}
-<h1>{{.T "site.title"}}</h1>
-<p>{{.T "site.tagline"}}</p>
+<div class="frame">
+{{/* Compact because the map leads this page: the head is its caption, not a
+     hero of its own. The copy is the site's — the kit's mockup writes a
+     different sentence, and which sentence the home page says is a product
+     decision, not a design-system one. */}}
+<div class="page-head page-head--compact">
+  <h1 class="t-title">{{.T "site.title"}}</h1>
+  <p class="t-body">{{.T "site.tagline"}}</p>
+</div>
 
 {{/* The switcher: server-rendered metric list and labels, positional pairs —
      see PageData.Metrics/MetricLabels. Above the map island because it
@@ -10,6 +17,14 @@
      data-metric-labels="{{.MetricLabelsAttr}}"
      data-metric="{{.DefaultMetric}}"
      data-t-legend="{{.T "metric.legend"}}"></div>
+</div>
+
+{{/* The map runs full-bleed BETWEEN two contained blocks, which is why the
+     .frame above closes here and another opens below rather than wrapping the
+     page. The shell carries the same width cap as the map so an overlay
+     anchored to the shell lands on the map's edge and not 79px off it — see
+     .map-shell in components.css. */}}
+<div class="map-shell">
 
 {{/* The list below stays as the no-JavaScript fallback and as the crawlable
      content — a map alone is invisible to a search engine and unusable with
@@ -19,7 +34,7 @@
      announced only as "Map". The description points at the province list
      below, which is already the text alternative and the no-JS fallback,
      so the two are connected rather than merely both present. */}}
-<div id="map" data-island="map"
+<div id="map" data-island="map" class="data-frame map map--hero"
      role="region" aria-label="{{.T "map.label"}}"
      aria-describedby="map-alt"
      data-zoom="{{.DefaultZoom}}" data-lon="{{.DefaultLon}}" data-lat="{{.DefaultLat}}"
@@ -49,6 +64,9 @@
      data-t-locate-failed="{{.T "locate.failed"}}"
      data-t-wind-toggle="{{.T "wind.toggle"}}"
      data-t-wind-attribution="{{.T "wind.attribution"}}"></div>
+</div>
+
+<div class="frame">
 
 {{/* The same panel island area.gohtml mounts, with the same attributes: the
      sensor tier is reachable from here too. refresh() (web/src/islands/map.js)
@@ -82,6 +100,21 @@
      data-t-chart-empty="{{.T "chart.empty"}}"
      data-t-chart-unavailable="{{.T "map.error.unavailable"}}"></div>
 
+{{/* Four figures the map cannot state: it shows where, not how much overall.
+     Every one is computed from the same province list rendered below (see
+     PageData.Readouts), so the strip can never name a top province the list
+     ranks second. Each cell carries the tier it aggregates — no bare numbers
+     (DESIGN.md §9.1). */}}
+<div class="readouts">
+{{range .Readouts}}
+  <div class="readout">
+    <span class="readout__label">{{.Label}}</span>
+    <span class="readout__value">{{.Value}}{{with .Unit}} <span class="readout__unit">{{.}}</span>{{end}}</span>
+    <span class="readout__tier">{{.Tier}}</span>
+  </div>
+{{end}}
+</div>
+
 <h2>{{.T "nav.areas"}}</h2>
 {{/* The map's text alternative, named so aria-describedby can reach it. It is
      one sentence, not a duplicate of the list: the list itself follows. */}}
@@ -101,4 +134,5 @@
   </li>
 {{end}}
 </ul>
+</div>
 {{end}}

@@ -1,7 +1,11 @@
 {{define "title"}}{{.T .TitleKey}} — {{.T "site.title"}}{{end}}
 
 {{define "main"}}
-<h1>{{.T .TitleKey}}</h1>
-<p>{{.T .BodyKey}}</p>
+<div class="measure">
+<div class="page-head">
+  <h1 class="t-title">{{.T .TitleKey}}</h1>
+  <p class="t-body">{{.T .BodyKey}}</p>
+</div>
 <p><a href="{{.Path "/"}}">{{.T "area.back_to_map"}}</a></p>
+</div>
 {{end}}

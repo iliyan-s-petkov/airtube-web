@@ -4,14 +4,10 @@
  * components into real screens. If a value below is not a token, that is a bug.
  */
 
-.page { padding-block-end: var(--space-12); }
-.page-head { padding-block: var(--space-8) var(--space-6); }
-.page-head h1 { margin: 0 0 var(--space-2); }
-.page-head p { margin: 0; color: var(--fg-2); max-width: 60ch; }
-
-/* On the map home the map leads, so the head is a caption for it, not a hero.
-   Tightened to 24/16 so the map crosses the fold on a 900px viewport. */
-.page-head--compact { padding-block: var(--space-6) var(--space-4); }
+/* .page, .page-head and the .readout strip moved DOWN into components.css:
+   every screen in this kit opens with the same head and three of them carry
+   readouts, and a consumer that loads only the three shared sheets was getting
+   the classes with no rules behind them. */
 
 /* The hero map is a full-bleed band: legend and readouts butt straight up
    against it so the three read as one surface, not three stacked cards. */
@@ -27,14 +23,6 @@
    Full control height (48px) so it shares the field's baseline; the freshness
    line stays under the legend, where the key it qualifies is. */
 .toolbar__refresh { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
-
-/* Readout strip under the map: value + the tier it aggregates. */
-.readouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; background: var(--border-soft); border: 1px solid var(--border-soft); }
-.readout { background: var(--bg); padding: var(--space-4); display: grid; gap: var(--space-1); }
-.readout__label { color: var(--fg-2); font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body); letter-spacing: var(--track-caption); }
-.readout__value { font: var(--weight-display) var(--text-readout)/var(--leading-readout) var(--font-body); font-variant-numeric: tabular-nums; }
-.readout__unit { font: var(--weight-body) var(--text-body)/1 var(--font-body); color: var(--fg-2); }
-.readout__tier { color: var(--fg-2); font: var(--weight-body) var(--text-compact)/var(--leading-compact) var(--font-body); letter-spacing: var(--track-compact); }
 
 /* Map placeholder inside the kit: the real map is a Leaflet canvas in the app.
    The frame, height and legend are the parts this design system owns. */

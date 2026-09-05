@@ -5,13 +5,12 @@ body {
   color: var(--fg);
   background: var(--bg);
 }
-/* Two containers, without a wrapper element per page: main is allowed the wide
-   --frame, its children are pulled back to the reading --measure, and the data
-   surfaces opt back out. Prose stays at a reading width, the map and the table
-   get the width they need, and neither needs markup that knows about layout. */
-main { max-width: var(--frame); margin: 0 auto; padding: var(--space-4) var(--gutter); }
-main > * { max-width: var(--measure); margin-inline: auto; }
-main > #map, main > #area-map, main > .frame { max-width: var(--frame); }
+/* The two containers are the kit's .frame (data) and .measure (prose), applied
+   per block in the templates. The element-selector version this file used
+   (`main`, `main > *`) could not express the home page's shape — a full-bleed
+   map BETWEEN two contained blocks — because every child got the same clamp,
+   and the map then had to opt back out by id. Deleted rather than narrowed:
+   the kit's containers already say all of it. */
 /* The masthead and the footer are the kit's now — .masthead, .masthead__brand,
    .masthead__link, .langpick and .footer in components.css. The site's own
    descriptions of both are gone rather than overridden: two descriptions of one
@@ -76,41 +75,13 @@ strong, b { font-weight: var(--weight-emphasis); }
    reader something is wrong. .notice's warning bar next to every city name
    would read as an error state on 27 healthy pages. */
 .notice-inline { color: var(--muted); font-size: var(--text-compact); letter-spacing: var(--track-compact); }
-/* The map is the primary surface, sized by RATIO not by pixels (DESIGN.md 5.2
-   and the 1 fit). A fixed 24rem held the 926:382 fit at exactly one viewport
-   width and cropped the country at every other, and it made the map one card
-   among several on a page whose whole point is the map. The first term is the
-   fit, the second is how much viewport the map may claim; whichever is larger
-   wins, so the country can never crop and the map can always be taller. */
-#map, #area-map {
-  position: relative; background: var(--map-placeholder-bg); border: 1px solid var(--border);
-  /* Height DERIVES from width, so the fit holds at every viewport instead of at
-     one. `100cqi` was wrong here: nothing declares a container, so the whole
-     min() would have been invalid and the declaration dropped. */
-  aspect-ratio: 926 / 382;
-  min-block-size: 22rem;
-  /* A short viewport is paid for in WIDTH, never in height: trimming height
-     alone widens the aspect past 926:382, which is the axis that crops. So the
-     cap is expressed as the width whose derived height equals it. */
-  /* Capped at 100% FIRST. With aspect-ratio set, a min-block-size floor is
-     satisfied by growing WIDTH — at 390px the 22rem floor inflated the map to
-     853px and put a horizontal scrollbar on every phone (6 forbids exactly
-     that). Bounded by the container, the floor makes the box TALLER than the
-     fit instead, which 1 says is always safe. */
-  /* Width is DEFINITE, so the height floor can never be satisfied by growing
-     the box sideways. */
-  inline-size: 100%;
-  margin-inline: auto;
-}
-/* The cap lives on the same selector that caps the frame, because `main > #map`
-   (0,1,1) beats a bare `#map` (0,1,0) — the first version put it on the loser
-   and the declaration silently did nothing, which is this project's recurring
-   defect in a new place: when two rules have an opinion, write the intent where
-   the winner can see it. A short viewport is paid for in width (1). */
-main > #map, main > #area-map {
-  max-width: min(var(--frame), calc(var(--map-cap) * 926 / 382));
-}
-@media (max-width: 1056px) { :root { --map-cap: 52vh; } }
+/* The frame, the 926:382 country fit, the height floor and the 1056px
+   breakpoint are all the kit's .data-frame/.map/.map--hero now, and this file's
+   own version of them is gone. It was the same rules written twice, and the
+   second copy had already drifted: it capped the width on `main > #map`, a
+   selector that stops existing the moment the map is not main's direct child —
+   which is exactly what .map-shell makes it. */
+
 #chart { min-height: 12rem; }
 .map-legend, .map-hint, .map-note {
   position: absolute; z-index: 1; left: var(--space-2);

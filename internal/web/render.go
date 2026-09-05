@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -174,6 +176,84 @@ type AreaRow struct {
 	// a float on its own. Formatting once here also keeps every row identical
 	// in precision.
 	ValueText string
+}
+
+// Readout is one cell of the country summary strip: what was measured, the
+// figure, its unit, and one line saying what the figure covers. Tier is part
+// of the cell rather than decoration — a bare number on this page would not
+// say whether it is one sensor, one province, or the country (DESIGN.md §9.1).
+type Readout struct {
+	Label string
+	Value string
+	Unit  string
+	Tier  string
+}
+
+// Readouts summarises the province list the page already renders rather than
+// asking the snapshot a second set of questions. The strip and the list are
+// then two views of one set of numbers and cannot drift apart — a "highest"
+// cell that named a province the list below ranked second would be worse than
+// no cell at all.
+//
+// Nil when there is no list, so a page without one (about, error) renders no
+// strip instead of four zeroes.
+func (p PageData) Readouts() []Readout {
+	if len(p.Areas) == 0 {
+		return nil
+	}
+
+	values := make([]float64, 0, len(p.Areas))
+	top, topValue := "", 0.0
+	sensors, silent := 0, 0
+	for _, a := range p.Areas {
+		// Sensor counts come from covered provinces only: an uncovered one
+		// reports a count the aggregates do not use, and adding it here would
+		// make the strip's total disagree with what the map is drawing.
+		if a.Covered {
+			sensors += a.SensorCount
+		}
+		if !a.HasValue {
+			silent++
+			continue
+		}
+		if len(values) == 0 || a.Value > topValue {
+			topValue, top = a.Value, a.Name
+		}
+		values = append(values, a.Value)
+	}
+
+	unit := p.T("unit." + p.DefaultMetric)
+	none := p.T("panel.no_value")
+	// The tier line is not optional. With nothing reporting, "highest" still
+	// has to say WHY there is no figure — an empty third line reads as a cell
+	// that failed to render rather than a country that is quiet tonight.
+	highest := Readout{Label: p.T("read.highest"), Value: none, Tier: p.T("home.tier_silent")}
+	median := Readout{Label: p.T("read.median"), Value: none}
+	if len(values) > 0 {
+		highest.Value, highest.Unit = formatValue(topValue, p.Lang), unit
+		highest.Tier = top + " · " + p.T("areas.tier")
+		median.Value, median.Unit = formatValue(medianOf(values), p.Lang), unit
+	}
+	median.Tier = strconv.Itoa(len(values)) + " " + p.T("home.tier_covered")
+
+	return []Readout{
+		highest,
+		median,
+		{Label: p.T("read.sensors"), Value: strconv.Itoa(sensors), Tier: p.T("home.tier_sensors")},
+		{Label: p.T("read.no_data"), Value: strconv.Itoa(silent), Tier: p.T("home.tier_silent")},
+	}
+}
+
+// medianOf takes ownership of values and sorts it in place. The median rather
+// than the mean because a handful of provinces sitting in a temperature
+// inversion pulls a national mean somewhere no province actually is.
+func medianOf(values []float64) float64 {
+	sort.Float64s(values)
+	n := len(values)
+	if n%2 == 1 {
+		return values[n/2]
+	}
+	return (values[n/2-1] + values[n/2]) / 2
 }
 
 type alternate struct {

@@ -205,10 +205,7 @@ func (rr *Renderer) rowFrom(meta snapshot.AreaMeta, lang string) AreaRow {
 	value, hasValue := meta.Values[rr.defaultMetric]
 	valueText := ""
 	if hasValue {
-		valueText = strconv.FormatFloat(value, 'f', 1, 64)
-		if lang == i18n.DefaultLang {
-			valueText = strings.Replace(valueText, ".", ",", 1)
-		}
+		valueText = formatValue(value, lang)
 	}
 	return AreaRow{
 		Slug: meta.Slug, Name: name, Kind: meta.Kind,
@@ -216,6 +213,19 @@ func (rr *Renderer) rowFrom(meta snapshot.AreaMeta, lang string) AreaRow {
 		Covered: meta.Covered, SensorCount: meta.SensorCount,
 		Value:   value, HasValue: hasValue, ValueText: valueText,
 	}
+}
+
+// formatValue writes a reading the way the language writes a decimal:
+// Bulgarian puts a comma where English puts a point. One place, because the
+// province rows and the country readouts sit on the same screen and printing
+// 12,4 in one and 12.4 in the other would read as two different measurements.
+// One decimal everywhere, so a column of them stays aligned.
+func formatValue(v float64, lang string) string {
+	s := strconv.FormatFloat(v, 'f', 1, 64)
+	if lang == i18n.DefaultLang {
+		s = strings.Replace(s, ".", ",", 1)
+	}
+	return s
 }
 
 // distSubFS strips the "dist" prefix so /static/build/assets/x.js maps to
