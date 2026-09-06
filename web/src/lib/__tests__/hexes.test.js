@@ -8,7 +8,7 @@ import {
   BBOX_MIN_ZOOM,
   POINT_TIER_MIN_ZOOM,
 } from '../hexes.js'
-import { colourFor } from '../colour.js'
+import { rampColour } from '../ramp.js'
 
 // Bin centres taken from the Go implementation, which is the only authority on
 // where a bin actually sits. Regenerate by printing hexCentre(axial{q,r}, res)
@@ -210,7 +210,7 @@ describe('hexFeatures', () => {
   }
 
   it('makes one closed polygon per bin, carrying its count and value', () => {
-    const f = hexFeatures(body, 'P1', bands, '#ccc', colourFor)
+    const f = hexFeatures(body, 'P1', bands, '#ccc', rampColour)
     expect(f).toHaveLength(3)
     expect(f[0].geometry.type).toBe('Polygon')
     expect(f[0].geometry.coordinates[0]).toHaveLength(7)
@@ -221,15 +221,15 @@ describe('hexFeatures', () => {
   // A bin with no reading for this metric is not a bin with no sensors. The
   // count is still true, so the cell stays and only its colour says "no value".
   it('keeps a bin that has no value for the current metric', () => {
-    const f = hexFeatures(body, 'P1', bands, '#ccc', colourFor)
+    const f = hexFeatures(body, 'P1', bands, '#ccc', rampColour)
     expect(f[2].properties).toMatchObject({ n: 2, value: null, colour: '#ccc' })
   })
 
   // The size the server SERVED, not the size the client asked for. The server
   // snaps onto its own tier list, so those two differ on most requests.
   it('draws at the resolution the response reports', () => {
-    const coarse = hexFeatures({ ...body, resolution_km: 5 }, 'P1', bands, '#ccc', colourFor)
-    const fine = hexFeatures({ ...body, resolution_km: 0.5 }, 'P1', bands, '#ccc', colourFor)
+    const coarse = hexFeatures({ ...body, resolution_km: 5 }, 'P1', bands, '#ccc', rampColour)
+    const fine = hexFeatures({ ...body, resolution_km: 0.5 }, 'P1', bands, '#ccc', rampColour)
     expect(widthOf(coarse[0].geometry.coordinates[0].slice(0, 6)))
       .toBeCloseTo(10 * widthOf(fine[0].geometry.coordinates[0].slice(0, 6)), 6)
   })
@@ -244,7 +244,7 @@ describe('hexFeatures', () => {
       { resolution_km: null, hexes: body.hexes },
       { resolution_km: '', hexes: body.hexes },
     ]) {
-      expect(hexFeatures(b, 'P1', bands, '#ccc', colourFor)).toEqual([])
+      expect(hexFeatures(b, 'P1', bands, '#ccc', rampColour)).toEqual([])
     }
   })
 })
@@ -291,14 +291,14 @@ describe('hexFeatures at the point tier', () => {
     resolution_km: 0,
     hexes: [{ lon: 23.356, lat: 42.676, sensor_id: 2888, n: 1, values: { P1: 33 } }],
   }
-  const colourFor = () => '#123456'
+  const rampColour = () => '#123456'
 
   // The reason the drawn size is a parameter: the grid must not VANISH when the
   // reader zooms past the finest published cell. It did — the cells were
   // replaced by dots that sit under the labelled sensor markers, so one zoom
   // step turned a map full of hexagons into an apparently empty street.
   it('draws a device as a cell of the size it was asked to draw', () => {
-    const [f] = hexFeatures(body, 'P1', [], '#eee', colourFor, 0.08)
+    const [f] = hexFeatures(body, 'P1', [], '#eee', rampColour, 0.08)
     expect(f.geometry.type).toBe('Polygon')
     // Same geometry the aggregate tiers get, at the size passed in: the ring is
     // hexPolygon's, so its width is the centre-to-centre spacing of that size.
@@ -309,8 +309,8 @@ describe('hexFeatures at the point tier', () => {
   // on-screen size and shrinks on the GROUND as the reader zooms — which is what
   // the tiers above it do, and why the transition is now invisible.
   it('shrinks with the size it is given', () => {
-    const wide = hexFeatures(body, 'P1', [], '#eee', colourFor, 0.08)[0]
-    const tight = hexFeatures(body, 'P1', [], '#eee', colourFor, 0.02)[0]
+    const wide = hexFeatures(body, 'P1', [], '#eee', rampColour, 0.08)[0]
+    const tight = hexFeatures(body, 'P1', [], '#eee', rampColour, 0.02)[0]
     const span = (f) => {
       const xs = f.geometry.coordinates[0].map((c) => c[0])
       return Math.max(...xs) - Math.min(...xs)
@@ -321,14 +321,14 @@ describe('hexFeatures at the point tier', () => {
   // Without a size there is nothing to draw a cell from, so the device stays the
   // mark it always was rather than becoming a cell of an arbitrary size.
   it('falls back to a point when given no size', () => {
-    const [f] = hexFeatures(body, 'P1', [], '#eee', colourFor)
+    const [f] = hexFeatures(body, 'P1', [], '#eee', rampColour)
     expect(f.geometry.type).toBe('Point')
     expect(f.geometry.coordinates).toEqual([23.356, 42.676])
   })
 
   it('carries the sensor id through, cell or point', () => {
-    expect(hexFeatures(body, 'P1', [], '#eee', colourFor)[0].properties.sensorId).toBe(2888)
-    expect(hexFeatures(body, 'P1', [], '#eee', colourFor, 0.08)[0].properties.sensorId).toBe(2888)
+    expect(hexFeatures(body, 'P1', [], '#eee', rampColour)[0].properties.sensorId).toBe(2888)
+    expect(hexFeatures(body, 'P1', [], '#eee', rampColour, 0.08)[0].properties.sensorId).toBe(2888)
   })
 
   // The drawn size is for the point tier alone. An aggregate cell is the
@@ -336,22 +336,22 @@ describe('hexFeatures at the point tier', () => {
   // cells stop tiling the ground their counts came from.
   it('ignores the drawn size on an aggregate tier', () => {
     const body1 = { resolution_km: 1, hexes: [{ lon: 23.3, lat: 42.7, n: 4, values: { P1: 20 } }] }
-    const [f] = hexFeatures(body1, 'P1', [], '#eee', colourFor, 0.02)
+    const [f] = hexFeatures(body1, 'P1', [], '#eee', rampColour, 0.02)
     expect(f.geometry.coordinates).toEqual([hexPolygon(23.3, 42.7, 1)])
   })
 
   it('leaves the id undefined on an aggregate tier', () => {
     const [f] = hexFeatures(
       { resolution_km: 1, hexes: [{ lon: 23.3, lat: 42.7, n: 4, values: { P1: 20 } }] },
-      'P1', [], '#eee', colourFor,
+      'P1', [], '#eee', rampColour,
     )
     expect(f.geometry.type).toBe('Polygon')
     expect(f.properties.sensorId).toBeUndefined()
   })
 
   it('still draws nothing for a body with no resolution', () => {
-    expect(hexFeatures({ hexes: [{ lon: 1, lat: 2 }] }, 'P1', [], '#eee', colourFor)).toEqual([])
-    expect(hexFeatures({ resolution_km: -1, hexes: [{}] }, 'P1', [], '#eee', colourFor)).toEqual([])
+    expect(hexFeatures({ hexes: [{ lon: 1, lat: 2 }] }, 'P1', [], '#eee', rampColour)).toEqual([])
+    expect(hexFeatures({ resolution_km: -1, hexes: [{}] }, 'P1', [], '#eee', rampColour)).toEqual([])
   })
 })
 

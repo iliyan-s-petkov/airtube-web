@@ -1,3 +1,5 @@
+import { rampGradient } from './ramp.js'
+
 // The map legend: the ramp, and what a dot means at the current zoom.
 //
 // Both halves exist because neither is inferable from the map. The ramp is
@@ -163,32 +165,19 @@ export function renderLegend(el, { title, toggleLabel, bands, noData }) {
   el.appendChild(none)
 }
 
-// The bar's gradient, built from the served bands and from nothing else.
+// The bar's gradient, and the map's colours, are now one function in ramp.js —
+// re-exported here because this is where the key's callers already look for it.
 //
-// HARD stops, one pair per band, never a blend: colourFor picks a band by its
-// inclusive upper bound, so 12 µg/m³ is squarely "Умерено" and no hex on the
-// map is ever painted a colour between two band colours. A smooth ramp here
-// would be a key showing colours nothing on screen uses — correct-looking and
-// wrong, which is the failure the kit's §2.1 is about.
+// It used to be hard stops, one pair per band: the map snapped every reading to
+// its band's colour, so a blended bar would have shown colours nothing on screen
+// used. Now the map blends too, and the same rule points the other way — a
+// stepped bar would hide every distinction the map draws.
 //
-// The stops are spaced EVENLY rather than by value, because the rows the bar is
-// drawn over are evenly spaced: each band is one 34px row, and a bar whose
-// seams did not land on the rows' seams would put every boundary number against
-// the wrong pair of colours.
-//
-// `to top`, because the list runs highest-first and the bar has to read the
-// same way as the numbers beside it.
-//
-// Below two bands there is no scale to draw — one band is a single colour, and
-// zero is a metric with no band table at all. Both keep the stacked blocks.
-export function rampGradient(bands) {
-  if (!bands || bands.length < 2) return ''
-  const step = 100 / bands.length
-  const stops = bands.map(
-    (band, i) => `${band.colour} ${(i * step).toFixed(3)}% ${((i + 1) * step).toFixed(3)}%`,
-  )
-  return `linear-gradient(to top, ${stops.join(', ')})`
-}
+// The band colours still land on their own rows. Each band is one evenly spaced
+// row, and the ramp anchors a band's colour at the middle of its share of the
+// bar, so each row's centre is exactly its own colour and the blending happens
+// across the seams, where the boundary numbers are.
+export { rampGradient }
 
 // preserveAspectRatio="none" because the caller sizes the element from CSS and
 // the two uses are different shapes: the band swatch is a 20px column stretched

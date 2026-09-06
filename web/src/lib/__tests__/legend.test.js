@@ -191,19 +191,19 @@ describe('renderLegend', () => {
 })
 
 describe('rampGradient', () => {
-  // Two stops per band with the same colour on both — that is a hard step. A
-  // single stop per colour would blend between neighbours and paint colours no
-  // hex on the map is ever given: colourFor picks a band, it does not mix two.
-  it('gives every band a hard step of its own colour', () => {
+  // The bar is a blend now, and the map is too. One position per stop, never a
+  // pair: a pair is a hard step, and a stepped key over a blended map would
+  // hide every distinction the hexes draw.
+  it('gives every stop one position, so the colours run together', () => {
     expect(rampGradient(BANDS)).toBe(
-      'linear-gradient(to top, #3c9 0.000% 33.333%, #fc3 33.333% 66.667%, #c33 66.667% 100.000%)',
+      'linear-gradient(to top, #3c9 0.000%, #3c9 16.667%, #fc3 50.000%, #c33 83.333%, #c33 100.000%)',
     )
   })
 
-  // The rows are 34px each whatever their bands span, so the seams have to be
+  // The rows are 34px each whatever their bands span, so the anchors have to be
   // evenly spaced. Spaced by value, every boundary number would sit against the
   // wrong pair of colours.
-  it('spaces the seams by row, not by how much value a band covers', () => {
+  it('spaces the anchors by row, not by how much value a band covers', () => {
     const wide = [
       { upper: 1, colour: '#a' },
       { upper: 500, colour: '#b' },
@@ -220,7 +220,6 @@ describe('rampGradient', () => {
 
   it('draws nothing for a scale that is not one', () => {
     expect(rampGradient([])).toBe('')
-    expect(rampGradient([{ upper: null, colour: '#3c9' }])).toBe('')
     expect(rampGradient(null)).toBe('')
   })
 })

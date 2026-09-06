@@ -10,7 +10,7 @@ import { tierFor } from '../lib/tier.js'
 import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../lib/legend.js'
 import { mountFullscreen, mountZoom, installZoom } from '../lib/mapcontrols.js'
 import { mountLayers, installLayers, LAYER_ORDER } from '../lib/maplayers.js'
-import { colourFor } from '../lib/colour.js'
+import { rampColour, rampValueStops } from '../lib/ramp.js'
 import { getJSON, clearCache } from '../lib/api.js'
 import { getFreshness } from '../lib/freshness.svelte.js'
 import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.js'
@@ -479,7 +479,7 @@ export async function initData(map, state, cfg, chrome) {
 // so it costs nothing on a repeat visit.
 //
 // A null result is NOT silent. Without the band tables, bandsFor returns [] and
-// colourFor paints every marker NO_DATA_COLOUR — a uniformly grey map, which on
+// rampColour paints every marker NO_DATA_COLOUR — a uniformly grey map, which on
 // an air-quality site reads as "the whole country has insufficient data" rather
 // than "we could not load the colour scale".
 //
@@ -614,7 +614,7 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
   // finest published cell instead of collapsing it into marks hidden under the
   // sensor markers.
   const features = hexFeatures(
-    state.hexBody, cfg.metric, bands, cfg.noDataColour, colourFor,
+    state.hexBody, cfg.metric, bands, cfg.noDataColour, rampColour,
     resolutionForZoom(Math.round(map.getZoom())),
   )
   map.getSource(HEX_SOURCE_ID)?.setData({ type: 'FeatureCollection', features })
@@ -723,7 +723,7 @@ export function areaFeatures(body, metric, scales, noDataColour) {
     geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
     properties: {
       slug: a.slug,
-      colour: a.covered ? colourFor(a.values?.[metric], bands, noDataColour) : noDataColour,
+      colour: a.covered ? rampColour(a.values?.[metric], bands, noDataColour) : noDataColour,
       value: a.covered ? a.values?.[metric] ?? null : null,
       sensor_count: a.sensor_count,
     },
@@ -749,7 +749,7 @@ export function sensorFeatures(body, metric, scales, noDataColour) {
       geometry: { type: 'Point', coordinates: [s.lon[i], s.lat[i]] },
       properties: {
         id: ids[i],
-        colour: colourFor(value, bands, noDataColour),
+        colour: rampColour(value, bands, noDataColour),
         value,
         quality: s.quality?.[i] ?? '',
       },
@@ -1051,7 +1051,7 @@ export function labelPaint(cfg) {
 // !scaled branch was tried and rejected: it paints "no reading" and "has a
 // reading" identically, so on a metric most sensors don't report (e.g.
 // temperature), the map reads as full coverage when it is not — the same
-// class of defect this file's colourFor/noDataColour split exists to
+// class of defect this file's rampColour/noDataColour split exists to
 // prevent for scaled metrics. ['has', 'value'] (the shape this task's brief
 // originally suggested) is ALSO wrong here, for a reason worth stating
 // loudly: areaFeatures and sensorFeatures always set the `value` key, even
@@ -1061,19 +1061,20 @@ export function labelPaint(cfg) {
 export function markerPaint(bands, { noDataColour, unscaledColour, scaled }) {
   if (!scaled) return ['case', ['==', ['get', 'value'], null], noDataColour, unscaledColour]
 
-  // Mirrors colourFor's own rule (bands ascending, upper INCLUSIVE, upper ==
-  // null is the open top band) but as a MapLibre `step` expression instead of
-  // a JS loop, because this runs in the paint property, not against a feature
-  // array — deliberately duplicated rather than shared with colourFor: the
-  // whole point of computing colour here, instead of recomputing every
-  // feature's `colour` property through colourFor again, is that switching
-  // metric must not re-walk every feature. See onMetricChange's comment.
-  const steps = []
-  for (let i = 0; i < bands.length - 1; i++) steps.push(bands[i].upper, bands[i + 1].colour)
+  // `interpolate`, not `step`: the markers are on the same scale as the hexes
+  // and must not be the one thing on the map still painted in categories.
+  //
+  // The stops come from rampValueStops, which puts one at every point where the
+  // ramp's slope changes, so a linear blend between them is the same colour
+  // rampColour computes for that value — a dot and the cell under it agree.
+  // Computed here rather than per feature for the reason onMetricChange gives:
+  // switching metric must not re-walk every feature.
+  const stops = rampValueStops(bands)
+  if (stops.length < 2) return ['case', ['==', ['get', 'value'], null], noDataColour, unscaledColour]
   return [
     'case',
     ['==', ['get', 'value'], null], noDataColour,
-    ['step', ['get', 'value'], bands[0]?.colour ?? noDataColour, ...steps],
+    ['interpolate', ['linear'], ['get', 'value'], ...stops.flatMap((s) => [s.value, s.colour])],
   ]
 }
 

@@ -762,6 +762,21 @@ describe('unscaled metrics', () => {
     expect(evalUnscaledCase(paint, { value: 12 })).toBe('#94a3b8')
   })
 
+  // The markers are on the same scale as the hexes. A `step` expression here
+  // would leave the dots painted in categories over a blended choropleth —
+  // two answers to the same question, on the same screen.
+  it('blends the markers rather than snapping them to a band', () => {
+    const bands = [{ upper: 10, colour: '#00ff00' }, { upper: null, colour: '#ff0000' }]
+    const paint = markerPaint(bands, { noDataColour: '#999999', unscaledColour: '#94a3b8', scaled: true })
+    const ramp = paint[3]
+    expect(ramp[0]).toBe('interpolate')
+    // A stop at every band midpoint AND every boundary — strictly more than
+    // one per band, which is all a step expression would need.
+    const values = ramp.slice(3).filter((_, i) => i % 2 === 0)
+    expect(values.length).toBeGreaterThan(bands.length)
+    expect(values).toEqual([...values].sort((a, b) => a - b))
+  })
+
   it('still uses the bands when the metric is scaled', () => {
     const paint = markerPaint(scales[0].bands, { noDataColour: '#999999', unscaledColour: '#94a3b8', scaled: true })
     expect(JSON.stringify(paint)).toContain('#50f0e6')

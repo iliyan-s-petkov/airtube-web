@@ -177,7 +177,7 @@ export function hexPolygon(lon, lat, resKM) {
  * is drawn at the size the server binned it to, or the cells stop tiling the
  * ground their counts describe.
  */
-export function hexFeatures(body, metric, bands, noDataColour, colourFor, pointResKM = 0) {
+export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointResKM = 0) {
   // Read as a number rather than coerced with Number(): now that zero is a
   // meaningful tier rather than nonsense, Number(null) and Number('') would
   // both land on it, and a malformed response would be drawn as a street full
@@ -204,7 +204,7 @@ export function hexFeatures(body, metric, bands, noDataColour, colourFor, pointR
         ? { type: 'Polygon', coordinates: [hexPolygon(h.lon, h.lat, drawKM)] }
         : { type: 'Point', coordinates: [h.lon, h.lat] },
       properties: {
-        colour: colourFor(value, bands, noDataColour),
+        colour: colourOf(value, bands, noDataColour),
         value,
         n: h.n,
         // Undefined on every aggregate tier, so a popup can tell a device from

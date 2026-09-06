@@ -31,7 +31,7 @@ describe('hasScale', () => {
     expect(hasScale(scales, 'temperature')).toBe(false)
   })
 
-  // A metric with an entry but an EMPTY band list is not scaled: colourFor
+  // A metric with an entry but an EMPTY band list is not scaled: rampColour
   // would paint every marker the no-data colour, which is the uniformly-grey
   // map this whole distinction exists to prevent.
   it('is false for an entry with no bands', () => {

@@ -14,7 +14,7 @@ export function parseMetricList(raw) {
 }
 
 // A metric is scaled if and only if the server publishes a NON-EMPTY band table
-// for it. The emptiness check is load-bearing: colourFor with [] bands returns
+// for it. The emptiness check is load-bearing: rampColour with [] bands returns
 // the no-data colour for every value, so an empty table renders exactly like a
 // metric with no table at all — and must therefore be treated as one.
 export function hasScale(scales, metric) {
