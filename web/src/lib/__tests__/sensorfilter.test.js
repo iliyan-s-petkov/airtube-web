@@ -45,16 +45,16 @@ describe('filterByStatus', () => {
 })
 
 describe('the shared status', () => {
-  // The kit opens on "with data". This site opens on all of them: a silent
-  // sensor is already drawn in the no-data colour and named in the legend, so
-  // the kit's default would remove visible sensors and overstate coverage.
+  // The kit opens on "with data", and the kit governs. The sensors the default
+  // hides are still stated: the count line beside the control publishes the
+  // silent number on every position.
   //
   // Asserted on DEFAULT_STATUS as well as on the live value: afterEach resets
   // the store, so by the time any `it()` runs, the initial value has already
   // been overwritten with the reset's — and a mutation of the opening literal
   // survived a test that only read getSensorStatus().
-  it('opens on all sensors, not on the kit default', () => {
-    expect(DEFAULT_STATUS).toBe('all')
+  it('opens on the kit default, sensors with data', () => {
+    expect(DEFAULT_STATUS).toBe('active')
     expect(getSensorStatus()).toBe(DEFAULT_STATUS)
   })
 
@@ -65,15 +65,15 @@ describe('the shared status', () => {
   it('starts at the default before any reset has touched it', async () => {
     vi.resetModules()
     const fresh = await import('../sensorfilter.svelte.js')
-    expect(fresh.getSensorStatus()).toBe('all')
+    expect(fresh.getSensorStatus()).toBe('active')
   })
 
   it('notifies its subscribers when the status changes', () => {
     const seen = vi.fn()
     onSensorStatusChange(seen)
-    setSensorStatus('active')
-    expect(getSensorStatus()).toBe('active')
-    expect(seen).toHaveBeenCalledWith('active')
+    setSensorStatus('inactive')
+    expect(getSensorStatus()).toBe('inactive')
+    expect(seen).toHaveBeenCalledWith('inactive')
   })
 
   // The map repaints on every notification, so a no-op set that still notified
@@ -81,7 +81,7 @@ describe('the shared status', () => {
   it('says nothing when the status is set to what it already is', () => {
     const seen = vi.fn()
     onSensorStatusChange(seen)
-    setSensorStatus('all')
+    setSensorStatus('active')
     expect(seen).not.toHaveBeenCalled()
   })
 
@@ -89,7 +89,7 @@ describe('the shared status', () => {
   // value from outside the vocabulary is a bug, not a new filter.
   it('refuses a status outside the vocabulary', () => {
     setSensorStatus('nonsense')
-    expect(getSensorStatus()).toBe('all')
+    expect(getSensorStatus()).toBe(DEFAULT_STATUS)
     expect(STATUSES).toEqual(['all', 'active', 'inactive'])
   })
 

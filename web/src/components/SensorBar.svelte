@@ -35,8 +35,12 @@
     legend={texts.legend}
     name="sensor-status"
   />
-  <!-- role="status", not a hand-built live region: the numbers change as a
-       RESULT of the reader's own click on the radios beside it, so they must be
-       announced without taking focus off the control. -->
-  <p class="meta" role="status">{line}</p>
 </div>
+<!-- Outside .sensor-bar, as the kit has it: the bar is a row of controls, and
+     this is what the controls produced. Inside, it was a flex item and sat
+     beside the radios rather than under them.
+
+     role="status", not a hand-built live region: the numbers change as a RESULT
+     of the reader's own click on the radios above, so they must be announced
+     without taking focus off the control. -->
+<p class="meta" role="status">{line}</p>

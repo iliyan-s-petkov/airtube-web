@@ -53,9 +53,9 @@ describe('SensorBar', () => {
     expect(names).toEqual(['sensor-status', 'sensor-status', 'sensor-status'])
   })
 
-  it('opens on all sensors, matching the store default', () => {
+  it('opens on the sensors with data, matching the store default', () => {
     const el = render()
-    expect(radio(el, 'all').checked).toBe(true)
+    expect(radio(el, 'active').checked).toBe(true)
   })
 
   it('counts nothing before the map has published its sensors', () => {
@@ -69,17 +69,17 @@ describe('SensorBar', () => {
     const el = render()
     setSensors(body)
     flushSync()
-    expect(line(el)).toBe('Showing 4 of 4 sensors — 2 with no recent readings')
+    expect(line(el)).toBe('Showing 2 of 4 sensors — 2 with no recent readings')
   })
 
   it('narrows the shown count when a status is picked', () => {
     const el = render()
     setSensors(body)
     flushSync()
-    radio(el, 'active').click()
+    radio(el, 'all').click()
     flushSync()
-    expect(getSensorStatus()).toBe('active')
-    expect(line(el)).toContain('Showing 2 of 4')
+    expect(getSensorStatus()).toBe('all')
+    expect(line(el)).toContain('Showing 4 of 4')
   })
 
   // Silence is per metric: on P1 every one of these four reports.

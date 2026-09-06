@@ -1489,14 +1489,16 @@ describe('the sensor status filter', () => {
   beforeEach(() => { clearCache(); resetViewStateForTests(); setSensors(null); resetSensorFilterForTests() })
   afterEach(() => { resetViewStateForTests(); setSensors(null); resetSensorFilterForTests() })
 
-  it('draws every sensor, silent ones included, until the reader says otherwise', async () => {
+  // The store opens on the kit's default, "with data", so the FIRST paint is
+  // already filtered — the silent sensor never reaches the map until asked for.
+  it('opens on the sensors with data, before the reader touches anything', async () => {
     vi.stubGlobal('fetch', stubMixedSensorFetch())
     const { map } = mountSensorTierMap()
     const source = withStableSource(map)
 
     await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
     await vi.waitFor(() => expect(source.setData).toHaveBeenCalled())
-    expect(drawn(source)).toHaveLength(2)
+    expect(drawn(source).map((f) => f.properties.id)).toEqual([42])
   })
 
   // The repaint must come from the payload already in hand. A filter change
@@ -1509,19 +1511,19 @@ describe('the sensor status filter', () => {
     await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
 
     const before = fetchSpy.mock.calls.length
-    setSensorStatus('active')
+    setSensorStatus('all')
     expect(fetchSpy.mock.calls.length).toBe(before)
   })
 
-  it('drops the silent sensors when the reader asks for the reporting ones', async () => {
+  it('brings the silent sensors back when the reader asks for all of them', async () => {
     vi.stubGlobal('fetch', stubMixedSensorFetch())
     const { map } = mountSensorTierMap()
     await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
     const source = withStableSource(map)
 
-    setSensorStatus('active')
+    setSensorStatus('all')
 
-    expect(drawn(source).map((f) => f.properties.id)).toEqual([42])
+    expect(drawn(source).map((f) => f.properties.id)).toEqual([42, 43])
   })
 
   it('keeps only the silent ones on the other side of the filter', async () => {

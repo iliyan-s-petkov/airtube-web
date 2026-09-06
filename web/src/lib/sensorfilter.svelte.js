@@ -6,21 +6,22 @@
 // The registry in sensors.svelte.js is the precedent — cross-island state that
 // no link needs to carry.
 //
-// DEFAULT 'all', where the design kit's mockup defaults to "with data". The
-// kit's default hides a fact the map already publishes: a sensor with no
-// current reading is painted in the no-data colour and named in the legend, so
-// opening on "active" would quietly remove sensors the visitor can see today
-// and make coverage look better than it is. It is the same reason the province
-// table keeps its silent rows visible instead of filtering them away by
-// default. The kit's control is adopted; only its opening position is not.
+// DEFAULT 'active', as the kit's mockup has it (the radio carrying `checked`).
+// This site opened on 'all' for a while, reasoning that a silent sensor is
+// already painted in the no-data colour and named in the key, so hiding it
+// overstates coverage. The kit governs, and it has an answer to that: the count
+// line beside the control publishes the silent number on every position, so the
+// sensors the default hides are still stated in words rather than dropped
+// silently. A reader who wants them has one click, and the map opens showing
+// only dots that mean something.
 export const STATUSES = ['all', 'active', 'inactive']
 
 // Named, not written twice: the reset seam below also has to open where the
 // page opens, and two literals would let a test suite observe a default the
-// browser never sees — which is exactly what a mutation of a bare $state('all')
+// browser never sees — which is exactly what a mutation of a bare $state()
 // slipped past, since every assertion ran after a reset had already restored
 // the other literal.
-export const DEFAULT_STATUS = 'all'
+export const DEFAULT_STATUS = 'active'
 
 let status = $state(DEFAULT_STATUS)
 
