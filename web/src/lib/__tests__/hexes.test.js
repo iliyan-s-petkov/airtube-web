@@ -292,15 +292,51 @@ describe('hexFeatures at the point tier', () => {
   }
   const colourFor = () => '#123456'
 
-  it('draws a device as a point, not as a cell', () => {
+  // The reason the drawn size is a parameter: the grid must not VANISH when the
+  // reader zooms past the finest published cell. It did — the cells were
+  // replaced by dots that sit under the labelled sensor markers, so one zoom
+  // step turned a map full of hexagons into an apparently empty street.
+  it('draws a device as a cell of the size it was asked to draw', () => {
+    const [f] = hexFeatures(body, 'P1', [], '#eee', colourFor, 0.08)
+    expect(f.geometry.type).toBe('Polygon')
+    // Same geometry the aggregate tiers get, at the size passed in: the ring is
+    // hexPolygon's, so its width is the centre-to-centre spacing of that size.
+    expect(f.geometry.coordinates).toEqual([hexPolygon(23.356, 42.676, 0.08)])
+  })
+
+  // The size follows the zoom (resolutionForZoom), so the cell keeps its
+  // on-screen size and shrinks on the GROUND as the reader zooms — which is what
+  // the tiers above it do, and why the transition is now invisible.
+  it('shrinks with the size it is given', () => {
+    const wide = hexFeatures(body, 'P1', [], '#eee', colourFor, 0.08)[0]
+    const tight = hexFeatures(body, 'P1', [], '#eee', colourFor, 0.02)[0]
+    const span = (f) => {
+      const xs = f.geometry.coordinates[0].map((c) => c[0])
+      return Math.max(...xs) - Math.min(...xs)
+    }
+    expect(span(tight)).toBeLessThan(span(wide))
+  })
+
+  // Without a size there is nothing to draw a cell from, so the device stays the
+  // mark it always was rather than becoming a cell of an arbitrary size.
+  it('falls back to a point when given no size', () => {
     const [f] = hexFeatures(body, 'P1', [], '#eee', colourFor)
     expect(f.geometry.type).toBe('Point')
     expect(f.geometry.coordinates).toEqual([23.356, 42.676])
   })
 
-  it('carries the sensor id through', () => {
-    const [f] = hexFeatures(body, 'P1', [], '#eee', colourFor)
-    expect(f.properties.sensorId).toBe(2888)
+  it('carries the sensor id through, cell or point', () => {
+    expect(hexFeatures(body, 'P1', [], '#eee', colourFor)[0].properties.sensorId).toBe(2888)
+    expect(hexFeatures(body, 'P1', [], '#eee', colourFor, 0.08)[0].properties.sensorId).toBe(2888)
+  })
+
+  // The drawn size is for the point tier alone. An aggregate cell is the
+  // server's bin and must be drawn at the size the server binned it to, or the
+  // cells stop tiling the ground their counts came from.
+  it('ignores the drawn size on an aggregate tier', () => {
+    const body1 = { resolution_km: 1, hexes: [{ lon: 23.3, lat: 42.7, n: 4, values: { P1: 20 } }] }
+    const [f] = hexFeatures(body1, 'P1', [], '#eee', colourFor, 0.02)
+    expect(f.geometry.coordinates).toEqual([hexPolygon(23.3, 42.7, 1)])
   })
 
   it('leaves the id undefined on an aggregate tier', () => {

@@ -19,7 +19,7 @@ import { setSensors, setScales } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { nearestArea } from '../lib/nearest.js'
-import { hexesURL, hexFeatures } from '../lib/hexes.js'
+import { hexesURL, hexFeatures, resolutionForZoom } from '../lib/hexes.js'
 import { WIND_SOURCE_ID, WIND_LAYER_ID, windFeatures, windLabel, arrowLayout, arrowPaint } from './wind.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
@@ -144,14 +144,17 @@ export function mount(el) {
       source: HEX_SOURCE_ID,
       paint: { 'line-color': ['get', 'colour'], 'line-width': 0.5, 'line-opacity': cfg.hexOpacity },
     })
-    // The point tier, sharing the hex source: past the finest published cell
-    // the server sends devices rather than bins, and a device is drawn as a
-    // mark rather than as a cell. The two coexist on one source because the
-    // fill and line layers above ignore Point geometry and this one ignores
-    // Polygons, so the tier that happens to be loaded is the tier that paints.
+    // The point tier's fallback, sharing the hex source. Past the finest
+    // published cell the server sends devices rather than bins, and those are
+    // normally drawn as cells like every other tier (see refreshHexes on why:
+    // marks vanished under the sensor markers). A device only reaches this
+    // layer when there is no size to draw a cell at — hexFeatures then keeps it
+    // a Point rather than inventing a radius. The two coexist on one source
+    // because the fill and line layers above ignore Point geometry and this one
+    // ignores Polygons.
     //
     // Fully opaque, unlike the cells behind it: a cell is a summary and reads
-    // as a wash, a device is a fact and should not.
+    // as a wash, a bare device is a position and should not.
     map.addLayer({
       id: HEX_POINT_LAYER_ID,
       type: 'circle',
@@ -532,7 +535,15 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
     state.hexBody = body
   }
   const bands = bandsFor(state.scales, cfg.metric)
-  const features = hexFeatures(state.hexBody, cfg.metric, bands, cfg.noDataColour, colourFor)
+  // The point tier is drawn at the size this zoom would have asked the grid for
+  // — rounded the same way hexesURL rounds it, so the cell the reader sees is
+  // the one the URL describes. That is what keeps the grid on screen past the
+  // finest published cell instead of collapsing it into marks hidden under the
+  // sensor markers.
+  const features = hexFeatures(
+    state.hexBody, cfg.metric, bands, cfg.noDataColour, colourFor,
+    resolutionForZoom(Math.round(map.getZoom())),
+  )
   map.getSource(HEX_SOURCE_ID)?.setData({ type: 'FeatureCollection', features })
 }
 

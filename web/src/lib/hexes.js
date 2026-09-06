@@ -151,8 +151,19 @@ export function hexPolygon(lon, lat, resKM) {
  * A bin with no reading for the current metric keeps its cell — the count is
  * still true and the cell still marks where sensors are — but takes the no-data
  * colour, the same rule the area markers follow.
+ *
+ * `pointResKM` is the size to draw the POINT tier at, and it exists because the
+ * grid must not vanish under the reader. Drawn as bare marks, the devices sat
+ * under the labelled sensor markers already on the map, so the zoom step past
+ * the finest published cell turned a street full of hexagons into an apparently
+ * empty one. Sized from the zoom (resolutionForZoom), the cell keeps its
+ * on-screen size and shrinks on the ground exactly as the tiers above it do.
+ *
+ * It applies to the point tier ONLY. An aggregate cell is the server's bin and
+ * is drawn at the size the server binned it to, or the cells stop tiling the
+ * ground their counts describe.
  */
-export function hexFeatures(body, metric, bands, noDataColour, colourFor) {
+export function hexFeatures(body, metric, bands, noDataColour, colourFor, pointResKM = 0) {
   // Read as a number rather than coerced with Number(): now that zero is a
   // meaningful tier rather than nonsense, Number(null) and Number('') would
   // both land on it, and a malformed response would be drawn as a street full
@@ -161,19 +172,23 @@ export function hexFeatures(body, metric, bands, noDataColour, colourFor) {
   // Negative and NaN are still nothing to draw; zero is the point tier.
   if (!(resKM >= 0)) return []
   const points = resKM === POINT_RESOLUTION_KM
+  // The size a feature is actually drawn at: the server's bin on every
+  // aggregate tier, and the caller's zoom-derived size on the point tier.
+  const drawKM = points ? pointResKM : resKM
 
   return (body?.hexes ?? []).map((h) => {
     const value = h.values?.[metric] ?? null
     return {
       type: 'Feature',
-      // A device gets a Point, not a hexagon: a cell says "somewhere in here",
-      // which is the honest shape for an aggregate and a false one for a
-      // position we were given outright. The two geometries share a source —
-      // MapLibre draws each layer only over the geometry type it paints, so the
-      // fill and outline skip points and the circle layer skips cells.
-      geometry: points
-        ? { type: 'Point', coordinates: [h.lon, h.lat] }
-        : { type: 'Polygon', coordinates: [hexPolygon(h.lon, h.lat, resKM)] },
+      // A device with no size to draw at stays a Point: it is a position we
+      // were given outright, and inventing a cell radius for it would be
+      // inventing the one thing a cell claims. The two geometries share a
+      // source — MapLibre draws each layer only over the geometry type it
+      // paints, so the fill and outline skip points and the circle layer skips
+      // cells.
+      geometry: drawKM > 0
+        ? { type: 'Polygon', coordinates: [hexPolygon(h.lon, h.lat, drawKM)] }
+        : { type: 'Point', coordinates: [h.lon, h.lat] },
       properties: {
         colour: colourFor(value, bands, noDataColour),
         value,

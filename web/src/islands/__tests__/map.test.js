@@ -1270,6 +1270,28 @@ describe('refreshHexes', () => {
     expect(map.painted[1].features[0].properties.colour).toBe('#00ff00')
   })
 
+  // The bug this fixes: past the finest published cell the grid used to be
+  // drawn as bare marks, which land under the labelled sensor markers already on
+  // the map — so one zoom step took a street full of hexagons to an apparently
+  // empty one. The cells stay, sized from the zoom.
+  it('draws the point tier as cells, sized from the zoom', async () => {
+    const points = { resolution_km: 0, hexes: [{ lon: 23.36, lat: 42.66, sensor_id: 7, n: 1, values: { P2: 5 } }] }
+    const near = hexMap(16)
+    const far = hexMap(18)
+    const fetchJSON = vi.fn(async () => points)
+
+    await refreshHexes(near, { scales, hexUrl: null, hexBody: null }, hexCfg, fetchJSON)
+    await refreshHexes(far, { scales, hexUrl: null, hexBody: null }, hexCfg, fetchJSON)
+
+    const span = (map) => {
+      const xs = map.painted[0].features[0].geometry.coordinates[0].map((c) => c[0])
+      return Math.max(...xs) - Math.min(...xs)
+    }
+    expect(near.painted[0].features[0].geometry.type).toBe('Polygon')
+    // Deeper zoom, smaller cell on the ground — the same size on screen.
+    expect(span(far)).toBeLessThan(span(near))
+  })
+
   it('refetches when the viewport moves to a different URL', async () => {
     const state = { scales, hexUrl: null, hexBody: null }
     const fetchJSON = vi.fn(async () => body)
