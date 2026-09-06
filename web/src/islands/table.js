@@ -90,6 +90,10 @@ export function mount(el, doc = document) {
     of: d.tOf || '',
     areas: d.tAreas || '',
     silent: d.tSilent || '',
+    searchLabel: d.tSearchLabel || '',
+    searchPlaceholder: d.tSearchPlaceholder || '',
+    searchHint: d.tSearchHint || '',
+    searchEmpty: d.tSearchEmpty || '',
   }
 
   let api = null
@@ -100,6 +104,10 @@ export function mount(el, doc = document) {
     props: {
       rows,
       texts,
+      // The language the page is written in, which is the language the reader
+      // types in. Folding a Cyrillic query with the wrong locale is how "И"
+      // stops matching "и".
+      lang: doc.documentElement.getAttribute('lang') || 'bg',
       register: (a) => { api = a },
       onview: (view) => {
         applyRows(tbody, rows, view.rows)

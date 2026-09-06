@@ -51,6 +51,22 @@ a { color: var(--accent); }
 
    One rule survives, below, and it is about the CSP rather than about looks. */
 
+/* The table's control row. Only .combobox and .field are in components.css;
+   the row that lays them out lives in the kit's mockup sheet, which this site
+   never loads, so it is copied here — the only rules in this block, verbatim
+   in intent: search leads, the data filter sits beside it, and the field is
+   capped at a name's length, because a full-width input promises a query
+   language the page does not have. */
+.table-controls {
+  display: flex; align-items: flex-end; gap: var(--space-6);
+  flex-wrap: wrap;
+  padding-block-end: var(--space-4);
+}
+.table-controls .field--search { flex: 1 1 22rem; max-width: 28rem; }
+@media (max-width: 672px) {
+  .table-controls .field--search { flex-basis: 100%; max-width: none; }
+}
+
 /* The chip's swatch carries a server-defined band colour, so it is an <svg>
    with a fill ATTRIBUTE rather than the kit's --chip-ramp custom property: a
    per-row custom property is an inline style and style-src has no

@@ -38,6 +38,10 @@ function page(provinces = PROVINCES) {
     tOf: 'от',
     tAreas: 'области',
     tSilent: 'без скорошни данни',
+    tSearchLabel: 'Търсене на област',
+    tSearchPlaceholder: 'Например: Габрово',
+    tSearchHint: 'Пишете, за да филтрирате таблицата.',
+    tSearchEmpty: 'Няма област с това име',
   })
   document.body.appendChild(el)
 
@@ -245,5 +249,138 @@ describe('table island', () => {
     // Page 3 of a question the reader just changed is the middle of an answer
     // to something else.
     expect(document.querySelector('.pager__status').textContent).toBe('Страница 1 от 2')
+  })
+})
+
+// The kit's search combobox inside .table-controls. It narrows the table the
+// reader is already reading, which is what separates it from the masthead
+// finder: that one navigates to a province's page.
+describe('the table search', () => {
+  const search = () => document.querySelector('#table-search')
+  const options = () => [...document.querySelectorAll('#table-search-listbox .combobox__opt')]
+
+  const type = (text) => {
+    const input = search()
+    input.value = text
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    flushSync()
+  }
+
+  const key = (name) => {
+    search().dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }))
+    flushSync()
+  }
+
+  it('is a combobox that owns its listbox', () => {
+    component = mount(page())
+    const input = search()
+    expect(input.getAttribute('role')).toBe('combobox')
+    expect(input.getAttribute('aria-controls')).toBe('table-search-listbox')
+    expect(document.querySelector('#table-search-listbox').getAttribute('role')).toBe('listbox')
+    // The label is a real <label for>, not a placeholder doing a label's job:
+    // a placeholder disappears the moment the reader types.
+    expect(document.querySelector('label[for="table-search"]').textContent).toBe('Търсене на област')
+  })
+
+  it('narrows the table as the reader types', () => {
+    component = mount(page())
+    type('плов')
+    expect(shownNames()).toEqual(['Пловдив'])
+  })
+
+  it('puts every province back when the query is cleared', () => {
+    component = mount(page())
+    type('плов')
+    type('')
+    expect(shownNames()).toHaveLength(4)
+  })
+
+  // The count line is what tells the reader the rest of the table still exists.
+  it('restates the count for the query', () => {
+    component = mount(page())
+    type('плов')
+    expect(document.querySelector('.meta').textContent).toBe(
+      'Показани 1 от 4 области — 1 без скорошни данни',
+    )
+  })
+
+  // An absence stated where the rows would be, rather than a table that
+  // silently empties.
+  it('says so when nothing matches', () => {
+    component = mount(page())
+    type('Атлантида')
+    expect(shownNames()).toEqual([])
+    expect(document.querySelector('.t-empty').hidden).toBe(false)
+  })
+
+  it('suggests the matching provinces and marks the matched run', () => {
+    component = mount(page())
+    type('в')
+    const texts = options().map((li) => li.textContent)
+    expect(texts).toEqual(['Видин', 'Габрово', 'Пловдив'])
+    expect(options()[0].querySelector('mark').textContent).toBe('В')
+  })
+
+  // Focus never leaves the input: the cursor is published through
+  // aria-activedescendant so the caret stays where the reader is typing.
+  it('moves a cursor through the suggestions without taking focus', () => {
+    component = mount(page())
+    search().focus()
+    type('в')
+    key('ArrowDown')
+    expect(search().getAttribute('aria-activedescendant')).toBe('table-search-opt-0')
+    expect(options()[0].getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(search())
+  })
+
+  it('wraps the cursor around both ends of the list', () => {
+    component = mount(page())
+    type('в')
+    key('ArrowUp')
+    expect(search().getAttribute('aria-activedescendant')).toBe('table-search-opt-2')
+    key('ArrowDown')
+    expect(search().getAttribute('aria-activedescendant')).toBe('table-search-opt-0')
+  })
+
+  it('narrows to the province the reader confirms with Enter', () => {
+    component = mount(page())
+    type('в')
+    key('ArrowDown')
+    key('Enter')
+    expect(shownNames()).toEqual(['Видин'])
+    expect(document.querySelector('#table-search-listbox').hidden).toBe(true)
+  })
+
+  // A half-typed query already shows every province it matches; guessing which
+  // one was meant would hide the rest.
+  it('does nothing on Enter while the reader is still typing', () => {
+    component = mount(page())
+    type('в')
+    key('Enter')
+    expect(shownNames()).toEqual(['Пловдив', 'Габрово', 'Видин'])
+  })
+
+  // Two stages, as in the masthead finder: one Escape must not throw away a
+  // query the reader only wanted to see past.
+  it('closes the list on the first Escape and clears the text on the second', () => {
+    component = mount(page())
+    type('плов')
+    key('Escape')
+    expect(document.querySelector('#table-search-listbox').hidden).toBe(true)
+    expect(search().value).toBe('плов')
+    key('Escape')
+    expect(search().value).toBe('')
+    expect(shownNames()).toHaveLength(4)
+  })
+
+  // The suggestions come from the rows the filter has left. Offering a province
+  // with readings while "without data" is chosen offers a name that narrows the
+  // table to nothing.
+  it('suggests only the provinces the current filter still shows', () => {
+    component = mount(page())
+    click(document.querySelector('input[name="datafilter"][value="nodata"]'))
+    search().focus()
+    type('')
+    expect(options().map((li) => li.textContent)).toEqual(['Видин'])
   })
 })

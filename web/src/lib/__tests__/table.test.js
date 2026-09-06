@@ -5,6 +5,7 @@ import {
   firstDir,
   nextSort,
   filterRows,
+  queryRows,
   perPageOptions,
   pageCount,
   pageSlice,
@@ -132,6 +133,36 @@ describe('filterRows', () => {
   })
 })
 
+describe('queryRows', () => {
+  it('keeps every row for an empty or blank query', () => {
+    expect(queryRows(rows(), '')).toHaveLength(5)
+    expect(queryRows(rows(), '   ')).toHaveLength(5)
+  })
+
+  // Substring, not prefix: a reader after "Велико Търново" types "търново".
+  it('matches anywhere in the name, not only at the front', () => {
+    const set = [...rows(), row('Велико Търново', 9, 12)]
+    expect(names(queryRows(set, 'търново'))).toEqual(['Велико Търново'])
+  })
+
+  // The fold is language-aware for the same reason the finder's is: a Cyrillic
+  // query folded with the wrong locale stops matching its own name.
+  it('ignores case in both alphabets', () => {
+    expect(names(queryRows(rows(), 'ПЛОВДИВ'))).toEqual(['Пловдив'])
+    expect(names(queryRows([row('Ruse', 3, 4)], 'RUSE'))).toEqual(['Ruse'])
+  })
+
+  it('returns nothing for a name the table does not carry', () => {
+    expect(queryRows(rows(), 'Атлантида')).toEqual([])
+  })
+
+  // A silent province is still a province the reader can search for. The
+  // with-data filter is the control that removes those, not the search box.
+  it('does not quietly drop the rows with no reading', () => {
+    expect(names(queryRows(rows(), 'видин'))).toEqual(['Видин'])
+  })
+})
+
 describe('perPageOptions', () => {
   // The kit's mockup offers 21 for its 28 rows while its own comment says the
   // options are divisors. The rule wins over the list.
@@ -181,6 +212,25 @@ describe('viewRows', () => {
 
   it('reports the filtered total, so the count line can say "shown X of Y"', () => {
     expect(viewRows(rows(), { mode: 'nodata' }).total).toBe(2)
+  })
+
+  // The search narrows what the FILTER left. The other order would let a query
+  // reach rows the reader has already asked not to see.
+  it('applies the query after the filter, not instead of it', () => {
+    const out = viewRows(rows(), { mode: 'withdata', query: 'видин' })
+    expect(out.rows).toEqual([])
+    expect(out.total).toBe(0)
+  })
+
+  it('counts the query result, so the line reads "shown 1 of 28"', () => {
+    expect(viewRows(rows(), { query: 'пловдив' }).total).toBe(1)
+  })
+
+  // Paging is a window onto the answer, so a query re-cuts the window rather
+  // than being applied inside it.
+  it('searches the whole table, not just the page the reader is on', () => {
+    const out = viewRows(rows(), { query: 'ямбол', perPage: 2, page: 1 })
+    expect(names(out.rows)).toEqual(['Ямбол'])
   })
 
   it('defaults to the order the server already rendered', () => {

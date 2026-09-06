@@ -184,7 +184,15 @@
      data-t-shown="{{.T "table.meta.shown"}}"
      data-t-of="{{.T "table.meta.of"}}"
      data-t-areas="{{.T "table.meta.areas"}}"
-     data-t-silent="{{.T "table.meta.silent"}}"></div>
+     data-t-silent="{{.T "table.meta.silent"}}"
+     {{/* The kit's search box inside the controls. It narrows the table rather
+          than navigating, unlike the masthead finder above — hence its own
+          label and hint. The "no such area" line is the finder's key, not a
+          second copy of the same sentence. */}}
+     data-t-search-label="{{.T "table.search.label"}}"
+     data-t-search-placeholder="{{.T "table.search.placeholder"}}"
+     data-t-search-hint="{{.T "table.search.hint"}}"
+     data-t-search-empty="{{.T "find.no_match"}}"></div>
 
 <table class="table">
   {{/* What the table holds, not what order it is in: the reader can now sort it

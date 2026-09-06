@@ -75,6 +75,23 @@ export function filterRows(rows, mode) {
   return rows
 }
 
+// The search box narrows the table to the rows whose NAME contains what was
+// typed. Case- and language-folded through the same rule the home page's finder
+// uses (lib/find.js), so "габрово" and "Габрово" are one query.
+//
+// Substring, not prefix: a reader looking for "Велико Търново" may well type
+// "търново", and a prefix rule would answer that there is no such province.
+//
+// Applied as a filter over the rows the table already has, never as a jump to
+// one row: the kit's control is a search over a table, and a table that
+// silently became a single row would have thrown away the ranking that is the
+// page's whole point.
+export function queryRows(rows, query, lang = 'bg') {
+  const q = (query || '').trim().toLocaleLowerCase(lang)
+  if (!q) return rows
+  return rows.filter((r) => r.name.toLocaleLowerCase(lang).includes(q))
+}
+
 // Rows per page, offered only as divisors of the row count, so no page is ever
 // a stub of two rows after three full ones. The kit's mockup lists 21 for its
 // 28 rows, which is not a divisor of 28 — the rule it states beside the list is
@@ -111,8 +128,14 @@ export function pageSlice(rows, perPage, page) {
 }
 
 // The whole pipeline in the one order that is correct, so no caller can get it
-// wrong: filter, then sort, then page.
-export function viewRows(rows, { mode = 'all', key = 'value', dir = 'desc', perPage = 'all', page = 1 } = {}) {
-  const kept = filterRows(rows, mode)
+// wrong: filter, then search, then sort, then page.
+export function viewRows(
+  rows,
+  { mode = 'all', query = '', lang = 'bg', key = 'value', dir = 'desc', perPage = 'all', page = 1 } = {},
+) {
+  // The query narrows what the FILTER left, not the other way round and not the
+  // page: both are questions about which rows exist, and paging is a window
+  // onto the answer.
+  const kept = queryRows(filterRows(rows, mode), query, lang)
   return { ...pageSlice(sortRows(kept, key, dir), perPage, page), total: kept.length }
 }

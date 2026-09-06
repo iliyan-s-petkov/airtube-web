@@ -10,11 +10,18 @@
   // template printed, re-ordered in place, never re-rendered from a second copy
   // of the data.
   import { viewRows, perPageOptions, nextSort } from '../lib/table.js'
+  import { matchAreas, splitMark } from '../lib/find.js'
   import MetricSwitcher from './MetricSwitcher.svelte'
 
-  let { rows, texts, onview, register } = $props()
+  let { rows, texts, onview, register, lang = 'bg' } = $props()
 
   let mode = $state('all')
+  let query = $state('')
+  // Whether the suggestion list is open, and where the keyboard cursor is in
+  // it. -1 is "still typing": the table is already filtered by then, so Enter
+  // has nothing left to confirm and does nothing.
+  let listOpen = $state(false)
+  let active = $state(-1)
   let key = $state('value')
   let dir = $state('desc')
   // 'all' rather than a number: it means "the whole set", whatever the filter
@@ -22,7 +29,15 @@
   let perPage = $state('all')
   let page = $state(1)
 
-  const view = $derived(viewRows(rows, { mode, key, dir, perPage, page }))
+  const view = $derived(viewRows(rows, { mode, query, lang, key, dir, perPage, page }))
+
+  // The suggestions come from the rows the FILTER has left, not from all of
+  // them: with "without data" chosen, offering a province that has readings
+  // would be offering a name that narrows the table to nothing.
+  const suggestions = $derived(matchAreas(filtered(), query, lang))
+  const activeId = $derived(
+    active >= 0 && active < suggestions.length ? `table-search-opt-${active}` : null,
+  )
   const options = $derived(perPageOptions(rows.length))
   // The filter's own options, in the kit's order (§5.4). MetricSwitcher is the
   // radio set for "one of these, mutually exclusive"; only its file name is
@@ -56,9 +71,67 @@
     onview({ rows: view.rows, page: view.page, pages: view.pages, total: view.total, key, dir })
   })
 
+  function filtered() {
+    return viewRows(rows, { mode, lang, perPage: 'all', page: 1 }).rows
+  }
+
   function setMode(next) {
     mode = next
     page = 1
+  }
+
+  // Typing IS the filter — every keystroke re-narrows the table, exactly as the
+  // kit's own hint describes it. A new query is a new first page for the same
+  // reason a new sort is.
+  function setQuery(next) {
+    query = next
+    page = 1
+    active = -1
+  }
+
+  function moveActive(step) {
+    if (!suggestions.length) return
+    listOpen = true
+    const n = suggestions.length
+    active = active < 0 ? (step > 0 ? 0 : n - 1) : (active + step + n) % n
+  }
+
+  function onSearchKeydown(e) {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        moveActive(1)
+        return
+      case 'ArrowUp':
+        e.preventDefault()
+        moveActive(-1)
+        return
+      case 'Enter':
+        // Confirming a suggestion narrows the table to that one province. Only
+        // from the cursor: a half-typed query already shows every province it
+        // matches, and guessing which one was meant would hide the rest.
+        if (active < 0) return
+        e.preventDefault()
+        setQuery(suggestions[active].name)
+        listOpen = false
+        return
+      case 'Escape':
+        // Two stages, as in the home page's finder: the list goes first, the
+        // text second, so one Escape cannot throw away a query the reader only
+        // wanted to see past.
+        if (listOpen) {
+          e.preventDefault()
+          listOpen = false
+          active = -1
+          return
+        }
+        if (query) {
+          e.preventDefault()
+          setQuery('')
+        }
+        return
+      default:
+    }
   }
 
   function setPerPage(value) {
@@ -75,6 +148,55 @@
 </script>
 
 <div class="table-controls">
+  <!-- The kit's search combobox. It FILTERS rather than navigating, which is
+       what makes it different from the finder in the masthead: that one opens a
+       province's page, this one narrows the table the reader is reading.
+
+       Focus never leaves the input — the active option is pointed at with
+       aria-activedescendant — so the caret stays where the reader is typing. -->
+  <div class="field field--search combobox">
+    <label class="field__label" for="table-search">{texts.searchLabel}</label>
+    <input
+      class="input"
+      id="table-search"
+      type="search"
+      name="q"
+      autocomplete="off"
+      role="combobox"
+      aria-expanded={listOpen}
+      aria-controls="table-search-listbox"
+      aria-autocomplete="list"
+      aria-activedescendant={activeId}
+      aria-describedby="table-search-hint"
+      placeholder={texts.searchPlaceholder}
+      value={query}
+      oninput={(e) => { setQuery(e.currentTarget.value); listOpen = true }}
+      onfocus={() => { listOpen = true }}
+      onkeydown={onSearchKeydown}
+      onblur={() => setTimeout(() => { listOpen = false }, 0)}
+    >
+    <!-- Announced, never painted: a sighted reader infers the arrow keys from
+         the open list; a screen-reader user does not. -->
+    <span class="sr-only" id="table-search-hint">{texts.searchHint}</span>
+    <ul class="combobox__list" id="table-search-listbox" role="listbox" hidden={!listOpen}>
+      {#if suggestions.length === 0}
+        <li class="combobox__empty">{texts.searchEmpty}</li>
+      {:else}
+        {#each suggestions as match, i (match.name)}
+          {@const parts = splitMark(match.name, match.at, match.len)}
+          <!-- mousedown, not click: click arrives after blur has closed the
+               list, so a mouse pick would land on nothing. -->
+          <li
+            class="combobox__opt"
+            id="table-search-opt-{i}"
+            role="option"
+            aria-selected={i === active}
+            onmousedown={(e) => { e.preventDefault(); setQuery(match.name); listOpen = false }}
+          >{parts.before}<mark>{parts.hit}</mark>{parts.after}</li>
+        {/each}
+      {/if}
+    </ul>
+  </div>
   <MetricSwitcher options={modes} selected={mode} onselect={setMode} legend={texts.filterLegend} name="datafilter" />
 </div>
 
