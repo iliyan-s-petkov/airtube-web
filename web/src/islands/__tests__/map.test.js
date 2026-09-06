@@ -707,6 +707,27 @@ describe('unscaled metrics', () => {
 // in this file (or in another file sharing this Vitest worker) would decide
 // every later test's starting metric/hash. resetViewStateForTests() is a
 // test-only export added specifically for this hazard.
+// The camera's floor has to be a floor the camera can actually stand on.
+// MapLibre's default minZoom of 0 is not: Transform._constrain stops getZoom()
+// somewhere above it so the world keeps covering the container, and the zoom
+// stack — which compares getZoom() against getMinZoom() — then leaves the minus
+// button live over a camera that has stopped moving. Shipped exactly that once.
+describe('mount() gives the camera a reachable floor', () => {
+  beforeEach(() => { resetViewStateForTests() })
+  afterEach(() => { resetViewStateForTests() })
+
+  it('sets minZoom above the constrained floor', () => {
+    const { map } = mountTestMap({ metric: 'P1' })
+    expect(map.options.minZoom).toBe(5)
+    // Above MapLibre's own default, which is the whole point: a default of 0
+    // is a floor getZoom() never reaches.
+    expect(map.options.minZoom).toBeGreaterThan(0)
+    // And below the view the page opens at, or the opening view would already
+    // be clamped.
+    expect(map.options.minZoom).toBeLessThan(Number(map.options.zoom))
+  })
+})
+
 // The hex layer's wiring, as opposed to its logic: refreshHexes is tested
 // directly further down, but nothing there proves mount() ever calls it. These
 // two assert the layer is actually driven — once on load, again when the

@@ -24,6 +24,17 @@ import { WIND_SOURCE_ID, WIND_LAYER_ID, windFeatures, windLabel, arrowLayout, ar
 // burst.
 const MOVE_DEBOUNCE_MS = 250
 
+// The camera's own floor, and the reason the zoom stack can be honest about it.
+// MapLibre keeps TWO minimums: the setting getMinZoom() reports (0 by default)
+// and the floor Transform._constrain silently enforces so the world still
+// covers the container — around 0.2 on a hero-height map. Left at the default,
+// getZoom() bottoms out at the constrained floor while getMinZoom() keeps
+// saying 0, so installZoom's `z <= getMinZoom()` never fires and the minus
+// button stays live over a camera that has stopped moving. Setting it makes the
+// reported floor the reachable one. 5 is the value rather than 0 because this
+// is a map of one country: below it there is nothing left to zoom out to.
+const MIN_ZOOM = 5
+
 const SOURCE_ID = 'airbg-data'
 const LAYER_ID = 'airbg-markers'
 const LABEL_LAYER_ID = 'airbg-marker-labels'
@@ -50,6 +61,7 @@ export function mount(el) {
     style: mapStyle(cfg),
     center: [cfg.lon, cfg.lat],
     zoom: cfg.zoom,
+    minZoom: MIN_ZOOM,
     attributionControl: { compact: true },
   })
 
