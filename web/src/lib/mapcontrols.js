@@ -65,7 +65,12 @@ function icon(paths, className) {
 //
 // `doc` is injectable so a test can drive both the granted and the refused
 // branch: jsdom implements neither requestFullscreen nor fullscreenElement.
-export function mountFullscreen(frame, { label, exitLabel }, doc = document) {
+// onChange is called with the new state on every enter, exit and
+// fullscreenchange, including once at mount. Real fullscreen renders the frame
+// and nothing else, so anything useful anchored OUTSIDE it — the key, above
+// all — disappears the moment a reader goes full screen. This is how the
+// caller finds out in time to move it.
+export function mountFullscreen(frame, { label, exitLabel, onChange }, doc = document) {
   const button = document.createElement('button')
   button.type = 'button'
   button.className = 'map__full'
@@ -84,6 +89,7 @@ export function mountFullscreen(frame, { label, exitLabel }, doc = document) {
     const name = on ? exitLabel : label
     button.setAttribute('aria-label', name)
     button.setAttribute('title', name)
+    onChange?.(on)
   }
 
   const faux = () => {

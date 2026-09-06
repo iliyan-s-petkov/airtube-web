@@ -1173,7 +1173,17 @@ export function mountChrome(el, cfg) {
   // key's rule directly above. Fullscreen wires itself — it drives the element,
   // not the camera — while the zoom stack is returned unwired, because the
   // MapLibre map is constructed after this function returns.
-  mountFullscreen(el, { label: cfg.t.fullscreen, exitLabel: cfg.t.fullscreenExit })
+  // The key rides along. It is anchored to the shell (see above), and in real
+  // fullscreen the frame IS the viewport — so a reader who went full screen
+  // lost the colour key on the one view where the map is all there is. Moved
+  // rather than duplicated: it stays one <details>, so its folded state, its
+  // contents and the layers menu's "show the key" toggle all keep pointing at
+  // the same element on both sides of the trip.
+  mountFullscreen(el, {
+    label: cfg.t.fullscreen,
+    exitLabel: cfg.t.fullscreenExit,
+    onChange: (full) => { (full ? el : shell).appendChild(legend) },
+  })
   const zoom = mountZoom(el, {
     inLabel: cfg.t.zoomIn,
     outLabel: cfg.t.zoomOut,

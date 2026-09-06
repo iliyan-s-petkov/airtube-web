@@ -1414,6 +1414,45 @@ describe('mount() prints the reading inside the cell', () => {
   })
 })
 
+// Real fullscreen renders the frame and nothing else. The key is anchored to
+// the shell — deliberately, so a wide window does not float it over the page —
+// which meant going full screen took the colour key off the map, on the one
+// view where the map is all there is.
+describe('mountChrome() keeps the key on the map in fullscreen', () => {
+  const chromeFrame = () => {
+    const shell = document.createElement('div')
+    shell.className = 'map-shell'
+    const el = document.createElement('div')
+    el.className = 'map'
+    shell.appendChild(el)
+    document.body.appendChild(shell)
+    return { shell, el }
+  }
+
+  it('moves the key into the frame and back out again', () => {
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    const legend = shell.querySelector('details')
+    expect(legend, 'no key on the shell').toBeTruthy()
+
+    el.querySelector('.map__full').click()
+    expect(legend.parentElement, 'the key stayed outside the fullscreen frame').toBe(el)
+
+    el.querySelector('.map__full').click()
+    expect(legend.parentElement).toBe(shell)
+  })
+
+  it('leaves it a details, so it can still be folded away', () => {
+    const { el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    el.querySelector('.map__full').click()
+
+    const legend = el.querySelector('details')
+    expect(legend.tagName).toBe('DETAILS')
+    expect(legend.open, 'the key came back folded shut').toBe(true)
+  })
+})
+
 // The vector archive we host is a Bulgaria extract: outside its bounding box
 // there is nothing to draw at any zoom, which is why zooming out left the map
 // beige everywhere but the country. A world raster underlay fills that in, and

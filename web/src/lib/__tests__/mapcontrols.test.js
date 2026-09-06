@@ -43,6 +43,39 @@ describe('mountFullscreen', () => {
     ])
   })
 
+  // The key, the layers menu and everything else useful live outside the frame;
+  // in real fullscreen the frame IS the viewport and nothing outside it renders.
+  // Somebody has to be told when that happens, and the button is the only thing
+  // that already knows — it recomputes on every enter, exit and
+  // fullscreenchange.
+  it('reports the state to a caller on every change, not just to itself', async () => {
+    const el = frame()
+    const doc = fakeDoc()
+    const seen = []
+    mountFullscreen(el, { label: 'F', exitLabel: 'E', onChange: (on) => seen.push(on) }, doc)
+    expect(seen, 'never reported the starting state').toEqual([false])
+
+    el.requestFullscreen = () => { doc.fullscreenElement = el; return Promise.resolve() }
+    el.querySelector('.map__full').click()
+    await Promise.resolve()
+    expect(seen.at(-1)).toBe(true)
+
+    el.querySelector('.map__full').click()
+    expect(seen.at(-1)).toBe(false)
+  })
+
+  it('reports the faux-fullscreen fallback too', async () => {
+    const el = frame()
+    const doc = fakeDoc()
+    const seen = []
+    mountFullscreen(el, { label: 'F', exitLabel: 'E', onChange: (on) => seen.push(on) }, doc)
+
+    el.requestFullscreen = () => Promise.reject(new Error('denied'))
+    el.querySelector('.map__full').click()
+    await Promise.resolve().then(() => {}).then(() => {})
+    expect(seen.at(-1)).toBe(true)
+  })
+
   it('names the button after what the next click does, not after the state', () => {
     const el = frame()
     const doc = fakeDoc()
