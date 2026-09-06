@@ -136,6 +136,27 @@ strong, b { font-weight: var(--weight-emphasis); }
    .scale__band-swatch to the height of its own band, which is what makes the
    segments touch and read as one bar. */
 .legend-swatch { width: 12px; height: 12px; flex: none; }
+/* Two corrections to the kit's .scale--progressive, both of which follow from
+   the same difference: the kit places its numbers by VALUE on a piecewise axis
+   and so hides the per-row ones, while this key's bands are equal rows and the
+   row IS where the number belongs. So the edge numbers come back — a bar with
+   no numbers on it says only "more is worse" — and they come back on the kit's
+   own side of the bar, 26px, not the -22px the progressive rule moves them to,
+   which would print them across the bar itself.
+
+   The band names stay for a screen reader and leave the layout: they are the
+   half of the key that says what a colour MEANS, and hiding them with
+   display:none (the kit's rule) takes them out of the accessibility tree too.
+   Stated at (0,3,0) because that is what the rule being overridden weighs. */
+.scale--progressive .scale__bands--vertical .scale__band-edge {
+  display: block;
+  inset-inline-start: 26px;
+}
+.scale--progressive .scale__bands--vertical .scale__band-name {
+  display: block; position: absolute;
+  inline-size: 1px; block-size: 1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
 /* What a dot aggregates at this zoom, under the map rather than in the key —
    it answers a different question than the colours do, and the key is now an
    overlay with no room for a paragraph. Colour and type come from the kit's

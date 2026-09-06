@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
-import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../legend.js'
+import { LEGEND_CLASSES, legendRows, legendTitle, rampGradient, renderLegend } from '../legend.js'
 
 // Shaped like /api/v1/scales: ascending, upper INCLUSIVE, the top band open
 // (upper === null), and both label languages present — internal/api/scales.go
@@ -106,12 +106,35 @@ describe('renderLegend', () => {
     expect(toggle.getAttribute('aria-label')).toBe('Легенда')
   })
 
-  // The kit's map-home.html opens this list with <li class="scale__bar">, whose
-  // rule paints a hardcoded six-stop EAQI gradient. This key is drawn for seven
-  // metrics whose bands are served and differ, so a fixed ramp above a served
-  // one would be showing colours the map does not use.
-  it('never draws the kit mockup hardcoded gradient bar', () => {
-    expect(draw().querySelector('.scale__bar')).toBeNull()
+  // The bar is drawn, and it is drawn from THESE bands — the kit mockup's own
+  // bar is a hardcoded six-stop EAQI gradient, which over a map painting one of
+  // seven served scales would be showing colours the map does not use.
+  it('draws the bar from the served colours and nothing else', () => {
+    const el = draw()
+    expect(el.querySelector('.scale__bar')).not.toBeNull()
+    const ramp = el.style.getPropertyValue('--ramp')
+    for (const band of BANDS) expect(ramp).toContain(band.colour)
+    expect(ramp).not.toContain('#50f0e6') // the mockup's own first stop
+  })
+
+  it('turns the progressive bar on only when there is a ramp to draw', () => {
+    expect(draw().classList.contains('scale--progressive')).toBe(true)
+    const bare = draw({ ...legendRows([], OPTS) })
+    expect(bare.classList.contains('scale--progressive')).toBe(false)
+    expect(bare.querySelector('.scale__bar')).toBeNull()
+    expect(bare.style.getPropertyValue('--ramp')).toBe('')
+  })
+
+  // The bar is not a band, and the rows underneath it are the accessible copy.
+  it('hides the bar from a screen reader', () => {
+    expect(draw().querySelector('.scale__bar').getAttribute('aria-hidden')).toBe('true')
+  })
+
+  // The number beside a colour is what makes the bar a scale rather than a
+  // "more is worse" arrow, so the rows keep their edges under the bar too.
+  it('keeps the boundary numbers when the bar goes on', () => {
+    expect([...draw().querySelectorAll('.scale__band-edge')].map((n) => n.textContent))
+      .toEqual(['', '50', '20'])
   })
 
   // The legend is styled by the design kit, so every kit class it emits has to
@@ -127,17 +150,21 @@ describe('renderLegend', () => {
     const css = readFileSync(
       join(here, '..', '..', '..', '..', 'design-kit', 'components.css'), 'utf8')
     const emitted = new Set(LEGEND_CLASSES.split(' '))
-    for (const node of draw().querySelectorAll('*')) {
+    const el = draw()
+    // The container's own classes too: renderLegend adds one to it, and a
+    // modifier the kit does not define is the same silent failure there.
+    for (const c of el.classList) emitted.add(c)
+    for (const node of el.querySelectorAll('*')) {
       // Both separators: the modifiers are what switch this from a block under
       // the map to an overlay on it, and are as easy to misspell as the parts.
       for (const c of node.classList) if (c.includes('__') || c.includes('--')) emitted.add(c)
     }
     expect([...emitted].sort()).toEqual([
       'legend__label', 'legend__row',
-      'scale', 'scale--named', 'scale--onmap', 'scale--vertical',
+      'scale', 'scale--named', 'scale--onmap', 'scale--progressive', 'scale--vertical',
       'scale__band', 'scale__band-edge', 'scale__band-name', 'scale__band-swatch',
-      'scale__bands', 'scale__bands--vertical', 'scale__label', 'scale__none',
-      'scale__toggle',
+      'scale__bands', 'scale__bands--vertical', 'scale__bar', 'scale__label',
+      'scale__none', 'scale__toggle',
     ])
     for (const c of emitted) {
       expect(css, `components.css defines no .${c}`).toMatch(new RegExp(`\\.${c}\\b`))
@@ -160,6 +187,41 @@ describe('renderLegend', () => {
     el.open = false
     renderLegend(el, { title: 'x', toggleLabel: 'y', ...legendRows(BANDS, OPTS) })
     expect(el.open).toBe(false)
+  })
+})
+
+describe('rampGradient', () => {
+  // Two stops per band with the same colour on both — that is a hard step. A
+  // single stop per colour would blend between neighbours and paint colours no
+  // hex on the map is ever given: colourFor picks a band, it does not mix two.
+  it('gives every band a hard step of its own colour', () => {
+    expect(rampGradient(BANDS)).toBe(
+      'linear-gradient(to top, #3c9 0.000% 33.333%, #fc3 33.333% 66.667%, #c33 66.667% 100.000%)',
+    )
+  })
+
+  // The rows are 34px each whatever their bands span, so the seams have to be
+  // evenly spaced. Spaced by value, every boundary number would sit against the
+  // wrong pair of colours.
+  it('spaces the seams by row, not by how much value a band covers', () => {
+    const wide = [
+      { upper: 1, colour: '#a' },
+      { upper: 500, colour: '#b' },
+      { upper: null, colour: '#c' },
+    ]
+    expect(rampGradient(wide)).toBe(rampGradient(BANDS).replace(/#3c9|#fc3|#c33/g,
+      (c) => ({ '#3c9': '#a', '#fc3': '#b', '#c33': '#c' })[c]))
+  })
+
+  // Bottom to top, matching the list above it, which runs highest-first.
+  it('reads upward, the way the numbers beside it do', () => {
+    expect(rampGradient(BANDS).startsWith('linear-gradient(to top, #3c9')).toBe(true)
+  })
+
+  it('draws nothing for a scale that is not one', () => {
+    expect(rampGradient([])).toBe('')
+    expect(rampGradient([{ upper: null, colour: '#3c9' }])).toBe('')
+    expect(rampGradient(null)).toBe('')
   })
 })
 

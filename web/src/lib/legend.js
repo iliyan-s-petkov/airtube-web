@@ -73,14 +73,27 @@ export function legendRows(bands, { noDataColour, noDataLabel, lang }) {
 // .chip__swatch is not used here: it paints from var(--chip-ramp), a property
 // the app can only set per-row through the attribute the CSP forbids.
 //
-// Deliberately NOT emitted: the kit's `<li class="scale__bar">` that opens the
-// list in map-home.html. Its rule paints a hardcoded six-stop EAQI gradient,
-// and this key is drawn for seven metrics whose bands are served and differ —
-// temperature's scale is not PM2.5's. Painting a fixed ramp above a served one
-// is the same re-tint the kit's own §2.1 forbids, so the mockup's copy of it
-// stays in the mockup.
+// The bar IS emitted, but never the kit mockup's copy of it: that one paints a
+// hardcoded six-stop EAQI gradient, and this key is drawn for seven metrics
+// whose bands are served and differ — temperature's scale is not PM2.5's.
+// rampGradient below builds it from the same band table the hexes are painted
+// from, so the key cannot show a colour the map does not use.
 export function renderLegend(el, { title, toggleLabel, bands, noData }) {
   el.replaceChildren()
+
+  // The progressive bar replaces the stacked blocks, which is what makes the
+  // key small enough to sit ON the map: six named rows are a panel, one 20px
+  // column with numbers beside it is a key. The class goes on only when there
+  // is a ramp to draw — a metric with no band table keeps the blocks.
+  const ramp = rampGradient(bands)
+  el.classList.toggle('scale--progressive', ramp !== '')
+  // A custom property has no attribute form, so this one value goes through
+  // CSSOM. That is not what style-src blocks: the CSP drops style attributes
+  // and <style> blocks the PARSER sees, and a script writing to el.style is
+  // neither. The swatches below still use presentation attributes, because
+  // those are per-element and this is one declaration on the container.
+  if (ramp) el.style.setProperty('--ramp', ramp)
+  else el.style.removeProperty('--ramp')
 
   // Icon-only: the triangle already says what it does, and a word beside it
   // pushed the whole bar to the right of itself. An icon-only control still
@@ -101,6 +114,16 @@ export function renderLegend(el, { title, toggleLabel, bands, noData }) {
   // one way and it is the served order reversed.
   const list = document.createElement('ol')
   list.className = 'scale__bands scale__bands--vertical'
+  if (ramp) {
+    // An <li>, because an <ol> may hold nothing else — and the bar is not a
+    // band: it is all of them, painted over the rows it spans. aria-hidden for
+    // the same reason the edge numbers are: the rows underneath are what a
+    // screen reader reads.
+    const bar = document.createElement('li')
+    bar.className = 'scale__bar'
+    bar.setAttribute('aria-hidden', 'true')
+    list.appendChild(bar)
+  }
   for (const band of [...bands].reverse()) {
     const item = document.createElement('li')
     item.className = 'scale__band'
@@ -138,6 +161,33 @@ export function renderLegend(el, { title, toggleLabel, bands, noData }) {
   row.appendChild(noneLabel)
   none.appendChild(row)
   el.appendChild(none)
+}
+
+// The bar's gradient, built from the served bands and from nothing else.
+//
+// HARD stops, one pair per band, never a blend: colourFor picks a band by its
+// inclusive upper bound, so 12 µg/m³ is squarely "Умерено" and no hex on the
+// map is ever painted a colour between two band colours. A smooth ramp here
+// would be a key showing colours nothing on screen uses — correct-looking and
+// wrong, which is the failure the kit's §2.1 is about.
+//
+// The stops are spaced EVENLY rather than by value, because the rows the bar is
+// drawn over are evenly spaced: each band is one 34px row, and a bar whose
+// seams did not land on the rows' seams would put every boundary number against
+// the wrong pair of colours.
+//
+// `to top`, because the list runs highest-first and the bar has to read the
+// same way as the numbers beside it.
+//
+// Below two bands there is no scale to draw — one band is a single colour, and
+// zero is a metric with no band table at all. Both keep the stacked blocks.
+export function rampGradient(bands) {
+  if (!bands || bands.length < 2) return ''
+  const step = 100 / bands.length
+  const stops = bands.map(
+    (band, i) => `${band.colour} ${(i * step).toFixed(3)}% ${((i + 1) * step).toFixed(3)}%`,
+  )
+  return `linear-gradient(to top, ${stops.join(', ')})`
 }
 
 // preserveAspectRatio="none" because the caller sizes the element from CSS and
