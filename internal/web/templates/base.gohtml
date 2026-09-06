@@ -100,3 +100,15 @@
      data-t-layer-poi-shop="{{.T "map.layer.poi_shop"}}"
      data-t-layer-poi-transport="{{.T "map.layer.poi_transport"}}"
      data-t-layer-poi-other="{{.T "map.layer.poi_other"}}"{{end}}
+
+{{/* The freshness line, on both pages that carry a map. The only difference is
+     where the reload button sits: in the toolbar on the home page, inside this
+     line on an area page, which is the kit's own split — on a page about one
+     place the reload is chrome beside the data, not a screen-level action. */}}
+{{define "dataFreshness"}}<div data-island="freshness"
+     data-button="{{if .Area}}true{{else}}false{{end}}"
+     data-t-label="{{.T "refresh.button"}}"
+     data-t-updated="{{.T "refresh.updated"}}"
+     data-t-loading="{{.T "refresh.loading"}}"
+     data-t-failed="{{.T "refresh.failed"}}"
+     data-t-auto="{{.T "refresh.auto"}}"></div>{{end}}

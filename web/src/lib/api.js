@@ -25,8 +25,11 @@ const RETRY_AFTER_CAP_MS = 30000
 const cache = new Map()
 const inFlight = new Map()
 
-// clearCache is a test seam. Nothing in the app calls it: a user who wants fresh
-// data reloads, and the page's own Cache-Control TTL bounds staleness.
+// clearCache is the invalidation. The cache below has no TTL of its own, so
+// without this the refresh button would be a control that visibly does nothing:
+// every call would be answered from a Map populated at page load. Called from
+// exactly one place — the reload the map island registers with the freshness
+// store (islands/map.js) — and from tests.
 export function clearCache() {
   cache.clear()
   inFlight.clear()

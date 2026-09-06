@@ -32,6 +32,11 @@
      data-t-placeholder="{{.T "find.placeholder"}}"
      data-t-hint="{{.T "find.hint"}}"
      data-t-empty="{{.T "find.no_match"}}"></div>
+{{/* Solid-bordered and full height, on the finder's baseline: the toolbar is
+     where this screen's controls live, so the reload belongs beside the finder
+     rather than in a line of prose. Secondary, not primary — the page has no
+     single call to action for it to compete with. */}}
+<div data-island="refresh" data-t-label="{{.T "refresh.button"}}"></div>
 </div>
 </div>
 
@@ -90,6 +95,11 @@
 </div>
 
 <div class="frame">
+
+{{/* Under the key, not above the data: the legend explains what the values
+     mean and this line says how old they are — two captions on the same thing,
+     so they sit together rather than at opposite ends of the screen. */}}
+{{template "dataFreshness" .}}
 
 {{/* The same panel island area.gohtml mounts, with the same attributes: the
      sensor tier is reachable from here too. refresh() (web/src/islands/map.js)

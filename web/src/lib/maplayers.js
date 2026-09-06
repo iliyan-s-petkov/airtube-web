@@ -24,6 +24,8 @@
 // Icons and structure are the kit's, and nothing here writes el.style: the
 // CSP's style-src has no 'unsafe-inline'.
 
+import { safeStorage } from './storage.js'
+
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
 export const STORAGE_KEY = 'airbg:map-layers'
@@ -56,16 +58,6 @@ function icon() {
     svg.appendChild(path)
   }
   return svg
-}
-
-// A blocked localStorage is a browser that still gets a working menu, not a
-// broken page — same contract theme.js states for the theme.
-function safeStorage() {
-  try {
-    return globalThis.localStorage ?? null
-  } catch {
-    return null
-  }
 }
 
 export function readState(storage = safeStorage()) {

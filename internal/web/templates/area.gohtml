@@ -112,6 +112,10 @@
 </div>
 <p id="area-map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
 
+{{/* This page has no toolbar reload: the partial puts the button inside the
+     line instead, keyed off .Area. See base.gohtml. */}}
+{{template "dataFreshness" .}}
+
 {{/* #sensor= is honoured only here, never on index.gohtml: resolving it
      needs the sensor already loaded through the map island above (the
      registry in web/src/lib/sensors.svelte.js), and there is no

@@ -11,7 +11,8 @@ import { LEGEND_CLASSES, legendRows, renderLegend } from '../lib/legend.js'
 import { mountFullscreen, mountZoom, installZoom } from '../lib/mapcontrols.js'
 import { mountLayers, installLayers, LAYER_ORDER } from '../lib/maplayers.js'
 import { colourFor } from '../lib/colour.js'
-import { getJSON } from '../lib/api.js'
+import { getJSON, clearCache } from '../lib/api.js'
+import { getFreshness } from '../lib/freshness.svelte.js'
 import { parseMetricList, hasScale } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales } from '../lib/sensors.svelte.js'
@@ -109,6 +110,7 @@ export function mount(el) {
   // intentionally page-lifetime. Exposed anyway, the same way $effect.root's
   // teardown would be, for test hygiene and in case that ever changes.
   let unsubscribe = null
+  let unprovide = null
 
   map.on('load', async () => {
     // The hex grid goes in FIRST, so every later layer draws over it. It is the
@@ -228,6 +230,20 @@ export function mount(el) {
     // call below self-corrects it the moment initData's own scales arrive.
     unsubscribe = vs.onMetricChange((metric) => onMetricChange(map, state, cfg, chrome, metric))
 
+    // What "refresh" MEANS lives here, with the map that owns the data; the
+    // toolbar button and the freshness line only ask for it (see
+    // lib/freshness.svelte.js). clearCache first, or the button would be a
+    // control that visibly does nothing: getJSON's cache lives for the page's
+    // lifetime and would answer every one of these calls from memory. `force`
+    // for the same reason on refresh()'s own tier:slug dedup. The hexes are
+    // reloaded too — they are the density field under the same readings, and a
+    // page where half the picture updated is worse than one where none did.
+    unprovide = getFreshness().provide(async () => {
+      clearCache()
+      await refresh(map, state, cfg, chrome, true)
+      await refreshHexes(map, state, cfg)
+    })
+
     await initData(map, state, cfg, chrome)
 
     // Explicit first call for the metric the page opened on: the STORE
@@ -273,7 +289,7 @@ export function mount(el) {
     if (props.id !== undefined) vs.openSensor(Number(props.id))
   })
 
-  return { map, chrome, stop: () => unsubscribe?.() }
+  return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.() } }
 }
 
 // toggleWind is the whole wind control: fetch once, then show or hide.

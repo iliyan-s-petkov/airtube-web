@@ -183,6 +183,23 @@ strong, b { font-weight: var(--weight-emphasis); }
 /* Honour the reduced-motion preference before Phase 3 adds any transitions. */
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
+/* The freshness line. `.data-refresh__auto` is not here: it comes from the
+   kit's components.css, which theme.css imports whole. These four do not —
+   they live only in ui_kits/app/app.css, which is a mockup's sheet and not
+   something this site loads. */
+.data-refresh {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-8);
+  color: var(--fg-2);
+  font-size: var(--text-compact); letter-spacing: var(--track-compact);
+}
+.data-refresh__btn { display: inline-flex; align-items: center; gap: var(--space-2); }
+.data-refresh__ico { flex: none; }
+/* tabular-nums so the clock does not re-wrap the line every minute, and a
+   quieter colour so the status reads as the button's result, not a second
+   control beside it. */
+.data-refresh__status { color: var(--meta); font-variant-numeric: tabular-nums; }
+
 /* Available to a screen reader, absent from the screen. Used for the map's
    text alternative, which aria-describedby points at: the sighted reader
    already has the map, and the province list below carries the same readings
