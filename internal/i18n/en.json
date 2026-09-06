@@ -53,6 +53,7 @@
   "map.legend.tier.country": "Each dot is a province average",
   "map.legend.tier.sensors": "Each dot is a single sensor",
   "map.legend.title": "Air quality",
+  "map.legend.toggle": "Legend",
   "map.text_alternative": "The list of provinces below the map carries the same readings as text.",
   "metric.P1": "PM10",
   "metric.P2": "PM2.5",

@@ -83,30 +83,44 @@ strong, b { font-weight: var(--weight-emphasis); }
    which is exactly what .map-shell makes it. */
 
 #chart { min-height: 12rem; }
-.map-legend, .map-hint, .map-note {
+/* The key's own box is gone: it is the kit's .scale--onmap now — bottom-left,
+   no panel, legible from a halo on the type rather than from a card laid over
+   the map it explains. What is left here is the two transient banners, which
+   are messages and not part of the key.
+
+   They moved from the bottom to the TOP for that reason: the key took the
+   bottom-left corner (the kit's §5.2d, chosen because MapLibre's attribution
+   owns bottom-right), and a hint anchored to the same corner sat on top of it.
+   The hint is above the note because it comes and goes with the viewport while
+   the note tracks the selected metric — the more volatile of the two is the one
+   the eye should not have to search for. */
+.map-hint, .map-note {
   position: absolute; z-index: 1; left: var(--space-2);
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg);
 }
-.map-legend { top: var(--space-2); max-width: 15rem; }
-.legend-title { font-weight: var(--weight-emphasis); margin: 0 0 var(--space-1); }
-.legend-ramp { list-style: none; margin: 0; padding: 0; }
-/* The swatch carries a server-defined band colour as an SVG fill attribute, so
-   it needs a size here and nothing else — see renderLegend on why a styled
-   span cannot work under the CSP. */
-.legend-swatch { width: 8px; height: 8px; flex: none; }
-.legend-range { margin-left: auto; color: var(--fg-2); font-variant-numeric: tabular-nums; }
-/* What a dot aggregates at this zoom. Separated from the ramp by a rule because
-   it answers a different question than the colours above it. Colour and type
-   come from the kit's .legend__tier, which the element also carries. */
-.legend-tier { margin: var(--space-1) 0 0; padding-top: var(--space-1); border-top: 1px solid var(--border-faint); }
-.map-hint { bottom: var(--space-2); color: var(--fg-2); }
+.map-hint { top: var(--space-2); color: var(--fg-2); }
 .map-hint[hidden] { display: none; }
-/* Below the legend, not the hint: the hint is about the viewport (comes and
-   goes with pan/zoom), the note is about the selected metric (comes and goes
-   with the switcher) — stacking them together would read as one message. */
 .map-note { top: 2.5rem; color: var(--muted); }
 .map-note[hidden] { display: none; }
+/* The no-data swatch carries a server-defined colour as an SVG fill attribute,
+   so it needs a size here and nothing else — see renderLegend on why a styled
+   span cannot work under the CSP. The BAND swatches need nothing: the kit sizes
+   .scale__band-swatch to the height of its own band, which is what makes the
+   segments touch and read as one bar. */
+.legend-swatch { width: 12px; height: 12px; flex: none; }
+/* What a dot aggregates at this zoom, under the map rather than in the key —
+   it answers a different question than the colours do, and the key is now an
+   overlay with no room for a paragraph. Colour and type come from the kit's
+   .legend__tier, which the element also carries; this is only its position. */
+   The gutter is its own, not inherited: on the home page the shell runs
+   full-bleed, so without it the sentence starts at the viewport's edge while
+   every other line on the page starts a gutter in. On the area page the shell
+   already sits inside a .frame, which has supplied that gutter once — a second
+   copy would indent this one line past its neighbours. */
+.map-tier { margin: var(--space-2) 0 0; padding-inline: var(--gutter); }
+.frame .map-tier { padding-inline: 0; }
+.map-tier[hidden] { display: none; }
 /* Bottom-right, same overlay idiom as .map-legend/.map-hint/.map-note above
    (absolute within #map/#area-map): the left edge is already legend/note
    (top) and hint (bottom), and top-right is .sensor-panel's corner (see

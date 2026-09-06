@@ -7,7 +7,7 @@ import { Map as MapLibreMap, addProtocol } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Protocol } from 'pmtiles'
 import { tierFor } from '../lib/tier.js'
-import { legendRows, renderLegend } from '../lib/legend.js'
+import { LEGEND_CLASSES, legendRows, renderLegend } from '../lib/legend.js'
 import { colourFor } from '../lib/colour.js'
 import { getJSON } from '../lib/api.js'
 import { parseMetricList, hasScale } from '../lib/metrics.js'
@@ -668,6 +668,9 @@ export function readConfig(el) {
     // catalogue, and a second copy here would drift on the first edit.
     t: {
       legend: d.tLegend || '',
+      // The name of the fold, not of the key: the summary is icon-only, and an
+      // icon-only control still has to be announced as something.
+      legendToggle: d.tLegendToggle || '',
       legendNoData: d.tLegendNoData || '',
       // Keyed by the tier names tierFor returns, so the lookup in showLegend is
       // a direct index rather than a branch that could drift from tier.js.
@@ -910,9 +913,31 @@ export function debounce(fn, ms) {
 // so an inline style written from JS is silently dropped by the browser, not
 // merely a lint complaint.
 function mountChrome(el, cfg) {
-  const legend = document.createElement('div')
-  legend.className = 'map-legend'
-  el.appendChild(legend)
+  // The key and the tier line go on the SHELL, not on #map, and they are the
+  // only two things here that do. The kit turns .scale--onmap static below
+  // 672px so the key sits under the map on a phone — and inside .map, "under
+  // the map" is still inside the map, over the corner of the canvas. The shell
+  // exists to be the positioning context for exactly this. Falling back to `el`
+  // keeps a map mounted without a shell rendering something rather than
+  // throwing, at the cost of the phone layout.
+  const shell = el.closest('.map-shell') ?? el
+
+  // <details>: it owns the open state, the keyboard and the accessible name, so
+  // nothing else has to record whether the key is folded. Open by default — a
+  // key the reader has to find and unfold does not explain the colours they are
+  // already looking at.
+  const legend = document.createElement('details')
+  legend.className = LEGEND_CLASSES
+  legend.open = true
+  shell.appendChild(legend)
+
+  // What a dot aggregates at this zoom. Under the map as prose, not inside the
+  // key: the key is an overlay with no panel behind it (the kit's §5.2d — a box
+  // there would hide the map it explains), and a sentence of that length haloed
+  // over a choropleth is not readable. It is also not part of the ramp.
+  const tierLine = document.createElement('p')
+  tierLine.className = 'legend__tier map-tier'
+  shell.appendChild(tierLine)
 
   const hint = document.createElement('div')
   hint.className = 'map-hint'
@@ -967,19 +992,24 @@ function mountChrome(el, cfg) {
     hint.hidden = !text
   })
 
-  const showLegend = ({ bands, tier }) => renderLegend(legend, {
-    title: cfg.t.legend,
-    rows: legendRows(bands, {
-      noDataColour: cfg.noDataColour,
-      noDataLabel: cfg.t.legendNoData,
-      lang: cfg.lang,
-    }),
-    tierText: cfg.t.tier[tier] ?? '',
-  })
+  const showLegend = ({ bands, tier }) => {
+    renderLegend(legend, {
+      title: cfg.t.legend,
+      toggleLabel: cfg.t.legendToggle,
+      ...legendRows(bands, {
+        noDataColour: cfg.noDataColour,
+        noDataLabel: cfg.t.legendNoData,
+        lang: cfg.lang,
+      }),
+    })
+    const text = cfg.t.tier[tier] ?? ''
+    tierLine.textContent = text
+    tierLine.hidden = !text
+  }
 
-  // Drawn once at mount, before any scales have loaded, so the box is never an
-  // empty bordered rectangle: with no bands that is the title and the no-data
-  // row, both of which are true at that moment.
+  // Drawn once at mount, before any scales have loaded, so the key is never an
+  // empty overlay: with no bands that is the title and the no-data row, both of
+  // which are true at that moment.
   showLegend({ bands: [], tier: null })
 
   return {

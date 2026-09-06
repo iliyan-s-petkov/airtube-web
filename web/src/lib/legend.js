@@ -5,36 +5,49 @@
 // catalogue entry is needed here. The tier line is the harder one: an area page
 // prints a sensor count while its dots may be city aggregates, and without a
 // line saying so the two honest numbers read as a contradiction.
-
-// legendRows turns the band table into display rows. Pure, so the range
-// arithmetic is testable without a DOM.
 //
-// A band knows only its own inclusive upper bound; the lower bound is the
-// PREVIOUS band's upper and appears nowhere in its own record. The no-data row
-// is always last and always present — grey dots are on the map even for a
-// metric with no band table at all.
+// The tier line is NOT built here any more: the kit puts it under the map as
+// prose, not inside the key, and the key is now an overlay ON the map with no
+// panel behind it — a three-line paragraph haloed over a choropleth is not
+// readable. mountChrome owns that paragraph; this file owns the key.
+
+// The kit classes the container itself must carry. They live here, next to the
+// classes renderLegend writes, rather than as a literal in mountChrome: these
+// four are what position the whole key and hide it from the overlay treatment
+// on a phone, so a typo in one of them is the most expensive misspelling in the
+// file — and here they are covered by the test that checks every kit class this
+// module names against components.css.
+export const LEGEND_CLASSES = 'scale scale--named scale--vertical scale--onmap'
+
+// legendRows turns the band table into the two parts the key renders: the bands
+// themselves and the no-data row. Pure, so the edge arithmetic is testable
+// without a DOM.
+//
+// Two parts rather than one flat list because they are not the same thing. The
+// bands are a scale — they touch, they are ordered, they carry a boundary
+// number. No-data is not a step on that scale; it is the absence of one, and
+// the kit renders it outside the bar as .scale__none. A flat array made the
+// renderer slice the last element off and hope, which is a shape that silently
+// mis-renders the moment a band table is empty.
+//
+// A band knows only its own inclusive upper bound. That upper bound is also the
+// number that gets DRAWN: the bands run highest-first, so a band's upper bound
+// is the boundary at its top edge, shared with the band above it. The topmost
+// band is open (upper === null) and so has no edge to draw.
 export function legendRows(bands, { noDataColour, noDataLabel, lang }) {
-  const rows = []
-  let lower = null
-  for (const band of bands ?? []) {
-    rows.push({
+  return {
+    bands: (bands ?? []).map((band) => ({
       colour: band.colour,
       label: lang === 'bg' ? band.label_bg : band.label,
-      range: rangeText(lower, band.upper),
-    })
-    lower = band.upper
+      edge: band.upper == null ? '' : String(band.upper),
+    })),
+    noData: { colour: noDataColour, label: noDataLabel },
   }
-  rows.push({ colour: noDataColour, label: noDataLabel, range: '' })
-  return rows
 }
 
-function rangeText(lower, upper) {
-  if (upper == null) return `> ${lower}`
-  if (lower == null) return `≤ ${upper}`
-  return `${lower}–${upper}`
-}
-
-// renderLegend replaces the legend's contents in place.
+// renderLegend replaces the key's contents in place. `el` is the <details> that
+// carries the kit's .scale--onmap classes; the element itself owns the open
+// state, so repainting its children never collapses it.
 //
 // Swatches are SVG <rect fill="…">, not a styled <span>. Band colours are
 // server data, so the only CSS route would be a style attribute — and the CSP
@@ -44,59 +57,88 @@ function rangeText(lower, upper) {
 // .chip__swatch is not used here: it paints from var(--chip-ramp), a property
 // the app can only set per-row through the attribute the CSP forbids.
 //
-// The classes the kit does own — legend__row, legend__label, legend__tier —
-// are used directly, so components.css styles this DOM and app.css keeps only
-// what is genuinely site-specific (the overlay box, the ramp's own layout).
-export function renderLegend(el, { title, rows, tierText }) {
+// Deliberately NOT emitted: the kit's `<li class="scale__bar">` that opens the
+// list in map-home.html. Its rule paints a hardcoded six-stop EAQI gradient,
+// and this key is drawn for seven metrics whose bands are served and differ —
+// temperature's scale is not PM2.5's. Painting a fixed ramp above a served one
+// is the same re-tint the kit's own §2.1 forbids, so the mockup's copy of it
+// stays in the mockup.
+export function renderLegend(el, { title, toggleLabel, bands, noData }) {
   el.replaceChildren()
 
-  const heading = document.createElement('p')
-  heading.className = 'legend-title'
-  heading.textContent = title
-  el.appendChild(heading)
+  // Icon-only: the triangle already says what it does, and a word beside it
+  // pushed the whole bar to the right of itself. An icon-only control still
+  // needs a name, so the name moves to aria-label.
+  const toggle = document.createElement('summary')
+  toggle.className = 'scale__toggle'
+  toggle.setAttribute('aria-label', toggleLabel)
+  el.appendChild(toggle)
 
-  const list = document.createElement('ul')
-  list.className = 'legend-ramp'
-  for (const row of rows) {
+  const label = document.createElement('span')
+  label.className = 'scale__label'
+  label.textContent = title
+  el.appendChild(label)
+
+  // <ol>, not <ul>: the bands are ordered, and the order is the meaning.
+  // Highest at the top, the way a thermometer reads — the boundary numbers sit
+  // on the seams between the segments they divide, so the sequence has to run
+  // one way and it is the served order reversed.
+  const list = document.createElement('ol')
+  list.className = 'scale__bands scale__bands--vertical'
+  for (const band of [...bands].reverse()) {
     const item = document.createElement('li')
-    item.className = 'legend__row'
-    item.appendChild(swatch(row.colour))
+    item.className = 'scale__band'
+    item.appendChild(swatch(band.colour, 'scale__band-swatch'))
 
-    const label = document.createElement('span')
-    label.className = 'legend__label'
-    label.textContent = row.label
-    item.appendChild(label)
+    const name = document.createElement('span')
+    name.className = 'scale__band-name'
+    name.textContent = band.label
+    item.appendChild(name)
 
-    if (row.range) {
-      const range = document.createElement('span')
-      range.className = 'legend-range'
-      range.textContent = row.range
-      item.appendChild(range)
-    }
+    // Always present, even when empty: it is positioned absolutely against its
+    // band, and a row that omits it on the open top band would be the only row
+    // whose box differs. aria-hidden because the number is a duplicate — the
+    // band name beside it is what the key is actually saying.
+    const edge = document.createElement('span')
+    edge.className = 'scale__band-edge'
+    edge.setAttribute('aria-hidden', 'true')
+    edge.textContent = band.edge
+    item.appendChild(edge)
+
     list.appendChild(item)
   }
   el.appendChild(list)
 
-  // Unconditional, unlike the old zoom hint: that only appeared when the sensor
-  // tier was refused for want of a slug, which is never true on an area page —
-  // exactly the page where the reader most needs to know what a dot aggregates.
-  if (tierText) {
-    const tier = document.createElement('p')
-    tier.className = 'legend-tier legend__tier'
-    tier.textContent = tierText
-    el.appendChild(tier)
-  }
+  // Outside the bar, because grey is not a step on the scale. Present even for
+  // a metric with no band table at all: grey dots are on the map either way.
+  const none = document.createElement('p')
+  none.className = 'scale__none'
+  const row = document.createElement('span')
+  row.className = 'legend__row'
+  row.appendChild(swatch(noData.colour, 'legend-swatch'))
+  const noneLabel = document.createElement('span')
+  noneLabel.className = 'legend__label'
+  noneLabel.textContent = noData.label
+  row.appendChild(noneLabel)
+  none.appendChild(row)
+  el.appendChild(none)
 }
 
-function swatch(colour) {
+// preserveAspectRatio="none" because the caller sizes the element from CSS and
+// the two uses are different shapes: the band swatch is a 20px column stretched
+// to its band's height, the no-data swatch is a small square. The default
+// letterboxes the rect inside whichever box it lands in and leaves a gap the
+// band beside it does not have.
+function swatch(colour, className) {
   const NS = 'http://www.w3.org/2000/svg'
   const svg = document.createElementNS(NS, 'svg')
-  svg.setAttribute('class', 'legend-swatch')
-  svg.setAttribute('viewBox', '0 0 8 8')
+  svg.setAttribute('class', className)
+  svg.setAttribute('viewBox', '0 0 1 1')
+  svg.setAttribute('preserveAspectRatio', 'none')
   svg.setAttribute('aria-hidden', 'true')
   const rect = document.createElementNS(NS, 'rect')
-  rect.setAttribute('width', '8')
-  rect.setAttribute('height', '8')
+  rect.setAttribute('width', '1')
+  rect.setAttribute('height', '1')
   rect.setAttribute('fill', colour)
   svg.appendChild(rect)
   return svg

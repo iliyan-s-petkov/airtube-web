@@ -237,7 +237,7 @@ describe('readConfig', () => {
     const cfg = readConfig({
       dataset: {
         tLegend: 'Air quality', tHint: 'Select an area',
-        tLegendNoData: 'Not enough data',
+        tLegendToggle: 'Legend', tLegendNoData: 'Not enough data',
         tTierCountry: 'Each dot is an oblast average',
         tTierCity: 'Each dot is a city average',
         tTierSensors: 'Each dot is a single sensor',
@@ -256,7 +256,7 @@ describe('readConfig', () => {
     })
     expect(cfg.t).toEqual({
       legend: 'Air quality', hint: 'Select an area',
-      legendNoData: 'Not enough data',
+      legendToggle: 'Legend', legendNoData: 'Not enough data',
       tier: {
         country: 'Each dot is an oblast average',
         city: 'Each dot is a city average',

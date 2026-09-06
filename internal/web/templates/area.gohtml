@@ -58,6 +58,13 @@
      data-t-legend="{{.T "metric.legend"}}"></div>
 </div>
 
+{{/* The shell is the positioning context for the on-map key, and it is a
+     wrapper rather than the map itself because below 672px the kit moves the
+     key out from over the map to under it — and inside .map, "under the map"
+     is still over the map's own bottom corner. No .map--hero here, so the
+     shell takes no width cap: the country fit is 926/382 and a province
+     window is 926/560 (see --map-view-h in components.css). */}}
+<div class="map-shell">
 {{/* A map is a region with a name, not an unlabelled box: D4 found it
      announced only as "Map". The description points at the province list
      below, which is already the text alternative and the no-JS fallback,
@@ -82,6 +89,7 @@
      data-zoom-city="{{.ZoomCity}}"
      data-zoom-sensor="{{.ZoomSensor}}"
      data-t-legend="{{.T "map.legend.title"}}"
+     data-t-legend-toggle="{{.T "map.legend.toggle"}}"
      data-t-legend-no-data="{{.T "map.legend.no_data"}}"
      data-t-tier-country="{{.T "map.legend.tier.country"}}"
      data-t-tier-city="{{.T "map.legend.tier.city"}}"
@@ -95,6 +103,7 @@
      data-t-locate-failed="{{.T "locate.failed"}}"
      data-t-wind-toggle="{{.T "wind.toggle"}}"
      data-t-wind-attribution="{{.T "wind.attribution"}}"></div>
+</div>
 <p id="area-map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
 
 {{/* #sensor= is honoured only here, never on index.gohtml: resolving it

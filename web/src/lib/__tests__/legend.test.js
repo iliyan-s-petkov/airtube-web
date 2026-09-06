@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
-import { legendRows, renderLegend } from '../legend.js'
+import { LEGEND_CLASSES, legendRows, renderLegend } from '../legend.js'
 
 // Shaped like /api/v1/scales: ascending, upper INCLUSIVE, the top band open
 // (upper === null), and both label languages present — internal/api/scales.go
@@ -21,45 +21,48 @@ const BANDS = [
 const OPTS = { noDataColour: '#999', noDataLabel: 'Недостатъчно данни', lang: 'bg' }
 
 describe('legendRows', () => {
-  it('renders one row per band plus the no-data row last', () => {
-    const rows = legendRows(BANDS, OPTS)
-    expect(rows).toHaveLength(4)
-    expect(rows[3]).toEqual({ colour: '#999', label: 'Недостатъчно данни', range: '' })
+  it('separates the bands from the no-data row', () => {
+    const { bands, noData } = legendRows(BANDS, OPTS)
+    expect(bands).toHaveLength(3)
+    expect(noData).toEqual({ colour: '#999', label: 'Недостатъчно данни' })
   })
 
-  // The reader cannot infer the lower bound: it is the PREVIOUS band's upper,
-  // which is nowhere in the band's own record.
-  it('derives each band range from the previous band upper', () => {
-    const rows = legendRows(BANDS, OPTS)
-    expect(rows[0].range).toBe('≤ 20')
-    expect(rows[1].range).toBe('20–50')
-    expect(rows[2].range).toBe('> 50')
+  // The number drawn on a band is its own upper bound, because the bands run
+  // highest-first and that bound is the boundary along its TOP edge — shared
+  // with the band above it. The topmost band is open and has no such boundary.
+  it('gives each band the boundary at its own top edge, and the open band none', () => {
+    expect(legendRows(BANDS, OPTS).bands.map((b) => b.edge)).toEqual(['20', '50', ''])
   })
 
   it('picks the Bulgarian label for bg and the English one otherwise', () => {
-    expect(legendRows(BANDS, OPTS)[0].label).toBe('Добро')
-    expect(legendRows(BANDS, { ...OPTS, lang: 'en' })[0].label).toBe('Good')
+    expect(legendRows(BANDS, OPTS).bands[0].label).toBe('Добро')
+    expect(legendRows(BANDS, { ...OPTS, lang: 'en' }).bands[0].label).toBe('Good')
   })
 
   // A metric with no band table (see metricNote/hasScale in map.js) still gets
   // a legend, because grey dots are still on the map and still need explaining.
-  it('returns only the no-data row when the metric has no bands', () => {
-    const rows = legendRows([], OPTS)
-    expect(rows).toEqual([{ colour: '#999', label: 'Недостатъчно данни', range: '' }])
+  it('returns no bands but still a no-data row when the metric has none', () => {
+    const { bands, noData } = legendRows([], OPTS)
+    expect(bands).toEqual([])
+    expect(noData.label).toBe('Недостатъчно данни')
   })
 
   it('tolerates a missing scales response', () => {
-    expect(legendRows(null, OPTS)).toHaveLength(1)
+    expect(legendRows(null, OPTS).bands).toEqual([])
   })
 })
 
 describe('renderLegend', () => {
   const draw = (over = {}) => {
-    const el = document.createElement('div')
+    // A <details> carrying the container classes, the way mountChrome builds
+    // it: the element owns the fold, so the renderer never creates it.
+    const el = document.createElement('details')
+    el.className = LEGEND_CLASSES
+    el.open = true
     renderLegend(el, {
       title: 'Качество на въздуха',
-      rows: legendRows(BANDS, OPTS),
-      tierText: 'Всяка точка е средно за град',
+      toggleLabel: 'Легенда',
+      ...legendRows(BANDS, OPTS),
       ...over,
     })
     return el
@@ -71,23 +74,44 @@ describe('renderLegend', () => {
   // An SVG fill is a presentation attribute, which style-src does not cover.
   it('paints swatches with an SVG fill attribute and never an inline style', () => {
     const el = draw()
-    const rects = el.querySelectorAll('.legend-swatch rect')
-    expect([...rects].map((r) => r.getAttribute('fill'))).toEqual(['#3c9', '#fc3', '#c33', '#999'])
+    const fills = [...el.querySelectorAll('rect')].map((r) => r.getAttribute('fill'))
+    expect(fills).toEqual(['#c33', '#fc3', '#3c9', '#999'])
     expect(el.querySelectorAll('[style]')).toHaveLength(0)
   })
 
-  it('renders a row per band plus no-data, with the ranges', () => {
+  // The order IS the meaning: the boundary numbers are positioned on the seam
+  // at the top of each band, so a list built in the served (ascending) order
+  // puts every number against the wrong pair of colours.
+  it('runs the bands highest first, with the boundary on each band top', () => {
     const el = draw()
-    expect(el.querySelectorAll('.legend-ramp li')).toHaveLength(4)
-    expect([...el.querySelectorAll('.legend-range')].map((n) => n.textContent))
-      .toEqual(['≤ 20', '20–50', '> 50'])
+    expect([...el.querySelectorAll('.scale__band-name')].map((n) => n.textContent))
+      .toEqual(['Лошо', 'Умерено', 'Добро'])
+    expect([...el.querySelectorAll('.scale__band-edge')].map((n) => n.textContent))
+      .toEqual(['', '50', '20'])
   })
 
-  // The reason the legend exists at all: an area page can print a sensor count
-  // while showing city aggregates.
-  it('states what a dot means, and omits the line when the tier is unknown', () => {
-    expect(draw().querySelector('.legend-tier').textContent).toBe('Всяка точка е средно за град')
-    expect(draw({ tierText: '' }).querySelector('.legend-tier')).toBeNull()
+  // Grey is not a step on the scale, it is the absence of one — so it sits
+  // outside the bar rather than as a fourth segment welded to the bottom of it.
+  it('keeps the no-data row out of the bar', () => {
+    const el = draw()
+    expect(el.querySelectorAll('.scale__bands--vertical .scale__band')).toHaveLength(3)
+    expect(el.querySelector('.scale__none').textContent).toBe('Недостатъчно данни')
+  })
+
+  // The summary is icon-only — the triangle already says what it does — and an
+  // icon-only control still has to be announced as something.
+  it('names the fold, which carries no text of its own', () => {
+    const toggle = draw().querySelector('summary')
+    expect(toggle.textContent).toBe('')
+    expect(toggle.getAttribute('aria-label')).toBe('Легенда')
+  })
+
+  // The kit's map-home.html opens this list with <li class="scale__bar">, whose
+  // rule paints a hardcoded six-stop EAQI gradient. This key is drawn for seven
+  // metrics whose bands are served and differ, so a fixed ramp above a served
+  // one would be showing colours the map does not use.
+  it('never draws the kit mockup hardcoded gradient bar', () => {
+    expect(draw().querySelector('.scale__bar')).toBeNull()
   })
 
   // The legend is styled by the design kit, so every kit class it emits has to
@@ -102,11 +126,19 @@ describe('renderLegend', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const css = readFileSync(
       join(here, '..', '..', '..', '..', 'design-kit', 'components.css'), 'utf8')
-    const emitted = new Set()
+    const emitted = new Set(LEGEND_CLASSES.split(' '))
     for (const node of draw().querySelectorAll('*')) {
-      for (const c of node.classList) if (c.includes('__')) emitted.add(c)
+      // Both separators: the modifiers are what switch this from a block under
+      // the map to an overlay on it, and are as easy to misspell as the parts.
+      for (const c of node.classList) if (c.includes('__') || c.includes('--')) emitted.add(c)
     }
-    expect([...emitted].sort()).toEqual(['legend__label', 'legend__row', 'legend__tier'])
+    expect([...emitted].sort()).toEqual([
+      'legend__label', 'legend__row',
+      'scale', 'scale--named', 'scale--onmap', 'scale--vertical',
+      'scale__band', 'scale__band-edge', 'scale__band-name', 'scale__band-swatch',
+      'scale__bands', 'scale__bands--vertical', 'scale__label', 'scale__none',
+      'scale__toggle',
+    ])
     for (const c of emitted) {
       expect(css, `components.css defines no .${c}`).toMatch(new RegExp(`\\.${c}\\b`))
     }
@@ -115,8 +147,18 @@ describe('renderLegend', () => {
   // showLegend is called on every refresh, including passes that fetch nothing.
   it('replaces its contents rather than appending on every repaint', () => {
     const el = draw()
-    renderLegend(el, { title: 'x', rows: legendRows(BANDS, OPTS), tierText: 'y' })
-    expect(el.querySelectorAll('.legend-ramp')).toHaveLength(1)
-    expect(el.querySelectorAll('.legend-title')).toHaveLength(1)
+    renderLegend(el, { title: 'x', toggleLabel: 'y', ...legendRows(BANDS, OPTS) })
+    expect(el.querySelectorAll('.scale__bands')).toHaveLength(1)
+    expect(el.querySelectorAll('summary')).toHaveLength(1)
+  })
+
+  // A reader who folded the key away must not have it reopened under them by
+  // the next refresh. The state lives on the <details>, which the renderer does
+  // not touch — this is the assertion that keeps it that way.
+  it('leaves the fold as the reader left it', () => {
+    const el = draw()
+    el.open = false
+    renderLegend(el, { title: 'x', toggleLabel: 'y', ...legendRows(BANDS, OPTS) })
+    expect(el.open).toBe(false)
   })
 })
