@@ -410,3 +410,124 @@ func TestEveryCSSVarUsedIsDefinedInTheme(t *testing.T) {
 		}
 	}
 }
+
+// The kit's components.css is loaded before app.css, so app.css wins wherever
+// the two set the same property — and loses, silently, wherever they set
+// DIFFERENT ones. It happened on .map-hint: the kit anchors that banner to the
+// bottom centre (inset-block-end + inset-inline-start:50%), app.css anchored it
+// top-left, and because neither declaration overrode the other the banner ended
+// up pinned to all four edges. A one-line message became a 314x465 translucent
+// panel over the left third of the map, which is what a reader saw the moment
+// the hint appeared.
+//
+// So: for a selector both files style, app.css may not anchor one edge of an
+// axis the kit already anchors from the other side. Overriding the kit's own
+// property is fine — that is how an override is meant to work.
+func TestAppCSSDoesNotCoAnchorAKitSelector(t *testing.T) {
+	kit := cssRules(t, "../../design-kit/components.css")
+	data, err := staticFS.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatalf("ReadFile app.css error = %v", err)
+	}
+	app := cssRulesOf(string(data))
+	if len(kit) == 0 || len(app) == 0 {
+		t.Fatal("no rules parsed from one of the sheets; the rule pattern no longer matches")
+	}
+
+	axes := []struct {
+		name  string
+		start []string
+		end   []string
+	}{
+		{"block", []string{"top", "inset-block-start"}, []string{"bottom", "inset-block-end"}},
+		{"inline", []string{"left", "inset-inline-start"}, []string{"right", "inset-inline-end"}},
+	}
+	for sel, appDecls := range app {
+		kitDecls, shared := kit[sel]
+		if !shared {
+			continue
+		}
+		for _, axis := range axes {
+			for _, pair := range [2][2][]string{{axis.start, axis.end}, {axis.end, axis.start}} {
+				kitSide, appSide := pair[0], pair[1]
+				if !anySet(kitDecls, kitSide) || !anySet(appDecls, appSide) {
+					continue
+				}
+				// Overriding the kit's own edge back to auto is the release
+				// valve, and the one this bug needed.
+				if anySet(appDecls, kitSide) {
+					continue
+				}
+				t.Errorf("app.css %s sets %v while the kit sets %v on the same %s axis: the element is anchored from both sides and stretches. Override the kit's edge (set it to auto) or drop app.css's.",
+					sel, appSide, kitSide, axis.name)
+			}
+		}
+	}
+}
+
+func anySet(decls map[string]string, props []string) bool {
+	for _, p := range props {
+		if _, ok := decls[p]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+var cssRule = regexp.MustCompile(`(?s)([^{}]+)\{([^{}]*)\}`)
+
+func cssRules(t *testing.T, path string) map[string]map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile %s error = %v", path, err)
+	}
+	return cssRulesOf(string(data))
+}
+
+// cssRulesOf is a selector -> property -> value index, flat: an @media block's
+// inner rules land beside the top-level ones, which is what this test wants —
+// a co-anchoring inside a media query stretches the box just the same.
+func cssRulesOf(css string) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, m := range cssRule.FindAllStringSubmatch(stripCSSComments(css), -1) {
+		decls := map[string]string{}
+		for _, d := range strings.Split(m[2], ";") {
+			prop, value, ok := strings.Cut(d, ":")
+			if !ok {
+				continue
+			}
+			decls[strings.ToLower(strings.TrimSpace(prop))] = strings.TrimSpace(value)
+		}
+		for _, sel := range strings.Split(m[1], ",") {
+			sel = strings.Join(strings.Fields(sel), " ")
+			if sel == "" || strings.HasPrefix(sel, "@") {
+				continue
+			}
+			if out[sel] == nil {
+				out[sel] = map[string]string{}
+			}
+			for p, v := range decls {
+				out[sel][p] = v
+			}
+		}
+	}
+	return out
+}
+
+func stripCSSComments(css string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(css, "/*")
+		if i < 0 {
+			b.WriteString(css)
+			return b.String()
+		}
+		b.WriteString(css[:i])
+		j := strings.Index(css[i:], "*/")
+		if j < 0 {
+			return b.String()
+		}
+		css = css[i+j+2:]
+	}
+}
