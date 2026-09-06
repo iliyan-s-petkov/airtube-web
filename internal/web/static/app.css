@@ -112,7 +112,8 @@ strong, b { font-weight: var(--weight-emphasis); }
 /* What a dot aggregates at this zoom, under the map rather than in the key —
    it answers a different question than the colours do, and the key is now an
    overlay with no room for a paragraph. Colour and type come from the kit's
-   .legend__tier, which the element also carries; this is only its position. */
+   .legend__tier, which the element also carries; this is only its position.
+
    The gutter is its own, not inherited: on the home page the shell runs
    full-bleed, so without it the sentence starts at the viewport's edge while
    every other line on the page starts a gutter in. On the area page the shell

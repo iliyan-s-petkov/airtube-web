@@ -154,6 +154,50 @@ func TestAppCSSHasNoLiteralColours(t *testing.T) {
 	}
 }
 
+// A stylesheet fails silently: the browser discards whatever it cannot parse
+// and paints on with the rest, so a broken comment costs a rule and no error
+// anywhere. It happened — a second `*/` left the prose of a comment sitting in
+// the sheet as garbage, and the CSS parser's error recovery ate the .map-tier
+// rule that followed it. Nothing failed; the line simply lost its gutter, and
+// it was found by measuring the live page.
+//
+// The two things that go wrong when comments are edited by hand are a `*/`
+// with no comment open and a comment left open at EOF; the brace count catches
+// a block truncated by either.
+func TestAppCSSParses(t *testing.T) {
+	data, err := staticFS.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatalf("ReadFile error = %v", err)
+	}
+	css := string(data)
+	line, depth, comment := 1, 0, false
+	for i := 0; i < len(css); i++ {
+		switch {
+		case css[i] == '\n':
+			line++
+		case comment && strings.HasPrefix(css[i:], "*/"):
+			comment, i = false, i+1
+		case comment:
+		case strings.HasPrefix(css[i:], "/*"):
+			comment, i = true, i+1
+		case strings.HasPrefix(css[i:], "*/"):
+			t.Fatalf("app.css:%d: `*/` with no comment open", line)
+		case css[i] == '{':
+			depth++
+		case css[i] == '}':
+			if depth--; depth < 0 {
+				t.Fatalf("app.css:%d: `}` with no rule open", line)
+			}
+		}
+	}
+	if comment {
+		t.Error("app.css ends inside a comment")
+	}
+	if depth != 0 {
+		t.Errorf("app.css ends with %d rule(s) still open", depth)
+	}
+}
+
 var (
 	cssVarUse = regexp.MustCompile(`var\(\s*(--[a-zA-Z0-9-]+)`)
 	cssVarDef = regexp.MustCompile(`(?m)^\s*(--[a-zA-Z0-9-]+)\s*:`)
