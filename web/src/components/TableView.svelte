@@ -18,6 +18,7 @@
     sortAfterHide,
   } from '../lib/table.js'
   import { matchAreas, splitMark } from '../lib/find.js'
+  import { closeOnEscape, closeOnOutside } from '../lib/menu.js'
   import MetricSwitcher from './MetricSwitcher.svelte'
 
   // `columns` are the table's data columns, read off its headers by the island:
@@ -91,17 +92,11 @@
     onview({ rows: view.rows, page: view.page, pages: view.pages, total: view.total, key, dir, hidden })
   })
 
-  // A menu that stays open behind the reader's next click is a menu they have to
-  // dismiss twice. mousedown rather than click, for the same reason the
-  // suggestion list uses it: the pointer decides where it is going on the way
-  // down.
+  // Dismissal is lib/menu.js's, shared with the metric menu: two copies of
+  // "close when the reader clicks past it" is how one of them stops closing.
   $effect(() => {
     if (!menuOpen) return
-    const away = (e) => {
-      if (menuEl && !menuEl.contains(e.target)) menuOpen = false
-    }
-    window.addEventListener('mousedown', away)
-    return () => window.removeEventListener('mousedown', away)
+    return closeOnOutside(menuEl, () => { menuOpen = false })
   })
 
   function toggleColumn(k) {
@@ -201,7 +196,7 @@
      panel is open over the page, and a <div> wrapper is not a thing that should
      carry a keyboard handler of its own. svelte:window has to sit at the top
      level of the component, so it cannot live beside the menu it serves. -->
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && menuOpen) { e.preventDefault(); closeMenu() } }} />
+<svelte:window onkeydown={closeOnEscape(() => menuOpen, closeMenu)} />
 
 <div class="table-controls">
   <!-- The kit's search combobox. It FILTERS rather than navigating, which is

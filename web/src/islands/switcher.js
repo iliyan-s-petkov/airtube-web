@@ -2,7 +2,7 @@
 // into it. The store, not this island, decides that a metric switch is a
 // replaceState — see lib/viewstate.svelte.js.
 import { mount as mountComponent } from 'svelte'
-import MetricSwitcher from '../components/MetricSwitcher.svelte'
+import MetricMenu from '../components/MetricMenu.svelte'
 import { parseMetricList, zipLabels } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 
@@ -10,7 +10,7 @@ export function mount(el) {
   const d = el.dataset
   const metrics = parseMetricList(d.metrics)
   const vs = getViewState({ metrics, defaultMetric: d.metric })
-  mountComponent(MetricSwitcher, {
+  mountComponent(MetricMenu, {
     target: el,
     props: {
       options: zipLabels(metrics, parseMetricList(d.metricLabels)),
