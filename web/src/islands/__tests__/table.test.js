@@ -388,10 +388,14 @@ describe('the table search', () => {
 })
 
 describe('the column menu', () => {
-  const menu = () => document.querySelector('.colmenu')
-  const button = () => document.querySelector('.colmenu > button')
-  const boxes = () => [...document.querySelectorAll('.colmenu__panel input[type="checkbox"]')]
-  const box = (key) => document.querySelector(`.colmenu__panel input[data-col="${key}"]`)
+  // By id, not by `.colmenu`: the map's layers control is a .colmenu too, and on
+  // the real home page it comes FIRST in the document — a class selector here
+  // would have been testing the map's button while the table's went unchecked.
+  const button = () => document.getElementById('table-colmenu-btn')
+  const panel = () => document.getElementById('table-colmenu-panel')
+  const menu = () => button().closest('.colmenu')
+  const boxes = () => [...panel().querySelectorAll('input[type="checkbox"]')]
+  const box = (key) => panel().querySelector(`input[data-col="${key}"]`)
   const cellsOf = (key) => {
     const th = document.querySelector(`th[data-sort-key="${key}"]`)
     const i = th.cellIndex
@@ -401,11 +405,11 @@ describe('the column menu', () => {
   it('opens the panel the button says it controls', () => {
     component = mount(page())
     expect(button().getAttribute('aria-expanded')).toBe('false')
-    const panel = document.getElementById(button().getAttribute('aria-controls'))
-    expect(panel.hidden).toBe(true)
+    expect(button().getAttribute('aria-controls')).toBe('table-colmenu-panel')
+    expect(panel().hidden).toBe(true)
     click(button())
     expect(button().getAttribute('aria-expanded')).toBe('true')
-    expect(panel.hidden).toBe(false)
+    expect(panel().hidden).toBe(false)
   })
 
   // The labels are read off the headers rather than translated a second time:

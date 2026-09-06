@@ -207,15 +207,15 @@ type rawBackfill struct {
 }
 
 type rawFrontend struct {
-	NoDataColour       *string `yaml:"no_data_colour"`
-	UnscaledColour     *string `yaml:"unscaled_colour"`
-	MarkerStrokeColour *string `yaml:"marker_stroke_colour"`
-	MarkerLabelColour  *string `yaml:"marker_label_colour"`
-	EmptyBasemapColour *string `yaml:"empty_basemap_colour"`
+	NoDataColour       *string  `yaml:"no_data_colour"`
+	UnscaledColour     *string  `yaml:"unscaled_colour"`
+	MarkerStrokeColour *string  `yaml:"marker_stroke_colour"`
+	MarkerLabelColour  *string  `yaml:"marker_label_colour"`
+	EmptyBasemapColour *string  `yaml:"empty_basemap_colour"`
 	HexOpacity         *float64 `yaml:"hex_opacity"`
-	ChartLineColour    *string `yaml:"chart_line_colour"`
-	ZoomCity           *int    `yaml:"zoom_city"`
-	ZoomSensor         *int    `yaml:"zoom_sensor"`
+	ChartLineColour    *string  `yaml:"chart_line_colour"`
+	ZoomCity           *int     `yaml:"zoom_city"`
+	ZoomSensor         *int     `yaml:"zoom_sensor"`
 	// The national fallback view. One home for it, because it is rendered into
 	// the home page's map island AND returned by /api/v1/locate; two copies is
 	// how the two views drift apart.

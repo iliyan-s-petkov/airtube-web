@@ -9,8 +9,8 @@ type Flag string
 const (
 	FlagOK Flag = "ok"
 	// FlagClamped is saturation, not implausibility. See README.md.
-	FlagClamped    Flag = "clamped"
-	FlagOutOfRange Flag = "out_of_range"
+	FlagClamped        Flag = "clamped"
+	FlagOutOfRange     Flag = "out_of_range"
 	FlagStuck          Flag = "stuck"
 	FlagSpatialOutlier Flag = "spatial_outlier"
 	// FlagNoNeighbours records that the spatial check could not run. It is not
