@@ -292,10 +292,10 @@ func (p PageData) AreaReadouts() []Readout {
 	}
 
 	out := make([]Readout, 0, len(p.Metrics)+1)
-	for _, m := range p.Metrics {
+	cell := func(m string) {
 		v, ok := p.Area.Values[m]
 		if !ok {
-			continue
+			return
 		}
 		out = append(out, Readout{
 			Label: p.T("metric." + m),
@@ -303,6 +303,18 @@ func (p PageData) AreaReadouts() []Readout {
 			Unit:  p.T("unit." + m),
 			Tier:  tier,
 		})
+	}
+
+	// The default metric leads, then the rest in canonical order. Canonical
+	// order is alphabetical, which would put PM10 in the first cell while the
+	// chart, the map and the province list on the same site are all showing
+	// PM2.5 — the strip would open by answering a question the page is not
+	// asking.
+	cell(p.DefaultMetric)
+	for _, m := range p.Metrics {
+		if m != p.DefaultMetric {
+			cell(m)
+		}
 	}
 
 	// Always last and always present, even when nothing is reporting: the count

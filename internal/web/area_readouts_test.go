@@ -68,6 +68,31 @@ func TestAreaReadoutsKeepTheCanonicalMetricOrder(t *testing.T) {
 	}
 }
 
+// The default metric leads whatever the canonical order says. Canonical order
+// is alphabetical, so P1 sorts above P2 — and a strip opening on PM10 while
+// the chart, the map and the province list all show PM2.5 answers a question
+// the page is not asking.
+func TestAreaReadoutsOpenOnThePageDefaultMetric(t *testing.T) {
+	got := areaReadoutsFor(t, "en", area("oblast", 4, map[string]float64{
+		"P1": 7.7, "P2": 3.2, "temperature": 14,
+	}))
+	want := []string{"PM2.5", "PM10", "Temperature"}
+	for i, label := range want {
+		if got[i].Label != label {
+			t.Errorf("cell %d = %q, want %q", i, got[i].Label, label)
+		}
+	}
+}
+
+// And it appears exactly once — leading it without excluding it from the loop
+// prints the site's headline metric twice.
+func TestAreaReadoutsDoNotRepeatTheDefaultMetric(t *testing.T) {
+	got := areaReadoutsFor(t, "en", area("oblast", 4, map[string]float64{"P2": 3.2, "P1": 7.7}))
+	if len(got) != 3 {
+		t.Fatalf("got %d cells, want 3: two metrics and the sensor count", len(got))
+	}
+}
+
 // A metric the area is not measuring gets no cell at all. An empty cell would
 // be a claim that the site tried and found nothing, when in fact this area has
 // no sensor carrying that instrument.
