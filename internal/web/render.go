@@ -189,6 +189,13 @@ type AreaRow struct {
 	// be right with no JavaScript, and it must agree with the dot the map draws
 	// for the same province — see bandColour.
 	Colour string
+	// Every metric this area is currently reporting, unformatted. Value above is
+	// one of these — the page's default metric — kept as its own field because
+	// the province list only ever prints that one and reaching into a map per
+	// row in a template is how a missing key becomes a silent blank cell. The
+	// area page needs the rest: it is the page about this one area, so it shows
+	// what the area measures rather than the one column a list can hold.
+	Values map[string]float64
 }
 
 // Readout is one cell of the country summary strip: what was measured, the
@@ -255,6 +262,61 @@ func (p PageData) Readouts() []Readout {
 		{Label: p.T("read.sensors"), Value: strconv.Itoa(sensors), Tier: p.T("home.tier_sensors")},
 		{Label: p.T("read.no_data"), Value: strconv.Itoa(silent), Tier: p.T("home.tier_silent")},
 	}
+}
+
+// AreaReadouts is the strip at the top of one area's page: what this area is
+// currently measuring, one cell per metric, then how many sensors the figures
+// come from.
+//
+// One cell per metric the area actually reports, rather than a fixed four:
+// which instruments an area carries is a property of the area, and a cell
+// reading nothing would claim the site looked and found the air unmeasurable
+// when in fact no sensor there carries that instrument. The cells follow the
+// site's canonical metric order so the strip is byte-identical between two
+// requests — a map's iteration order is not an order.
+//
+// Nil for an uncovered area. It publishes no average at all, and the page
+// already says so in a sentence; a strip of cells beside that notice would
+// contradict it.
+func (p PageData) AreaReadouts() []Readout {
+	if p.Area == nil || !p.Area.Covered {
+		return nil
+	}
+
+	// The tier line is the whole point of the cell: without it the figure is a
+	// number on a page about a place, and a reader cannot tell whether it is one
+	// sensor's reading or the average of two hundred.
+	tier := p.T("areas.tier")
+	if p.Area.Kind == "city" {
+		tier = p.T("area.tier_city")
+	}
+
+	out := make([]Readout, 0, len(p.Metrics)+1)
+	for _, m := range p.Metrics {
+		v, ok := p.Area.Values[m]
+		if !ok {
+			continue
+		}
+		out = append(out, Readout{
+			Label: p.T("metric." + m),
+			Value: formatValue(v, p.Lang),
+			Unit:  p.T("unit." + m),
+			Tier:  tier,
+		})
+	}
+
+	// Always last and always present, even when nothing is reporting: the count
+	// is a fact about the network rather than a measurement, and on a silent
+	// night it is the number that explains the silence.
+	//
+	// Labelled from the table's column rather than read.sensors: that key reads
+	// "Sensors in the network", which is the country figure on the home page and
+	// would be a false claim about one province here.
+	return append(out, Readout{
+		Label: p.T("table.col.sensors"),
+		Value: strconv.Itoa(p.Area.SensorCount),
+		Tier:  p.T("area.tier_sensors"),
+	})
 }
 
 // medianOf takes ownership of values and sorts it in place. The median rather

@@ -273,12 +273,14 @@ func TestEndToEndPageRendersFromTheDatabase(t *testing.T) {
 	body := readAll(t, get(t, public, "/area/sofia"))
 	// A bare Contains(body, "3") is satisfied by the page's own
 	// data-lon="23.32"/data-lat="42.69" attributes regardless of the actual
-	// sensor count (proven by mutation below), so match the sensor count in
-	// the exact markup produced by area.gohtml's "{{.Area.SensorCount}}
-	// {{.T "area.sensors"}}" line: "<p>3 сензора</p>" for the (unprefixed,
-	// Bulgarian-locale) /area/sofia route. Any digit from a coordinate,
-	// timestamp, or CSS class cannot satisfy this.
-	const wantSensorCount = "<p>3 сензора</p>"
+	// sensor count (proven by mutation below), so match the count in the exact
+	// markup that carries it — the last cell of the readouts strip, value and
+	// tier line together, for the (unprefixed, Bulgarian-locale) /area/sofia
+	// route. Any digit from a coordinate, timestamp, or CSS class cannot
+	// satisfy this, and the tier line pins it to the sensor cell rather than to
+	// whichever cell happens to read 3 µg/m³.
+	const wantSensorCount = "<span class=\"readout__value\">3</span>\n    " +
+		"<span class=\"readout__tier\">отчитащи в този район</span>"
 	if !strings.Contains(body, wantSensorCount) {
 		t.Errorf("the area page does not show the sensor count in its own markup: want substring %q, got body:\n%s", wantSensorCount, body)
 	}

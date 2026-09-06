@@ -7,7 +7,10 @@
 <div class="frame">
 <nav aria-label="breadcrumb"><a href="{{.Path "/"}}">{{.T "area.back_to_map"}}</a></nav>
 
-<h1>{{.Area.Name}}</h1>
+{{/* The kit's .page-head: the name, then whatever qualifies it, above the
+     figures rather than between them. */}}
+<div class="page-head">
+<h1 class="t-title">{{.Area.Name}}</h1>
 
 {{/* Shown on city pages only, because this is the page where the misreading
      happens: a reader comparing two cities has no way to know that 14 of the
@@ -15,14 +18,26 @@
      unconditional across cities rather than shown only for the 14, because
      nothing in the data marks which is which — the split is a property of
      OpenStreetMap's tagging, recorded in docs/known-limitations.md, not a
-     column. Naming the counts keeps the sentence honest for both halves. */}}
+     column. Naming the counts keeps the sentence honest for both halves.
+
+     Above the strip, not below it: it changes how every figure in the strip
+     should be read, and a caveat printed after the numbers arrives too late. */}}
 {{if eq .Area.Kind "city"}}
 <p class="notice-inline">{{.T "area.city_boundary_note"}}
   <a href="{{.Path "/about-the-data"}}">{{.T "about.title"}}</a></p>
 {{end}}
+</div>
+
+{{/* What this area is measuring right now — one cell per metric it reports,
+     then the sensors behind them (PageData.AreaReadouts).
+
+     The kit prints the sensor count twice, once as an intro sentence under the
+     title and again as the fourth cell. Only the cell survives here: it is the
+     same number, and the cell carries a tier line saying what the sensors are
+     counted in, which the bare sentence did not. */}}
+{{with .AreaReadouts}}{{template "readouts" .}}{{end}}
 
 {{if .Area.Covered}}
-  <p>{{.Area.SensorCount}} {{.T "area.sensors"}}</p>
   {{/* The chart island: one series, one metric (P2), one period (24h) — period
        and metric selectors are Phase 3b. Server-side we render the sensor
        count and the coverage state only — the numbers themselves live behind
@@ -69,7 +84,10 @@
      announced only as "Map". The description points at the province list
      below, which is already the text alternative and the no-JS fallback,
      so the two are connected rather than merely both present. */}}
-<div id="area-map" data-island="map" class="data-frame map"
+{{/* .map--wide is the kit's area-page map: full width of the frame, and a
+     container-type so anything inside it can size itself against the map
+     rather than against the viewport. */}}
+<div id="area-map" data-island="map" class="data-frame map map--wide"
      role="region" aria-label="{{.T "map.label"}}"
      aria-describedby="area-map-alt"
      data-slug="{{.Area.Slug}}"

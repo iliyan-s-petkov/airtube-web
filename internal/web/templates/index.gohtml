@@ -140,15 +140,7 @@
      PageData.Readouts), so the strip can never name a top province the list
      ranks second. Each cell carries the tier it aggregates — no bare numbers
      (DESIGN.md §9.1). */}}
-<div class="readouts">
-{{range .Readouts}}
-  <div class="readout">
-    <span class="readout__label">{{.Label}}</span>
-    <span class="readout__value">{{.Value}}{{with .Unit}} <span class="readout__unit">{{.}}</span>{{end}}</span>
-    <span class="readout__tier">{{.Tier}}</span>
-  </div>
-{{end}}
-</div>
+{{with .Readouts}}{{template "readouts" .}}{{end}}
 
 <h2>{{.T "nav.areas"}}</h2>
 {{/* The map's text alternative, named so aria-describedby can reach it. It is

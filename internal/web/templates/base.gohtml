@@ -112,3 +112,15 @@
      data-t-loading="{{.T "refresh.loading"}}"
      data-t-failed="{{.T "refresh.failed"}}"
      data-t-auto="{{.T "refresh.auto"}}"></div>{{end}}
+
+{{/* The figures strip, given a []Readout. Shared because the home page and an
+     area page draw the same cells from different sums, and a second copy of
+     this markup is how the two start rendering differently. Each cell keeps its
+     tier line: no bare numbers (DESIGN.md §9.1). */}}
+{{define "readouts"}}<div class="readouts">
+{{range .}}  <div class="readout">
+    <span class="readout__label">{{.Label}}</span>
+    <span class="readout__value">{{.Value}}{{with .Unit}} <span class="readout__unit">{{.}}</span>{{end}}</span>
+    <span class="readout__tier">{{.Tier}}</span>
+  </div>
+{{end}}</div>{{end}}
