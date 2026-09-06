@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseMetricList, hasScale, unitFor, zipLabels } from '../metrics.js'
+import { parseMetricList, hasScale, unitFor, zipLabels, splitAttr, byMetric } from '../metrics.js'
 
 // Shaped exactly like /api/v1/scales: two tables for P2, one for P1, none for
 // anything else. The duplicate P2 entry is not padding — it is what the real
@@ -73,5 +73,43 @@ describe('zipLabels', () => {
 
   it('drops extra labels when the label list is longer', () => {
     expect(zipLabels(['P1'], ['PM10', 'PM2.5'])).toEqual([{ metric: 'P1', label: 'PM10' }])
+  })
+})
+
+// splitAttr is parseMetricList with the filter removed, and the removal is the
+// whole point: these lists are positional against the metric list.
+describe('splitAttr', () => {
+  it('keeps an empty slot, where parseMetricList drops it', () => {
+    expect(splitAttr('µg/m³,,°C')).toEqual(['µg/m³', '', '°C'])
+    expect(parseMetricList('µg/m³,,°C')).toEqual(['µg/m³', '°C'])
+  })
+
+  it('trims each entry', () => {
+    expect(splitAttr(' PM10 , PM2.5 ')).toEqual(['PM10', 'PM2.5'])
+  })
+
+  // A blank attribute is no list at all, not a list of one empty string —
+  // otherwise byMetric would hand the first metric an entry it never had.
+  it('reads a missing or blank attribute as no list', () => {
+    expect(splitAttr('')).toEqual([])
+    expect(splitAttr('   ')).toEqual([])
+    expect(splitAttr(undefined)).toEqual([])
+  })
+})
+
+describe('byMetric', () => {
+  it('pairs each metric with the value in its own position', () => {
+    expect(byMetric(['P1', 'P2'], ['PM10', 'PM2.5'])).toEqual({ P1: 'PM10', P2: 'PM2.5' })
+  })
+
+  // '' and not undefined: the callers print what they are given, and undefined
+  // prints as the word.
+  it('gives a metric past the end of the list an empty string', () => {
+    expect(byMetric(['P1', 'P2'], ['PM10'])).toEqual({ P1: 'PM10', P2: '' })
+    expect(byMetric(['P1'], [])).toEqual({ P1: '' })
+  })
+
+  it('drops values with no metric to belong to', () => {
+    expect(byMetric(['P1'], ['PM10', 'PM2.5'])).toEqual({ P1: 'PM10' })
   })
 })

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
-import { LEGEND_CLASSES, legendRows, renderLegend } from '../legend.js'
+import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../legend.js'
 
 // Shaped like /api/v1/scales: ascending, upper INCLUSIVE, the top band open
 // (upper === null), and both label languages present — internal/api/scales.go
@@ -160,5 +160,33 @@ describe('renderLegend', () => {
     el.open = false
     renderLegend(el, { title: 'x', toggleLabel: 'y', ...legendRows(BANDS, OPTS) })
     expect(el.open).toBe(false)
+  })
+})
+
+// The caption of the key. "Air quality" is the same phrase for all seven
+// metrics and is wrong outright once the map paints temperature.
+describe('legendTitle', () => {
+  it('names the metric and what it is measured in', () => {
+    expect(legendTitle({ label: 'ФПЧ2.5', unit: 'µg/m³', fallback: 'x' })).toBe('ФПЧ2.5, µg/m³')
+  })
+
+  // A key with no unit still says something; a key with only a unit does not.
+  it('degrades to the name alone with no unit', () => {
+    expect(legendTitle({ label: 'ФПЧ2.5', unit: '', fallback: 'x' })).toBe('ФПЧ2.5')
+    expect(legendTitle({ label: 'ФПЧ2.5', fallback: 'x' })).toBe('ФПЧ2.5')
+  })
+
+  it('falls back only when the metric has no name', () => {
+    expect(legendTitle({ label: '', unit: 'µg/m³', fallback: 'Air quality' })).toBe('Air quality')
+    expect(legendTitle({ fallback: 'Air quality' })).toBe('Air quality')
+  })
+
+  it('never renders the empty string as a name', () => {
+    expect(legendTitle({ label: '   ', unit: 'µg/m³', fallback: 'Air quality' })).toBe('Air quality')
+    expect(legendTitle({})).toBe('')
+  })
+
+  it('trims both halves', () => {
+    expect(legendTitle({ label: ' PM2.5 ', unit: ' µg/m³ ' })).toBe('PM2.5, µg/m³')
   })
 })

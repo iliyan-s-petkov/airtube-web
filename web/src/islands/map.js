@@ -7,13 +7,13 @@ import { Map as MapLibreMap, addProtocol } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Protocol } from 'pmtiles'
 import { tierFor } from '../lib/tier.js'
-import { LEGEND_CLASSES, legendRows, renderLegend } from '../lib/legend.js'
+import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../lib/legend.js'
 import { mountFullscreen, mountZoom, installZoom } from '../lib/mapcontrols.js'
 import { mountLayers, installLayers, LAYER_ORDER } from '../lib/maplayers.js'
 import { colourFor } from '../lib/colour.js'
 import { getJSON, clearCache } from '../lib/api.js'
 import { getFreshness } from '../lib/freshness.svelte.js'
-import { parseMetricList, hasScale } from '../lib/metrics.js'
+import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales } from '../lib/sensors.svelte.js'
 import { applyLocate } from '../lib/locate.js'
@@ -426,7 +426,7 @@ async function refresh(map, state, cfg, chrome, force = false) {
   // Naming the raw tier here would restate that contradiction instead of
   // resolving it. Placed before the dedup return below so the legend is correct
   // even on the passes that fetch nothing.
-  chrome.showLegend({ bands: bandsFor(state.scales, cfg.metric), tier: effective })
+  chrome.showLegend({ bands: bandsFor(state.scales, cfg.metric), tier: effective, metric: cfg.metric })
 
   const url = urlFor(effective, state.slug)
   // Unchanged tier and slug: nothing to do. getJSON would serve from cache
@@ -685,6 +685,13 @@ export function readConfig(el) {
     // duplicated-constant problem series.default_metric's comment above is
     // about, one metric list instead of one metric.
     metrics: parseMetricList(d.metrics),
+    // What the key calls the metric it is a key to, and what that metric is
+    // measured in. Zipped into lookups here rather than kept as two positional
+    // arrays, because the legend asks by metric name and never by index — and
+    // an index that has to be looked up first is the off-by-one zipLabels
+    // exists to prevent. Both fall back per-metric inside legendTitle.
+    metricLabels: byMetric(parseMetricList(d.metrics), splitAttr(d.metricLabels)),
+    metricUnits: byMetric(parseMetricList(d.metrics), splitAttr(d.metricUnits)),
     basemap: d.basemap || '',
     // The language prefix for in-app links: "" for the default language,
     // "/de" otherwise. Server-rendered because the language set is data (see
@@ -1115,9 +1122,15 @@ export function mountChrome(el, cfg) {
     hint.hidden = !text
   })
 
-  const showLegend = ({ bands, tier }) => {
+  const showLegend = ({ bands, tier, metric }) => {
     renderLegend(legend, {
-      title: cfg.t.legend,
+      // Repainted with the bands, which is the only way it stays right: the
+      // bands change with the metric, and so does the name of what they band.
+      title: legendTitle({
+        label: cfg.metricLabels[metric],
+        unit: cfg.metricUnits[metric],
+        fallback: cfg.t.legend,
+      }),
       toggleLabel: cfg.t.legendToggle,
       ...legendRows(bands, {
         noDataColour: cfg.noDataColour,
@@ -1133,7 +1146,7 @@ export function mountChrome(el, cfg) {
   // Drawn once at mount, before any scales have loaded, so the key is never an
   // empty overlay: with no bands that is the title and the no-data row, both of
   // which are true at that moment.
-  showLegend({ bands: [], tier: null })
+  showLegend({ bands: [], tier: null, metric: cfg.metric })
 
   return {
     ...hintCtl,

@@ -27,6 +27,24 @@ export function unitFor(scales, metric) {
   return scales.find((s) => s.metric === metric)?.unit ?? ''
 }
 
+// Like parseMetricList, but it KEEPS the empty entries. A metric list has no
+// blank members and dropping them is right there; a label or unit list is
+// positional against it, so a metric with no unit is a legitimate empty slot
+// and dropping it shifts every unit after it onto the wrong metric. Same
+// reason zipLabels refuses to zip lists of different lengths silently.
+export function splitAttr(raw) {
+  const s = String(raw || '').trim()
+  return s === '' ? [] : s.split(',').map((v) => v.trim())
+}
+
+// The metric-keyed form of a positional attribute, for callers that look up by
+// name rather than walk the list. A metric with no value gets '', never
+// undefined: the callers treat an absent string as "say less", and undefined
+// would print as the word.
+export function byMetric(metrics, values) {
+  return Object.fromEntries(metrics.map((m, i) => [m, values[i] ?? '']))
+}
+
 // Positional pairing of the two server attributes. Extra labels are dropped and
 // missing ones fall back to the metric's own name: a mislabelled control is
 // worse than an unlabelled one, and silently shifting labels by one is exactly

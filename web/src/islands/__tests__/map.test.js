@@ -325,6 +325,36 @@ describe('readConfig', () => {
     expect(readConfig({ dataset: {} }).metrics).toEqual([])
   })
 
+  // Keyed by metric, not positional: the key looks its caption up by name.
+  it('keys the metric names and units by metric', () => {
+    const cfg = readConfig({
+      dataset: {
+        metrics: 'P1,P2,temperature',
+        metricLabels: 'PM10,PM2.5,Temperature',
+        metricUnits: 'µg/m³,µg/m³,°C',
+      },
+    })
+    expect(cfg.metricLabels).toEqual({ P1: 'PM10', P2: 'PM2.5', temperature: 'Temperature' })
+    expect(cfg.metricUnits.temperature).toBe('°C')
+  })
+
+  // A metric the server has no unit for is an empty slot, not a missing one:
+  // the list stays positional, so every later unit keeps its own metric.
+  it('keeps a metric with no unit aligned with the ones after it', () => {
+    const cfg = readConfig({
+      dataset: { metrics: 'P1,pressure,temperature', metricUnits: 'µg/m³,,°C' },
+    })
+    expect(cfg.metricUnits).toEqual({ P1: 'µg/m³', pressure: '', temperature: '°C' })
+  })
+
+  // Absent attributes: every metric gets '', never undefined, because the
+  // caption prints what it is given and "undefined" is a word.
+  it('gives every metric an empty string when the attributes are missing', () => {
+    const cfg = readConfig({ dataset: { metrics: 'P1,P2' } })
+    expect(cfg.metricLabels).toEqual({ P1: '', P2: '' })
+    expect(cfg.metricUnits).toEqual({ P1: '', P2: '' })
+  })
+
   it('reads numeric attributes as numbers, not strings', () => {
     const cfg = readConfig({ dataset: { zoom: '12', lon: '25.1', lat: '42.2' } })
     expect(cfg.zoom).toBe(12)
@@ -1312,6 +1342,19 @@ describe('mount() gives the point tier a layer to paint into', () => {
 // Put the tier paragraph inside the shell and the shell grows taller than the
 // map, so the key's inset-block-end:16px is measured from a bottom edge 16px
 // below the map's own: measured live at -16px before this.
+// The cfg every mountChrome test hands in. metricLabels and metricUnits are
+// keyed by metric because that is what readConfig produces (see byMetric): the
+// key's caption is looked up by name, never by position.
+const chromeCfg = (over = {}) => ({
+  t: { tier: {} },
+  noDataColour: '#999',
+  lang: 'bg',
+  metric: 'P2',
+  metricLabels: { P1: 'ФПЧ10', P2: 'ФПЧ2.5' },
+  metricUnits: { P1: 'µg/m³', P2: 'µg/m³' },
+  ...over,
+})
+
 describe('mountChrome anchors the key to the shell and the tier line outside it', () => {
   const chrome = () => {
     const shell = document.createElement('div')
@@ -1321,7 +1364,7 @@ describe('mountChrome anchors the key to the shell and the tier line outside it'
     shell.appendChild(el)
     const host = document.createElement('div')
     host.append(shell)
-    mountChrome(el, { t: { tier: {} }, noDataColour: '#999', lang: 'bg' })
+    mountChrome(el, chromeCfg())
     return { shell, el, host }
   }
 
@@ -1350,7 +1393,50 @@ describe('mountChrome anchors the key to the shell and the tier line outside it'
   it('falls back to the map when no shell wraps it', () => {
     const el = document.createElement('div')
     document.createElement('div').appendChild(el)
-    mountChrome(el, { t: { tier: {} }, noDataColour: '#999', lang: 'bg' })
+    mountChrome(el, chromeCfg())
     expect(el.querySelector('.scale--onmap')).not.toBeNull()
+  })
+})
+
+// The key's caption is the metric and its unit, not a fixed phrase. "Качество
+// на въздуха" is simply false when the map is painting temperature, and it is
+// the same words for all seven metrics — so it says nothing about which one is
+// on screen. The unit cannot come from /api/v1/scales: that endpoint carries
+// one only for a metric with a band table, which live is two of the seven.
+describe('the key names the metric it is a key to', () => {
+  const captionOf = (cfg) => {
+    const el = document.createElement('div')
+    document.createElement('div').appendChild(el)
+    return { el, chrome: mountChrome(el, cfg) }
+  }
+
+  it('composes the name and the unit on the first paint', () => {
+    const { el } = captionOf(chromeCfg())
+    expect(el.querySelector('.scale__label').textContent).toBe('ФПЧ2.5, µg/m³')
+  })
+
+  // cfg.metric is already the new metric by the time onMetricChange calls
+  // refresh, and refresh passes it through — so the caption follows the
+  // switcher without the key subscribing to anything.
+  it('follows the metric switch', () => {
+    const { el, chrome } = captionOf(chromeCfg())
+    chrome.showLegend({ bands: [], tier: null, metric: 'P1' })
+    expect(el.querySelector('.scale__label').textContent).toBe('ФПЧ10, µg/m³')
+  })
+
+  // Five of the seven metrics have a unit in the catalogue but no band table.
+  // A metric the catalogue has no unit for still gets its name.
+  it('drops to the name alone when the metric has no unit', () => {
+    const cfg = chromeCfg({ metricUnits: { P1: '', P2: '' } })
+    const { el } = captionOf(cfg)
+    expect(el.querySelector('.scale__label').textContent).toBe('ФПЧ2.5')
+  })
+
+  // Only a metric with no name at all falls back, because a caption reading
+  // just "µg/m³" would name nothing.
+  it('falls back to the generic title when the metric has no name', () => {
+    const cfg = chromeCfg({ metricLabels: {}, t: { tier: {}, legend: 'Качество на въздуха' } })
+    const { el } = captionOf(cfg)
+    expect(el.querySelector('.scale__label').textContent).toBe('Качество на въздуха')
   })
 })

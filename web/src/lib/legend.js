@@ -19,6 +19,22 @@
 // module names against components.css.
 export const LEGEND_CLASSES = 'scale scale--named scale--vertical scale--onmap'
 
+// What the key is a key TO. The kit writes the current metric and its unit —
+// "ФПЧ2.5, µg/m³" — and that is the honest caption for a map with seven
+// switchable metrics: "Air quality" is simply wrong when the map is painting
+// temperature, and it is the same seven words whichever metric is showing.
+//
+// The unit is second and the name first, because the name is what the reader
+// is looking for; a key with no unit still says something, a key with only a
+// unit does not. So a missing unit degrades to the name alone, and only a
+// missing name falls back to the generic title.
+export function legendTitle({ label, unit, fallback }) {
+  const name = (label || '').trim()
+  const measure = (unit || '').trim()
+  if (!name) return fallback || ''
+  return measure ? `${name}, ${measure}` : name
+}
+
 // legendRows turns the band table into the two parts the key renders: the bands
 // themselves and the no-data row. Pure, so the edge arithmetic is testable
 // without a DOM.

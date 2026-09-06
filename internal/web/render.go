@@ -149,11 +149,18 @@ type PageData struct {
 	DefaultLon  float64
 	DefaultLat  float64
 
-	// Metrics and MetricLabels are POSITIONAL pairs: MetricLabels[i] names
-	// Metrics[i]. Two parallel attributes rather than a JSON blob because the
-	// CSP has no 'unsafe-inline' and data-* attributes are the only channel.
+	// Metrics, MetricLabels and MetricUnits are POSITIONAL triples:
+	// MetricLabels[i] names Metrics[i] and MetricUnits[i] is what it is
+	// measured in. Parallel attributes rather than a JSON blob because the CSP
+	// has no 'unsafe-inline' and data-* attributes are the only channel.
+	//
+	// The units come from the catalogue and not from /api/v1/scales, which also
+	// carries one: that endpoint has an entry only for a metric with a band
+	// table, which today is two of the seven. The legend has to name a unit for
+	// all seven.
 	Metrics      []string
 	MetricLabels []string
+	MetricUnits  []string
 
 	cat *i18n.Catalogue
 }
@@ -298,6 +305,7 @@ func (p PageData) T(key string) string { return p.cat.T(p.Lang, key) }
 // counterpart on this side, not a {{range}} loop reproducing it.
 func (p PageData) MetricsAttr() string      { return strings.Join(p.Metrics, ",") }
 func (p PageData) MetricLabelsAttr() string { return strings.Join(p.MetricLabels, ",") }
+func (p PageData) MetricUnitsAttr() string  { return strings.Join(p.MetricUnits, ",") }
 
 // HasBasemap reports whether the page renders basemap tiles, which is what
 // makes the footer's ODbL credit required — and, when false, wrong.
@@ -385,8 +393,10 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 	// server test pins the exact string it produces.
 	metrics := upstream.CanonicalMetrics()
 	labels := make([]string, len(metrics))
+	units := make([]string, len(metrics))
 	for i, m := range metrics {
 		labels[i] = rr.cat.T(lang, "metric."+m)
+		units[i] = rr.cat.T(lang, "unit."+m)
 	}
 	return PageData{
 		Lang: lang, RequestPath: path,
@@ -410,6 +420,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		DefaultLat:         rr.frontend.DefaultLat,
 		Metrics:            metrics,
 		MetricLabels:       labels,
+		MetricUnits:        units,
 	}
 }
 
