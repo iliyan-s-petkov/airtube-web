@@ -77,3 +77,26 @@
 {{with .Assets.Script "main"}}<script type="module" src="{{.}}"></script>
 {{end}}</body>
 </html>{{end}}
+
+{{/* The layers menu's copy, in attribute position on the map island. Defined
+     once here because the home page and an area page mount the same island and
+     the same menu: sixteen attributes written twice is sixteen chances for the
+     two pages to end up offering different words for the same layer. The group
+     names are the style's own (metadata["airbg:group"] in tools/basemap/style.json)
+     and the island turns each into its dataset spelling — see layerLabelKey. */}}
+{{define "mapLayerLabels"}}data-t-layers-button="{{.T "map.layers.button"}}"
+     data-t-layers-caption="{{.T "map.layers.caption"}}"
+     data-t-view-legend="{{.T "map.view.legend"}}"
+     data-t-view-basemap="{{.T "map.view.basemap"}}"
+     data-t-layer-base="{{.T "map.layer.base"}}"
+     data-t-layer-water="{{.T "map.layer.water"}}"
+     data-t-layer-roads="{{.T "map.layer.roads"}}"
+     data-t-layer-street-names="{{.T "map.layer.street_names"}}"
+     data-t-layer-buildings="{{.T "map.layer.buildings"}}"
+     data-t-layer-places="{{.T "map.layer.places"}}"
+     data-t-layer-boundaries="{{.T "map.layer.boundaries"}}"
+     data-t-layer-poi-education="{{.T "map.layer.poi_education"}}"
+     data-t-layer-poi-health="{{.T "map.layer.poi_health"}}"
+     data-t-layer-poi-shop="{{.T "map.layer.poi_shop"}}"
+     data-t-layer-poi-transport="{{.T "map.layer.poi_transport"}}"
+     data-t-layer-poi-other="{{.T "map.layer.poi_other"}}"{{end}}

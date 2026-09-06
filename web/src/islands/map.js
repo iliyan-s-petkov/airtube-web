@@ -9,6 +9,7 @@ import { Protocol } from 'pmtiles'
 import { tierFor } from '../lib/tier.js'
 import { LEGEND_CLASSES, legendRows, renderLegend } from '../lib/legend.js'
 import { mountFullscreen, mountZoom, installZoom } from '../lib/mapcontrols.js'
+import { mountLayers, installLayers, LAYER_ORDER } from '../lib/maplayers.js'
 import { colourFor } from '../lib/colour.js'
 import { getJSON } from '../lib/api.js'
 import { parseMetricList, hasScale } from '../lib/metrics.js'
@@ -197,6 +198,16 @@ export function mount(el) {
       paint: arrowPaint(cfg),
     })
     chrome.windButton.addEventListener('click', () => toggleWind(map, cfg, chrome, windState))
+
+    // Here and not in mountChrome: the options are the style's own groups, and
+    // map.getStyle() has no layers to report until the style has loaded. A menu
+    // built any earlier is a menu of nothing, which is why it stays hidden
+    // until this call finds something to put in it.
+    installLayers(map, chrome.layersUI, {
+      labels: cfg.t.layers,
+      caption: cfg.t.layersCaption,
+      views: chrome.layerViews,
+    })
 
     // Registered synchronously, right here — after addLayer so setPaintProperty
     // always has a real layer to act on, but deliberately BEFORE awaiting
@@ -623,6 +634,15 @@ export function bandsFor(scales, metric) {
   return scales.find((s) => s.metric === metric)?.bands ?? []
 }
 
+// 'street-names' -> 'tLayerStreetNames', the dataset spelling of
+// data-t-layer-street-names. Exported for its own test: it is the one place the
+// group keys and the template's attribute names have to agree, and they agree
+// by rule rather than by two lists kept in step by hand.
+export function layerLabelKey(group) {
+  const camel = group.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('')
+  return `tLayer${camel}`
+}
+
 export function readConfig(el) {
   const d = el.dataset
   return {
@@ -705,6 +725,17 @@ export function readConfig(el) {
       zoomIn: d.tZoomIn || '',
       zoomOut: d.tZoomOut || '',
       zoomReset: d.tZoomReset || '',
+      layersButton: d.tLayersButton || '',
+      layersCaption: d.tLayersCaption || '',
+      viewLegend: d.tViewLegend || '',
+      viewBasemap: d.tViewBasemap || '',
+      // One label per style group, keyed by the group's own name so the menu
+      // can look up whatever the style turns out to carry. Derived from
+      // LAYER_ORDER rather than written out, because the attribute name is a
+      // mechanical transform of the key — data-t-layer-street-names becomes
+      // d.tLayerStreetNames — and writing both would be two spellings of one
+      // fact. A group with no string falls back to its key at render time.
+      layers: Object.fromEntries(LAYER_ORDER.map((g) => [g, d[layerLabelKey(g)] || ''])),
       hint: d.tHint || '',
       rateLimited: d.tRateLimited || '',
       unavailable: d.tUnavailable || '',
@@ -985,6 +1016,36 @@ export function mountChrome(el, cfg) {
     resetLabel: cfg.t.zoomReset,
   })
 
+  // The layers menu takes the frame's top-left corner, which is why the hint
+  // and the note below are offset past it in app.css rather than sharing it.
+  // Built here, filled later: its options are read off the mounted style, which
+  // does not exist until MapLibre has loaded one.
+  const layers = mountLayers(el, { label: cfg.t.layersButton })
+
+  // Two toggles about the SCREEN rather than about the basemap, listed above
+  // the categories rather than smuggled in beside "Shops" as if they were one
+  // more kind of place.
+  //
+  // The basemap one hides only what carries an airbg:group — the kit's own
+  // version walks every layer in the style, which on this map would take the
+  // readings down with the ground. "Hide the basemap" has to leave the
+  // measurements standing, or it is not the control it says it is.
+  const layerViews = [
+    { id: 'legend', label: cfg.t.viewLegend, apply: (on) => { legend.hidden = !on } },
+    {
+      id: 'basemap',
+      label: cfg.t.viewBasemap,
+      needsMap: true,
+      apply: (on, map) => {
+        for (const l of map.getStyle()?.layers ?? []) {
+          if (l.metadata?.['airbg:group']) {
+            map.setLayoutProperty(l.id, 'visibility', on ? 'visible' : 'none')
+          }
+        }
+      },
+    },
+  ]
+
   const hint = document.createElement('div')
   hint.className = 'map-hint'
   hint.hidden = true
@@ -1066,6 +1127,8 @@ export function mountChrome(el, cfg) {
     },
     showLegend,
     zoomButtons: zoom.buttons,
+    layersUI: layers,
+    layerViews,
     locateButton,
     windButton,
     // Both halves move together: the disclosure is shown exactly when the

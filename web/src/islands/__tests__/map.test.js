@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath } from '../map.js'
+import { urlFor, bandsFor, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
@@ -37,6 +37,12 @@ vi.mock('maplibre-gl', () => {
       this.zoomOut = vi.fn()
       this.flyTo = vi.fn()
       this.getSource = vi.fn(() => ({ setData: vi.fn() }))
+      // The layers menu reads its options off the mounted style, so a map that
+      // cannot report one is a map this island cannot mount. Empty here: the
+      // basemap layers come from tools/basemap/style.json, which no test
+      // fetches, and an empty style is the real state of a map served without
+      // tiles — the one the menu has to survive.
+      this.getStyle = vi.fn(() => ({ layers: [] }))
       // Spied so the locateVisitor tests below can assert a "geoip" response
       // jumps the map, and that a "default"/rejected response does not.
       this.jumpTo = vi.fn()
@@ -248,6 +254,12 @@ describe('readConfig', () => {
         tLegendToggle: 'Legend', tLegendNoData: 'Not enough data',
         tFullscreen: 'Full screen', tFullscreenExit: 'Exit full screen',
         tZoomIn: 'Zoom in', tZoomOut: 'Zoom out', tZoomReset: 'Reset view',
+        tLayersButton: 'Layers', tLayersCaption: 'Show on the map',
+        tViewLegend: 'Scale', tViewBasemap: 'OpenStreetMap basemap',
+        // Two of the twelve groups, deliberately: the other ten prove the
+        // point below, that an unrendered group arrives as '' rather than as
+        // undefined or as a missing key.
+        tLayerBase: 'Terrain and parks', tLayerStreetNames: 'Street names',
         tTierCountry: 'Each dot is an oblast average',
         tTierCity: 'Each dot is a city average',
         tTierSensors: 'Each dot is a single sensor',
@@ -269,6 +281,17 @@ describe('readConfig', () => {
       legendToggle: 'Legend', legendNoData: 'Not enough data',
       fullscreen: 'Full screen', fullscreenExit: 'Exit full screen',
       zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomReset: 'Reset view',
+      layersButton: 'Layers', layersCaption: 'Show on the map',
+      viewLegend: 'Scale', viewBasemap: 'OpenStreetMap basemap',
+      // One entry per group in LAYER_ORDER, always: the menu looks a label up
+      // by the group the STYLE reports, so a key that is simply absent here
+      // would be a group that renders under its own slug the day the style
+      // starts carrying it.
+      layers: {
+        base: 'Terrain and parks', water: '', roads: '', 'street-names': 'Street names',
+        buildings: '', places: '', boundaries: '', 'poi-education': '',
+        'poi-health': '', 'poi-shop': '', 'poi-transport': '', 'poi-other': '',
+      },
       tier: {
         country: 'Each dot is an oblast average',
         city: 'Each dot is a city average',
@@ -281,6 +304,17 @@ describe('readConfig', () => {
       windToggle: 'Wind',
       windAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
     })
+  })
+
+  // The one place the style's group names and the template's attribute names
+  // have to agree. They agree by rule, so the rule is what gets tested: a
+  // second hand-kept list is exactly what this function exists to avoid.
+  it('turns a style group into the dataset spelling of its label attribute', () => {
+    expect(layerLabelKey('water')).toBe('tLayerWater')
+    // The hyphenated ones are the whole point: data-t-layer-street-names and
+    // data-t-layer-poi-education are where a hand-written mapping would slip.
+    expect(layerLabelKey('street-names')).toBe('tLayerStreetNames')
+    expect(layerLabelKey('poi-education')).toBe('tLayerPoiEducation')
   })
 
   // data-metrics is the same attribute (and same parseMetricList) the switcher

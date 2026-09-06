@@ -94,14 +94,23 @@ strong, b { font-weight: var(--weight-emphasis); }
    The hint is above the note because it comes and goes with the viewport while
    the note tracks the selected metric — the more volatile of the two is the one
    the eye should not have to search for. */
+/* Offset past the layers menu rather than sharing its corner. The kit gives the
+   frame's top-left to .map__layers — a 32px button inset 12px, so it owns
+   12px..44px on both axes — and the banners used to start at 8px, straight
+   underneath it. They move right by the button plus a gutter instead of moving
+   corner: the top-left is where a reader looks for a message about the map, and
+   the other three corners are the key, the attribution and the zoom stack. */
 .map-hint, .map-note {
-  position: absolute; z-index: 1; left: var(--space-2);
+  position: absolute; z-index: 1; left: calc(12px + 32px + var(--space-2));
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg);
 }
-.map-hint { top: var(--space-2); color: var(--fg-2); }
+/* 12px, the layers button's own inset: the banner and the button share a top
+   edge, which is the only thing that makes the offset above read as a row
+   rather than as a near-miss. */
+.map-hint { top: 12px; color: var(--fg-2); }
 .map-hint[hidden] { display: none; }
-.map-note { top: 2.5rem; color: var(--muted); }
+.map-note { top: 2.75rem; color: var(--muted); }
 .map-note[hidden] { display: none; }
 /* The no-data swatch carries a server-defined colour as an SVG fill attribute,
    so it needs a size here and nothing else — see renderLegend on why a styled
