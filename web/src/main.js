@@ -9,6 +9,7 @@ const ISLANDS = {
   map: () => import('./islands/map.js'),
   chart: () => import('./islands/chart.js'),
   switcher: () => import('./islands/switcher.js'),
+  finder: () => import('./islands/finder.js'),
   panel: () => import('./islands/panel.js'),
   theme: () => import('./islands/theme.js'),
 }

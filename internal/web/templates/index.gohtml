@@ -9,9 +9,8 @@
   <p class="t-body">{{.T "site.tagline"}}</p>
 </div>
 
-{{/* The toolbar is where this screen's controls live. It holds only the metric
-     switcher today; the province finder and the refresh join it on the spacer's
-     far side, which is why the spacer is here rather than added with them. */}}
+{{/* The toolbar is where this screen's controls live: the metric switcher on
+     one side of the spacer, the area finder on the other. */}}
 <div class="toolbar">
 {{/* The switcher: server-rendered metric list and labels, positional pairs —
      see PageData.Metrics/MetricLabels. Above the map island because it
@@ -22,6 +21,17 @@
      data-metric="{{.DefaultMetric}}"
      data-t-legend="{{.T "metric.legend"}}"></div>
 <div class="toolbar__spacer"></div>
+{{/* The finder carries no list of its own: it reads the area list rendered at
+     the foot of this page, which is already the no-JS fallback and the map's
+     text alternative. A second copy of the same 28 names is a second thing that
+     can disagree with the one the reader can see — and it settles the empty
+     case too, since a page with no list mounts no finder. */}}
+<div data-island="finder"
+     data-source=".areas"
+     data-t-label="{{.T "find.label"}}"
+     data-t-placeholder="{{.T "find.placeholder"}}"
+     data-t-hint="{{.T "find.hint"}}"
+     data-t-empty="{{.T "find.no_match"}}"></div>
 </div>
 </div>
 
