@@ -52,7 +52,9 @@
      live beside the menu it serves. -->
 <svelte:window onkeydown={closeOnEscape(() => open, close)} />
 
-<div class="colmenu" bind:this={menuEl}>
+<!-- --start because this control is the first on its row: the kit's default
+     end-anchored panel is wider than the button and would open off the page. -->
+<div class="colmenu colmenu--start" bind:this={menuEl}>
   <button
     type="button"
     class="btn btn--secondary"

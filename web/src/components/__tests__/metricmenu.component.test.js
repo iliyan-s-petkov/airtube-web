@@ -52,6 +52,15 @@ describe('MetricMenu.svelte', () => {
     expect(button(t).getAttribute('aria-controls')).toBe(panel(t).id)
   })
 
+  // The kit anchors a menu panel to its button's END edge, which is right for
+  // the table's Колони menu at the right of its row and wrong for this one: it
+  // is the FIRST control, and a 15rem panel hung off its right edge opened past
+  // the left of the page with its first column of text cut off.
+  it('anchors the panel to its start edge, not the kit default', () => {
+    const t = render({ selected: 'P2', onselect: () => {} })
+    expect(t.querySelector('.colmenu').classList.contains('colmenu--start')).toBe(true)
+  })
+
   it('offers every metric the server sent', async () => {
     const t = render({ selected: 'P2', onselect: () => {} })
     button(t).click()
