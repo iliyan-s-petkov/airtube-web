@@ -73,10 +73,19 @@ export function arrowLayout() {
 // render as tofu against the same glyph source the marker labels use.
 const ARROW_GLYPH = '→'
 
+// The same colour pairing the marker labels use: the label colour drawn, the
+// marker stroke colour as a halo around it. It used to paint the STROKE colour
+// — white, with no halo — which on a pale basemap is a layer that reports
+// itself on and draws nothing a reader can see.
+//
+// The halo, not transparency, is what keeps the arrows off the readings: a
+// haloed arrow stays legible over a dark hex and still reads as an overlay,
+// where a faded one disappears over both.
 export function arrowPaint(cfg) {
   return {
-    'text-color': cfg.markerStrokeColour,
-    // Semi-transparent so the PM layer underneath stays the primary reading.
-    'text-opacity': 0.75,
+    'text-color': cfg.labelColour,
+    'text-halo-color': cfg.markerStrokeColour,
+    'text-halo-width': 1.4,
+    'text-opacity': 0.9,
   }
 }

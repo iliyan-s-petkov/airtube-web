@@ -75,6 +75,7 @@
   "map.legend.title": "Air quality",
   "map.legend.toggle": "Legend",
   "map.text_alternative": "The list of provinces below the map carries the same readings as text.",
+  "map.text_alternative.areas": "The same readings are available as text on the page",
   "map.view.basemap": "OpenStreetMap basemap",
   "map.view.legend": "Scale",
   "map.zoom.in": "Zoom in",

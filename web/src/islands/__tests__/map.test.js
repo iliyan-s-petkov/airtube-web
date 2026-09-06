@@ -6,8 +6,8 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
-import { POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
+import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
@@ -149,6 +149,22 @@ describe('bandsFor', () => {
   it('returns an empty table when scales is not an array (a failed fetch resolved to null)', () => {
     expect(bandsFor(null, 'P2')).toEqual([])
     expect(bandsFor(undefined, 'P2')).toEqual([])
+  })
+
+  // The ramp and the key both take bands, never scales, so a ceiling that stops
+  // here is a ceiling nothing draws to.
+  it('carries the scale ceiling onto the top band, and onto no other', () => {
+    const withCeiling = [
+      { metric: 'P2', ceiling: 500, bands: [{ upper: 25, colour: 'y' }, { upper: null, colour: 'z' }] },
+    ]
+    expect(bandsFor(withCeiling, 'P2')).toEqual([
+      { upper: 25, colour: 'y' },
+      { upper: null, colour: 'z', ceiling: 500 },
+    ])
+  })
+
+  it('leaves the bands untouched when the scale states no ceiling', () => {
+    expect(bandsFor(scales, 'P1')).toEqual([{ upper: 50, colour: 'x' }])
   })
 })
 
@@ -644,41 +660,60 @@ describe('layerPaint', () => {
   })
 })
 
-describe('blankStyle', () => {
-  it('paints the background layer with the colour passed in', () => {
-    const style = blankStyle('#eef2f5')
-    expect(style.layers[0].paint['background-color']).toBe('#eef2f5')
-  })
-})
-
-// J2 (review round 2): mount() must call blankStyle(cfg.emptyBasemapColour),
-// not blankStyle(cfg.noDataColour) or any other config field. blankStyle's
-// own test above cannot see this — it only ever gets the value its caller
-// already picked. mapStyle is the call site itself, extracted so this
-// argument-selection bug is directly testable without a real MapLibre map.
+// The style is now raster-only. The self-hosted vector archive is a BULGARIA
+// extract whose opaque land/water fills painted a rectangle over the world
+// raster beneath it — the Danube stopped at Silistra, the ground changed
+// colour at the border, and the Black Sea went unnamed.
 describe('mapStyle', () => {
-  it('uses the configured basemap URL when one is set', () => {
-    const cfg = { basemap: 'https://tiles.example/style.json', emptyBasemapColour: '#eef2f5' }
-    expect(mapStyle(cfg)).toBe('https://tiles.example/style.json')
+  const cfg = { basemap: 'https://tiles.airbg.org/style.json', emptyBasemapColour: '#eef2f5' }
+
+  it('draws the world raster and no vector layer at all', () => {
+    const style = mapStyle(cfg)
+    const raster = style.layers.filter((l) => l.type === 'raster')
+
+    expect(raster).toHaveLength(1)
+    expect(style.sources[raster[0].source].tiles[0]).toContain('tile.openstreetmap.org')
+    expect(style.sources[raster[0].source].attribution).toContain('OpenStreetMap')
+    for (const l of style.layers) expect(l.type).not.toBe('fill')
   })
 
-  it('falls back to a flat background painted with cfg.emptyBasemapColour, not a different field', () => {
-    const cfg = { basemap: '', emptyBasemapColour: '#eef2f5', noDataColour: '#9ca3af' }
-    const style = mapStyle(cfg)
-    expect(style.layers[0].paint['background-color']).toBe('#eef2f5')
+  it('paints the backing colour from cfg.emptyBasemapColour, not another field', () => {
+    const style = mapStyle({ ...cfg, noDataColour: '#9ca3af' })
+    const bg = style.layers.find((l) => l.type === 'background')
+    expect(bg.paint['background-color']).toBe('#eef2f5')
+  })
+
+  it('puts the raster over the backing colour, which would otherwise cover it', () => {
+    const ids = mapStyle(cfg).layers.map((l) => l.type)
+    expect(ids.indexOf('background')).toBeLessThan(ids.indexOf('raster'))
+  })
+
+  // A raster-only style has no glyphs of its own. Without one MapLibre draws
+  // no symbol layer at all: no marker labels, no cell values, no wind arrows.
+  it('keeps a glyphs endpoint so the symbol layers still have letters', () => {
+    expect(mapStyle(cfg).glyphs).toBe('https://tiles.airbg.org/glyphs/{fontstack}/{range}.pbf')
+  })
+
+  it('omits glyphs rather than inventing one when no basemap is configured', () => {
+    expect(mapStyle({ basemap: '', emptyBasemapColour: '#eef2f5' }).glyphs).toBeUndefined()
   })
 })
 
-// The pmtiles:// protocol must be registered before any style referencing it
-// loads, and exactly once — MapLibre's addProtocol is global, and a second
-// registration for the same scheme replaces the first silently.
-describe('registerProtocols', () => {
-  it('registers pmtiles exactly once across repeated calls', () => {
-    const seen = []
-    const add = (scheme, fn) => seen.push([scheme, typeof fn])
-    registerProtocols(add)
-    registerProtocols(add)
-    expect(seen).toEqual([['pmtiles', 'function']])
+describe('glyphsURL', () => {
+  it('replaces the style file with the font endpoint, keeping the path', () => {
+    expect(glyphsURL('https://tiles.airbg.org/maps/style.json'))
+      .toBe('https://tiles.airbg.org/maps/glyphs/{fontstack}/{range}.pbf')
+  })
+
+  // new URL() percent-encodes the braces into %7Bfontstack%7D, which MapLibre
+  // then requests literally and gets a 404 for. The template must survive.
+  it('leaves the braces MapLibre substitutes into unencoded', () => {
+    expect(glyphsURL('https://tiles.airbg.org/style.json')).toContain('{fontstack}/{range}')
+    expect(glyphsURL('https://tiles.airbg.org/style.json')).not.toContain('%7B')
+  })
+
+  it('has nothing to derive from when no basemap is configured', () => {
+    expect(glyphsURL('')).toBeNull()
   })
 })
 
@@ -723,18 +758,6 @@ describe('installErrorHandler', () => {
     installErrorHandler(map, () => {})
 
     expect(() => map.trigger({ error: { message: 'boom' } })).not.toThrow()
-  })
-})
-
-describe('mapStyle with a self-hosted basemap', () => {
-  it('passes the style URL through untouched', () => {
-    const url = 'https://tiles.airbg.org/style.json'
-    expect(mapStyle({ basemap: url, emptyBasemapColour: '#eef2f5' })).toBe(url)
-  })
-
-  it('falls back to a flat colour when no basemap is configured', () => {
-    expect(mapStyle({ basemap: '', emptyBasemapColour: '#eef2f5' }))
-      .toEqual(blankStyle('#eef2f5'))
   })
 })
 
@@ -1413,7 +1436,11 @@ describe('mount() prints the reading inside the cell', () => {
   it('labels the cells from the source they are drawn from', () => {
     const label = hexLabel()
     expect(label, 'no symbol layer on the hex source').toBeTruthy()
-    expect(label.minzoom).toBe(POINT_TIER_MIN_ZOOM)
+    // The FRACTIONAL handover: hexesURL picks the point tier from
+    // Math.round(zoom), which flips at 14.5, and MapLibre applies minzoom to
+    // the true zoom. A whole 15 here left half a level where the cells were
+    // already one-sensor cells with no number printed in them.
+    expect(label.minzoom).toBe(POINT_TIER_MIN_ZOOM_FRACTIONAL)
   })
 
   it('centres the number rather than offsetting it past a dot', () => {
@@ -1433,6 +1460,30 @@ describe('mount() prints the reading inside the cell', () => {
 // the shell — deliberately, so a wide window does not float it over the page —
 // which meant going full screen took the colour key off the map, on the one
 // view where the map is all there is.
+// "Hide the basemap" must take down the ground and leave the readings standing.
+// It used to walk every layer carrying an airbg:group — a marker the vector
+// style set and the raster-only style cannot: the toggle reported itself on and
+// hid nothing.
+describe('the basemap toggle', () => {
+  it('hides the world raster and nothing else', () => {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const { layerViews } = mountChrome(el, readConfig(el))
+    const basemap = layerViews.find((v) => v.id === 'basemap')
+    expect(basemap, 'no basemap view in the layers menu').toBeTruthy()
+
+    const set = []
+    const map = { setLayoutProperty: (...a) => set.push(a) }
+    basemap.apply(false, map)
+    basemap.apply(true, map)
+
+    expect(set).toEqual([
+      ['airbg-raster-base', 'visibility', 'none'],
+      ['airbg-raster-base', 'visibility', 'visible'],
+    ])
+  })
+})
+
 describe('mountChrome() keeps the key on the map in fullscreen', () => {
   const chromeFrame = () => {
     const shell = document.createElement('div')
@@ -1468,44 +1519,22 @@ describe('mountChrome() keeps the key on the map in fullscreen', () => {
   })
 })
 
-// The vector archive we host is a Bulgaria extract: outside its bounding box
-// there is nothing to draw at any zoom, which is why zooming out left the map
-// beige everywhere but the country. A world raster underlay fills that in, and
-// the extract keeps drawing its detail on top where it has any.
-describe('mount() lays a world basemap under the vector tiles', () => {
-  const rasterOf = (map) => ({
-    source: map.addSource.mock.calls.find((c) => c[1]?.type === 'raster'),
-    layer: map.addLayer.mock.calls.find((c) => c[0]?.type === 'raster'),
-  })
-
-  it('adds a raster source covering the world, with attribution', () => {
+// The world raster is the style mount() opens with, not something inserted on
+// 'load' afterwards: there is no longer a vector style for it to be positioned
+// relative to, and inserting it late meant one frame of blank canvas.
+describe('mount() opens on the world raster', () => {
+  it('hands MapLibre a style carrying the raster, not a URL to fetch', () => {
     const { map } = mountTestMap({ metric: 'P2' })
-    const { source } = rasterOf(map)
-    expect(source, 'no raster source').toBeTruthy()
-    expect(source[1].tiles[0]).toMatch(/^https:\/\/\S+\{z\}\/\{x\}\/\{y\}/)
-    expect(source[1].maxzoom).toBeGreaterThanOrEqual(18)
-    expect(source[1].attribution).toMatch(/OpenStreetMap/)
+    const style = map.options.style
+
+    expect(typeof style, 'still fetching a style document').toBe('object')
+    expect(style.layers.some((l) => l.type === 'raster')).toBe(true)
   })
 
-  it('puts it underneath every layer the style already had', () => {
+  it('does not add a second raster once loaded', () => {
     const { map } = mountTestMap({ metric: 'P2' })
-    const { layer } = rasterOf(map)
-    expect(layer, 'no raster layer').toBeTruthy()
-    // Second argument is MapLibre's beforeId. An empty style — the one a map
-    // served without tiles mounts — has nothing to sit under, and undefined is
-    // the right answer there rather than a crash.
-    expect(layer.length).toBe(2)
-  })
-
-  it('goes under the first drawn layer, not under the background fill', () => {
-    // A background layer paints the whole canvas: inserted beneath it, the
-    // raster would be invisible everywhere the vector style covers.
-    const layers = [
-      { id: 'background', type: 'background' },
-      { id: 'landcover', type: 'fill' },
-    ]
-    const { map } = mountTestMap({ metric: 'P2', styleLayers: layers })
-    expect(rasterOf(map).layer[1]).toBe('landcover')
+    expect(map.addSource.mock.calls.filter((c) => c[1]?.type === 'raster')).toHaveLength(0)
+    expect(map.addLayer.mock.calls.filter((c) => c[0]?.type === 'raster')).toHaveLength(0)
   })
 })
 
@@ -1535,13 +1564,72 @@ describe('mount() opens a sensor from the cell that carries one', () => {
 // they put a labelled dot off-centre inside a labelled cell. The dots stop
 // exactly where the cells take the number over.
 describe('mount() hands the reading from the dots to the cells', () => {
-  it('stops the marker circles and their labels at the point tier', () => {
+  it('stops the aggregate markers where the cells start, not where the dots do', () => {
     const { map } = mountTestMap({ metric: 'P2' })
     const markers = map.addLayer.mock.calls.map((c) => c[0])
       .filter((l) => l.source === 'airbg-data')
 
     expect(markers).toHaveLength(2)
-    for (const l of markers) expect(l.maxzoom).toBe(POINT_TIER_MIN_ZOOM)
+    // Mounted on the country tier: those markers are province/municipality
+    // circles, and the cells cover the same ground from GRID_MIN_ZOOM up.
+    // Held at the point tier they were drawn OVER six zoom levels of hexes —
+    // the dots-on-hexes the map showed.
+    for (const l of markers) expect(l.maxzoom).toBe(GRID_MIN_ZOOM_FRACTIONAL)
+  })
+
+  it('gives the sensor dots the whole grid range, since no cell replaces them', () => {
+    // The sensors tier IS the point tier's own data: dot and cell carry the
+    // same one device, so the dots run to the changeover rather than stopping
+    // at the aggregate one.
+    expect(markerMaxZoom('sensors')).toBe(POINT_TIER_MIN_ZOOM_FRACTIONAL)
+    expect(markerMaxZoom('country')).toBe(GRID_MIN_ZOOM_FRACTIONAL)
+    expect(markerMaxZoom('municipality')).toBe(GRID_MIN_ZOOM_FRACTIONAL)
+  })
+
+  it('moves the handover when the tier changes under a mounted map', () => {
+    const ranges = []
+    const map = {
+      getLayer: (id) => ({ id }),
+      setLayerZoomRange: (id, min, max) => ranges.push([id, min, max]),
+    }
+
+    applyMarkerZoomRange(map, 'sensors')
+    expect(ranges).toEqual([
+      ['airbg-markers', 0, POINT_TIER_MIN_ZOOM_FRACTIONAL],
+      ['airbg-marker-labels', 0, POINT_TIER_MIN_ZOOM_FRACTIONAL],
+    ])
+  })
+
+  it('skips layers the style does not carry', () => {
+    const ranges = []
+    const map = {
+      getLayer: () => undefined,
+      setLayerZoomRange: (...a) => ranges.push(a),
+    }
+    applyMarkerZoomRange(map, 'country')
+    expect(ranges).toEqual([])
+  })
+
+  it('does not draw the grid below the zoom its coarsest tier can fill', () => {
+    // The server's coarsest cell is 15 km. Below GRID_MIN_ZOOM one of them is
+    // under a pixel wide, which is what turned the whole grid into a field of
+    // dots when zoomed out.
+    const { map } = mountTestMap({ metric: 'P2' })
+    const grid = map.addLayer.mock.calls.map((c) => c[0])
+      .filter((l) => l.source === 'airbg-hexes' && l.type !== 'symbol')
+
+    expect(grid.length).toBeGreaterThan(0)
+    for (const l of grid) expect(l.minzoom).toBe(GRID_MIN_ZOOM_FRACTIONAL)
+  })
+
+  it('draws the cell borders in a colour that is not the fill', () => {
+    // The outline used to be ['get', 'colour'] — the fill's own value colour —
+    // so every border vanished into the cell it bounded and the grid read as a
+    // smear. It is now the marker stroke, the same edge the dots carry.
+    const paint = hexOutlinePaint({ markerStrokeColour: '#fff', hexOpacity: 0.7 })
+    expect(paint['line-color']).toBe('#fff')
+    expect(paint['line-width']).toBeGreaterThan(0)
+    expect(paint['line-opacity']).toBeGreaterThan(0)
   })
 })
 

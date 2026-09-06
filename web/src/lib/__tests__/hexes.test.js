@@ -7,6 +7,9 @@ import {
   hexFeatures,
   BBOX_MIN_ZOOM,
   POINT_TIER_MIN_ZOOM,
+  GRID_MIN_ZOOM,
+  GRID_MIN_ZOOM_FRACTIONAL,
+  POINT_TIER_MIN_ZOOM_FRACTIONAL,
 } from '../hexes.js'
 import { rampColour } from '../ramp.js'
 
@@ -370,5 +373,41 @@ describe('POINT_TIER_MIN_ZOOM', () => {
     const bounds = { getWest: () => 23.2, getSouth: () => 42.6, getEast: () => 23.4, getNorth: () => 42.8 }
     expect(hexesURL(POINT_TIER_MIN_ZOOM, bounds)).toContain('resolution_km=0&')
     expect(hexesURL(POINT_TIER_MIN_ZOOM - 1, bounds)).not.toContain('resolution_km=0&')
+  })
+})
+
+// The other end of the same range: the zoom the grid BEGINS at. The server's
+// coarsest published cell is 15 km, so below this zoom a cell is drawn under a
+// pixel wide and the whole grid reads as a field of dots.
+describe('GRID_MIN_ZOOM', () => {
+  it('is the first whole zoom whose cell the coarsest published tier can fill', () => {
+    expect(resolutionForZoom(GRID_MIN_ZOOM)).toBeLessThanOrEqual(15)
+    expect(resolutionForZoom(GRID_MIN_ZOOM - 1)).toBeGreaterThan(15)
+  })
+
+  it('is below the zoom the cells take the reading over at', () => {
+    expect(GRID_MIN_ZOOM).toBeLessThan(POINT_TIER_MIN_ZOOM)
+  })
+})
+
+// hexesURL picks its tier from Math.round(zoom); MapLibre applies minzoom and
+// maxzoom to the true fractional zoom. The two must flip at the SAME instant,
+// or there is half a zoom level where the map draws one tier and fetches
+// another — which is what put dots on top of cells and left cells unlabelled.
+describe('the fractional handovers', () => {
+  const bounds = { getWest: () => 23.2, getSouth: () => 42.6, getEast: () => 23.4, getNorth: () => 42.8 }
+  const tierAt = (z) => new URL(hexesURL(z, bounds), 'https://x').searchParams.get('resolution_km')
+
+  it('sit exactly where Math.round changes the tier hexesURL asks for', () => {
+    expect(Math.round(GRID_MIN_ZOOM_FRACTIONAL)).toBe(GRID_MIN_ZOOM)
+    expect(Math.round(GRID_MIN_ZOOM_FRACTIONAL - 0.001)).toBe(GRID_MIN_ZOOM - 1)
+    expect(Math.round(POINT_TIER_MIN_ZOOM_FRACTIONAL)).toBe(POINT_TIER_MIN_ZOOM)
+    expect(Math.round(POINT_TIER_MIN_ZOOM_FRACTIONAL - 0.001)).toBe(POINT_TIER_MIN_ZOOM - 1)
+  })
+
+  it('are the first zoom each tier is actually fetched at', () => {
+    expect(tierAt(POINT_TIER_MIN_ZOOM_FRACTIONAL)).toBe('0')
+    expect(tierAt(POINT_TIER_MIN_ZOOM_FRACTIONAL - 0.001)).not.toBe('0')
+    expect(Number(tierAt(GRID_MIN_ZOOM_FRACTIONAL))).toBeLessThanOrEqual(15)
   })
 })

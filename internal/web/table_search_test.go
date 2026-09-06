@@ -10,7 +10,7 @@ import (
 // What the server owes it is the translated vocabulary.
 func TestTableSearchCarriesItsVocabulary(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/en/").Body.String()
+	body := fetch(t, rr, "/en/areas").Body.String()
 
 	for _, want := range []string{
 		`data-t-search-label="Search for an area"`,
@@ -29,7 +29,7 @@ func TestTableSearchCarriesItsVocabulary(t *testing.T) {
 // parity across both catalogues.
 func TestTableSearchReusesTheFindersEmptyLine(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/en/").Body.String()
+	body := fetch(t, rr, "/en/areas").Body.String()
 
 	empty := strings.Count(body, `="No area by that name"`)
 	if empty != 2 {
@@ -39,7 +39,7 @@ func TestTableSearchReusesTheFindersEmptyLine(t *testing.T) {
 
 func TestTableSearchIsTranslated(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	if !strings.Contains(body, `data-t-search-label="Търсене на област"`) {
 		t.Error("the Bulgarian page does not carry the Bulgarian search label")

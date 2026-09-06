@@ -34,6 +34,13 @@ describe('legendRows', () => {
     expect(legendRows(BANDS, OPTS).bands.map((b) => b.edge)).toEqual(['20', '50', ''])
   })
 
+  // Without it the key stops at the last band boundary and never says what the
+  // top of the bar means — a reader seeing the top colour cannot tell 60 from 400.
+  it('prints the scale ceiling at the top of the bar when the top band carries one', () => {
+    const withCeiling = BANDS.map((b, i) => (i === 2 ? { ...b, ceiling: 500 } : b))
+    expect(legendRows(withCeiling, OPTS).bands.map((b) => b.edge)).toEqual(['20', '50', '500'])
+  })
+
   it('picks the Bulgarian label for bg and the English one otherwise', () => {
     expect(legendRows(BANDS, OPTS).bands[0].label).toBe('Добро')
     expect(legendRows(BANDS, { ...OPTS, lang: 'en' }).bands[0].label).toBe('Good')

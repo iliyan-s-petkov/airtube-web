@@ -3,9 +3,8 @@
 // under Vitest (which does not check the export list) but fails a real Rollup
 // build with MISSING_EXPORT. Importing the one class actually used avoids the
 // mismatch entirely.
-import { Map as MapLibreMap, addProtocol } from 'maplibre-gl'
+import { Map as MapLibreMap } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Protocol } from 'pmtiles'
 import { tierFor } from '../lib/tier.js'
 import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../lib/legend.js'
 import { mountFullscreen, mountZoom, installZoom } from '../lib/mapcontrols.js'
@@ -19,7 +18,10 @@ import { setSensors, setScales } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { nearestArea } from '../lib/nearest.js'
-import { hexesURL, hexFeatures, resolutionForZoom, POINT_TIER_MIN_ZOOM } from '../lib/hexes.js'
+import {
+  hexesURL, hexFeatures, resolutionForZoom,
+  GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL,
+} from '../lib/hexes.js'
 import { WIND_SOURCE_ID, WIND_LAYER_ID, windFeatures, windLabel, arrowLayout, arrowPaint } from './wind.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
@@ -77,7 +79,6 @@ const HEX_LABEL_LAYER_ID = 'airbg-hex-labels'
 
 export function mount(el) {
   const cfg = readConfig(el)
-  registerProtocols()
   const chrome = mountChrome(el, cfg)
 
   // Shared with the switcher island through the module-level singleton (see
@@ -151,18 +152,22 @@ export function mount(el) {
   let unfilter = null
 
   map.on('load', async () => {
-    addRasterBasemap(map)
-
     // The hex grid goes in FIRST, so every later layer draws over it. It is the
     // background density field — where sensors are and roughly what they read —
     // and the area markers and sensor dots are the foreground a visitor clicks.
     // Added before the marker source for that ordering alone; MapLibre paints in
     // insertion order.
     map.addSource(HEX_SOURCE_ID, { type: 'geojson', data: emptyCollection() })
+    // GRID_MIN_ZOOM_FRACTIONAL on all three grid layers: below it the server has
+    // no bin coarser than 15 km to answer with, and a 15 km cell is under a
+    // pixel at national zoom — the grid stopped being a grid and became the
+    // field of dots the map used to show when zoomed out. Off entirely there,
+    // and the area markers carry the reading alone.
     map.addLayer({
       id: HEX_LAYER_ID,
       type: 'fill',
       source: HEX_SOURCE_ID,
+      minzoom: GRID_MIN_ZOOM_FRACTIONAL,
       paint: { 'fill-color': ['get', 'colour'], 'fill-opacity': cfg.hexOpacity },
     })
     // A separate hairline outline rather than a fill-outline-color: MapLibre's
@@ -172,7 +177,8 @@ export function mount(el) {
       id: HEX_OUTLINE_LAYER_ID,
       type: 'line',
       source: HEX_SOURCE_ID,
-      paint: { 'line-color': ['get', 'colour'], 'line-width': 0.5, 'line-opacity': cfg.hexOpacity },
+      minzoom: GRID_MIN_ZOOM_FRACTIONAL,
+      paint: hexOutlinePaint(cfg),
     })
     // The point tier's fallback, sharing the hex source. Past the finest
     // published cell the server sends devices rather than bins, and those are
@@ -192,6 +198,7 @@ export function mount(el) {
       id: HEX_POINT_LAYER_ID,
       type: 'circle',
       source: HEX_SOURCE_ID,
+      minzoom: GRID_MIN_ZOOM_FRACTIONAL,
       filter: ['==', ['geometry-type'], 'Point'],
       paint: {
         'circle-color': ['get', 'colour'],
@@ -218,7 +225,12 @@ export function mount(el) {
       id: HEX_LABEL_LAYER_ID,
       type: 'symbol',
       source: HEX_SOURCE_ID,
-      minzoom: POINT_TIER_MIN_ZOOM,
+      // FRACTIONAL, like every other handover here: hexesURL picks the point
+      // tier at Math.round(zoom) >= 15, which is true from 14.5. Written as a
+      // whole 15, this layer stayed off for half a level after the cells under
+      // it had already become one-sensor cells — so a reader who zoomed all the
+      // way in saw a hexagon with no number in it.
+      minzoom: POINT_TIER_MIN_ZOOM_FRACTIONAL,
       filter: ['all',
         ['==', ['geometry-type'], 'Polygon'],
         ['has', 'value'],
@@ -233,13 +245,17 @@ export function mount(el) {
       id: LAYER_ID,
       type: 'circle',
       source: SOURCE_ID,
-      // Both marker layers stop at the handover zoom. Above it the cells are
+      // Both marker layers stop at a handover zoom. Above it the cells are
       // individually visible and carry the reading themselves; leaving the
       // markers on drew the same number twice, once at the device's own
       // coordinate — which is why a labelled dot appeared off-centre inside
       // one cell and on the edge of another. The cell covers the ground
       // around the sensor, and that is the claim the map makes here.
-      maxzoom: POINT_TIER_MIN_ZOOM,
+      //
+      // WHICH handover depends on what the markers currently are, so the real
+      // value is set per tier in refresh() (see markerMaxZoom). This is the
+      // starting one, for the tier the map opens on.
+      maxzoom: markerMaxZoom('country'),
       paint: layerPaint(cfg),
     })
 
@@ -257,7 +273,7 @@ export function mount(el) {
       id: LABEL_LAYER_ID,
       type: 'symbol',
       source: SOURCE_ID,
-      maxzoom: POINT_TIER_MIN_ZOOM,
+      maxzoom: markerMaxZoom('country'),
       filter: ['all', ['has', 'value'], ['!=', ['get', 'value'], null]],
       layout: labelLayout(cfg),
       paint: labelPaint(cfg),
@@ -521,6 +537,11 @@ async function refresh(map, state, cfg, chrome, force = false) {
   // even on the passes that fetch nothing.
   chrome.showLegend({ bands: bandsFor(state.scales, cfg.metric), tier: effective, metric: cfg.metric })
 
+  // Before the dedup return, like the legend: the handover depends on what the
+  // markers are, and a pass that fetches nothing can still be the pass where
+  // that changed (an area click adopts a slug without moving the map).
+  applyMarkerZoomRange(map, effective)
+
   const url = urlFor(effective, state.slug)
   // Unchanged tier and slug: nothing to do. getJSON would serve from cache
   // anyway, but repainting the same features on every moveend is visible churn.
@@ -558,6 +579,16 @@ async function refresh(map, state, cfg, chrome, force = false) {
     ? filterByStatus(sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour), getSensorStatus())
     : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
   map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
+}
+
+// applyMarkerZoomRange moves both marker layers onto the handover the current
+// tier calls for. Exported for its own test; guarded because refresh() runs on
+// every moveend and a style reload can leave a layer briefly absent.
+export function applyMarkerZoomRange(map, tier) {
+  const max = markerMaxZoom(tier)
+  for (const id of [LAYER_ID, LABEL_LAYER_ID]) {
+    if (map.getLayer?.(id)) map.setLayerZoomRange(id, 0, max)
+  }
 }
 
 // repaintSensors redraws the sensor tier from the payload already in hand.
@@ -758,12 +789,59 @@ export function sensorFeatures(body, metric, scales, noDataColour) {
   return features
 }
 
+// markerMaxZoom: the zoom at which the dots hand over, for the tier the dots
+// currently ARE.
+//
+// The two tiers hand over to different things. Province and city markers are
+// aggregates, and so is the hex grid — one reading per bin instead of one per
+// province, but the same kind of claim about the same ground. Drawing both left
+// the map with 15 km cells and labelled aggregate dots on top of them, and with
+// dots in places (Перник, Банкя) where the grid had no bin at all: two answers
+// to one question, disagreeing. So an aggregate marker steps aside the moment
+// the grid appears.
+//
+// A sensor marker does not: it is a device at its own coordinate, which the
+// grid does not draw until the point tier, and it is the thing a reader clicks
+// to open a panel. It runs to the point-tier handover as it always did.
+export function markerMaxZoom(tier) {
+  return tier === 'sensors' ? POINT_TIER_MIN_ZOOM_FRACTIONAL : GRID_MIN_ZOOM_FRACTIONAL
+}
+
+// hexOutlinePaint: the hairline between one cell and the next.
+//
+// Drawn in the marker stroke colour, not in the cell's own `colour`. Outlining
+// a fill in the fill's colour draws a border that is by definition invisible —
+// the reader reported cell edges they could barely see, and this is why. The
+// stroke colour is already the app's separator: it is what lifts a sensor dot
+// off whatever is under it, and a grid needs the same lift for the same reason.
+//
+// Faded, because the cells are a background wash and a grid at full contrast
+// reads as a mesh drawn over the map rather than as the shape of the data.
+export function hexOutlinePaint(cfg) {
+  return {
+    'line-color': cfg.markerStrokeColour,
+    'line-width': 0.6,
+    'line-opacity': 0.45,
+  }
+}
+
 // bandsFor picks the scale table for one metric. The scales endpoint returns an
 // array of tables; matching on `metric` rather than on array position means a
 // reordered response cannot silently recolour the map.
+//
+// The scale's ceiling rides on its top band. The ceiling belongs to the scale,
+// not to any one band, but the only band it can change is the open one at the
+// top — and every consumer downstream (the ramp, the key) is handed bands, not
+// scales. Carrying it here rather than widening four signatures keeps the
+// ceiling one hop from the band whose width it sets.
 export function bandsFor(scales, metric) {
   if (!Array.isArray(scales)) return []
-  return scales.find((s) => s.metric === metric)?.bands ?? []
+  const scale = scales.find((s) => s.metric === metric)
+  const bands = scale?.bands ?? []
+  if (bands.length === 0 || scale?.ceiling == null) return bands
+  return bands.map((band, i) =>
+    i === bands.length - 1 ? { ...band, ceiling: scale.ceiling } : band,
+  )
 }
 
 // 'street-names' -> 'tLayerStreetNames', the dataset spelling of
@@ -892,58 +970,46 @@ function emptyCollection() {
   return { type: 'FeatureCollection', features: [] }
 }
 
-// blankStyle is a valid MapLibre style with no tile sources, used when no
-// basemap is configured. Data markers still render, over a plain background
-// painted the server-configured emptyBasemapColour.
+// glyphsURL derives the font endpoint from the configured basemap URL. A
+// raster-only style still needs one: glyphs are where MapLibre gets the letter
+// shapes for EVERY symbol layer, so a style without them draws no marker
+// labels, no cell values and no wind arrows — the map keeps working and simply
+// stops saying anything.
 //
-// Exported (not module-private) so a test can prove it reads
-// cfg.emptyBasemapColour and not some other config field, without going
-// through mount()'s real MapLibreMap construction, which the "no jsdom" rule
-// puts out of reach.
-export function blankStyle(emptyBasemapColour) {
-  return { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': emptyBasemapColour } }] }
+// String surgery, not `new URL()`: the endpoint is a template, and new URL
+// percent-encodes the braces in {fontstack}/{range} into %7B…%7D, which
+// MapLibre then requests literally and gets a 404 for.
+export function glyphsURL(basemap) {
+  if (!basemap) return null
+  return basemap.replace(/[^/]*$/, '') + 'glyphs/{fontstack}/{range}.pbf'
 }
 
-// mapStyle picks the style mount() hands to MapLibre: the configured basemap
-// URL, or a flat colour when none is set. Pulled out of the constructor call
-// itself (not just blankStyle's body) because the mutation the review caught
-// was in the ARGUMENT — blankStyle(cfg.noDataColour) instead of
-// blankStyle(cfg.emptyBasemapColour) — which blankStyle's own tests cannot
-// see since blankStyle only ever sees whatever value its caller already
-// picked.
-// addRasterBasemap slides the world raster in beneath the style's own drawn
-// layers.
+// mapStyle is the whole style the map mounts: the world raster, and nothing
+// else drawn.
 //
-// Beneath the DRAWN layers, not beneath everything: a background layer paints
-// the whole canvas, so a raster inserted under it would be covered wherever
-// the vector style reaches — which is the entire viewport. The first layer
-// that is not a background is therefore the insertion point, and a style with
-// no such layer (an empty style, which is what a map served without tiles
-// mounts) gets the raster on top of nothing, which is where it belongs.
-export function addRasterBasemap(map) {
-  const layers = map.getStyle?.()?.layers ?? []
-  const beforeId = layers.find((l) => l.type !== 'background')?.id
-  map.addSource(RASTER_SOURCE_ID, RASTER_BASEMAP)
-  map.addLayer({ id: RASTER_LAYER_ID, type: 'raster', source: RASTER_SOURCE_ID }, beforeId)
-}
-
+// It used to be the self-hosted vector style, with the raster slid in beneath
+// it. That archive is a BULGARIA extract, and its land/water fills are opaque
+// polygons clipped to the extract's rectangle — so they painted a box over the
+// world raster underneath. Inside the box the Danube stopped at the edge of
+// the extract at Silistra, the ground changed colour at the border, and the
+// Black Sea got no name because the label was outside it. Dropping the vector
+// layers entirely is what the operator chose over rebuilding the archive from
+// a Europe-wide extract.
+//
+// The raster is a source-and-layer pair in the style rather than something
+// added on 'load', because there is no longer another style for it to be
+// inserted relative to.
 export function mapStyle(cfg) {
-  return cfg.basemap ? cfg.basemap : blankStyle(cfg.emptyBasemapColour)
-}
-
-// registerProtocols teaches MapLibre to read pmtiles:// URLs, which is how
-// style.json references the single 300 MB archive: the protocol turns each tile
-// read into an HTTP range request, so a visitor transfers only the ranges their
-// viewport needs.
-//
-// Idempotent, and takes `add` as a parameter, because MapLibre's addProtocol is
-// global module state: registering twice would silently replace the first
-// handler, and a test cannot observe a global it cannot inject into.
-let protocolsRegistered = false
-export function registerProtocols(add = addProtocol) {
-  if (protocolsRegistered) return
-  protocolsRegistered = true
-  add('pmtiles', new Protocol().tile)
+  const glyphs = glyphsURL(cfg.basemap)
+  return {
+    version: 8,
+    ...(glyphs ? { glyphs } : {}),
+    sources: { [RASTER_SOURCE_ID]: RASTER_BASEMAP },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': cfg.emptyBasemapColour } },
+      { id: RASTER_LAYER_ID, type: 'raster', source: RASTER_SOURCE_ID },
+    ],
+  }
 }
 
 // installErrorHandler wires the 'error' event so a style-load failure cannot
@@ -952,7 +1018,7 @@ export function registerProtocols(add = addProtocol) {
 // tile, because a missing archive produces one error per range request.
 //
 // Takes `map` (needs only `.on`, not a real MapLibre instance) and `warn` as
-// parameters, same idiom as registerProtocols's injected `add`, so a test can
+// parameters, same idiom as installErrorHandler's own injection, so a test can
 // drive it with a fake and assert the log-once behaviour without a real map.
 export function installErrorHandler(map, warn = console.warn) {
   let errorLogged = false
@@ -1201,7 +1267,7 @@ export function mountChrome(el, cfg) {
   // the categories rather than smuggled in beside "Shops" as if they were one
   // more kind of place.
   //
-  // The basemap one hides only what carries an airbg:group — the kit's own
+  // The basemap one hides the world raster and only that. The kit's own
   // version walks every layer in the style, which on this map would take the
   // readings down with the ground. "Hide the basemap" has to leave the
   // measurements standing, or it is not the control it says it is.
@@ -1212,11 +1278,7 @@ export function mountChrome(el, cfg) {
       label: cfg.t.viewBasemap,
       needsMap: true,
       apply: (on, map) => {
-        for (const l of map.getStyle()?.layers ?? []) {
-          if (l.metadata?.['airbg:group']) {
-            map.setLayoutProperty(l.id, 'visibility', on ? 'visible' : 'none')
-          }
-        }
+        map.setLayoutProperty(RASTER_LAYER_ID, 'visibility', on ? 'visible' : 'none')
       },
     },
   ]

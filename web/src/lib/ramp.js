@@ -57,11 +57,17 @@ export function rampStops(bands) {
  *
  * The first band has no stated lower bound and the last usually has no upper
  * one, and a ramp cannot blend across a range of unknown width. Each open end
- * is given its NEIGHBOUR's width — the nearest honest guess the table itself
- * supports — and everything beyond it clamps to the end of the bar. That keeps
- * the ramp continuous, which matters more than it sounds: holding an open band
- * flat at its own colour instead, the obvious alternative, puts a visible step
- * at the very first boundary, and a step is the one thing this scale is not.
+ * is given a width, and everything beyond it clamps to the end of the bar. That
+ * keeps the ramp continuous, which matters more than it sounds: holding an open
+ * band flat at its own colour instead, the obvious alternative, puts a visible
+ * step at the very first boundary, and a step is the one thing this scale is
+ * not.
+ *
+ * The top band's width comes from the scale's stated `ceiling` when it has one.
+ * Only when it does not does the band fall back to borrowing its NEIGHBOUR's
+ * width — the nearest guess the table itself supports, and a bad one on a real
+ * scale: PM2.5's neighbour is 25 wide, so an open band starting at 50 was drawn
+ * to 75 and every winter reading above that came out the same colour.
  *
  * A one-band scale has no neighbour to borrow from. Its span is arbitrary and
  * says nothing, which is correct: with one colour, where a reading sits on the
@@ -69,15 +75,19 @@ export function rampStops(bands) {
  */
 export function rampSpans(bands) {
   if (!bands || bands.length === 0) return []
-  if (bands.length === 1) return [{ lower: 0, upper: bands[0].upper ?? 1 }]
+  if (bands.length === 1) return [{ lower: 0, upper: bands[0].upper ?? bands[0].ceiling ?? 1 }]
   const uppers = bands.map((b) => b.upper)
   const n = uppers.length
-  // The bottom's borrowed width is the second band's. The top's is the band
-  // below it, which needs a lower edge of its own to be measured from — on a
-  // two-band scale there is none, so it falls back to the one bound the table
-  // does state.
+  // The top's borrowed width is the band below it, which needs a lower edge of
+  // its own to be measured from — on a two-band scale there is none, so it
+  // falls back to the one bound the table does state. A ceiling at or below
+  // where the top band starts is not a width, so it is ignored rather than
+  // inverting the band.
   const below = uppers[n - 2]
-  const top = uppers[n - 1] ?? below + (n >= 3 ? below - uppers[n - 3] : Math.abs(below) || 1)
+  const borrowed = below + (n >= 3 ? below - uppers[n - 3] : Math.abs(below) || 1)
+  const ceiling = bands[n - 1].ceiling
+  const top = uppers[n - 1] ?? (ceiling > below ? ceiling : borrowed)
+  // The bottom's borrowed width is the second band's.
   const bottom = uppers[0] - ((uppers[1] ?? top) - uppers[0])
 
   return bands.map((band, i) => ({

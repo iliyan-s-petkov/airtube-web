@@ -103,6 +103,25 @@ describe('rampPosition', () => {
     expect(rampSpans(BANDS)[4]).toEqual({ lower: 100, upper: 150 })
   })
 
+  it('draws the open top band to the stated ceiling instead of borrowing', () => {
+    // The served PM2.5 shape: an open top starting at 50 whose neighbour is 25
+    // wide. Borrowing draws it 50..75 and clamps everything above; the ceiling
+    // is what keeps a winter reading in the hundreds distinguishable.
+    const withCeiling = BANDS.map((b, i) =>
+      i === BANDS.length - 1 ? { ...b, ceiling: 500 } : b,
+    )
+    expect(rampSpans(withCeiling)[4]).toEqual({ lower: 100, upper: 500 })
+    expect(rampPosition(300, withCeiling)).toBeGreaterThan(rampPosition(150, withCeiling))
+    expect(rampPosition(150, withCeiling)).toBeGreaterThan(rampPosition(110, withCeiling))
+  })
+
+  it('ignores a ceiling that is not above where the top band starts', () => {
+    // A ceiling under the last boundary would invert the band, running the ramp
+    // backwards through it. Fall back to the borrowed width instead.
+    const bad = BANDS.map((b, i) => (i === BANDS.length - 1 ? { ...b, ceiling: 60 } : b))
+    expect(rampSpans(bad)[4]).toEqual({ lower: 100, upper: 150 })
+  })
+
   it('gives a two-band scale with an open top a width to draw', () => {
     const spans = rampSpans([{ upper: 20, colour: '#000' }, { upper: null, colour: '#fff' }])
     expect(spans).toEqual([{ lower: 0, upper: 20 }, { lower: 20, upper: 40 }])

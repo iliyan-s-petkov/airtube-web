@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { arrowBearing, windFeatures, windLabel, WIND_LAYER_ID } from '../wind.js'
+import { arrowBearing, arrowPaint, windFeatures, windLabel, WIND_LAYER_ID } from '../wind.js'
 import { toggleWind } from '../map.js'
 
 describe('arrowBearing', () => {
@@ -15,6 +15,28 @@ describe('arrowBearing', () => {
   it('wraps past 360 rather than returning a bearing no renderer expects', () => {
     expect(arrowBearing(181)).toBe(1)
     expect(arrowBearing(359)).toBe(179)
+  })
+})
+
+// The arrows were painted the marker STROKE colour with no halo — white on a
+// pale basemap, so the layer switched on and drew nothing visible. Nothing in
+// the payload or the layer state showed the failure, which is why the colours
+// are asserted rather than eyeballed.
+describe('arrowPaint', () => {
+  const cfg = { labelColour: '#111', markerStrokeColour: '#ffffff' }
+
+  it('draws the arrow in the label colour, not the stroke colour', () => {
+    expect(arrowPaint(cfg)['text-color']).toBe('#111')
+  })
+
+  it('haloes the arrow in the stroke colour, so it stays legible over a dark cell', () => {
+    const paint = arrowPaint(cfg)
+    expect(paint['text-halo-color']).toBe('#ffffff')
+    expect(paint['text-halo-width']).toBeGreaterThan(0)
+  })
+
+  it('does not fade the arrow to where the halo cannot save it', () => {
+    expect(arrowPaint(cfg)['text-opacity']).toBeGreaterThanOrEqual(0.9)
   })
 })
 

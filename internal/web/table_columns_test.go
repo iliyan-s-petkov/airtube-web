@@ -10,7 +10,7 @@ import (
 // two words that name it.
 func TestColumnMenuCarriesItsVocabulary(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/en/").Body.String()
+	body := fetch(t, rr, "/en/areas").Body.String()
 
 	for _, want := range []string{
 		`data-t-columns="Columns"`,
@@ -24,7 +24,7 @@ func TestColumnMenuCarriesItsVocabulary(t *testing.T) {
 
 func TestColumnMenuIsTranslated(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	if !strings.Contains(body, `data-t-columns="Колони"`) {
 		t.Error("the Bulgarian page does not carry the Bulgarian columns label")

@@ -12,7 +12,7 @@ import (
 // this is a pair that has already been broken once by a markup change.
 func TestFinderReadsTheRenderedTable(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	const source = `data-source=".table tbody"`
 	if !strings.Contains(body, source) {
@@ -34,7 +34,7 @@ func TestFinderReadsTheRenderedTable(t *testing.T) {
 // is how that sentence starts disagreeing with the table above it.
 func TestCountLineMatchesTheRows(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	i := strings.Index(body, `class="meta"`)
 	if i < 0 {
@@ -55,7 +55,7 @@ func TestCountLineMatchesTheRows(t *testing.T) {
 // the network look like a province that does not exist.
 func TestSilentProvinceStillPrintsItsSensorCount(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	i := strings.Index(body, ">Silent<")
 	row := body[i : i+strings.Index(body[i:], "</tr>")]
@@ -69,7 +69,7 @@ func TestSilentProvinceStillPrintsItsSensorCount(t *testing.T) {
 // is the one the map paints and the one the rows are ranked by.
 func TestValueColumnHeaderNamesTheMetric(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	i := strings.Index(body, `<th scope="col" class="num"`)
 	if i < 0 {
@@ -92,7 +92,7 @@ func TestTheTwoAbsencesReadDifferently(t *testing.T) {
 	snap.KnownSlugs["silent"] = meta
 
 	rr := renderer(t, snap)
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	i := strings.Index(body, ">Silent<")
 	row := body[i : i+strings.Index(body[i:], "</tr>")]
@@ -111,7 +111,7 @@ func TestTheTwoAbsencesReadDifferently(t *testing.T) {
 // order the table differently in the two languages.
 func TestRowsCarryTheirSortKeys(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	i := strings.Index(body, ">Silent<")
 	if i < 0 {
@@ -143,7 +143,7 @@ func TestRowsCarryTheirSortKeys(t *testing.T) {
 // reader cannot sort by, silently.
 func TestEveryColumnIsSortable(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	for _, key := range []string{`data-sort-key="name"`, `data-sort-key="value"`, `data-sort-key="sensors"`} {
 		if !strings.Contains(body, key) {
@@ -165,7 +165,7 @@ func TestEveryColumnIsSortable(t *testing.T) {
 // that never claimed to be a control. What ships is the mount point.
 func TestTheControlsAreNotServerRendered(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	if !strings.Contains(body, `data-island="table"`) {
 		t.Fatal("the table island has no mount point")

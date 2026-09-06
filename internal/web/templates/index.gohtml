@@ -9,9 +9,18 @@
   <p class="t-body">{{.T "site.tagline"}}</p>
 </div>
 
+{{/* This template serves both tabs — the map at "/" and the province list at
+     "/areas" — because they render from one snapshot and one set of rows. What
+     differs is which of the two is the page's subject; each tab shows its own
+     and links to the other. Rendering both on the map tab made the two routes
+     near-identical pages and printed the same 28 provinces twice per visit. */}}
+{{$map := not (.OnPath "/areas")}}
+
 {{/* The toolbar is where this screen's controls live: the metric switcher on
-     one side of the spacer, the area finder on the other. */}}
+     one side of the spacer, the area finder on the other. Each control goes to
+     the tab that holds the thing it acts on. */}}
 <div class="toolbar">
+{{if $map}}
 {{/* The switcher: server-rendered metric list and labels, positional pairs —
      see PageData.Metrics/MetricLabels. Above the map island because it
      controls what the map shows, not the other way round. */}}
@@ -20,18 +29,22 @@
      data-metric-labels="{{.MetricLabelsAttr}}"
      data-metric="{{.DefaultMetric}}"
      data-t-legend="{{.T "metric.legend"}}"></div>
+{{end}}
 <div class="toolbar__spacer"></div>
+{{if not $map}}
 {{/* The finder carries no list of its own: it reads the area list rendered at
-     the foot of this page, which is already the no-JS fallback and the map's
-     text alternative. A second copy of the same 28 names is a second thing that
-     can disagree with the one the reader can see — and it settles the empty
-     case too, since a page with no list mounts no finder. */}}
+     the foot of this page, which is already the no-JS fallback. A second copy
+     of the same 28 names is a second thing that can disagree with the one the
+     reader can see — and it settles the empty case too, since a page with no
+     list mounts no finder. That is also why it is on this tab and not the map
+     tab: with no table to read, it would have nothing to search. */}}
 <div data-island="finder"
      data-source=".table tbody"
      data-t-label="{{.T "find.label"}}"
      data-t-placeholder="{{.T "find.placeholder"}}"
      data-t-hint="{{.T "find.hint"}}"
      data-t-empty="{{.T "find.no_match"}}"></div>
+{{end}}
 {{/* Solid-bordered and full height, on the finder's baseline: the toolbar is
      where this screen's controls live, so the reload belongs beside the finder
      rather than in a line of prose. Secondary, not primary — the page has no
@@ -39,6 +52,8 @@
 <div data-island="refresh" data-t-label="{{.T "refresh.button"}}"></div>
 </div>
 </div>
+
+{{if $map}}
 
 {{/* The map runs full-bleed BETWEEN two contained blocks, which is why the
      .frame above closes here and another opens below rather than wrapping the
@@ -95,9 +110,13 @@
      data-t-wind-toggle="{{.T "wind.toggle"}}"
      data-t-wind-attribution="{{.T "wind.attribution"}}"></div>
 </div>
+{{end}}
 
+{{/* Contained again after the full-bleed map. Outside the tab condition
+     because both tabs end inside it. */}}
 <div class="frame">
 
+{{if $map}}
 {{/* The same panel island area.gohtml mounts, with the same attributes: the
      sensor tier is reachable from here too. refresh() (web/src/islands/map.js)
      only downgrades to the area tier when no slug is selected, and both an
@@ -143,10 +162,17 @@
      (DESIGN.md §9.1). */}}
 {{with .Readouts}}{{template "readouts" .}}{{end}}
 
-<h2>{{.T "nav.areas"}}</h2>
 {{/* The map's text alternative, named so aria-describedby can reach it. It is
-     one sentence, not a duplicate of the list: the list itself follows. */}}
-<p id="map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
+     one sentence and a link, not a copy of the list: the list is a whole tab of
+     its own, and duplicating it here is what made the two tabs the same page.
+     A link rather than prose alone because this is the ONLY route a reader who
+     cannot use the map has to the numbers — and it is what a crawler follows. */}}
+<p id="map-alt">{{.T "map.text_alternative.areas"}}
+  <a class="link" href="{{.Path "/areas"}}">{{.T "nav.areas"}}</a></p>
+{{end}}
+
+{{if not $map}}
+<h2>{{.T "nav.areas"}}</h2>
 {{/* The kit's .table (§5.4), not a list of flex rows: these are three facts
      about each province and a table is what says so — the column header names
      the metric and its unit once, for every row, and a screen reader announces
@@ -259,5 +285,6 @@
      the list is ranked by the reading and the silent provinces sit at the end,
      which looks like alphabetical order that gave up unless it is said. */}}
 <p class="table-note">{{.T "table.note"}}</p>
+{{end}}
 </div>
 {{end}}

@@ -39,7 +39,7 @@ func rankingSnapshot() *snapshot.Snapshot {
 
 func TestProvinceListIsRankedByReading(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	want := []string{"High", "Alpha", "Bravo", "Low", "Silent"}
 	at := make([]int, len(want))
@@ -62,7 +62,7 @@ func TestProvinceListIsRankedByReading(t *testing.T) {
 // fabrication this project has removed twice before.
 func TestSilentProvincePrintsNoReading(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/")
+	body := fetch(t, rr, "/areas")
 
 	silent := body.Body.String()
 	i := strings.Index(silent, ">Silent<")
@@ -92,7 +92,7 @@ func TestSilentProvincePrintsNoReading(t *testing.T) {
 // list and the map cannot disagree about what is being shown.
 func TestRankedListNamesItsMetricAndUnit(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	i := strings.Index(body, "<caption>")
 	if i < 0 {
@@ -113,7 +113,7 @@ func TestRankedListNamesItsMetricAndUnit(t *testing.T) {
 // be a swatch that says nothing.
 func TestReadingsCarryTheirBandColour(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/").Body.String()
+	body := fetch(t, rr, "/areas").Body.String()
 
 	rowColour := func(name string) string {
 		i := strings.Index(body, ">"+name+"<")

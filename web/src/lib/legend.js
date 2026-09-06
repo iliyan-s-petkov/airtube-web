@@ -50,15 +50,23 @@ export function legendTitle({ label, unit, fallback }) {
 //
 // A band knows only its own inclusive upper bound. That upper bound is also the
 // number that gets DRAWN: the bands run highest-first, so a band's upper bound
-// is the boundary at its top edge, shared with the band above it. The topmost
-// band is open (upper === null) and so has no edge to draw.
+// is the boundary at its top edge, shared with the band above it.
+//
+// The topmost band is open (upper === null), so the number at the very top of
+// the key is the scale's ceiling — the value the ramp is drawn to. Without it
+// the key ran 5, 10, 20, 25, 50 and then stopped, which says nothing about what
+// the top of the bar means; a reader seeing a magenta dot could not tell 60 from
+// 400. A scale with no ceiling still draws no top edge rather than inventing one.
 export function legendRows(bands, { noDataColour, noDataLabel, lang }) {
   return {
-    bands: (bands ?? []).map((band) => ({
-      colour: band.colour,
-      label: lang === 'bg' ? band.label_bg : band.label,
-      edge: band.upper == null ? '' : String(band.upper),
-    })),
+    bands: (bands ?? []).map((band) => {
+      const edge = band.upper ?? band.ceiling
+      return {
+        colour: band.colour,
+        label: lang === 'bg' ? band.label_bg : band.label,
+        edge: edge == null ? '' : String(edge),
+      }
+    }),
     noData: { colour: noDataColour, label: noDataLabel },
   }
 }

@@ -51,6 +51,41 @@ export const POINT_TIER_MIN_ZOOM = (() => {
   return z
 })()
 
+// The COARSEST cell the server publishes, in km — the first entry of
+// snapshot.HexTiersKM, and a deliberate duplicate for the same reason
+// FINEST_TIER_KM is one.
+const COARSEST_TIER_KM = 15
+
+// The first whole zoom at which the coarsest published bin is as small as the
+// grid wants to draw. Below it every zoom is answered with the same 15 km bins
+// — the server has nothing coarser to snap to — and a 15 km cell is ~33 px at
+// z8, ~17 px at z7 and under a pixel at z2. That is the grid the reader saw
+// collapse into dots at national zoom.
+//
+// There is no honest way to draw a 15 km bin any bigger than 15 km: the cell
+// has to cover the ground its count describes. So below this zoom the grid does
+// not draw at all, and the area markers — which are the right representation at
+// national scale, one reading per province rather than per bin — carry the map
+// alone.
+export const GRID_MIN_ZOOM = (() => {
+  let z = 0
+  while (resolutionForZoom(z) > COARSEST_TIER_KM) z++
+  return z
+})()
+
+// hexesURL picks a tier from Math.round(zoom); MapLibre applies a layer's
+// minzoom/maxzoom to the TRUE fractional zoom. So a layer range written against
+// a whole tier zoom is half a level out of step with the data in it, and in
+// that half-level the map draws one tier's cells under another tier's markers.
+// Half a level down is where the rounding actually flips.
+const TIER_HANDOVER = 0.5
+
+// The two zooms where the map hands over: grid on, and markers off. Both are
+// used on BOTH sides of their handover, so the layer that appears and the layer
+// that disappears cannot be written half a level apart.
+export const GRID_MIN_ZOOM_FRACTIONAL = GRID_MIN_ZOOM - TIER_HANDOVER
+export const POINT_TIER_MIN_ZOOM_FRACTIONAL = POINT_TIER_MIN_ZOOM - TIER_HANDOVER
+
 // The grid a requested bounding box is snapped out to, in degrees. Raw viewport
 // edges would give every pixel of pan its own URL and no two visitors would ever
 // share a cache entry. Snapped OUTWARD on all four sides, never inward, so the

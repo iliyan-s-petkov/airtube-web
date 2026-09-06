@@ -34,6 +34,30 @@ func TestScaleBandsAreMonotonic(t *testing.T) {
 	}
 }
 
+// TestEveryScaleStatesItsCeiling. Without one the client guesses the top of the
+// ramp from the width of the band below, which put the top of the PM2.5 bar at
+// 75 µg/m³ — so every winter reading above that painted the same colour and the
+// key printed no number for it. A ceiling at or below the last stated band
+// boundary is the same failure with extra steps.
+func TestEveryScaleStatesItsCeiling(t *testing.T) {
+	for _, s := range api.Scales() {
+		if s.Ceiling == nil {
+			t.Errorf("%s/%s: no ceiling; the client would have to guess the top of the ramp", s.Name, s.Metric)
+			continue
+		}
+		var highest float64
+		for _, b := range s.Bands {
+			if b.Upper != nil && *b.Upper > highest {
+				highest = *b.Upper
+			}
+		}
+		if *s.Ceiling <= highest {
+			t.Errorf("%s/%s: ceiling %v is not above the highest band boundary %v, so the open top band has no width to draw",
+				s.Name, s.Metric, *s.Ceiling, highest)
+		}
+	}
+}
+
 // TestScalesAreBilingualAndCarryTheDisclaimer. Phase 1 §9.2 requires the
 // indicative-data disclaimer wherever a value is shown; shipping it with the
 // scale means a consumer cannot render bands without also having the caveat.

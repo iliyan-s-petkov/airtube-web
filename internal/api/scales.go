@@ -26,15 +26,29 @@ type Band struct {
 }
 
 type Scale struct {
-	Name    string `json:"name"`
-	Metric  string `json:"metric"`
-	Unit    string `json:"unit"`
-	Bands   []Band `json:"bands"`
-	Notes   string `json:"notes"`
-	NotesBG string `json:"notes_bg"`
+	Name   string `json:"name"`
+	Metric string `json:"metric"`
+	Unit   string `json:"unit"`
+	Bands  []Band `json:"bands"`
+	// Ceiling is the top of the DRAWN scale, and is not a band boundary: the
+	// top band of every table here is genuinely open-ended in its source, and
+	// giving it an Upper would misstate the legislation. A ramp still has to
+	// stop somewhere, and without a stated stop the client can only guess one
+	// from the width of the band below — which put the top of the bar at
+	// 75 µg/m³ for PM2.5, so a winter inversion at 300 painted the same colour
+	// as one at 80 and the key printed no number a reader could check.
+	Ceiling *float64 `json:"ceiling"`
+	Notes   string   `json:"notes"`
+	NotesBG string   `json:"notes_bg"`
 }
 
 func upper(v float64) *float64 { return &v }
+
+// The top of the drawn ramp for every particulate scale, in µg/m³. Bulgarian
+// winter inversions reach the low hundreds, so a ceiling near the observed
+// maximum is what keeps those readings distinguishable from an ordinary bad
+// day; it is the same ceiling maps.sensor.community draws to.
+const pmCeiling = 500
 
 // Scales returns every scale table. Recomputed per call rather than shared as a
 // package var, because the Band values contain pointers: a shared slice would
@@ -62,7 +76,7 @@ func Scales() []Scale {
 	const indicativeBG = "Данните от нискобюджетни сензори са индикативни и не " +
 		"са измервания по референтен метод."
 
-	return []Scale{
+	scales := []Scale{
 		{Name: "eaqi", Metric: "P2", Unit: "µg/m³", Bands: eaqiPM25,
 			Notes:   "European Air Quality Index bands for PM2.5. " + indicative,
 			NotesBG: "Класове на Европейския индекс за качество на въздуха за ПМ2.5. " + indicativeBG},
@@ -98,4 +112,12 @@ func Scales() []Scale {
 			Notes:   "WHO 2021 guidelines: PM2.5 24-hour 15 µg/m³. " + indicative,
 			NotesBG: "Насоки на СЗО 2021: ПМ2.5 за 24 часа 15 µg/m³. " + indicativeBG},
 	}
+
+	// Every table above is particulate matter in µg/m³, so they all draw to the
+	// same ceiling; set here rather than per entry so a new one cannot ship
+	// without one and fall back to a guessed top of scale.
+	for i := range scales {
+		scales[i].Ceiling = upper(pmCeiling)
+	}
+	return scales
 }
