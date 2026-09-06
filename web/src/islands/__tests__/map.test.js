@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, locateVisitor, locateMe, areaPath } from '../map.js'
+import { urlFor, bandsFor, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath } from '../map.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
@@ -1233,5 +1233,57 @@ describe('mount() gives the point tier a layer to paint into', () => {
     // Coloured by the same property the cells use, so a device and a cell at
     // the same reading are the same colour.
     expect(point.paint['circle-color']).toEqual(['get', 'colour'])
+  })
+})
+
+// Where the key and the tier line LAND is load-bearing, not decoration, and
+// both defects it guards were found in a browser rather than here.
+//
+// The key is absolutely positioned against .map-shell. Put it inside #map and
+// the kit's phone rule — which turns it static so it sits UNDER the map below
+// 672px — leaves it under the map but still inside it, over the canvas corner.
+// Put the tier paragraph inside the shell and the shell grows taller than the
+// map, so the key's inset-block-end:16px is measured from a bottom edge 16px
+// below the map's own: measured live at -16px before this.
+describe('mountChrome anchors the key to the shell and the tier line outside it', () => {
+  const chrome = () => {
+    const shell = document.createElement('div')
+    shell.className = 'map-shell'
+    const el = document.createElement('div')
+    el.className = 'map map--hero'
+    shell.appendChild(el)
+    const host = document.createElement('div')
+    host.append(shell)
+    mountChrome(el, { t: { tier: {} }, noDataColour: '#999', lang: 'bg' })
+    return { shell, el, host }
+  }
+
+  it('puts the key in the shell, not in the map', () => {
+    const { shell, el } = chrome()
+    expect(el.querySelector('.scale--onmap')).toBeNull()
+    expect(shell.querySelector(':scope > .scale--onmap')).not.toBeNull()
+  })
+
+  it('puts the tier line after the shell, so the shell stays the map box', () => {
+    const { shell, host } = chrome()
+    expect(shell.querySelector('.map-tier')).toBeNull()
+    expect(host.lastElementChild.className).toContain('map-tier')
+  })
+
+  // The banners stay children of the map: they are messages about the map and
+  // they do not have the phone rule the key has.
+  it('leaves the hint and note inside the map', () => {
+    const { el } = chrome()
+    expect(el.querySelector('.map-hint')).not.toBeNull()
+    expect(el.querySelector('.map-note')).not.toBeNull()
+  })
+
+  // Without a shell the key still has to render. It anchors to the map instead,
+  // which loses the phone layout but shows a key rather than throwing.
+  it('falls back to the map when no shell wraps it', () => {
+    const el = document.createElement('div')
+    document.createElement('div').appendChild(el)
+    mountChrome(el, { t: { tier: {} }, noDataColour: '#999', lang: 'bg' })
+    expect(el.querySelector('.scale--onmap')).not.toBeNull()
   })
 })

@@ -912,7 +912,11 @@ export function debounce(fn, ms) {
 // Classes only, never `el.style` — the CSP's style-src has no 'unsafe-inline',
 // so an inline style written from JS is silently dropped by the browser, not
 // merely a lint complaint.
-function mountChrome(el, cfg) {
+// Exported for the placement test, not for other callers: mount() is the only
+// one. It touches no MapLibre object, so where the key and the tier line land
+// in the DOM is checkable without a WebGL context — and that placement is
+// load-bearing (see the shell comments below), not decoration.
+export function mountChrome(el, cfg) {
   // The key and the tier line go on the SHELL, not on #map, and they are the
   // only two things here that do. The kit turns .scale--onmap static below
   // 672px so the key sits under the map on a phone — and inside .map, "under
@@ -935,9 +939,13 @@ function mountChrome(el, cfg) {
   // key: the key is an overlay with no panel behind it (the kit's §5.2d — a box
   // there would hide the map it explains), and a sentence of that length haloed
   // over a choropleth is not readable. It is also not part of the ramp.
+  // AFTER the shell, not inside it. The shell is the box the key is anchored
+  // to — inset-block-end:16px is measured from the shell's bottom — so anything
+  // else placed in it makes the shell taller than the map and pushes the key
+  // down past the map's own edge. Measured live: 16px below it.
   const tierLine = document.createElement('p')
   tierLine.className = 'legend__tier map-tier'
-  shell.appendChild(tierLine)
+  shell.after(tierLine)
 
   const hint = document.createElement('div')
   hint.className = 'map-hint'
