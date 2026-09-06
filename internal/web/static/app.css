@@ -43,20 +43,22 @@ h3 { font-size: var(--text-sub); font-weight: var(--weight-body); line-height: 1
 a { color: var(--accent); }
 :focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
-.areas { list-style: none; padding: 0; }
-.areas li { display: flex; justify-content: space-between; padding: var(--space-2) 0; border-bottom: 1px solid var(--border-faint); }
-.count { color: var(--fg-2); font-variant-numeric: tabular-nums; }
-/* The caption that names the metric, its unit and the tier. Compact and quiet:
-   it explains the column, it is not a heading. */
-.areas-caption { color: var(--fg-2); font-size: var(--text-compact); letter-spacing: var(--track-compact); margin-block: var(--space-2) 0; }
-/* The reading is the thing the list now exists to show, so it gets emphasis
-   weight and tabular figures — a measured value must not change width as it
-   updates (DESIGN.md §3). It sits between the name and the sensor count, and
-   pushes nothing: the row is already a flex line. */
-.reading { margin-inline-start: auto; padding-inline-end: var(--space-4); font-weight: var(--weight-emphasis); font-variant-numeric: tabular-nums; }
-/* Not a warning: these oblasti have no recent readings, which is an ordinary
-   state of the world. Colouring it read as eight failures on one page. */
-.uncovered { color: var(--muted); }
+/* The province list is the kit's .table now — the caption, the columns, the
+   chips, the muted silent cells and the type are all in components.css, and
+   this file's own description of the same rows (.areas, .areas-caption,
+   .reading, .count, .uncovered) is gone rather than kept beside it. Two
+   descriptions of one component is how they drift.
+
+   One rule survives, below, and it is about the CSP rather than about looks. */
+
+/* The chip's swatch carries a server-defined band colour, so it is an <svg>
+   with a fill ATTRIBUTE rather than the kit's --chip-ramp custom property: a
+   per-row custom property is an inline style and style-src has no
+   'unsafe-inline', so the browser drops it and the swatch renders empty (the
+   same reason renderLegend draws its swatches this way). The kit's dashed
+   outline marks an UNSET ramp — a swatch that is actually filled has no
+   absence to mark, and a metric with no band table gets no swatch at all. */
+svg.chip__swatch { outline: none; }
 /* An absence is not a failure (DESIGN.md 2.3). `area.no_coverage` says a
    province has no recent readings — an ordinary state of the world — and it was
    rendered with --warn's yellow bar on --notice-bg, which is the anti-pattern

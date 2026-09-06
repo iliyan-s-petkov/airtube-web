@@ -27,7 +27,7 @@
      can disagree with the one the reader can see — and it settles the empty
      case too, since a page with no list mounts no finder. */}}
 <div data-island="finder"
-     data-source=".areas"
+     data-source=".table tbody"
      data-t-label="{{.T "find.label"}}"
      data-t-placeholder="{{.T "find.placeholder"}}"
      data-t-hint="{{.T "find.hint"}}"
@@ -154,20 +154,60 @@
 {{/* The map's text alternative, named so aria-describedby can reach it. It is
      one sentence, not a duplicate of the list: the list itself follows. */}}
 <p id="map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
-{{/* The list says what it is ordered by and what the number aggregates, once,
-     above the rows — never a bare figure (DESIGN.md §9.1). The metric is the
-     page's default, the same one the map paints, so the two agree without a
-     second policy to keep in step. */}}
-<p class="areas-caption">{{.T "areas.ranked_by"}} {{.T (printf "metric.%s" .DefaultMetric)}}, {{.T (printf "unit.%s" .DefaultMetric)}} — {{.T "areas.tier"}}</p>
-<ul class="areas">
-{{range .Areas}}
-  <li>
-    <a href="{{$.Path (printf "/area/%s" .Slug)}}">{{.Name}}</a>
-    {{if .HasValue}}<span class="reading">{{.ValueText}}</span>{{end}}
-    {{if .Covered}}<span class="count">{{.SensorCount}} {{$.T "area.sensors"}}</span>
-    {{else}}<span class="uncovered">{{$.T "area.no_coverage"}}</span>{{end}}
-  </li>
-{{end}}
-</ul>
+{{/* The kit's .table (§5.4), not a list of flex rows: these are three facts
+     about each province and a table is what says so — the column header names
+     the metric and its unit once, for every row, and a screen reader announces
+     it with each cell. The sentence that used to sit above the list is the
+     table's <caption> now, which is the same sentence in the element that
+     already means "what this table is".
+
+     One value column, for the page's default metric — the same one the map
+     paints and the same one areaRows ranks by, so the three agree without a
+     second policy. The kit's mockup shows a fixed PM2.5/PM10 pair; this site
+     has seven switchable metrics, and hardcoding two of them here would be a
+     column that stops matching the page the moment the default changes. */}}
+<table class="table">
+  <caption>{{.T "areas.ranked_by"}} {{.T (printf "metric.%s" .DefaultMetric)}}, {{.T (printf "unit.%s" .DefaultMetric)}} — {{.T "areas.tier"}}</caption>
+  <thead>
+    <tr>
+      <th scope="col">{{.T "table.col.area"}}</th>
+      <th scope="col" class="num">{{.T (printf "metric.%s" .DefaultMetric)}}, {{.T (printf "unit.%s" .DefaultMetric)}}</th>
+      <th scope="col" class="sensors">{{.T "table.col.sensors"}}</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Areas}}
+    <tr>
+      <td class="name"><a class="link" href="{{$.Path (printf "/area/%s" .Slug)}}">{{.Name}}</a></td>
+      {{if .HasValue}}
+      {{/* The swatch is an <svg> with a fill ATTRIBUTE, not the kit's
+           --chip-ramp custom property: a per-row custom property is an inline
+           style, and style-src has no 'unsafe-inline' — the browser drops it
+           and the swatch renders empty. Same reason renderLegend draws its
+           swatches this way. Omitted entirely for a metric with no band table,
+           because an empty swatch would be a class the scale never claimed. */}}
+      <td class="num"><span class="value-cell"><span class="chip">{{with .Colour}}<svg class="chip__swatch" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true"><rect width="1" height="1" fill="{{.}}"></rect></svg>{{end}}{{.ValueText}}</span></span></td>
+      {{else}}
+      {{/* Two different absences, said differently: a province with too few
+           reporting sensors to publish an average at all, and one that is
+           covered but has no recent reading for this metric. Muted, spanning
+           nothing, no icon — an absence is not a failure (DESIGN.md §2.3). */}}
+      <td class="nodata">{{if .Covered}}{{$.T "table.no_recent"}}{{else}}{{$.T "area.no_coverage"}}{{end}}</td>
+      {{end}}
+      <td class="sensors">{{.SensorCount}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+
+{{/* What the table is showing, under it. No role="status": nothing on this page
+     changes the count yet, and a live region that never updates is noise in
+     every screen reader that has to announce the page. */}}
+<p class="meta">{{len .Areas}} {{.T "table.meta.areas"}} — {{.SilentAreas}} {{.T "table.meta.silent"}}</p>
+
+{{/* The ordering rule, stated rather than left to be inferred from the rows:
+     the list is ranked by the reading and the silent provinces sit at the end,
+     which looks like alphabetical order that gave up unless it is said. */}}
+<p class="table-note">{{.T "table.note"}}</p>
 </div>
 {{end}}

@@ -67,16 +67,22 @@ func TestSilentProvincePrintsNoReading(t *testing.T) {
 	silent := body.Body.String()
 	i := strings.Index(silent, ">Silent<")
 	if i < 0 {
-		t.Fatal("the silent province is missing from the list entirely")
+		t.Fatal("the silent province is missing from the table entirely")
 	}
-	// The row runs from its name to the end of that list item.
-	end := strings.Index(silent[i:], "</li>")
+	// The row runs from its name to the end of that table row.
+	end := strings.Index(silent[i:], "</tr>")
 	if end < 0 {
-		t.Fatal("no closing </li> after the silent province")
+		t.Fatal("no closing </tr> after the silent province")
 	}
 	row := silent[i : i+end]
-	if strings.Contains(row, `class="reading"`) {
+	// A chip is what a reading is drawn as, so its absence is what says the
+	// row printed no value — and a coloured swatch is the other half of the
+	// same claim: a band is a statement about a number that is not there.
+	if strings.Contains(row, `class="chip"`) || strings.Contains(row, "chip__swatch") {
 		t.Errorf("the silent province printed a reading: %q", row)
+	}
+	if !strings.Contains(row, `class="nodata"`) {
+		t.Errorf("the silent province does not say why it has no reading: %q", row)
 	}
 }
 
@@ -88,14 +94,53 @@ func TestRankedListNamesItsMetricAndUnit(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
 	body := fetch(t, rr, "/").Body.String()
 
-	i := strings.Index(body, `class="areas-caption"`)
+	i := strings.Index(body, "<caption>")
 	if i < 0 {
-		t.Fatal("the ranked list has no caption naming its metric")
+		t.Fatal("the ranked table has no caption naming its metric")
 	}
 	caption := body[i:min(i+240, len(body))]
 	for _, want := range []string{"µg/m³"} {
 		if !strings.Contains(caption, want) {
 			t.Errorf("caption does not carry %q: %q", want, caption)
 		}
+	}
+}
+
+// The swatch is the band the reading falls in, drawn as an SVG fill attribute
+// because the CSP forbids the inline style the kit's --chip-ramp would need.
+// 88.5 µg/m³ of PM2.5 is EAQI's open top band; 4.2 is its first. Two different
+// rows must therefore carry two different colours — one colour for both would
+// be a swatch that says nothing.
+func TestReadingsCarryTheirBandColour(t *testing.T) {
+	rr := renderer(t, rankingSnapshot())
+	body := fetch(t, rr, "/").Body.String()
+
+	rowColour := func(name string) string {
+		i := strings.Index(body, ">"+name+"<")
+		if i < 0 {
+			t.Fatalf("province %q missing from the table", name)
+		}
+		end := strings.Index(body[i:], "</tr>")
+		row := body[i : i+end]
+		j := strings.Index(row, `fill="`)
+		if j < 0 {
+			t.Fatalf("province %q has no swatch fill: %q", name, row)
+		}
+		rest := row[j+len(`fill="`):]
+		return rest[:strings.Index(rest, `"`)]
+	}
+
+	high, low := rowColour("High"), rowColour("Low")
+	if high == low {
+		t.Errorf("88.5 and 4.2 painted the same colour %q", high)
+	}
+	// Pinned, not merely different: these are the EAQI colours the map paints
+	// for the same two readings, and the point of colouring server-side is that
+	// the row and the dot agree.
+	if want := "#7d2181"; high != want {
+		t.Errorf("88.5 painted %q, want the open top band %q", high, want)
+	}
+	if want := "#50f0e6"; low != want {
+		t.Errorf("4.2 painted %q, want the first band %q", low, want)
 	}
 }

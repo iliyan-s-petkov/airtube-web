@@ -183,6 +183,12 @@ type AreaRow struct {
 	// a float on its own. Formatting once here also keeps every row identical
 	// in precision.
 	ValueText string
+	// The band colour for Value under the page's default metric, or empty when
+	// there is no reading or the metric has no band table (five of the seven).
+	// Server-side because the row is server-rendered: the table's swatch has to
+	// be right with no JavaScript, and it must agree with the dot the map draws
+	// for the same province — see bandColour.
+	Colour string
 }
 
 // Readout is one cell of the country summary strip: what was measured, the
@@ -294,6 +300,20 @@ func langFlag(lang string) string {
 		return ""
 	}
 	return "/" + name
+}
+
+// SilentAreas counts the rows the table prints with no reading. Derived from
+// the rows themselves rather than carried as a field: the count line under the
+// table says how many of the rows above it are silent, and a stored number is
+// how that sentence starts disagreeing with the table it describes.
+func (p PageData) SilentAreas() int {
+	n := 0
+	for _, a := range p.Areas {
+		if !a.HasValue {
+			n++
+		}
+	}
+	return n
 }
 
 func (p PageData) T(key string) string { return p.cat.T(p.Lang, key) }
