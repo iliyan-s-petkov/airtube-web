@@ -272,6 +272,28 @@ body {
 .link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .link:hover { color: var(--accent-hover); }
 
+/* ------------------------------------------- Screen toolbar (§5.6 context) */
+
+/* The row of controls that act on the screen below it — on the map that is the
+   metric switcher, the province finder and the refresh. Aligned on flex-end so
+   a switcher (label above a 40px control) and a field (label above a 48px one)
+   share a baseline instead of floating at different heights.
+
+   Promoted out of ui_kits/app/app.css: a consumer that loads only the three
+   shared sheets was getting .toolbar with no rules behind it, so the controls
+   stacked. */
+.toolbar {
+  display: flex; align-items: flex-end; gap: var(--space-6);
+  flex-wrap: wrap;
+  padding-block-end: var(--space-4);
+}
+/* Pushes everything after it to the far end — the finder and refresh sit
+   opposite the switcher rather than crowding it. */
+.toolbar__spacer { margin-inline-start: auto; }
+/* Full control height (48px) so it shares the finder's baseline; the freshness
+   line stays under the legend, where the key it qualifies is. */
+.toolbar__refresh { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+
 /* ------------------------------------ Metric switcher (§5.6, keep fieldset) */
 
 .switcher { border: 0; margin: 0; padding: 0; }
@@ -281,7 +303,13 @@ body {
   font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body);
   letter-spacing: var(--track-caption);
 }
-.switcher__set { display: flex; }
+/* Wraps because a consumer may carry more options than the two the mockup
+   shows: seven metrics come to ~810px of segments, which fits one line on a
+   desktop frame and cannot on a phone. Without this they overflowed the frame
+   rather than reflowing. Two options never reach the wrap, so this is inert for
+   the sets that already fit. The row-gap separates wrapped lines so the seam
+   below reads as a new band and not a broken join. */
+.switcher__set { display: flex; flex-wrap: wrap; row-gap: var(--space-2); }
 .switcher__opt { position: relative; display: flex; }
 .switcher__opt input {
   position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer;

@@ -4,25 +4,14 @@
  * components into real screens. If a value below is not a token, that is a bug.
  */
 
-/* .page, .page-head and the .readout strip moved DOWN into components.css:
-   every screen in this kit opens with the same head and three of them carry
-   readouts, and a consumer that loads only the three shared sheets was getting
-   the classes with no rules behind them. */
+/* .page, .page-head, the .readout strip and .toolbar moved DOWN into
+   components.css: every screen in this kit opens with the same head, three
+   carry readouts, and two carry a toolbar — and a consumer that loads only the
+   three shared sheets was getting the classes with no rules behind them. */
 
 /* The hero map is a full-bleed band: legend and readouts butt straight up
    against it so the three read as one surface, not three stacked cards. */
 .map--hero + .frame .scale { margin-block-start: var(--space-4); }
-
-.toolbar {
-  display: flex; align-items: flex-end; gap: var(--space-6);
-  flex-wrap: wrap;
-  padding-block-end: var(--space-4);
-}
-.toolbar__spacer { margin-inline-start: auto; }
-/* The refresh sits in the toolbar on the map screen, level with the finder.
-   Full control height (48px) so it shares the field's baseline; the freshness
-   line stays under the legend, where the key it qualifies is. */
-.toolbar__refresh { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
 
 /* Map placeholder inside the kit: the real map is a Leaflet canvas in the app.
    The frame, height and legend are the parts this design system owns. */

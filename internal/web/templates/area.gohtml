@@ -48,11 +48,15 @@
   </div>
 {{end}}
 
+{{/* Same toolbar as the map home, so the two screens put their controls in the
+     same place. No spacer: this screen has nothing to sit opposite yet. */}}
+<div class="toolbar">
 <div data-island="switcher"
      data-metrics="{{.MetricsAttr}}"
      data-metric-labels="{{.MetricLabelsAttr}}"
      data-metric="{{.DefaultMetric}}"
      data-t-legend="{{.T "metric.legend"}}"></div>
+</div>
 
 {{/* A map is a region with a name, not an unlabelled box: D4 found it
      announced only as "Map". The description points at the province list

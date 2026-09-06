@@ -9,6 +9,10 @@
   <p class="t-body">{{.T "site.tagline"}}</p>
 </div>
 
+{{/* The toolbar is where this screen's controls live. It holds only the metric
+     switcher today; the province finder and the refresh join it on the spacer's
+     far side, which is why the spacer is here rather than added with them. */}}
+<div class="toolbar">
 {{/* The switcher: server-rendered metric list and labels, positional pairs —
      see PageData.Metrics/MetricLabels. Above the map island because it
      controls what the map shows, not the other way round. */}}
@@ -17,6 +21,8 @@
      data-metric-labels="{{.MetricLabelsAttr}}"
      data-metric="{{.DefaultMetric}}"
      data-t-legend="{{.T "metric.legend"}}"></div>
+<div class="toolbar__spacer"></div>
+</div>
 </div>
 
 {{/* The map runs full-bleed BETWEEN two contained blocks, which is why the
