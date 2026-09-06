@@ -16,6 +16,7 @@ import { getFreshness } from '../lib/freshness.svelte.js'
 import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales } from '../lib/sensors.svelte.js'
+import { filterByStatus, getSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { nearestArea } from '../lib/nearest.js'
 import { hexesURL, hexFeatures } from '../lib/hexes.js'
@@ -92,7 +93,15 @@ export function mount(el) {
   // rules out ("no new request").
   // hexUrl/hexBody are the hex layer's own dedup and cache: the grid follows
   // the viewport, so it changes on passes where tier and slug do not.
-  const state = { slug: cfg.slug, tier: null, scales: null, areas: null, hexUrl: null, hexBody: null }
+  // sensorBody is the last sensor-tier payload, held so a filter change can
+  // redraw from it without a refresh cycle. Null on the area tiers, unlike the
+  // sensors registry, which is deliberately left standing when a visitor zooms
+  // out (see refresh) — this one drives what is PAINTED, and painting stale
+  // sensors over area dots is the failure that distinction prevents.
+  const state = {
+    slug: cfg.slug, tier: null, scales: null, areas: null,
+    hexUrl: null, hexBody: null, sensorBody: null,
+  }
 
   // The wind overlay's own state, separate from `state` above: it is off by
   // default and never follows the viewport, the tier, or the metric — one
@@ -111,6 +120,7 @@ export function mount(el) {
   // teardown would be, for test hygiene and in case that ever changes.
   let unsubscribe = null
   let unprovide = null
+  let unfilter = null
 
   map.on('load', async () => {
     // The hex grid goes in FIRST, so every later layer draws over it. It is the
@@ -230,6 +240,13 @@ export function mount(el) {
     // call below self-corrects it the moment initData's own scales arrive.
     unsubscribe = vs.onMetricChange((metric) => onMetricChange(map, state, cfg, chrome, metric))
 
+    // The sensor filter repaints from the body already in hand rather than
+    // going back through refresh(): the tier, the slug and the metric are all
+    // untouched by a filter change, so a refresh would be a request (cached,
+    // but still a full repaint cycle) for data that has not changed. Only which
+    // of it is drawn has.
+    unfilter = onSensorStatusChange(() => repaintSensors(map, state, cfg))
+
     // What "refresh" MEANS lives here, with the map that owns the data; the
     // toolbar button and the freshness line only ask for it (see
     // lib/freshness.svelte.js). clearCache first, or the button would be a
@@ -289,7 +306,7 @@ export function mount(el) {
     if (props.id !== undefined) vs.openSensor(Number(props.id))
   })
 
-  return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.() } }
+  return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.() } }
 }
 
 // toggleWind is the whole wind control: fetch once, then show or hide.
@@ -452,7 +469,9 @@ async function refresh(map, state, cfg, chrome, force = false) {
   // tier, rather than leaving its last-known content on screen.
   if (effective === 'sensors') {
     setSensors(body)
+    state.sensorBody = body
   } else {
+    state.sensorBody = null
     // The raw payload, not areaFeatures' output: features drop `zoom`
     // entirely and fold lon/lat into GeoJSON geometry, but locateMe needs
     // exactly {slug, lon, lat, zoom} per area (see nearestArea's signature).
@@ -460,8 +479,21 @@ async function refresh(map, state, cfg, chrome, force = false) {
   }
 
   const features = effective === 'sensors'
-    ? sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
+    ? filterByStatus(sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour), getSensorStatus())
     : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
+  map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
+}
+
+// repaintSensors redraws the sensor tier from the payload already in hand.
+// Exported for its own test, and a no-op away from the sensor tier: the filter
+// is a control over sensors, so a click on it while the map is showing province
+// aggregates must not blank them.
+export function repaintSensors(map, state, cfg) {
+  if (!state.sensorBody) return
+  const features = filterByStatus(
+    sensorFeatures(state.sensorBody, cfg.metric, state.scales, cfg.noDataColour),
+    getSensorStatus(),
+  )
   map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
 }
 

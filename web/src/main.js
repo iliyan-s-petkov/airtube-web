@@ -14,6 +14,7 @@ const ISLANDS = {
   refresh: () => import('./islands/refresh.js'),
   freshness: () => import('./islands/freshness.js'),
   panel: () => import('./islands/panel.js'),
+  sensorbar: () => import('./islands/sensorbar.js'),
   theme: () => import('./islands/theme.js'),
 }
 

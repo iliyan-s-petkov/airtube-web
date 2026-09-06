@@ -10,6 +10,7 @@ import { urlFor, bandsFor, refreshHexes, areaFeatures, sensorFeatures, readConfi
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
+import { setSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
 
 // mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
 // out of reach under jsdom (see the "no jsdom" rule respected everywhere else
@@ -889,14 +890,14 @@ function mountSensorTierMap({ metric = 'P2' } = {}) {
   el.dataset.zoomCity = '9'
   el.dataset.zoomSensor = '11'
 
-  const { map, chrome } = mount(el)
+  const { map, chrome, stop } = mount(el)
   // FakeMap.getZoom is hardcoded to 7 (see the vi.mock at the top of this
   // file) — every other test in this file relies on that fixed value, so it
   // is overridden here rather than in the mock itself, to reach the sensors
   // tier without disturbing them.
   map.getZoom = () => 12
   map.handlers.load()
-  return { map, chrome }
+  return { map, chrome, stop }
 }
 
 function stubSensorTierFetch() {
@@ -1438,5 +1439,139 @@ describe('the key names the metric it is a key to', () => {
     const cfg = chromeCfg({ metricLabels: {}, t: { tier: {}, legend: 'Качество на въздуха' } })
     const { el } = captionOf(cfg)
     expect(el.querySelector('.scale__label').textContent).toBe('Качество на въздуха')
+  })
+})
+
+// The sensor status filter (lib/sensorfilter.svelte.js) decides which sensors
+// the map draws. Driven through mount() rather than through repaintSensors
+// alone, because the wiring — the subscription, and the payload the map keeps
+// in hand so a filter change needs no second fetch — is the part that can
+// silently rot.
+describe('the sensor status filter', () => {
+  // Two sensors, one of them silent on P2: the whole point of the filter is
+  // that these two are not the same number.
+  function stubMixedSensorFetch() {
+    return vi.fn(async (url) => {
+      if (url === '/api/v1/scales') {
+        return { ok: true, status: 200, headers: new Headers(), json: async () => [] }
+      }
+      return {
+        ok: true, status: 200, headers: new Headers(),
+        json: async () => ({
+          sensors: {
+            id: [42, 43], lon: [23.3, 23.4], lat: [42.7, 42.8],
+            quality: ['ok', 'ok'], P2: [12, null],
+          },
+        }),
+      }
+    })
+  }
+
+  // A stable source stub: FakeMap.getSource hands back a fresh mock per call,
+  // so without this every setData lands on an object the test cannot see.
+  // A stable source stub, keyed by id: FakeMap.getSource hands back a fresh
+  // mock per call, so without this every setData lands on an object the test
+  // cannot see — and one shared stub would mix the sensor layer's paints with
+  // the wind layer's, whose last call is an empty collection.
+  function withStableSource(map) {
+    const sources = new Map()
+    map.getSource = vi.fn((id) => {
+      if (!sources.has(id)) sources.set(id, { setData: vi.fn() })
+      return sources.get(id)
+    })
+    return {
+      get setData() { return sources.get('airbg-data')?.setData ?? { mock: { calls: [] } } },
+    }
+  }
+
+  const drawn = (source) => source.setData.mock.calls.at(-1)[0].features
+
+  beforeEach(() => { clearCache(); resetViewStateForTests(); setSensors(null); resetSensorFilterForTests() })
+  afterEach(() => { resetViewStateForTests(); setSensors(null); resetSensorFilterForTests() })
+
+  it('draws every sensor, silent ones included, until the reader says otherwise', async () => {
+    vi.stubGlobal('fetch', stubMixedSensorFetch())
+    const { map } = mountSensorTierMap()
+    const source = withStableSource(map)
+
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+    await vi.waitFor(() => expect(source.setData).toHaveBeenCalled())
+    expect(drawn(source)).toHaveLength(2)
+  })
+
+  // The repaint must come from the payload already in hand. A filter change
+  // touches neither the tier, the slug nor the metric, so a refetch would be a
+  // request for data the island is holding.
+  it('repaints from the payload it already has, with no second request', async () => {
+    const fetchSpy = stubMixedSensorFetch()
+    vi.stubGlobal('fetch', fetchSpy)
+    mountSensorTierMap()
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+
+    const before = fetchSpy.mock.calls.length
+    setSensorStatus('active')
+    expect(fetchSpy.mock.calls.length).toBe(before)
+  })
+
+  it('drops the silent sensors when the reader asks for the reporting ones', async () => {
+    vi.stubGlobal('fetch', stubMixedSensorFetch())
+    const { map } = mountSensorTierMap()
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+    const source = withStableSource(map)
+
+    setSensorStatus('active')
+
+    expect(drawn(source).map((f) => f.properties.id)).toEqual([42])
+  })
+
+  it('keeps only the silent ones on the other side of the filter', async () => {
+    vi.stubGlobal('fetch', stubMixedSensorFetch())
+    const { map } = mountSensorTierMap()
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+    const source = withStableSource(map)
+
+    setSensorStatus('inactive')
+
+    expect(drawn(source).map((f) => f.properties.id)).toEqual([43])
+  })
+
+  // The filter is a control over sensors. Zoomed out to province aggregates
+  // there are no sensors on screen, so a click on it must leave the aggregates
+  // alone rather than repaint the last sensor payload over them.
+  it('does not repaint once the map has left the sensor tier', async () => {
+    vi.stubGlobal('fetch', stubMixedSensorFetch())
+    const { map } = mountSensorTierMap()
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+
+    // Aggregate tier: a lower zoom, and an area marker click to drive the
+    // refresh synchronously rather than through the debounced moveend.
+    map.getZoom = () => 7
+    const after = vi.fn(() => ({ setData: vi.fn() }))
+    map.getSource = after
+    map.handlers.click({ features: [{ properties: { slug: 'plovdiv' } }] })
+    // The aggregate paint, not the sensor one: waiting on the spy installed
+    // above is what guarantees the tier change has actually landed.
+    await vi.waitFor(() => expect(after).toHaveBeenCalled())
+
+    map.getSource = vi.fn(() => ({ setData: vi.fn() }))
+    setSensorStatus('active')
+
+    expect(map.getSource).not.toHaveBeenCalled()
+  })
+
+  // A subscription that outlives the island repaints a destroyed map on the
+  // next status change.
+  it('stops listening once the island is stopped', async () => {
+    vi.stubGlobal('fetch', stubMixedSensorFetch())
+    const { map, stop } = mountSensorTierMap()
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+    withStableSource(map)
+
+    stop()
+    setSensorStatus('active')
+
+    // getSource, not setData: a stopped island never reaches the source at
+    // all, so there is no spy on the sensor layer to interrogate.
+    expect(map.getSource).not.toHaveBeenCalled()
   })
 })

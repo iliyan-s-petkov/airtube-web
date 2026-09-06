@@ -38,6 +38,13 @@ export function getScales() {
   return scales
 }
 
+// The whole body, for the callers that count rather than project one sensor.
+// Reading it inside a $derived tracks it like any other $state read, so a pan
+// that publishes new sensors updates the count with no subscription of its own.
+export function getSensors() {
+  return body
+}
+
 // The columns every sensor row carries that are NOT a metric reading —
 // verified against internal/snapshot/build.go's sensorColumns.MarshalJSON
 // (build.go:73-79), which flattens Metrics as sibling keys of exactly these

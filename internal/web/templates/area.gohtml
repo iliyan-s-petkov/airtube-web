@@ -88,6 +88,30 @@
      data-t-legend="{{.T "metric.legend"}}"></div>
 </div>
 
+{{if .Area.Covered}}
+  {{/* The kit's sensor bar: which sensors the map draws, and how many there
+       are. Not server-rendered — the counts come from the sensor payload the
+       map fetches, and a filter with no JS is three radios that do nothing.
+
+       Covered areas only: on an area with no recent readings every sensor is
+       silent, so the filter's two other positions would offer the reader a
+       choice between everything and nothing.
+
+       The kit also puts a place-name search here. Left out: the sensors
+       endpoint carries ids and coordinates, no place names. */}}
+  <div data-island="sensorbar"
+       data-metrics="{{.MetricsAttr}}"
+       data-metric="{{.DefaultMetric}}"
+       data-t-legend="{{.T "sensor.legend"}}"
+       data-t-all="{{.T "sensor.all"}}"
+       data-t-active="{{.T "sensor.active"}}"
+       data-t-inactive="{{.T "sensor.inactive"}}"
+       data-t-shown="{{.T "sensor.meta.shown"}}"
+       data-t-of="{{.T "sensor.meta.of"}}"
+       data-t-sensors="{{.T "sensor.meta.sensors"}}"
+       data-t-silent="{{.T "sensor.meta.silent"}}"></div>
+{{end}}
+
 {{/* The shell is the positioning context for the on-map key, and it is a
      wrapper rather than the map itself because below 672px the kit moves the
      key out from over the map to under it — and inside .map, "under the map"
