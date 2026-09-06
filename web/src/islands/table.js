@@ -42,6 +42,22 @@ export function markSorted(heads, key, dir) {
   }
 }
 
+// Hiding a column means hiding its header and the cell under it in every row —
+// by POSITION, because a silent province's cell is a .nodata and a reading's is
+// a .num, and the two would need two selectors to say one thing. The <th>'s own
+// cellIndex is that position, so the table's own structure decides it.
+export function applyColumns(table, heads, hidden) {
+  const rows = table.querySelectorAll('tbody tr')
+  for (const head of heads) {
+    const off = hidden.includes(head.key)
+    head.th.hidden = off
+    for (const tr of rows) {
+      const cell = tr.cells[head.th.cellIndex]
+      if (cell) cell.hidden = off
+    }
+  }
+}
+
 // The rows are moved, not re-created: they carry the server's links, colours
 // and formatted numbers, and re-rendering them in JavaScript would be a second
 // copy of the same table that could disagree with the first.
@@ -94,16 +110,26 @@ export function mount(el, doc = document) {
     searchPlaceholder: d.tSearchPlaceholder || '',
     searchHint: d.tSearchHint || '',
     searchEmpty: d.tSearchEmpty || '',
+    columns: d.tColumns || '',
+    visibleColumns: d.tVisibleColumns || '',
   }
 
   let api = null
   const heads = upgradeHeaders(table, (key) => api && api.sortBy(key))
+  // The menu's options are the table's own data columns, labelled with the text
+  // their headers carry: the value column's header already names the metric and
+  // its unit, and a label written here would go stale the moment the reader
+  // switches metric.
+  const columns = heads
+    .filter((h) => h.key !== 'name')
+    .map((h) => ({ key: h.key, label: h.th.textContent.trim() }))
 
   const component = mountComponent(TableView, {
     target: el,
     props: {
       rows,
       texts,
+      columns,
       // The language the page is written in, which is the language the reader
       // types in. Folding a Cyrillic query with the wrong locale is how "И"
       // stops matching "и".
@@ -111,6 +137,7 @@ export function mount(el, doc = document) {
       register: (a) => { api = a },
       onview: (view) => {
         applyRows(tbody, rows, view.rows)
+        applyColumns(table, heads, view.hidden)
         markSorted(heads, view.key, view.dir)
         if (meta) meta.textContent = countLine(texts, view.rows.length, rows.length, silent)
         // An absence stated where the rows would have been, rather than a

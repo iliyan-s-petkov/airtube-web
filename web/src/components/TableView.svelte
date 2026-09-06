@@ -9,11 +9,22 @@
   // with no JavaScript at all: the rows a reader sees are the ones the Go
   // template printed, re-ordered in place, never re-rendered from a second copy
   // of the data.
-  import { viewRows, perPageOptions, nextSort } from '../lib/table.js'
+  import {
+    viewRows,
+    perPageOptions,
+    nextSort,
+    nextHidden,
+    columnLocked,
+    sortAfterHide,
+  } from '../lib/table.js'
   import { matchAreas, splitMark } from '../lib/find.js'
   import MetricSwitcher from './MetricSwitcher.svelte'
 
-  let { rows, texts, onview, register, lang = 'bg' } = $props()
+  // `columns` are the table's data columns, read off its headers by the island:
+  // key and printed label. The value column's label carries the current metric
+  // and its unit, so naming the columns here would name a column the table does
+  // not have.
+  let { rows, texts, onview, register, lang = 'bg', columns = [] } = $props()
 
   let mode = $state('all')
   let query = $state('')
@@ -28,6 +39,15 @@
   // has left the set to be, and so stays valid when the count changes.
   let perPage = $state('all')
   let page = $state(1)
+  // Which data columns the reader has turned off, and whether the menu that
+  // turns them off is open. Both start where the server left the table: nothing
+  // hidden, nothing open.
+  let hidden = $state([])
+  let menuOpen = $state(false)
+  let menuEl = $state()
+  let menuBtn = $state()
+
+  const dataKeys = $derived(columns.map((c) => c.key))
 
   const view = $derived(viewRows(rows, { mode, query, lang, key, dir, perPage, page }))
 
@@ -68,8 +88,38 @@
   })
 
   $effect(() => {
-    onview({ rows: view.rows, page: view.page, pages: view.pages, total: view.total, key, dir })
+    onview({ rows: view.rows, page: view.page, pages: view.pages, total: view.total, key, dir, hidden })
   })
+
+  // A menu that stays open behind the reader's next click is a menu they have to
+  // dismiss twice. mousedown rather than click, for the same reason the
+  // suggestion list uses it: the pointer decides where it is going on the way
+  // down.
+  $effect(() => {
+    if (!menuOpen) return
+    const away = (e) => {
+      if (menuEl && !menuEl.contains(e.target)) menuOpen = false
+    }
+    window.addEventListener('mousedown', away)
+    return () => window.removeEventListener('mousedown', away)
+  })
+
+  function toggleColumn(k) {
+    const next = nextHidden(hidden, k, dataKeys)
+    if (next === hidden) return
+    hidden = next
+    const order = sortAfterHide({ key, dir }, hidden)
+    key = order.key
+    dir = order.dir
+  }
+
+  function closeMenu() {
+    menuOpen = false
+    // Focus goes back to the control that opened the panel: a reader who
+    // dismissed it with the keyboard would otherwise be returned to the top of
+    // the document.
+    menuBtn?.focus()
+  }
 
   function filtered() {
     return viewRows(rows, { mode, lang, perPage: 'all', page: 1 }).rows
@@ -147,6 +197,12 @@
   }
 </script>
 
+<!-- Escape closes the column menu from wherever the reader's focus is: the
+     panel is open over the page, and a <div> wrapper is not a thing that should
+     carry a keyboard handler of its own. svelte:window has to sit at the top
+     level of the component, so it cannot live beside the menu it serves. -->
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && menuOpen) { e.preventDefault(); closeMenu() } }} />
+
 <div class="table-controls">
   <!-- The kit's search combobox. It FILTERS rather than navigating, which is
        what makes it different from the finder in the masthead: that one opens a
@@ -198,6 +254,41 @@
     </ul>
   </div>
   <MetricSwitcher options={modes} selected={mode} onselect={setMode} legend={texts.filterLegend} name="datafilter" />
+  <!-- The kit's Колони menu (§5.11). Two things it will not do: hide the names,
+       which are the table's subject and carry every link out of it, and hide
+       the last data column, which would leave 28 provinces and no readings.
+       The second is enforced by disabling that checkbox rather than by ignoring
+       the click — a box that unticks and ticks itself back is lying. -->
+  {#if columns.length > 1}
+    <div class="colmenu" bind:this={menuEl}>
+      <button
+        type="button"
+        class="btn btn--secondary"
+        id="table-colmenu-btn"
+        bind:this={menuBtn}
+        aria-expanded={menuOpen}
+        aria-controls="table-colmenu-panel"
+        onclick={() => { menuOpen = !menuOpen }}
+      >{texts.columns}</button>
+      <div class="colmenu__panel" id="table-colmenu-panel" hidden={!menuOpen}>
+        <fieldset>
+          <legend>{texts.visibleColumns}</legend>
+          {#each columns as col (col.key)}
+            <label class="colmenu__opt">
+              <input
+                type="checkbox"
+                data-col={col.key}
+                checked={!hidden.includes(col.key)}
+                disabled={columnLocked(hidden, col.key, dataKeys)}
+                onchange={() => toggleColumn(col.key)}
+              >
+              <span>{col.label}</span>
+            </label>
+          {/each}
+        </fieldset>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <!-- The bar below the table. The island moves this node under the table after

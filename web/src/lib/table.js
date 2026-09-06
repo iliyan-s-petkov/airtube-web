@@ -92,6 +92,36 @@ export function queryRows(rows, query, lang = 'bg') {
   return rows.filter((r) => r.name.toLocaleLowerCase(lang).includes(q))
 }
 
+// The Колони menu's rules. Hidden columns are named by their sort key, which is
+// what the server already puts on each <th> — so the menu, the sort and the
+// cells all agree about what a column IS without a second vocabulary.
+//
+// Two invariants the reader cannot click their way out of: the names stay,
+// because they are the table's subject and carry every link out of it; and one
+// data column stays, because a table of 28 names with no measurements is not
+// the page the reader opened.
+export function nextHidden(hidden, key, dataKeys) {
+  if (!dataKeys.includes(key)) return hidden
+  if (hidden.includes(key)) return hidden.filter((k) => k !== key)
+  if (dataKeys.filter((k) => !hidden.includes(k)).length <= 1) return hidden
+  return [...hidden, key]
+}
+
+// Disabled rather than merely ineffective: a checkbox that can be unticked and
+// silently ticks itself back is a control lying about its own state.
+export function columnLocked(hidden, key, dataKeys) {
+  if (hidden.includes(key)) return false
+  return dataKeys.filter((k) => !hidden.includes(k)).length <= 1
+}
+
+// Hiding the sorted column leaves the table in an order whose reason is no
+// longer on screen. The names are the fallback: they are the one column that
+// cannot be hidden, so the answer is always legible.
+export function sortAfterHide(current, hidden) {
+  if (!hidden.includes(current.key)) return current
+  return { key: 'name', dir: firstDir('name') }
+}
+
 // Rows per page, offered only as divisors of the row count, so no page is ever
 // a stub of two rows after three full ones. The kit's mockup lists 21 for its
 // 28 rows, which is not a divisor of 28 — the rule it states beside the list is

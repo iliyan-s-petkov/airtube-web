@@ -10,6 +10,9 @@ import {
   pageCount,
   pageSlice,
   viewRows,
+  nextHidden,
+  columnLocked,
+  sortAfterHide,
 } from '../table.js'
 
 const row = (name, value, sensors) => ({
@@ -235,5 +238,50 @@ describe('viewRows', () => {
 
   it('defaults to the order the server already rendered', () => {
     expect(names(viewRows(rows()).rows)).toEqual(['Пловдив', 'София', 'Габрово', 'Видин', 'Ямбол'])
+  })
+})
+
+describe('the column menu', () => {
+  // The kit's rule, and the reason the menu is safe to offer at all: a table
+  // whose every data column is hidden is a list of 28 names, which is not what
+  // the reader came for and not a state any control should be able to reach.
+  const DATA = ['value', 'sensors']
+
+  it('hides a column the reader turns off', () => {
+    expect(nextHidden([], 'sensors', DATA)).toEqual(['sensors'])
+  })
+
+  it('brings it back when they turn it on again', () => {
+    expect(nextHidden(['sensors'], 'sensors', DATA)).toEqual([])
+  })
+
+  it('keeps the last data column whatever the reader clicks', () => {
+    expect(nextHidden(['sensors'], 'value', DATA)).toEqual(['sensors'])
+  })
+
+  // The name column carries the link to each province's page. It is the table's
+  // subject, not one of its measurements, so the menu never offers it.
+  it('never hides the names', () => {
+    expect(nextHidden([], 'name', DATA)).toEqual([])
+  })
+
+  it('locks the checkbox of the last column standing', () => {
+    expect(columnLocked(['sensors'], 'value', DATA)).toBe(true)
+    expect(columnLocked([], 'value', DATA)).toBe(false)
+  })
+
+  it('does not lock a column that is already hidden', () => {
+    expect(columnLocked(['sensors'], 'sensors', DATA)).toBe(false)
+  })
+
+  // Hiding the column the table is sorted by leaves an order the reader can no
+  // longer see the reason for. It falls back to the names, ascending, which is
+  // the one order that is legible with any column hidden.
+  it('re-sorts by name when the sorted column goes', () => {
+    expect(sortAfterHide({ key: 'value', dir: 'desc' }, ['value'])).toEqual({ key: 'name', dir: 'asc' })
+  })
+
+  it('leaves the sort alone when another column goes', () => {
+    expect(sortAfterHide({ key: 'value', dir: 'asc' }, ['sensors'])).toEqual({ key: 'value', dir: 'asc' })
   })
 })

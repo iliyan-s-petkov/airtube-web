@@ -42,6 +42,8 @@ function page(provinces = PROVINCES) {
     tSearchPlaceholder: 'Например: Габрово',
     tSearchHint: 'Пишете, за да филтрирате таблицата.',
     tSearchEmpty: 'Няма област с това име',
+    tColumns: 'Колони',
+    tVisibleColumns: 'Видими колони',
   })
   document.body.appendChild(el)
 
@@ -382,5 +384,95 @@ describe('the table search', () => {
     search().focus()
     type('')
     expect(options().map((li) => li.textContent)).toEqual(['Видин'])
+  })
+})
+
+describe('the column menu', () => {
+  const menu = () => document.querySelector('.colmenu')
+  const button = () => document.querySelector('.colmenu > button')
+  const boxes = () => [...document.querySelectorAll('.colmenu__panel input[type="checkbox"]')]
+  const box = (key) => document.querySelector(`.colmenu__panel input[data-col="${key}"]`)
+  const cellsOf = (key) => {
+    const th = document.querySelector(`th[data-sort-key="${key}"]`)
+    const i = th.cellIndex
+    return [th, ...[...document.querySelectorAll('.table tbody tr')].map((tr) => tr.cells[i])]
+  }
+
+  it('opens the panel the button says it controls', () => {
+    component = mount(page())
+    expect(button().getAttribute('aria-expanded')).toBe('false')
+    const panel = document.getElementById(button().getAttribute('aria-controls'))
+    expect(panel.hidden).toBe(true)
+    click(button())
+    expect(button().getAttribute('aria-expanded')).toBe('true')
+    expect(panel.hidden).toBe(false)
+  })
+
+  // The labels are read off the headers rather than translated a second time:
+  // the value column's header already carries the current metric and its unit,
+  // and a menu that said "Стойност" would name a column the table does not have.
+  it('offers the data columns, labelled as their headers are', () => {
+    component = mount(page())
+    click(button())
+    expect(boxes().map((b) => b.dataset.col)).toEqual(['value', 'sensors'])
+    expect(boxes().map((b) => b.closest('.colmenu__opt').textContent.trim())).toEqual(['ФПЧ2.5', 'Сензори'])
+  })
+
+  // The name column is the table's subject and carries every link out of it.
+  it('does not offer to hide the names', () => {
+    component = mount(page())
+    click(button())
+    expect(box('name')).toBeNull()
+  })
+
+  it('hides the header and every cell of a column turned off', () => {
+    component = mount(page())
+    click(button())
+    click(box('sensors'))
+    expect(cellsOf('sensors').every((c) => c.hidden)).toBe(true)
+    expect(cellsOf('value').some((c) => c.hidden)).toBe(false)
+  })
+
+  it('brings the column back when it is turned on again', () => {
+    component = mount(page())
+    click(button())
+    click(box('sensors'))
+    click(box('sensors'))
+    expect(cellsOf('sensors').some((c) => c.hidden)).toBe(false)
+  })
+
+  // A table of 28 names and no measurements is not the page the reader opened.
+  it('locks the last data column standing', () => {
+    component = mount(page())
+    click(button())
+    click(box('sensors'))
+    expect(box('value').disabled).toBe(true)
+    expect(box('sensors').disabled).toBe(false)
+  })
+
+  it('re-sorts by name when the sorted column is hidden', () => {
+    component = mount(page())
+    click(button())
+    click(box('value'))
+    expect(document.querySelector('th[data-sort-key="name"]').getAttribute('aria-sort')).toBe('ascending')
+    expect(document.querySelector('th[data-sort-key="value"]').getAttribute('aria-sort')).toBeNull()
+    expect(shownNames()).toEqual(['Габрово', 'Пловдив', 'София', 'Видин'])
+  })
+
+  it('closes on Escape and gives the button its focus back', () => {
+    component = mount(page())
+    click(button())
+    menu().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    flushSync()
+    expect(button().getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(button())
+  })
+
+  it('closes when the reader clicks past it', () => {
+    component = mount(page())
+    click(button())
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    flushSync()
+    expect(button().getAttribute('aria-expanded')).toBe('false')
   })
 })
