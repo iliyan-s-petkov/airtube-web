@@ -7,6 +7,7 @@
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { urlFor, bandsFor, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, blankStyle, mapStyle, registerProtocols, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
+import { POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
@@ -47,11 +48,17 @@ vi.mock('maplibre-gl', () => {
       // Spied so the locateVisitor tests below can assert a "geoip" response
       // jumps the map, and that a "default"/rejected response does not.
       this.jumpTo = vi.fn()
+      this.clickHandlers = {}
     }
     // map.on('click', LAYER_ID, cb) carries the layer id as a second
     // argument; every other event map.js registers is map.on(event, cb).
+    // Clicks are ALSO kept per layer: the map binds one click handler to the
+    // markers and another to the cells, and a single `handlers.click` slot
+    // would silently hand every test the last one registered.
     on(event, a, b) {
-      this.handlers[event] = event === 'click' ? b : a
+      if (event !== 'click') { this.handlers[event] = a; return }
+      this.handlers.click ??= b
+      this.clickHandlers[a] = b
     }
   }
   return { Map: FakeMap, addProtocol: vi.fn() }
@@ -1353,6 +1360,85 @@ describe('mount() gives the point tier a layer to paint into', () => {
     // Coloured by the same property the cells use, so a device and a cell at
     // the same reading are the same colour.
     expect(point.paint['circle-color']).toEqual(['get', 'colour'])
+  })
+
+  // A circle layer draws a circle at EVERY position of the geometry it is
+  // handed, and a polygon's positions are its corners: once the point tier
+  // started drawing cells, this layer put a dot on all six vertices of every
+  // hexagon on the map. It is the fallback for a device with no size to draw
+  // at, so it must see points and nothing else.
+  it('paints points only, never a cell\u2019s corners', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const point = map.addLayer.mock.calls.map((c) => c[0])
+      .find((l) => l.source === 'airbg-hexes' && l.type === 'circle')
+
+    expect(point.filter).toEqual(['==', ['geometry-type'], 'Point'])
+  })
+})
+
+// The reading belongs INSIDE the cell that describes it. Printed only beside a
+// marker, it sat at the device's own coordinate — so at the zooms where cells
+// are individually visible the number appeared off-centre in one cell, on the
+// edge of the next, and nowhere at all in the rest.
+describe('mount() prints the reading inside the cell', () => {
+  const hexLabel = () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    return map.addLayer.mock.calls.map((c) => c[0])
+      .find((l) => l.source === 'airbg-hexes' && l.type === 'symbol')
+  }
+
+  it('labels the cells from the source they are drawn from', () => {
+    const label = hexLabel()
+    expect(label, 'no symbol layer on the hex source').toBeTruthy()
+    expect(label.minzoom).toBe(POINT_TIER_MIN_ZOOM)
+  })
+
+  it('centres the number rather than offsetting it past a dot', () => {
+    const label = hexLabel()
+    expect(label.layout['text-anchor']).toBe('center')
+    expect(label.layout['text-offset']).toBeUndefined()
+  })
+
+  it('prints nothing where there is no reading, and nothing on a bare point', () => {
+    const label = hexLabel()
+    expect(JSON.stringify(label.filter)).toContain('value')
+    expect(JSON.stringify(label.filter)).toContain('Polygon')
+  })
+})
+
+// The markers are what a visitor clicked to open a sensor, and above the
+// handover zoom they are gone. The cells inherit the click: at the point tier
+// each carries the sensor_id of the device it was built from, so the panel
+// stays reachable at exactly the zooms the dots stopped covering.
+describe('mount() opens a sensor from the cell that carries one', () => {
+  it('binds a click to the cells and opens the sensor it names', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const onCell = map.clickHandlers['airbg-hex-fill']
+    expect(onCell, 'no click handler on the cells').toBeTypeOf('function')
+
+    onCell({ features: [{ properties: { sensorId: 4242, value: 7 } }] })
+    expect(getViewState().sensorId).toBe(4242)
+  })
+
+  it('ignores an aggregate cell, which names no device', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    map.clickHandlers['airbg-hex-fill']({ features: [{ properties: { n: 9, value: 7 } }] })
+    expect(getViewState().sensorId ?? null).toBeNull()
+  })
+})
+
+// The two ways of showing one reading must never be on screen at once: the dot
+// is the device's position, the cell is the ground around it. Drawn together
+// they put a labelled dot off-centre inside a labelled cell. The dots stop
+// exactly where the cells take the number over.
+describe('mount() hands the reading from the dots to the cells', () => {
+  it('stops the marker circles and their labels at the point tier', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const markers = map.addLayer.mock.calls.map((c) => c[0])
+      .filter((l) => l.source === 'airbg-data')
+
+    expect(markers).toHaveLength(2)
+    for (const l of markers) expect(l.maxzoom).toBe(POINT_TIER_MIN_ZOOM)
   })
 })
 

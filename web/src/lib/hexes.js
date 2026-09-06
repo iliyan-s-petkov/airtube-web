@@ -37,6 +37,20 @@ const FINEST_TIER_KM = 0.25
 // to hold one sensor IS that sensor.
 export const POINT_RESOLUTION_KM = 0
 
+// The first whole zoom at which hexesURL asks for devices rather than bins.
+// Derived from the two constants that decide it, never restated as a literal:
+// retarget TARGET_HEX_PX or publish a finer tier and this follows.
+//
+// It is the map's handover point. Below it a marker is the only thing that
+// carries a reading; at and above it the cells are individually visible and
+// carry it themselves, so the markers step aside rather than sit labelled and
+// off-centre inside a labelled cell.
+export const POINT_TIER_MIN_ZOOM = (() => {
+  let z = 0
+  while (resolutionForZoom(z) >= FINEST_TIER_KM) z++
+  return z
+})()
+
 // The grid a requested bounding box is snapped out to, in degrees. Raw viewport
 // edges would give every pixel of pan its own URL and no two visitors would ever
 // share a cache entry. Snapped OUTWARD on all four sides, never inward, so the

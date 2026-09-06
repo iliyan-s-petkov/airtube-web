@@ -19,7 +19,7 @@ import { setSensors, setScales } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { nearestArea } from '../lib/nearest.js'
-import { hexesURL, hexFeatures, resolutionForZoom } from '../lib/hexes.js'
+import { hexesURL, hexFeatures, resolutionForZoom, POINT_TIER_MIN_ZOOM } from '../lib/hexes.js'
 import { WIND_SOURCE_ID, WIND_LAYER_ID, windFeatures, windLabel, arrowLayout, arrowPaint } from './wind.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
@@ -46,6 +46,7 @@ const HEX_SOURCE_ID = 'airbg-hexes'
 const HEX_LAYER_ID = 'airbg-hex-fill'
 const HEX_OUTLINE_LAYER_ID = 'airbg-hex-outline'
 const HEX_POINT_LAYER_ID = 'airbg-hex-point'
+const HEX_LABEL_LAYER_ID = 'airbg-hex-labels'
 
 export function mount(el) {
   const cfg = readConfig(el)
@@ -150,8 +151,11 @@ export function mount(el) {
     // marks vanished under the sensor markers). A device only reaches this
     // layer when there is no size to draw a cell at — hexFeatures then keeps it
     // a Point rather than inventing a radius. The two coexist on one source
-    // because the fill and line layers above ignore Point geometry and this one
-    // ignores Polygons.
+    // because the fill and line layers above ignore Point geometry and the
+    // filter below holds this one to the same discipline in the other
+    // direction — a circle layer draws a circle at every position it is given,
+    // and a polygon's positions are its six corners, so without the filter
+    // every cell on the map wore a ring of dots.
     //
     // Fully opaque, unlike the cells behind it: a cell is a summary and reads
     // as a wash, a bare device is a position and should not.
@@ -159,6 +163,7 @@ export function mount(el) {
       id: HEX_POINT_LAYER_ID,
       type: 'circle',
       source: HEX_SOURCE_ID,
+      filter: ['==', ['geometry-type'], 'Point'],
       paint: {
         'circle-color': ['get', 'colour'],
         // Grows with zoom so a dense city does not read as one blob when a
@@ -173,11 +178,39 @@ export function mount(el) {
       },
     })
 
+    // The reading, printed in the middle of the cell it belongs to. It takes
+    // over from LABEL_LAYER_ID at exactly the zoom that layer stops at, so one
+    // reading is never drawn twice and never absent.
+    //
+    // Polygon-only and value-only: a bare point has no interior to centre a
+    // number in, and a cell with no reading for this metric keeps its no-data
+    // colour and says nothing.
+    map.addLayer({
+      id: HEX_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: HEX_SOURCE_ID,
+      minzoom: POINT_TIER_MIN_ZOOM,
+      filter: ['all',
+        ['==', ['geometry-type'], 'Polygon'],
+        ['has', 'value'],
+        ['!=', ['get', 'value'], null],
+      ],
+      layout: hexLabelLayout(cfg),
+      paint: labelPaint(cfg),
+    })
+
     map.addSource(SOURCE_ID, { type: 'geojson', data: emptyCollection() })
     map.addLayer({
       id: LAYER_ID,
       type: 'circle',
       source: SOURCE_ID,
+      // Both marker layers stop at the handover zoom. Above it the cells are
+      // individually visible and carry the reading themselves; leaving the
+      // markers on drew the same number twice, once at the device's own
+      // coordinate — which is why a labelled dot appeared off-centre inside
+      // one cell and on the edge of another. The cell covers the ground
+      // around the sensor, and that is the claim the map makes here.
+      maxzoom: POINT_TIER_MIN_ZOOM,
       paint: layerPaint(cfg),
     })
 
@@ -195,6 +228,7 @@ export function mount(el) {
       id: LABEL_LAYER_ID,
       type: 'symbol',
       source: SOURCE_ID,
+      maxzoom: POINT_TIER_MIN_ZOOM,
       filter: ['all', ['has', 'value'], ['!=', ['get', 'value'], null]],
       layout: labelLayout(cfg),
       paint: labelPaint(cfg),
@@ -307,6 +341,16 @@ export function mount(el) {
     // stays a defensive match to that contract rather than an assumption
     // about MapLibre's internals.
     if (props.id !== undefined) vs.openSensor(Number(props.id))
+  })
+
+  // The cells inherit that click above the handover zoom, where the markers
+  // have stepped aside. Only a point-tier cell answers: the server sends
+  // sensor_id there and nowhere else, so an aggregate cell — which stands for
+  // a bin, not a device — has no panel to open and stays inert rather than
+  // opening some arbitrary member of itself.
+  map.on('click', HEX_LAYER_ID, (e) => {
+    const id = e.features?.[0]?.properties?.sensorId
+    if (id !== undefined && id !== null) vs.openSensor(Number(id))
   })
 
   return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.() } }
@@ -928,6 +972,15 @@ export function labelLayout(cfg) {
     'text-ignore-placement': false,
     'text-optional': true,
   }
+}
+
+// hexLabelLayout is the same number, printed in the middle of a cell instead
+// of beside a dot. It reuses labelLayout's formatting — one decimal, the
+// basemap's own fontstack, overlap thinning — and differs only in placement:
+// there is no dot to clear, so the number is centred on the cell it describes.
+export function hexLabelLayout(cfg) {
+  const { 'text-offset': _offset, 'text-anchor': _anchor, ...shared } = labelLayout(cfg)
+  return { ...shared, 'text-anchor': 'center' }
 }
 
 export function labelPaint(cfg) {

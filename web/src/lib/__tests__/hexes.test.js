@@ -6,6 +6,7 @@ import {
   hexPolygon,
   hexFeatures,
   BBOX_MIN_ZOOM,
+  POINT_TIER_MIN_ZOOM,
 } from '../hexes.js'
 import { colourFor } from '../colour.js'
 
@@ -351,5 +352,23 @@ describe('hexFeatures at the point tier', () => {
   it('still draws nothing for a body with no resolution', () => {
     expect(hexFeatures({ hexes: [{ lon: 1, lat: 2 }] }, 'P1', [], '#eee', colourFor)).toEqual([])
     expect(hexFeatures({ resolution_km: -1, hexes: [{}] }, 'P1', [], '#eee', colourFor)).toEqual([])
+  })
+})
+
+// The zoom the point tier begins at, and the one the map hands the reading over
+// to the cells at: below it a dot carries the number, at and above it the cell
+// does. Derived from the same two constants hexesURL branches on rather than
+// written down, so the handover cannot drift from the URL it describes.
+describe('POINT_TIER_MIN_ZOOM', () => {
+  it('is the first whole zoom whose cell is finer than the finest published tier', () => {
+    const finest = resolutionForZoom(POINT_TIER_MIN_ZOOM - 1)
+    expect(resolutionForZoom(POINT_TIER_MIN_ZOOM)).toBeLessThan(0.25)
+    expect(finest).toBeGreaterThanOrEqual(0.25)
+  })
+
+  it('is the zoom hexesURL first asks for devices at', () => {
+    const bounds = { getWest: () => 23.2, getSouth: () => 42.6, getEast: () => 23.4, getNorth: () => 42.8 }
+    expect(hexesURL(POINT_TIER_MIN_ZOOM, bounds)).toContain('resolution_km=0&')
+    expect(hexesURL(POINT_TIER_MIN_ZOOM - 1, bounds)).not.toContain('resolution_km=0&')
   })
 })
