@@ -44,7 +44,10 @@ type Renderer struct {
 	frontend        config.Frontend
 	defaultMetric   string
 	defaultPeriod   string
-	assets          Assets
+	// File order, which is the order the switcher offers them in and the order
+	// the config author chose — alphabetical would put "1y" first.
+	periodNames []string
+	assets      Assets
 
 	// One parsed template set per page, each cloned from the base. A single
 	// set would not work: every page defines "main", and the last parse would
@@ -83,6 +86,7 @@ func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, cfg config.Config
 		frontend:        cfg.Frontend,
 		defaultMetric:   cfg.Series.DefaultMetric,
 		defaultPeriod:   cfg.Series.PeriodNames[0],
+		periodNames:     cfg.Series.PeriodNames,
 		pages:           make(map[string]*template.Template),
 	}
 	// Parsed once at construction, like the templates: with no manifest this
@@ -161,6 +165,18 @@ type PageData struct {
 	Metrics      []string
 	MetricLabels []string
 	MetricUnits  []string
+
+	// Periods and PeriodLabels are the same positional pairing for the chart's
+	// window switcher, in the config's file order.
+	//
+	// Offered from the server's own vocabulary rather than listed in a template
+	// or an island: the API rejects any period it does not recognise (see
+	// api.parsePeriod), so a hard-coded list is a button that starts returning
+	// 400 the day someone edits series.periods. The design kit's mockup lists
+	// 6/12/24/42-hour windows, which describe a 42-hour archive; this site keeps
+	// a year, so the vocabulary is read rather than copied.
+	Periods      []string
+	PeriodLabels []string
 
 	cat *i18n.Catalogue
 }
@@ -286,10 +302,7 @@ func (p PageData) AreaReadouts() []Readout {
 	// The tier line is the whole point of the cell: without it the figure is a
 	// number on a page about a place, and a reader cannot tell whether it is one
 	// sensor's reading or the average of two hundred.
-	tier := p.T("areas.tier")
-	if p.Area.Kind == "city" {
-		tier = p.T("area.tier_city")
-	}
+	tier := p.AreaTier()
 
 	out := make([]Readout, 0, len(p.Metrics)+1)
 	cell := func(m string) {
@@ -400,6 +413,19 @@ func (p PageData) T(key string) string { return p.cat.T(p.Lang, key) }
 func (p PageData) MetricsAttr() string      { return strings.Join(p.Metrics, ",") }
 func (p PageData) MetricLabelsAttr() string { return strings.Join(p.MetricLabels, ",") }
 func (p PageData) MetricUnitsAttr() string  { return strings.Join(p.MetricUnits, ",") }
+func (p PageData) PeriodsAttr() string      { return strings.Join(p.Periods, ",") }
+func (p PageData) PeriodLabelsAttr() string { return strings.Join(p.PeriodLabels, ",") }
+
+// AreaTier is the wording for what an aggregate on this page covers — a
+// province or a city. The chart's heading is composed in the browser from the
+// metric, the period and this, so it has to arrive as its own string; the
+// readouts strip uses the same two keys for the same reason.
+func (p PageData) AreaTier() string {
+	if p.Area != nil && p.Area.Kind == "city" {
+		return p.T("area.tier_city")
+	}
+	return p.T("areas.tier")
+}
 
 // HasBasemap reports whether the page renders basemap tiles, which is what
 // makes the footer's ODbL credit required — and, when false, wrong.
@@ -492,6 +518,13 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		labels[i] = rr.cat.T(lang, "metric."+m)
 		units[i] = rr.cat.T(lang, "unit."+m)
 	}
+	// Same shape for the chart's periods: the vocabulary comes from the config,
+	// the labels from the catalogue, and the two ride as parallel lists the
+	// island reads by index.
+	periodLabels := make([]string, len(rr.periodNames))
+	for i, p := range rr.periodNames {
+		periodLabels[i] = rr.cat.T(lang, "period."+p)
+	}
 	return PageData{
 		Lang: lang, RequestPath: path,
 		BaseURL: rr.baseURL, GeneratedAt: generatedAt, cat: rr.cat,
@@ -515,6 +548,8 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		Metrics:            metrics,
 		MetricLabels:       labels,
 		MetricUnits:        units,
+		Periods:            rr.periodNames,
+		PeriodLabels:       periodLabels,
 	}
 }
 

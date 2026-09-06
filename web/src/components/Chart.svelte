@@ -17,6 +17,12 @@
     let observer
     let cancelled = false
 
+    // Back to 'loading' before the new url is fetched. The url changes when the
+    // reader picks another period, and without this the previous window's "no
+    // readings" message would stay on screen over the new window's request —
+    // claiming an answer about a period nobody has asked the server about yet.
+    status = 'loading'
+
     ;(async () => {
       let body
       try {

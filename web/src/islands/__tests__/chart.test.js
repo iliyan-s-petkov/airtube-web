@@ -46,22 +46,43 @@ describe('mount, no slug', () => {
 })
 
 // J6 (review round 2): the deleted `el.dataset.metric || 'P2'` and
-// `el.dataset.period || '24h'` fallbacks must stay deleted. Proven here by
-// reading the URL prop chart.js hands the component: with no fallback,
-// encodeURIComponent(undefined) === 'undefined' appears literally in the
-// query string; a reinstated fallback would put 'P2'/'24h' there instead,
-// which this assertion would catch.
+// `el.dataset.period || '24h'` fallbacks must stay deleted. The URL now lives
+// in ChartPanel, so the absence is proven one step earlier: the props the
+// island hands over must be undefined rather than a substituted default.
 describe('mount, metric and period have no JS-side fallback', () => {
-  it('builds a URL from exactly what the dataset carries, not a hardcoded default', () => {
+  it('passes exactly what the dataset carries, not a hardcoded default', () => {
     const el = fakeEl({ slug: 'sofia', tUnavailable: CFG.tUnavailable }) // metric, period absent
 
     mount(el)
 
     expect(mountCalls).toHaveLength(1)
-    const url = mountCalls[0].opts.props.url
-    expect(url).toContain('metric=undefined')
-    expect(url).toContain('period=undefined')
-    expect(url).not.toContain('P2')
-    expect(url).not.toContain('24h')
+    const props = mountCalls[0].opts.props
+    expect(props.metric).toBeUndefined()
+    expect(props.initialPeriod).toBeUndefined()
+  })
+})
+
+// The period vocabulary is the server's, arriving as two comma-joined lists
+// read by index. Splitting an empty attribute with String.split yields [''] —
+// one nameless option in the switcher — so the empty case is pinned.
+describe('mount, the period vocabulary', () => {
+  it('splits the parallel lists the server rendered', () => {
+    const el = fakeEl({ ...CFG, periods: '24h,7d,30d,1y', periodLabels: '24 hours,7 days,30 days,1 year' })
+
+    mount(el)
+
+    const props = mountCalls[0].opts.props
+    expect(props.periods).toEqual(['24h', '7d', '30d', '1y'])
+    expect(props.periodLabels).toEqual(['24 hours', '7 days', '30 days', '1 year'])
+    expect(props.initialPeriod).toBe('24h')
+  })
+
+  it('treats an absent list as no options rather than one blank one', () => {
+    const el = fakeEl({ ...CFG })
+
+    mount(el)
+
+    expect(mountCalls[0].opts.props.periods).toEqual([])
+    expect(mountCalls[0].opts.props.periodLabels).toEqual([])
   })
 })

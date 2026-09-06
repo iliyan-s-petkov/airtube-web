@@ -38,16 +38,31 @@
 {{with .AreaReadouts}}{{template "readouts" .}}{{end}}
 
 {{if .Area.Covered}}
-  {{/* The chart island: one series, one metric (P2), one period (24h) — period
-       and metric selectors are Phase 3b. Server-side we render the sensor
-       count and the coverage state only — the numbers themselves live behind
-       the API so there is exactly one place that applies the quality filter. */}}
+  {{/* The chart island. Server-side we render nothing of the series itself —
+       the numbers live behind the API so there is exactly one place that
+       applies the quality filter — but the period vocabulary and the heading's
+       parts are server data, so they arrive as attributes.
+
+       data-periods is the config's own list (config.Series.PeriodNames), not a
+       list written here: the API rejects any period outside it, so a hard-coded
+       switcher is a button that returns 400 the day someone edits the config.
+       The kit's mockup offers 6/12/24/42-hour windows, which describe a
+       42-hour archive; this site keeps a year, so the kit's control is adopted
+       and its options are read. */}}
   <div id="chart" data-island="chart"
        data-slug="{{.Area.Slug}}"
        data-metric="{{.DefaultMetric}}"
        data-period="{{.DefaultPeriod}}"
+       data-periods="{{.PeriodsAttr}}"
+       data-period-labels="{{.PeriodLabelsAttr}}"
        data-line-colour="{{.ChartLineColour}}"
-       data-t-title="{{.T "chart.title"}}"
+       {{/* The three parts of the chart's heading. Composed in the browser
+            rather than server-side, because the period part changes when the
+            reader picks another window and a pre-composed sentence could not
+            be rewritten. */}}
+       data-t-metric="{{.T (printf "metric.%s" .DefaultMetric)}}"
+       data-t-tier="{{.AreaTier}}"
+       data-t-period-legend="{{.T "period.legend"}}"
        data-t-empty="{{.T "chart.empty"}}"
        data-t-value="{{.T "chart.axis.value"}}"
        data-t-time="{{.T "chart.axis.time"}}"
