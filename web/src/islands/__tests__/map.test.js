@@ -28,6 +28,14 @@ vi.mock('maplibre-gl', () => {
       this.addSource = vi.fn()
       this.addLayer = vi.fn()
       this.getZoom = vi.fn(() => 7)
+      // The zoom stack asks the camera for its own limits rather than
+      // restating them (see installZoom), so a map that cannot answer is not
+      // a map this island can mount.
+      this.getMinZoom = vi.fn(() => 5)
+      this.getMaxZoom = vi.fn(() => 18)
+      this.zoomIn = vi.fn()
+      this.zoomOut = vi.fn()
+      this.flyTo = vi.fn()
       this.getSource = vi.fn(() => ({ setData: vi.fn() }))
       // Spied so the locateVisitor tests below can assert a "geoip" response
       // jumps the map, and that a "default"/rejected response does not.
@@ -238,6 +246,8 @@ describe('readConfig', () => {
       dataset: {
         tLegend: 'Air quality', tHint: 'Select an area',
         tLegendToggle: 'Legend', tLegendNoData: 'Not enough data',
+        tFullscreen: 'Full screen', tFullscreenExit: 'Exit full screen',
+        tZoomIn: 'Zoom in', tZoomOut: 'Zoom out', tZoomReset: 'Reset view',
         tTierCountry: 'Each dot is an oblast average',
         tTierCity: 'Each dot is a city average',
         tTierSensors: 'Each dot is a single sensor',
@@ -257,6 +267,8 @@ describe('readConfig', () => {
     expect(cfg.t).toEqual({
       legend: 'Air quality', hint: 'Select an area',
       legendToggle: 'Legend', legendNoData: 'Not enough data',
+      fullscreen: 'Full screen', fullscreenExit: 'Exit full screen',
+      zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomReset: 'Reset view',
       tier: {
         country: 'Each dot is an oblast average',
         city: 'Each dot is a city average',

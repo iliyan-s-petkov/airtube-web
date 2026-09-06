@@ -8,6 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { Protocol } from 'pmtiles'
 import { tierFor } from '../lib/tier.js'
 import { LEGEND_CLASSES, legendRows, renderLegend } from '../lib/legend.js'
+import { mountFullscreen, mountZoom, installZoom } from '../lib/mapcontrols.js'
 import { colourFor } from '../lib/colour.js'
 import { getJSON } from '../lib/api.js'
 import { parseMetricList, hasScale } from '../lib/metrics.js'
@@ -53,6 +54,12 @@ export function mount(el) {
   })
 
   installErrorHandler(map)
+
+  // The zoom stack is built by mountChrome (before this map exists) and wired
+  // here, to the camera it drives. `home` is the view the server rendered this
+  // page at — the country fit on /, the area's own centre on /area/{slug} — so
+  // reset needs no branch on which page it is standing in.
+  installZoom(map, chrome.zoomButtons, { centre: [cfg.lon, cfg.lat], zoom: cfg.zoom })
 
   // On /area/{slug} the slug is fixed, one area, ever. On / it starts empty and
   // is only ever set by a deliberate click — never derived from the viewport.
@@ -679,6 +686,13 @@ export function readConfig(el) {
         city: d.tTierCity || '',
         sensors: d.tTierSensors || '',
       },
+      // Two names for one button: what it will do next, not what state it is
+      // in — aria-pressed already reports the state.
+      fullscreen: d.tFullscreen || '',
+      fullscreenExit: d.tFullscreenExit || '',
+      zoomIn: d.tZoomIn || '',
+      zoomOut: d.tZoomOut || '',
+      zoomReset: d.tZoomReset || '',
       hint: d.tHint || '',
       rateLimited: d.tRateLimited || '',
       unavailable: d.tUnavailable || '',
@@ -947,6 +961,18 @@ export function mountChrome(el, cfg) {
   tierLine.className = 'legend__tier map-tier'
   shell.after(tierLine)
 
+  // Full screen and zoom go on the FRAME, not the shell: they are furniture on
+  // the canvas and belong over it at every width, which is the opposite of the
+  // key's rule directly above. Fullscreen wires itself — it drives the element,
+  // not the camera — while the zoom stack is returned unwired, because the
+  // MapLibre map is constructed after this function returns.
+  mountFullscreen(el, { label: cfg.t.fullscreen, exitLabel: cfg.t.fullscreenExit })
+  const zoom = mountZoom(el, {
+    inLabel: cfg.t.zoomIn,
+    outLabel: cfg.t.zoomOut,
+    resetLabel: cfg.t.zoomReset,
+  })
+
   const hint = document.createElement('div')
   hint.className = 'map-hint'
   hint.hidden = true
@@ -1027,6 +1053,7 @@ export function mountChrome(el, cfg) {
       note.hidden = !text
     },
     showLegend,
+    zoomButtons: zoom.buttons,
     locateButton,
     windButton,
     // Both halves move together: the disclosure is shown exactly when the

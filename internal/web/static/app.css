@@ -151,9 +151,16 @@ strong, b { font-weight: var(--weight-emphasis); }
 .map-wind-label[hidden] { display: none; }
 /* Positioned over the map (absolute within #map/#area-map, both position:
    relative above) rather than pushing layout: a click target under the panel
-   must stay reachable by panning, not get reflowed off the page. */
+   must stay reachable by panning, not get reflowed off the page.
+
+   It clears the control column rather than sharing it. The kit gives the
+   top-right corner to the 40px full-screen button and the zoom stack under it
+   (.map__full, .map-zoom), and this panel is 16rem wide: at right:8px it landed
+   squarely on both, so opening a sensor took the zoom controls away. It slides
+   one button-width plus a gutter to the left, and the width cap subtracts the
+   same column so a narrow map does not push it back over them. */
 .sensor-panel {
-  position: absolute; z-index: 2; top: var(--space-2); right: var(--space-2); width: 16rem; max-width: calc(100% - var(--space-4));
+  position: absolute; z-index: 2; top: var(--space-2); right: calc(var(--space-2) * 2 + 40px); width: 16rem; max-width: calc(100% - var(--space-2) * 3 - 40px);
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
   padding: var(--space-2) var(--space-3); font-size: var(--text-compact); letter-spacing: var(--track-compact); color: var(--fg);
   box-shadow: var(--elev-float);
