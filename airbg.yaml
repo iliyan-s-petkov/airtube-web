@@ -52,13 +52,18 @@ listen:
   # either unsafe directive, so this key cannot be used to disable the policy.
   csp: >-
     default-src 'self'; script-src 'self'; style-src 'self';
-    img-src 'self' data: blob:; font-src 'self'; connect-src 'self';
+    img-src 'self' data: blob: https://tile.openstreetmap.org;
+    font-src 'self'; connect-src 'self' https://tile.openstreetmap.org;
     worker-src 'self' blob:; object-src 'none'; base-uri 'none';
     form-action 'none'; frame-ancestors 'none'
-  # connect-src stays 'self' because tiles.* ships empty. Configuring a
-  # basemap means adding tiles.public_url's origin here — validation refuses
-  # to start otherwise, since a CSP-blocked fetch produces a blank map and no
-  # error anywhere on the server.
+  # connect-src names tiles.public_url's origin once a basemap is configured —
+  # validation refuses to start otherwise, since a CSP-blocked fetch produces a
+  # blank map and no error anywhere on the server.
+  #
+  # tile.openstreetmap.org is the world raster the map draws under our own
+  # archive, which is a Bulgaria extract and has nothing outside it. It is the
+  # site's only third-party origin; see RASTER_BASEMAP in
+  # web/src/islands/map.js for what that costs and how to swap it.
   # Denies every browser capability the site does not use. The threat is the
   # frontend bundle itself: hundreds of transitive npm packages served
   # same-origin under a CSP that trusts 'self'. geolocation is scoped to

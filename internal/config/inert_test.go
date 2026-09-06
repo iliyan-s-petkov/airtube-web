@@ -229,10 +229,17 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 	})
 
 	t.Run("csp", func(t *testing.T) {
-		// The exact Phase 1 §9.7 policy, reassembled. The YAML folded scalar must
-		// produce this byte for byte, or the shipped policy is not the reviewed one.
+		// The exact Phase 1 §9.7 policy, reassembled — now naming the one
+		// third-party origin the site loads. tile.openstreetmap.org is the world
+		// raster drawn under our Bulgaria extract (RASTER_BASEMAP in
+		// web/src/islands/map.js); MapLibre fetches raster tiles for CORS and
+		// paints them as images, so it needs both directives, and dropping
+		// either leaves a beige map with nothing logged server-side. The YAML
+		// folded scalar must produce this byte for byte, or the shipped policy
+		// is not the reviewed one.
 		want := "default-src 'self'; script-src 'self'; style-src 'self'; " +
-			"img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; " +
+			"img-src 'self' data: blob: https://tile.openstreetmap.org; " +
+			"font-src 'self'; connect-src 'self' https://tile.openstreetmap.org; " +
 			"worker-src 'self' blob:; object-src 'none'; base-uri 'none'; " +
 			"form-action 'none'; frame-ancestors 'none'"
 		if cfg.Listen.CSP != want {

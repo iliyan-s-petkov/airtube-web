@@ -21,6 +21,11 @@ import { setSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilt
 // file drives map.js's exported functions directly with plain objects, never
 // through mount(), so this mock never applies to them in practice — but
 // vi.mock is file-scoped, so it is declared once, here.
+// The layers the mounted style reports. Hoisted so the vi.mock factory — which
+// runs before this module's own body — can close over it, and mutable so a
+// test can mount a map whose style already has layers to sit under.
+const fakeStyle = vi.hoisted(() => ({ layers: [] }))
+
 vi.mock('maplibre-gl', () => {
   class FakeMap {
     constructor(options) {
@@ -44,7 +49,7 @@ vi.mock('maplibre-gl', () => {
       // basemap layers come from tools/basemap/style.json, which no test
       // fetches, and an empty style is the real state of a map served without
       // tiles — the one the menu has to survive.
-      this.getStyle = vi.fn(() => ({ layers: [] }))
+      this.getStyle = vi.fn(() => ({ layers: fakeStyle.layers }))
       // Spied so the locateVisitor tests below can assert a "geoip" response
       // jumps the map, and that a "default"/rejected response does not.
       this.jumpTo = vi.fn()
@@ -71,7 +76,8 @@ vi.mock('maplibre-gl', () => {
 // returns. No harness by this name or shape existed before this task; the
 // brief assumed one without it being written, so this is built fresh, kept to
 // exactly what the two tests below need.
-function mountTestMap({ metric }) {
+function mountTestMap({ metric, styleLayers = [] }) {
+  fakeStyle.layers = styleLayers
   resetViewStateForTests()
   history.replaceState(null, '', `/#metric=${metric}`)
 
@@ -790,7 +796,9 @@ describe('mount() gives the camera a reachable floor', () => {
 
   it('sets minZoom above the constrained floor', () => {
     const { map } = mountTestMap({ metric: 'P1' })
-    expect(map.options.minZoom).toBe(5)
+    // Low enough to put Bulgaria in its continent — the floor was 5, which
+    // stopped the camera at the country's own edges.
+    expect(map.options.minZoom).toBeLessThanOrEqual(3)
     // Above MapLibre's own default, which is the whole point: a default of 0
     // is a floor getZoom() never reaches.
     expect(map.options.minZoom).toBeGreaterThan(0)
@@ -1403,6 +1411,47 @@ describe('mount() prints the reading inside the cell', () => {
     const label = hexLabel()
     expect(JSON.stringify(label.filter)).toContain('value')
     expect(JSON.stringify(label.filter)).toContain('Polygon')
+  })
+})
+
+// The vector archive we host is a Bulgaria extract: outside its bounding box
+// there is nothing to draw at any zoom, which is why zooming out left the map
+// beige everywhere but the country. A world raster underlay fills that in, and
+// the extract keeps drawing its detail on top where it has any.
+describe('mount() lays a world basemap under the vector tiles', () => {
+  const rasterOf = (map) => ({
+    source: map.addSource.mock.calls.find((c) => c[1]?.type === 'raster'),
+    layer: map.addLayer.mock.calls.find((c) => c[0]?.type === 'raster'),
+  })
+
+  it('adds a raster source covering the world, with attribution', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const { source } = rasterOf(map)
+    expect(source, 'no raster source').toBeTruthy()
+    expect(source[1].tiles[0]).toMatch(/^https:\/\/\S+\{z\}\/\{x\}\/\{y\}/)
+    expect(source[1].maxzoom).toBeGreaterThanOrEqual(18)
+    expect(source[1].attribution).toMatch(/OpenStreetMap/)
+  })
+
+  it('puts it underneath every layer the style already had', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const { layer } = rasterOf(map)
+    expect(layer, 'no raster layer').toBeTruthy()
+    // Second argument is MapLibre's beforeId. An empty style — the one a map
+    // served without tiles mounts — has nothing to sit under, and undefined is
+    // the right answer there rather than a crash.
+    expect(layer.length).toBe(2)
+  })
+
+  it('goes under the first drawn layer, not under the background fill', () => {
+    // A background layer paints the whole canvas: inserted beneath it, the
+    // raster would be invisible everywhere the vector style covers.
+    const layers = [
+      { id: 'background', type: 'background' },
+      { id: 'landcover', type: 'fill' },
+    ]
+    const { map } = mountTestMap({ metric: 'P2', styleLayers: layers })
+    expect(rasterOf(map).layer[1]).toBe('landcover')
   })
 })
 

@@ -34,9 +34,36 @@ const MOVE_DEBOUNCE_MS = 250
 // getZoom() bottoms out at the constrained floor while getMinZoom() keeps
 // saying 0, so installZoom's `z <= getMinZoom()` never fires and the minus
 // button stays live over a camera that has stopped moving. Setting it makes the
-// reported floor the reachable one. 5 is the value rather than 0 because this
-// is a map of one country: below it there is nothing left to zoom out to.
-const MIN_ZOOM = 5
+// reported floor the reachable one. It used to be 5 — "a map of one country,
+// nothing below it to zoom out to" — which stopped a reader from putting
+// Bulgaria in its neighbourhood. 2 shows the continent and then some, and is
+// kept off 0 because MapLibre's own constrained floor sits near 0.2 on a
+// hero-height map, which would put the reported floor back out of reach.
+const MIN_ZOOM = 2
+
+// The world underneath the vector archive.
+//
+// The archive we host is a Bulgaria extract: outside its bounding box it has
+// no tiles at any zoom, so the map went beige the moment the viewport left the
+// country. This raster layer draws the rest of the world under it, and the
+// extract keeps painting its own detail on top wherever it has some.
+//
+// It is a THIRD-PARTY ORIGIN, unlike everything else this site loads, and the
+// operator's decision: the alternative was rebuilding the archive from a
+// Europe-wide extract. Two consequences to keep in view — every visitor's
+// viewport is disclosed to that host, and the OSM Foundation's tile usage
+// policy asks that busy sites not use tile.openstreetmap.org. Swapping in a
+// keyed provider is this constant plus the CSP origin in airbg.yaml.
+const RASTER_BASEMAP = {
+  type: 'raster',
+  tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+  tileSize: 256,
+  minzoom: 0,
+  maxzoom: 19,
+  attribution: '© OpenStreetMap contributors',
+}
+const RASTER_SOURCE_ID = 'airbg-raster'
+const RASTER_LAYER_ID = 'airbg-raster-base'
 
 const SOURCE_ID = 'airbg-data'
 const LAYER_ID = 'airbg-markers'
@@ -124,6 +151,8 @@ export function mount(el) {
   let unfilter = null
 
   map.on('load', async () => {
+    addRasterBasemap(map)
+
     // The hex grid goes in FIRST, so every later layer draws over it. It is the
     // background density field — where sensors are and roughly what they read —
     // and the area markers and sensor dots are the foreground a visitor clicks.
@@ -882,6 +911,22 @@ export function blankStyle(emptyBasemapColour) {
 // blankStyle(cfg.emptyBasemapColour) — which blankStyle's own tests cannot
 // see since blankStyle only ever sees whatever value its caller already
 // picked.
+// addRasterBasemap slides the world raster in beneath the style's own drawn
+// layers.
+//
+// Beneath the DRAWN layers, not beneath everything: a background layer paints
+// the whole canvas, so a raster inserted under it would be covered wherever
+// the vector style reaches — which is the entire viewport. The first layer
+// that is not a background is therefore the insertion point, and a style with
+// no such layer (an empty style, which is what a map served without tiles
+// mounts) gets the raster on top of nothing, which is where it belongs.
+export function addRasterBasemap(map) {
+  const layers = map.getStyle?.()?.layers ?? []
+  const beforeId = layers.find((l) => l.type !== 'background')?.id
+  map.addSource(RASTER_SOURCE_ID, RASTER_BASEMAP)
+  map.addLayer({ id: RASTER_LAYER_ID, type: 'raster', source: RASTER_SOURCE_ID }, beforeId)
+}
+
 export function mapStyle(cfg) {
   return cfg.basemap ? cfg.basemap : blankStyle(cfg.emptyBasemapColour)
 }
