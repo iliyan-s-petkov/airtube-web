@@ -71,7 +71,7 @@ func TestValueColumnHeaderNamesTheMetric(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
 	body := fetch(t, rr, "/").Body.String()
 
-	i := strings.Index(body, `<th scope="col" class="num">`)
+	i := strings.Index(body, `<th scope="col" class="num"`)
 	if i < 0 {
 		t.Fatal("the value column has no header")
 	}
@@ -103,5 +103,82 @@ func TestTheTwoAbsencesReadDifferently(t *testing.T) {
 	}
 	if strings.Contains(row, "Няма скорошни данни") {
 		t.Errorf("an uncovered province claims it merely has no recent reading: %q", row)
+	}
+}
+
+// The island sorts on these, not on the printed cells: the reading is written
+// 12,4 in Bulgarian and 12.4 in English, and a sort that parsed the text would
+// order the table differently in the two languages.
+func TestRowsCarryTheirSortKeys(t *testing.T) {
+	rr := renderer(t, rankingSnapshot())
+	body := fetch(t, rr, "/").Body.String()
+
+	i := strings.Index(body, ">Silent<")
+	if i < 0 {
+		t.Fatal("the silent province is missing")
+	}
+	// Back up to the row's opening tag.
+	open := strings.LastIndex(body[:i], "<tr ")
+	if open < 0 {
+		t.Fatal("the silent province's row carries no attributes at all")
+	}
+	row := body[open : open+strings.Index(body[open:], ">")]
+	if !strings.Contains(row, "data-nodata") {
+		t.Errorf("a silent row is not marked as one, so it would sort as a small reading: %q", row)
+	}
+	if strings.Contains(row, "data-value") {
+		t.Errorf("a silent row carries a value: %q", row)
+	}
+	if !strings.Contains(row, `data-sensors="3"`) {
+		t.Errorf("the row carries no sensor count to sort on: %q", row)
+	}
+	// A row WITH a reading carries the unrounded figure, at more precision than
+	// the cell prints: the sort follows the ranking, not the rounding.
+	if !strings.Contains(body, `data-value="88.5000"`) {
+		t.Error("a reading row carries no sortable value")
+	}
+}
+
+// Three columns, three keys. A header the island cannot name is a column the
+// reader cannot sort by, silently.
+func TestEveryColumnIsSortable(t *testing.T) {
+	rr := renderer(t, rankingSnapshot())
+	body := fetch(t, rr, "/").Body.String()
+
+	for _, key := range []string{`data-sort-key="name"`, `data-sort-key="value"`, `data-sort-key="sensors"`} {
+		if !strings.Contains(body, key) {
+			t.Errorf("no column carries %s", key)
+		}
+	}
+	// The server's own order, stated on the column it ordered by — true with or
+	// without JavaScript, and the island keeps it in step from there.
+	if !strings.Contains(body, `data-sort-key="value" aria-sort="descending"`) {
+		t.Error("the ranked column does not say it is the sorted one")
+	}
+	if strings.Count(body, "aria-sort=") != 1 {
+		t.Error("more than one column claims to be the sorted one")
+	}
+}
+
+// The controls are not in the served HTML: they are interactive by nature, and
+// a header or a pager that does nothing without JavaScript is worse than one
+// that never claimed to be a control. What ships is the mount point.
+func TestTheControlsAreNotServerRendered(t *testing.T) {
+	rr := renderer(t, rankingSnapshot())
+	body := fetch(t, rr, "/").Body.String()
+
+	if !strings.Contains(body, `data-island="table"`) {
+		t.Fatal("the table island has no mount point")
+	}
+	for _, dead := range []string{`class="th-sort"`, `class="pager"`, `<select`} {
+		if strings.Contains(body, dead) {
+			t.Errorf("the server rendered %s, which does nothing without JavaScript", dead)
+		}
+	}
+	// The empty-state line is the exception, and it ships hidden: the island has
+	// only to unhide it, so the sentence is the catalogue's rather than a
+	// string built in JavaScript.
+	if !strings.Contains(body, `<p class="t-empty" hidden>`) {
+		t.Error("the empty-filter sentence is missing or not hidden")
 	}
 }

@@ -166,18 +166,55 @@
      second policy. The kit's mockup shows a fixed PM2.5/PM10 pair; this site
      has seven switchable metrics, and hardcoding two of them here would be a
      column that stops matching the page the moment the default changes. */}}
+{{/* The table's controls mount here, above the table they act on. Empty in the
+     served HTML: sorting, filtering and paging are interactive by nature, so
+     none of them is rendered by the server — with no JavaScript the reader
+     still gets all 28 provinces, ranked, which is the answer this page exists
+     to give. The island moves its pager under the table after mounting. */}}
+<div data-island="table"
+     data-table=".table"
+     data-meta=".meta"
+     data-empty=".t-empty"
+     data-t-filter-legend="{{.T "table.filter.legend"}}"
+     data-t-filter-all="{{.T "table.filter.all"}}"
+     data-t-filter-with-data="{{.T "table.filter.withdata"}}"
+     data-t-filter-no-data="{{.T "table.filter.nodata"}}"
+     data-t-per-page="{{.T "table.perpage"}}"
+     data-t-per-page-all="{{.T "table.perpage.all"}}"
+     data-t-pager-label="{{.T "table.pager.label"}}"
+     data-t-page="{{.T "table.page"}}"
+     data-t-page-of="{{.T "table.page.of"}}"
+     data-t-page-first="{{.T "table.page.first"}}"
+     data-t-page-prev="{{.T "table.page.prev"}}"
+     data-t-page-next="{{.T "table.page.next"}}"
+     data-t-page-last="{{.T "table.page.last"}}"
+     data-t-shown="{{.T "table.meta.shown"}}"
+     data-t-of="{{.T "table.meta.of"}}"
+     data-t-areas="{{.T "table.meta.areas"}}"
+     data-t-silent="{{.T "table.meta.silent"}}"></div>
+
 <table class="table">
   <caption>{{.T "areas.ranked_by"}} {{.T (printf "metric.%s" .DefaultMetric)}}, {{.T (printf "unit.%s" .DefaultMetric)}} — {{.T "areas.tier"}}</caption>
+  {{/* data-sort-key names the column for the table island; aria-sort states the
+       order the server actually rendered, which is true with or without
+       JavaScript. The headers are plain text here on purpose — the island turns
+       them into buttons, because a header that looks pressable and does nothing
+       is worse than a header that never claimed to be a control. */}}
   <thead>
     <tr>
-      <th scope="col">{{.T "table.col.area"}}</th>
-      <th scope="col" class="num">{{.T (printf "metric.%s" .DefaultMetric)}}, {{.T (printf "unit.%s" .DefaultMetric)}}</th>
-      <th scope="col" class="sensors">{{.T "table.col.sensors"}}</th>
+      <th scope="col" data-sort-key="name">{{.T "table.col.area"}}</th>
+      <th scope="col" class="num" data-sort-key="value" aria-sort="descending">{{.T (printf "metric.%s" .DefaultMetric)}}, {{.T (printf "unit.%s" .DefaultMetric)}}</th>
+      <th scope="col" class="sensors" data-sort-key="sensors">{{.T "table.col.sensors"}}</th>
     </tr>
   </thead>
   <tbody>
   {{range .Areas}}
-    <tr>
+    {{/* The sort keys ride on the row rather than being parsed back out of the
+         cells: the reading is printed 12,4 in Bulgarian and 12.4 in English,
+         and a sort that read the text would order the table differently in the
+         two languages. data-nodata is the absence itself — distinct from a
+         zero, which is a legitimate reading. */}}
+    <tr data-name="{{.Name}}" data-sensors="{{.SensorCount}}"{{if .HasValue}} data-value="{{printf "%.4f" .Value}}"{{else}} data-nodata{{end}}>
       <td class="name"><a class="link" href="{{$.Path (printf "/area/%s" .Slug)}}">{{.Name}}</a></td>
       {{if .HasValue}}
       {{/* The swatch is an <svg> with a fill ATTRIBUTE, not the kit's
@@ -200,10 +237,15 @@
   </tbody>
 </table>
 
-{{/* What the table is showing, under it. No role="status": nothing on this page
-     changes the count yet, and a live region that never updates is noise in
-     every screen reader that has to announce the page. */}}
-<p class="meta">{{len .Areas}} {{.T "table.meta.areas"}} — {{.SilentAreas}} {{.T "table.meta.silent"}}</p>
+{{/* Where the rows would have been, when a filter leaves none. Hidden until the
+     island has one to state — an empty table is a bug the reader has to
+     diagnose; a sentence is information. */}}
+<p class="t-empty" hidden>{{.T "table.empty"}}</p>
+
+{{/* What the table is showing, under it. role="status" because the filter and
+     the pager now change this line: a reader who cannot see the table needs to
+     hear how many rows the control they just pressed left behind. */}}
+<p class="meta" role="status">{{len .Areas}} {{.T "table.meta.areas"}} — {{.SilentAreas}} {{.T "table.meta.silent"}}</p>
 
 {{/* The ordering rule, stated rather than left to be inferred from the rows:
      the list is ranked by the reading and the silent provinces sit at the end,

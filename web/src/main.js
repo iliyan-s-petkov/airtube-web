@@ -10,6 +10,7 @@ const ISLANDS = {
   chart: () => import('./islands/chart.js'),
   switcher: () => import('./islands/switcher.js'),
   finder: () => import('./islands/finder.js'),
+  table: () => import('./islands/table.js'),
   refresh: () => import('./islands/refresh.js'),
   freshness: () => import('./islands/freshness.js'),
   panel: () => import('./islands/panel.js'),
