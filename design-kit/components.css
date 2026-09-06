@@ -883,6 +883,7 @@ body.has-faux-full { overflow: hidden; }
    --border until the column is active, so the affordance is visible without
    competing with the sorted column. */
 .th-sort::after {
+  content: "";
   inline-size: 0; block-size: 0; flex: none;
   border-inline: 4px solid transparent;
   border-block-end: 5px solid var(--border);
