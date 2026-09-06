@@ -171,10 +171,6 @@
 </div>
 <p id="area-map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
 
-{{/* This page has no toolbar reload: the partial puts the button inside the
-     line instead, keyed off .Area. See base.gohtml. */}}
-{{template "dataFreshness" .}}
-
 {{/* #sensor= is honoured only here, never on index.gohtml: resolving it
      needs the sensor already loaded through the map island above (the
      registry in web/src/lib/sensors.svelte.js), and there is no
@@ -182,7 +178,7 @@
      On an area page the map's own slug is fixed (see the map island's data-
      slug above), so the sensor tier — and therefore this container's data —
      is reachable without a click, unlike on /. */}}
-<div data-island="panel"
+<div class="place-host" data-island="panel"
      data-metrics="{{.MetricsAttr}}"
      data-metric-labels="{{.MetricLabelsAttr}}"
      data-metric="{{.DefaultMetric}}"
@@ -199,5 +195,9 @@
      data-t-chart-time="{{.T "chart.axis.time"}}"
      data-t-chart-empty="{{.T "chart.empty"}}"
      data-t-chart-unavailable="{{.T "map.error.unavailable"}}"></div>
+
+{{/* This page has no toolbar reload: the partial puts the button inside the
+     line instead, keyed off .Area. See base.gohtml. */}}
+{{template "dataFreshness" .}}
 </div>
 {{end}}

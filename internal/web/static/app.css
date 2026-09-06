@@ -135,9 +135,9 @@ strong, b { font-weight: var(--weight-emphasis); }
 .map-tier[hidden] { display: none; }
 /* Bottom-right, same overlay idiom as .map-legend/.map-hint/.map-note above
    (absolute within #map/#area-map): the left edge is already legend/note
-   (top) and hint (bottom), and top-right is .sensor-panel's corner (see
-   below) whenever it is open — bottom-right is the one spot nothing else
-   claims. */
+   (top) and hint (bottom), and the top-right corner belongs to the kit's
+   full-screen button and zoom stack — bottom-right is the one spot nothing
+   else claims. */
 .map-locate {
   position: absolute; z-index: 1; bottom: var(--space-2); right: var(--space-2);
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
@@ -160,21 +160,22 @@ strong, b { font-weight: var(--weight-emphasis); }
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg-2);
 }
 .map-wind-label[hidden] { display: none; }
-/* Positioned over the map (absolute within #map/#area-map, both position:
-   relative above) rather than pushing layout: a click target under the panel
-   must stay reachable by panning, not get reflowed off the page.
+/* A card under the map, in the flow — the kit's .place-host slot (see
+   components.css, which supplies the slot's own spacing).
 
-   It clears the control column rather than sharing it. The kit gives the
-   top-right corner to the 40px full-screen button and the zoom stack under it
-   (.map__full, .map-zoom), and this panel is 16rem wide: at right:8px it landed
-   squarely on both, so opening a sensor took the zoom controls away. It slides
-   one button-width plus a gutter to the left, and the width cap subtracts the
-   same column so a narrow map does not push it back over them. */
+   It used to float over the map, and the rules that did so named #map/#area-map
+   as their containing block. They were never inside either: the island's
+   container is a sibling of .map-shell, so with no positioned ancestor the
+   panel resolved against the initial containing block and opened in the
+   viewport's top-right corner, over the header and past the frame's right edge.
+
+   In the flow it needs no z-index, no shadow and no width cap, and it can no
+   longer take the zoom stack away from the reader — which is what the old
+   right-offset was working around. It also stops covering the map it describes,
+   so the marker that was clicked stays visible beside its own numbers. */
 .sensor-panel {
-  position: absolute; z-index: 2; top: var(--space-2); right: calc(var(--space-2) * 2 + 40px); width: 16rem; max-width: calc(100% - var(--space-2) * 3 - 40px);
-  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: var(--space-2) var(--space-3); font-size: var(--text-compact); letter-spacing: var(--track-compact); color: var(--fg);
-  box-shadow: var(--elev-float);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4); font-size: var(--text-compact); letter-spacing: var(--track-compact); color: var(--fg);
 }
 .sensor-panel header { border-bottom: none; padding: 0 0 var(--space-1); margin: 0 0 var(--space-1); }
 .sensor-panel h2 { font-size: var(--text-card); font-weight: var(--weight-emphasis); line-height: 1.4; margin: 0; }

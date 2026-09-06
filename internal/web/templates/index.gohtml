@@ -98,11 +98,6 @@
 
 <div class="frame">
 
-{{/* Under the key, not above the data: the legend explains what the values
-     mean and this line says how old they are — two captions on the same thing,
-     so they sit together rather than at opposite ends of the screen. */}}
-{{template "dataFreshness" .}}
-
 {{/* The same panel island area.gohtml mounts, with the same attributes: the
      sensor tier is reachable from here too. refresh() (web/src/islands/map.js)
      only downgrades to the area tier when no slug is selected, and both an
@@ -117,7 +112,7 @@
      web/src/lib/sensors.svelte.js), and this page starts with no slug and
      therefore no sensor data — so a shared /#sensor=101 link renders the page
      with no panel, exactly as before. */}}
-<div data-island="panel"
+<div class="place-host" data-island="panel"
      data-metrics="{{.MetricsAttr}}"
      data-metric-labels="{{.MetricLabelsAttr}}"
      data-metric="{{.DefaultMetric}}"
@@ -134,6 +129,12 @@
      data-t-chart-time="{{.T "chart.axis.time"}}"
      data-t-chart-empty="{{.T "chart.empty"}}"
      data-t-chart-unavailable="{{.T "map.error.unavailable"}}"></div>
+
+{{/* Under the key, not above the data: the legend explains what the values
+     mean and this line says how old they are — two captions on the same thing,
+     so they sit together rather than at opposite ends of the screen. */}}
+{{template "dataFreshness" .}}
+
 
 {{/* Four figures the map cannot state: it shows where, not how much overall.
      Every one is computed from the same province list rendered below (see

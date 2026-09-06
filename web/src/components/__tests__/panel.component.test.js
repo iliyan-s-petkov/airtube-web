@@ -45,7 +45,7 @@ describe('SensorPanel.svelte', () => {
     const target = render({ onclose })
     target.querySelector('[data-close]').click()
     expect(onclose).toHaveBeenCalledTimes(1)
-    target.querySelector('[role="dialog"]').dispatchEvent(
+    target.querySelector('.sensor-panel').dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
     )
     expect(onclose).toHaveBeenCalledTimes(2)

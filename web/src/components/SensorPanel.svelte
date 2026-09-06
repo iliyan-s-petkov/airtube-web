@@ -19,17 +19,21 @@
 </script>
 
 {#if open}
-<!-- role=dialog + aria-label, and Escape closes: the panel covers the map on a
-     phone, so a keyboard user who cannot reach the close control is trapped. -->
+<!-- A named region, not a dialog. It was a dialog while it floated over the map,
+     where a keyboard user who could not reach the close control was trapped
+     behind it; the kit puts this card UNDER the map instead (.place-host), in
+     the flow, covering nothing — so dialog semantics would now promise a modal
+     that does not exist. Svelte said as much: a <section> cannot carry an
+     interactive role. Escape still closes, because the reader whose focus is
+     inside the card should not have to Tab back out to the close button. -->
 <section
   class="sensor-panel"
-  role="dialog"
-  aria-label={title}
+  aria-labelledby="sensor-panel-title"
   tabindex="-1"
   onkeydown={(e) => { if (e.key === 'Escape') onclose() }}
 >
   <header>
-    <h2>{title}</h2>
+    <h2 id="sensor-panel-title">{title}</h2>
     <button type="button" data-close onclick={onclose}>{closeLabel}</button>
   </header>
 

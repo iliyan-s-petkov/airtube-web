@@ -248,14 +248,14 @@ describe('mount() end to end: deep link before data', () => {
 
     // No data yet: findSensor(42) is null, so SensorPanel's `open` prop is
     // false and {#if open} renders nothing — not a blank/empty dialog.
-    expect(el.querySelector('[role="dialog"]')).toBeNull()
+    expect(el.querySelector('.sensor-panel')).toBeNull()
 
     // The map's own fetch lands AFTER mount — this is the moment a one-time
     // destructure at mount would have already missed.
     setSensors({ sensors: { id: [42], quality: ['ok'], P2: [12] } })
 
     await vi.waitFor(() => {
-      expect(el.querySelector('[role="dialog"]')).not.toBeNull()
+      expect(el.querySelector('.sensor-panel')).not.toBeNull()
     })
     expect(el.textContent).toContain('42')
     expect(el.textContent).toContain('PM2.5')
@@ -307,7 +307,7 @@ describe('the home page mounts the panel island', () => {
     setSensors({ sensors: { id: [42], quality: ['ok'], P2: [12] } })
 
     await vi.waitFor(() => {
-      expect(el.querySelector('[role="dialog"]')).not.toBeNull()
+      expect(el.querySelector('.sensor-panel')).not.toBeNull()
     })
     expect(el.textContent).toContain('PM2.5')
     expect(el.textContent).toContain('12')
@@ -379,7 +379,7 @@ describe('mount() puts the panel copy on screen', () => {
     setSensors({ sensors: { id: [103], quality: ['ok'], P1: [null], P2: [22] } })
 
     await vi.waitFor(() => {
-      expect(el.querySelector('[role="dialog"]')).not.toBeNull()
+      expect(el.querySelector('.sensor-panel')).not.toBeNull()
     })
     expect(el.textContent).toContain('PM10')
     expect(el.querySelector('dl').textContent).toContain(PANEL_ATTR_FIXTURES.tNoValue)
