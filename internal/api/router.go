@@ -116,6 +116,7 @@ func NewRouter(d Deps) *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/overview", d.handleOverview)
 	mux.HandleFunc("GET /api/v1/hexes", d.handleHexes)
 	mux.HandleFunc("GET /api/v1/wind", d.handleWind)
+	mux.HandleFunc("GET /api/v1/boundaries", d.handleBoundaries)
 	mux.HandleFunc("GET /api/v1/areas", d.handleAreas)
 	mux.HandleFunc("GET /api/v1/meta", d.handleMeta)
 	mux.HandleFunc("GET /api/v1/scales", d.handleScales)

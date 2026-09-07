@@ -132,6 +132,20 @@ func (d Deps) handleWind(w http.ResponseWriter, r *http.Request) {
 	serveBody(w, r, snap.Wind, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
 }
 
+// handleBoundaries serves the province outlines.
+//
+// Empty is 503 for the same reason the wind is: an empty FeatureCollection and
+// "we could not read the outlines" are different states, and a client that
+// cannot tell them apart caches the second as the first.
+func (d Deps) handleBoundaries(w http.ResponseWriter, r *http.Request) {
+	snap := d.Snapshots.Load()
+	if snap == nil || snap.Boundaries.JSON == nil {
+		writeUnavailable(w)
+		return
+	}
+	serveBody(w, r, snap.Boundaries, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
+}
+
 type metaBody struct {
 	GeneratedAt         time.Time `json:"generated_at"`
 	CoverageThreshold   int       `json:"coverage_threshold"`

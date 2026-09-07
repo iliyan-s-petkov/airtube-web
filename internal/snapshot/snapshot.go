@@ -116,6 +116,11 @@ type Snapshot struct {
 	// means the handler answers 503 rather than drawing a stale field.
 	Wind Body
 
+	// Boundaries is the province outlines, as GeoJSON. Empty when the query
+	// failed: the outlines say which province you are looking at, so losing
+	// them costs the overlay and nothing else, and the handler answers 503.
+	Boundaries Body
+
 	// AreaSensors is keyed by area slug. Present for every known slug, even
 	// one with no sensors — a missing key must mean "no such area" (404) and
 	// never "this area happens to be empty" (200 with an empty list).

@@ -147,6 +147,15 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	if snap.Areas, err = encode(areaPayloadFrom(now, all)); err != nil {
 		return nil, fmt.Errorf("snapshot: encode areas: %w", err)
 	}
+	// The province outlines. A failure leaves Boundaries empty and logs rather
+	// than failing the build: the overlay says which province you are looking
+	// at, and losing it must not take the readings down with it.
+	if boundaries, err := s.AreaBoundaries(ctx, countryKinds); err != nil {
+		slog.Warn("snapshot: area boundaries unavailable", "error", err)
+	} else if snap.Boundaries, err = encode(boundaryPayloadFrom(boundaries)); err != nil {
+		return nil, fmt.Errorf("snapshot: encode boundaries: %w", err)
+	}
+
 	// Binned from the sensors already read above, not from a second fetch: the
 	// grid is a different view of the same cycle's readings, and a separate
 	// poller would both double the upstream load and let the two views disagree
