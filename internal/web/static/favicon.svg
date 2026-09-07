@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Dusty Air">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="My Air">
   <!-- Colours are literal, not var(--accent): an <img>-referenced SVG is a
        separate document and never sees theme.css. Keep in step with it by hand.
        #0f62fe = --accent, #161616 = --fg. Rounded, like every other corner

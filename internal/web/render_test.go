@@ -163,7 +163,7 @@ func TestIndexRendersInBulgarianByDefault(t *testing.T) {
 	if !strings.Contains(body, `lang="bg"`) {
 		t.Error(`the <html> element does not carry lang="bg"; screen readers will use the wrong pronunciation for the whole page`)
 	}
-	if !strings.Contains(body, "Мръсен въздух") {
+	if !strings.Contains(body, "Моят въздух") {
 		t.Error("the Bulgarian title is missing")
 	}
 }
@@ -178,7 +178,7 @@ func TestEnglishPrefixRendersInEnglish(t *testing.T) {
 	if !strings.Contains(body, `lang="en"`) {
 		t.Error(`the <html> element does not carry lang="en"`)
 	}
-	if !strings.Contains(body, "Dusty Air") {
+	if !strings.Contains(body, "My Air") {
 		t.Error("the English title is missing")
 	}
 }
