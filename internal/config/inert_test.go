@@ -75,7 +75,7 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			{"ratelimit.enumerate.window", cfg.RateLimit.Enumerate.Window, time.Hour},
 			{"ratelimit.enumerate.retry_after", cfg.RateLimit.Enumerate.RetryAfter, 900 * time.Second},
 			{"cache.data_max_age", cfg.Cache.DataMaxAge, 150 * time.Second},
-			{"cache.scales_max_age", cfg.Cache.ScalesMaxAge, 86400 * time.Second},
+			{"cache.scales_max_age", cfg.Cache.ScalesMaxAge, 300 * time.Second},
 			{"upstream.request_timeout", cfg.Upstream.RequestTimeout, 30 * time.Second},
 			{"upstream.poll_interval", cfg.Upstream.PollInterval, 5 * time.Minute},
 			{"upstream.min_poll_interval", cfg.Upstream.MinPollInterval, 30 * time.Second},

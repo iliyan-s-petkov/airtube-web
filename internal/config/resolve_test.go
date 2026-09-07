@@ -115,7 +115,7 @@ func TestResolveDurationConversion(t *testing.T) {
 	if got, want := cfg.Timeouts.Read, 10*time.Second; got != want {
 		t.Errorf("Timeouts.Read = %v, want %v", got, want)
 	}
-	if got, want := cfg.Cache.ScalesMaxAge, 86400*time.Second; got != want {
+	if got, want := cfg.Cache.ScalesMaxAge, 300*time.Second; got != want {
 		t.Errorf("Cache.ScalesMaxAge = %v, want %v", got, want)
 	}
 	if got, want := cfg.Upstream.MinPollInterval, 30*time.Second; got != want {

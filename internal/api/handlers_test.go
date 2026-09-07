@@ -154,6 +154,34 @@ func TestScalesEndpointServesTheTables(t *testing.T) {
 	}
 }
 
+// The band tables outlive any one build, but their JSON does not: a field added
+// to the response reaches a browser only when its cached copy expires. A day of
+// freshness with no way to revalidate shipped a key with no ceiling number for
+// 24 hours after the ceiling was added. An ETag makes the recheck free, so the
+// freshness window can be short without costing a full body on every load.
+func TestScalesRevalidates(t *testing.T) {
+	d := deps(t, fixture(t))
+	first := serve(t, d, get("/api/v1/scales", "203.0.113.8"))
+
+	etag := first.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag on /scales: a client has no way to revalidate, so a stale copy is served until max-age expires")
+	}
+
+	req := get("/api/v1/scales", "203.0.113.8")
+	req.Header.Set("If-None-Match", etag)
+	second := serve(t, d, req)
+	if second.Code != http.StatusNotModified {
+		t.Errorf("status = %d, want 304 for a matching If-None-Match", second.Code)
+	}
+
+	stale := get("/api/v1/scales", "203.0.113.8")
+	stale.Header.Set("If-None-Match", `"not-the-current-tables"`)
+	if got := serve(t, d, stale).Code; got != http.StatusOK {
+		t.Errorf("status = %d, want 200 for a non-matching If-None-Match", got)
+	}
+}
+
 func TestAreaSensorsServesTheColumnarBody(t *testing.T) {
 	rec := serve(t, deps(t, fixture(t)), get("/api/v1/area/sofia/sensors", "203.0.113.9"))
 

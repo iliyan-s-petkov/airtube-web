@@ -161,8 +161,11 @@ cache:
   # Validation enforces data_max_age <= upstream.poll_interval / 2, so this
   # coupling is checked rather than left as a comment for a human to maintain.
   data_max_age: "150s"
-  # The band tables change when legislation changes, which is to say never.
-  scales_max_age: "86400s"
+  # The bands change when legislation changes, which is to say never — but the
+  # JSON around them changes with a deploy, and a day of freshness meant a new
+  # field took a day to reach a browser. Short, because /scales carries an ETag
+  # and a revalidation that hits 304 costs a header exchange.
+  scales_max_age: "300s"
 
 upstream:
   url: "https://data.sensor.community/airrohr/v1/filter/"

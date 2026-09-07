@@ -1,9 +1,12 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"airbg.org/internal/snapshot"
@@ -187,13 +190,43 @@ func (d Deps) handleMeta(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
+// scalesBody is the marshalled table and its hash, computed once. The tables
+// are compiled in, so the body is the same for the life of the process and the
+// ETag is the same for the life of the build — which is exactly the granularity
+// that matters here, since what changes the response is a deploy, not data.
+var scalesBody = sync.OnceValue(func() struct {
+	JSON []byte
+	ETag string
+	Err  error
+} {
+	var out struct {
+		JSON []byte
+		ETag string
+		Err  error
+	}
+	out.JSON, out.Err = json.Marshal(Scales())
+	if out.Err != nil {
+		return out
+	}
+	sum := sha256.Sum256(out.JSON)
+	out.ETag = `"` + hex.EncodeToString(sum[:]) + `"`
+	return out
+})
+
 func (d Deps) handleScales(w http.ResponseWriter, r *http.Request) {
-	body, err := json.Marshal(Scales())
+	prepared := scalesBody()
+	body, etag, err := prepared.JSON, prepared.ETag, prepared.Err
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Internal server error.")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	setCacheControl(w.Header(), cachePublic, int(d.Config.Cache.ScalesMaxAge.Seconds()))
+	h := w.Header()
+	h.Set("Content-Type", "application/json; charset=utf-8")
+	h.Set("ETag", etag)
+	setCacheControl(h, cachePublic, int(d.Config.Cache.ScalesMaxAge.Seconds()))
+	if matchesETag(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	_, _ = w.Write(body)
 }
