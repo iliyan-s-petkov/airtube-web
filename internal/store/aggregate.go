@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -39,15 +40,23 @@ type AreaAggregate struct {
 	Covered     bool
 }
 
-const areaAggregateSQL = `
-WITH latest AS (
+// The CTEs are named fragments rather than one string because the same area
+// aggregate is asked two questions: what is the reading NOW, and what was the
+// average over the last day or week (see window.go). Only the per-area
+// averaging changes between them — the freshness rule, the coverage rule and
+// the projection must not, or the two answers would disagree about which areas
+// exist and how many stations they have.
+const latestCTE = `
+latest AS (
     SELECT DISTINCT ON (r.sensor_id, r.metric)
            r.sensor_id, r.metric, r.value
       FROM reading r
      WHERE r.time >= $1
        AND r.quality = ANY($2::quality_flag[])
      ORDER BY r.sensor_id, r.metric, r.time DESC
-),
+)`
+
+const perAreaCTE = `
 per_area AS (
     SELECT a.slug, l.metric, avg(l.value) AS avg_value
       FROM area a
@@ -55,7 +64,9 @@ per_area AS (
       JOIN latest l        ON l.sensor_id = asx.sensor_id
      WHERE a.kind = ANY($3::text[])
      GROUP BY a.slug, l.metric
-),
+)`
+
+const coverageCTE = `
 coverage AS (
     -- Distinct published coordinates, not distinct sensor ids: the pair of
     -- devices at one address is one station, one marker on the map and one
@@ -72,7 +83,9 @@ coverage AS (
               JOIN sensor s        ON s.sensor_id = asx.sensor_id
              WHERE a.kind = ANY($3::text[])) sites
      GROUP BY slug
-)
+)`
+
+const areaAggregateSelect = `
 SELECT a.slug, a.kind, a.name_bg, a.name_en,
        ST_X(a.centroid::geometry), ST_Y(a.centroid::geometry), a.default_zoom,
        COALESCE(c.stations, 0),
@@ -84,6 +97,8 @@ SELECT a.slug, a.kind, a.name_bg, a.name_en,
   LEFT JOIN coverage c ON c.slug = a.slug
  WHERE a.kind = ANY($3::text[])
  ORDER BY a.slug`
+
+var areaAggregateSQL = "WITH" + latestCTE + "," + perAreaCTE + "," + coverageCTE + areaAggregateSelect
 
 // AreaAggregates returns one row per area of the requested kinds, including
 // areas with no sensors at all. Areas below CoverageThreshold come back with
@@ -99,6 +114,14 @@ func (s *Store) AreaAggregates(ctx context.Context, kinds []string) ([]AreaAggre
 	if err != nil {
 		return nil, fmt.Errorf("store: area aggregates: %w", err)
 	}
+	return s.scanAreaAggregates(rows)
+}
+
+// scanAreaAggregates reads the projection areaAggregateSelect produces. Shared
+// with the windowed query (window.go) so the coverage rule is applied in one
+// place: a handler that got the threshold from one path and not the other would
+// publish a number for an area the other path refuses to speak about.
+func (s *Store) scanAreaAggregates(rows pgx.Rows) ([]AreaAggregate, error) {
 	defer rows.Close()
 
 	var out []AreaAggregate
@@ -153,14 +176,30 @@ type SensorReading struct {
 	LastSeen  time.Time
 }
 
-const latestSensorsSQL = `
-WITH latest AS (
+// Same split as the area CTEs above, and for the same reason: window.go asks
+// this question over a window instead of over the latest reading, and only the
+// value expression may differ. Identity, quality and the measures list are the
+// live answer in both, so a marker does not change colour rules, or appear and
+// disappear, depending on which window the reader picked.
+const latestSensorsCTE = `
+latest AS (
     SELECT DISTINCT ON (r.sensor_id, r.metric)
            r.sensor_id, r.metric, r.value, r.quality
       FROM reading r
      WHERE r.time >= $1
      ORDER BY r.sensor_id, r.metric, r.time DESC
-)
+)`
+
+// sensorsSelect is the projection, parameterised by where the published number
+// comes from: valueExpr is what gets rounded into the values object, and
+// extraJoin lets the windowed variant bring its own averages alongside latest.
+// Both are package literals — nothing a caller supplies reaches this.
+func sensorsSelect(valueExpr, extraJoin string) string {
+	return strings.NewReplacer(":value", valueExpr, ":join", extraJoin).
+		Replace(latestSensorsProjection)
+}
+
+const latestSensorsProjection = `
 SELECT s.sensor_id, s.sensor_type,
        ST_X(s.location::geometry), ST_Y(s.location::geometry),
        COALESCE(s.country_code, ''),
@@ -173,17 +212,24 @@ SELECT s.sensor_id, s.sensor_type,
        -- 'ok' rows before max() runs, so any surviving non-ok flag wins; only
        -- if every metric is 'ok' does max() see nothing and COALESCE to 'ok'.
        COALESCE(max(l.quality::text) FILTER (WHERE l.quality <> 'ok'), 'ok'),
-       jsonb_object_agg(l.metric, round(l.value::numeric, 2))
-           FILTER (WHERE l.quality = ANY($2::quality_flag[])),
+       -- The NOT NULL half of the filter matters only for the windowed variant,
+       -- where a device with a live reading can still have no rollup row inside
+       -- the window. jsonb_object_agg accepts a null value happily and would
+       -- publish "P1": null, which is neither a reading nor an absence.
+       jsonb_object_agg(l.metric, round((:value)::numeric, 2))
+           FILTER (WHERE l.quality = ANY($2::quality_flag[]) AND (:value) IS NOT NULL),
        -- Unfiltered, unlike the values above: a metric whose latest reading was
        -- rejected for quality is still a metric this device measures.
        array_agg(DISTINCT l.metric::text),
        s.first_seen, s.last_seen
   FROM sensor s
   JOIN latest l ON l.sensor_id = s.sensor_id
+:join
  GROUP BY s.sensor_id, s.sensor_type, s.location, s.country_code,
           s.first_seen, s.last_seen
  ORDER BY s.sensor_id`
+
+var latestSensorsSQL = "WITH" + latestSensorsCTE + sensorsSelect("l.value", "")
 
 // LatestSensors returns one row per sensor with a fresh reading, carrying every
 // usable metric value. Grouping happens in SQL: the naive join returns one row
@@ -196,6 +242,12 @@ func (s *Store) LatestSensors(ctx context.Context) ([]SensorReading, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: latest sensors: %w", err)
 	}
+	return scanSensorReadings(rows)
+}
+
+// scanSensorReadings reads the projection sensorsSelect produces, for both the
+// live and the windowed query.
+func scanSensorReadings(rows pgx.Rows) ([]SensorReading, error) {
 	defer rows.Close()
 
 	var out []SensorReading

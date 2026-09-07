@@ -84,7 +84,14 @@
      two pages to end up offering different words for the same layer. The group
      names are the style's own (metadata["airbg:group"] in tools/basemap/style.json)
      and the island turns each into its dataset spelling — see layerLabelKey. */}}
-{{define "mapLayerLabels"}}data-t-layers-button="{{.T "map.layers.button"}}"
+{{/* The averaging selector rides along here for the same reason: one island,
+     two pages, one set of words. data-t-windows is positional against
+     mapwindow.WINDOW_CHOICES — now, then each published window, coarsest last —
+     which is why it is one comma-separated attribute rather than five whose
+     names would have to spell "24h" as a dataset key. */}}
+{{define "mapLayerLabels"}}data-t-window-label="{{.T "map.window.label"}}"
+     data-t-windows="{{.T "map.window.live"}},{{.T "map.window.24h"}},{{.T "map.window.48h"}},{{.T "map.window.7d"}}"
+     data-t-layers-button="{{.T "map.layers.button"}}"
      data-t-layers-caption="{{.T "map.layers.caption"}}"
      data-t-view-legend="{{.T "map.view.legend"}}"
      data-t-view-basemap="{{.T "map.view.basemap"}}"

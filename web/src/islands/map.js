@@ -20,6 +20,9 @@ import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange 
 import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
+import {
+  chooseWindow, mountWindow, readWindow, windowOptions, withWindow,
+} from '../lib/mapwindow.js'
 import { setMapAreas, provideAreaSelect } from '../lib/mapareas.svelte.js'
 import { stationsOf, readingAt } from '../lib/stations.js'
 import {
@@ -154,6 +157,11 @@ export function mount(el) {
   const state = {
     slug: cfg.slug, tier: null, scales: null, areas: null,
     hexUrl: null, hexBody: null, sensorBody: null,
+    // Read from storage rather than defaulting to live: a reader who picked a
+    // week's average is asking a question about this map, not about this visit,
+    // and re-picking it on every page is the map disagreeing with its own
+    // selector for one paint. An unknown stored name degrades to live.
+    window: readWindow(),
   }
 
   // The wind overlay's own state, separate from `state` above: it is off by
@@ -395,6 +403,17 @@ export function mount(el) {
       labels: cfg.t.layers,
       caption: cfg.t.layersCaption,
       views: [...chrome.layerViews, windView, boundaryView],
+    })
+
+    // Wired here rather than in mount(), for the reason the layers menu is: a
+    // pick reloads every data layer, and there is nothing to reload until the
+    // sources exist. The grid comes along because it is the same readings under
+    // the same markers, and a map where half the picture averaged a week and
+    // the other half did not would be two answers to one question.
+    chrome.windowSelect.addEventListener('change', async () => {
+      if (!chooseWindow(state, chrome.windowSelect.value)) return
+      await refresh(map, state, cfg, chrome, true)
+      await refreshHexes(map, state, cfg)
     })
 
     // Registered synchronously, right here — after addLayer so setPaintProperty
@@ -838,10 +857,13 @@ async function refresh(map, state, cfg, chrome, force = false) {
   // that changed (an area click adopts a slug without moving the map).
   applyMarkerZoomRange(map, effective)
 
-  const url = urlFor(effective, state.slug)
-  // Unchanged tier and slug: nothing to do. getJSON would serve from cache
-  // anyway, but repainting the same features on every moveend is visible churn.
-  const key = `${effective}:${state.slug ?? ''}`
+  const url = withWindow(urlFor(effective, state.slug), state.window)
+  // Unchanged tier, slug and window: nothing to do. getJSON would serve from
+  // cache anyway, but repainting the same features on every moveend is visible
+  // churn. The window is part of the key even though every pick forces a
+  // refresh, because a key that omits it would be a key two different answers
+  // share.
+  const key = `${effective}:${state.slug ?? ''}:${state.window}`
   if (!force && key === state.tier) return
 
   let body
@@ -933,7 +955,10 @@ export function repaintSensors(map, state, cfg) {
 // the colours change — the bins, their counts and their geometry do not — so a
 // refetch would return bytes the client already holds.
 export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
-  const url = hexesURL(map.getZoom(), map.getBounds?.())
+  // The window rides on the URL, so it is also what makes the dedup below let a
+  // window change through: the same viewport under a different window is a
+  // different URL, and therefore a fetch rather than a repaint.
+  const url = withWindow(hexesURL(map.getZoom(), map.getBounds?.()), state.window)
   if (url !== state.hexUrl) {
     let body
     try {
@@ -1259,6 +1284,10 @@ export function readConfig(el) {
     // layer, and a fallback here that agreed with today's airbg.yaml would hide
     // a server that stopped rendering the attribute.
     hexOpacity: Number(d.hexOpacity),
+    // One positional list, in WINDOW_CHOICES order — the same idiom as
+    // data-metric-labels, and for the same reason a per-window attribute cannot
+    // work: data-t-window-24h arrives in the dataset as tWindow-24h.
+    windowLabels: splitAttr(d.tWindows),
     zoomCity: Number(d.zoomCity),
     zoomSensor: Number(d.zoomSensor),
     // Strings come from the server, not from a JS catalogue: Go owns the
@@ -1283,6 +1312,7 @@ export function readConfig(el) {
       zoomIn: d.tZoomIn || '',
       zoomOut: d.tZoomOut || '',
       zoomReset: d.tZoomReset || '',
+      windowLabel: d.tWindowLabel || '',
       layersButton: d.tLayersButton || '',
       layersCaption: d.tLayersCaption || '',
       viewLegend: d.tViewLegend || '',
@@ -1674,6 +1704,15 @@ export function mountChrome(el, cfg) {
   // does not exist until MapLibre has loaded one.
   const layers = mountLayers(el, { label: cfg.t.layersButton })
 
+  // The averaging window. Built with the chrome and read back by mount(), which
+  // owns what a pick costs — see lib/mapwindow.js on why it is a <select> in the
+  // top centre rather than one more checkbox in the menu beside it.
+  const windowSelect = mountWindow(el, {
+    label: cfg.t.windowLabel,
+    options: windowOptions(cfg.windowLabels),
+    value: readWindow(),
+  })
+
   // Two toggles about the SCREEN rather than about the basemap, listed above
   // the categories rather than smuggled in beside "Shops" as if they were one
   // more kind of place.
@@ -1806,6 +1845,7 @@ export function mountChrome(el, cfg) {
     },
     showLegend,
     zoomButtons: zoom.buttons,
+    windowSelect,
     layersUI: layers,
     layerViews,
     locateButton,

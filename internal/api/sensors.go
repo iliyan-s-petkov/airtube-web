@@ -25,14 +25,19 @@ func (d Deps) handleAreaSensors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	snap, ok := windowed(w, r, snap)
+	if !ok {
+		return
+	}
+
 	slug := r.PathValue("slug")
 
 	// Validate against the snapshot's known slugs BEFORE observing. Counting an
 	// unknown slug would let a caller exhaust their own area budget with
 	// garbage, and — worse — would make the breadth counter trivially
 	// pollutable by anyone wanting to trip a shared CGNAT address on purpose.
-	body, ok := snap.AreaSensors[slug]
-	if !ok {
+	body, known := snap.AreaSensors[slug]
+	if !known {
 		writeError(w, http.StatusNotFound, "not_found", "No such area.")
 		return
 	}

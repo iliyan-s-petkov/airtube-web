@@ -307,6 +307,7 @@ describe('readConfig', () => {
         tUnscaled: 'No air-quality scale for this metric',
         tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
         tLocateFailed: 'We could not determine your location.',
+        tWindowLabel: 'Averaging period',
         tWindToggle: 'Wind',
         tWindAbout: 'About the wind layer',
         tWindNote: 'Arrows show where the wind blows.',
@@ -346,11 +347,24 @@ describe('readConfig', () => {
       unscaled: 'No air-quality scale for this metric',
       locateButton: 'Find me', locateDenied: 'Location access was denied.',
       locateFailed: 'We could not determine your location.',
+      windowLabel: 'Averaging period',
       windToggle: 'Wind',
       windAbout: 'About the wind layer',
       windNote: 'Arrows show where the wind blows.',
       windAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
     })
+  })
+
+  // One comma-separated attribute, positional against WINDOW_CHOICES, because
+  // the per-window alternative would have to spell "24h" as a dataset key and
+  // data-t-window-24h converts to tWindow-24h — not reachable with a dot.
+  it('reads the window labels positionally from one attribute', () => {
+    const cfg = readConfig({ dataset: { tWindows: 'Now,Last 24 hours,Last 48 hours,Last week' } })
+    expect(cfg.windowLabels).toEqual(['Now', 'Last 24 hours', 'Last 48 hours', 'Last week'])
+  })
+
+  it('reads no window labels when the attribute is absent', () => {
+    expect(readConfig({ dataset: {} }).windowLabels).toEqual([])
   })
 
   // The one place the style's group names and the template's attribute names
@@ -659,6 +673,69 @@ describe('initData ordering', () => {
     const aggregateURL = requestedURLs.find((u) => u !== '/api/v1/scales')
     expect(aggregateURL).toBe('/api/v1/overview?tier=city')
     expect(aggregateURL).not.toBe('/api/v1/overview')
+  })
+
+  // The averaging window is state, not config: it has to reach the request, or
+  // the selector changes the label above a map that keeps showing this minute's
+  // reading. The live default must add nothing — that URL is what every cache,
+  // client and server side, is already keyed on.
+  it('carries the chosen window on the aggregate request, and adds nothing for live', async () => {
+    const requestedURLs = []
+    const record = vi.fn(async (url) => {
+      requestedURLs.push(url)
+      if (url === '/api/v1/scales') {
+        return { ok: true, status: 200, headers: new Headers(), json: async () => [] }
+      }
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }
+    })
+    vi.stubGlobal('fetch', record)
+    const chrome = { ...hintController(() => {}), showLegend: () => {} }
+
+    await initData(fakeMap(7), { slug: null, tier: null, scales: null, window: '' }, cfg, chrome)
+    expect(requestedURLs.at(-1)).toBe('/api/v1/overview')
+
+    clearCache()
+    await initData(fakeMap(7), { slug: null, tier: null, scales: null, window: '7d' }, cfg, chrome)
+    expect(requestedURLs.at(-1)).toBe('/api/v1/overview?window=7d')
+  })
+})
+
+// The grid is the same readings under the same markers: a window that moved one
+// and not the other would put two answers to one question on one map. Its dedup
+// is by URL, which is also what lets a window change through.
+describe('refreshHexes under a window', () => {
+  const cfg = { metric: 'P2', noDataColour: '#9ca3af', unscaledColour: '#94a3b8' }
+  const map = {
+    getZoom: () => 12,
+    getBounds: () => ({ getWest: () => 23, getSouth: () => 42, getEast: () => 24, getNorth: () => 43 }),
+    getSource: () => ({ setData: () => {} }),
+    setPaintProperty: () => {},
+    getLayer: () => ({}),
+  }
+  const empty = async () => ({ type: 'FeatureCollection', features: [] })
+
+  it('asks for the window it is showing', async () => {
+    const state = { scales: null, hexUrl: null, window: '48h' }
+    await refreshHexes(map, state, cfg, empty)
+    expect(state.hexUrl).toContain('window=48h')
+  })
+
+  it('asks for no window at all when showing live', async () => {
+    const state = { scales: null, hexUrl: null, window: '' }
+    await refreshHexes(map, state, cfg, empty)
+    expect(state.hexUrl).not.toContain('window=')
+  })
+
+  it('refetches when only the window changed', async () => {
+    const asked = []
+    const fetchJSON = async (url) => { asked.push(url); return { type: 'FeatureCollection', features: [] } }
+    const state = { scales: null, hexUrl: null, window: '' }
+    await refreshHexes(map, state, cfg, fetchJSON)
+    await refreshHexes(map, state, cfg, fetchJSON)
+    expect(asked, 'the same viewport and window must not refetch').toHaveLength(1)
+    state.window = '24h'
+    await refreshHexes(map, state, cfg, fetchJSON)
+    expect(asked).toHaveLength(2)
   })
 })
 
@@ -1678,6 +1755,25 @@ describe('mount() prints the reading inside the cell', () => {
 // It used to walk every layer carrying an airbg:group — a marker the vector
 // style set and the raster-only style cannot: the toggle reported itself on and
 // hid nothing.
+// Mounted in mountChrome and not in mount(), which is what puts it on both maps
+// that carry this island — the home page and an area page — from one call.
+describe('the averaging selector', () => {
+  it('is mounted on the frame with the server-rendered words', () => {
+    const el = document.createElement('div')
+    el.dataset.tWindowLabel = 'Averaging period'
+    el.dataset.tWindows = 'Now,Last 24 hours,Last 48 hours,Last week'
+    document.body.appendChild(el)
+
+    const { windowSelect } = mountChrome(el, readConfig(el))
+    expect(windowSelect, 'no window selector in the chrome').toBeTruthy()
+    expect(windowSelect.parentElement).toBe(el)
+    expect(windowSelect.getAttribute('aria-label')).toBe('Averaging period')
+    expect([...windowSelect.options].map((o) => o.value)).toEqual(['', '24h', '48h', '7d'])
+    expect([...windowSelect.options].map((o) => o.textContent))
+      .toEqual(['Now', 'Last 24 hours', 'Last 48 hours', 'Last week'])
+  })
+})
+
 describe('the basemap toggle', () => {
   it('hides the ground, raster and vector detail alike, and no reading', () => {
     const el = document.createElement('div')

@@ -143,6 +143,12 @@ type Snapshot struct {
 	// against it means no caller-supplied slug ever reaches a query.
 	KnownSlugs map[string]AreaMeta
 
+	// Windows holds the averaging alternates, keyed by WindowSpec.Name. Each is
+	// a whole Snapshot with the window-varying bodies substituted, so a handler
+	// picks its view once and then reads the same fields either way. Nil on a
+	// windowed snapshot itself — see Window.
+	Windows map[string]*Snapshot
+
 	// SensorLocations resolves one sensor id to a position and an area, for a
 	// deep link that carries nothing else. Keyed by id and answered from
 	// memory: the lookup must not become a way to make the database walk the

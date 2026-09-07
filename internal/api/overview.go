@@ -32,6 +32,11 @@ func (d Deps) handleOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	snap, ok := windowed(w, r, snap)
+	if !ok {
+		return
+	}
+
 	dataMaxAge := int(d.Config.Cache.DataMaxAge.Seconds())
 	switch r.URL.Query().Get("tier") {
 	case "", "country":
@@ -51,6 +56,10 @@ func (d Deps) handleAreas(w http.ResponseWriter, r *http.Request) {
 	snap := d.Snapshots.Load()
 	if snap == nil {
 		writeUnavailable(w)
+		return
+	}
+	snap, ok := windowed(w, r, snap)
+	if !ok {
 		return
 	}
 	serveBody(w, r, snap.Areas, cachePublic, int(d.Config.Cache.DataMaxAge.Seconds()))
@@ -76,6 +85,11 @@ func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 	snap := d.Snapshots.Load()
 	if snap == nil {
 		writeUnavailable(w)
+		return
+	}
+
+	snap, ok := windowed(w, r, snap)
+	if !ok {
 		return
 	}
 

@@ -248,6 +248,12 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 		snap.AreaSeries[slug] = seriesBody
 	}
 
+	// Last, because a window is the live snapshot with some bodies replaced and
+	// therefore needs the live one finished first.
+	if err := buildWindows(ctx, s, snap, now); err != nil {
+		return nil, err
+	}
+
 	return snap, nil
 }
 
