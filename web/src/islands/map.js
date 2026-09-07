@@ -303,7 +303,23 @@ export function mount(el) {
       layout: { ...arrowLayout(), visibility: 'none' },
       paint: arrowPaint(cfg),
     })
-    chrome.windButton.addEventListener('click', () => toggleWind(map, cfg, chrome, windState))
+
+    // Wind is an overlay, so it belongs with the other overlays rather than in
+    // a button of its own in the corner. Assembled here and not in mountChrome
+    // because it is the only view that needs the map's source and the fetch
+    // state, both of which live in this scope.
+    //
+    // defaultOff: every other option starts on because the map the reader was
+    // shown is the map they keep. This one is not part of that map, and turning
+    // it on costs a request.
+    const windView = {
+      id: 'wind',
+      label: cfg.t.windToggle,
+      // No needsMap: the arrows are this island's own source and layer, not the
+      // basemap's, so they still draw on a map served without tiles.
+      defaultOff: true,
+      apply: (on) => setWind(map, cfg, chrome, windState, on),
+    }
 
     // Here and not in mountChrome: the options are the style's own groups, and
     // map.getStyle() has no layers to report until the style has loaded. A menu
@@ -312,7 +328,7 @@ export function mount(el) {
     installLayers(map, chrome.layersUI, {
       labels: cfg.t.layers,
       caption: cfg.t.layersCaption,
-      views: chrome.layerViews,
+      views: [...chrome.layerViews, windView],
     })
 
     // Registered synchronously, right here — after addLayer so setPaintProperty
@@ -440,7 +456,12 @@ export function cellArea(state, lngLat) {
   return nearestArea([lngLat.lng, lngLat.lat], state.areas)?.slug ?? null
 }
 
-// toggleWind is the whole wind control: fetch once, then show or hide.
+// setWind is the whole wind control: fetch once, then show or hide.
+//
+// It takes the state asked for rather than flipping the one it finds, because
+// the control is now a checkbox in the layers menu: a toggle would drift out of
+// step with the box the moment a fetch failed. It RETURNS the state actually
+// reached, which is what lets the box correct itself.
 //
 // Exported and given an injectable fetch for the same reason initData is —
 // the "no jsdom" rule puts a real MapLibre instance out of reach, so the
@@ -451,25 +472,25 @@ export function cellArea(state, lngLat) {
 // banner: /api/v1/wind answers 503 whenever no forecast covers the current
 // hour, which is an ordinary state for an optional overlay, and an error
 // banner is reserved for the data the page actually exists to show.
-export async function toggleWind(map, cfg, chrome, state, fetchJSON = getJSON) {
-  if (state.on) {
+export async function setWind(map, cfg, chrome, state, on, fetchJSON = getJSON) {
+  if (!on) {
     state.on = false
     map.setLayoutProperty(WIND_LAYER_ID, 'visibility', 'none')
     chrome.showWind(false, '')
-    return
+    return false
   }
-  // A second click while the first fetch is in flight is dropped, not queued:
+  // A second request while the first fetch is in flight is dropped, not queued:
   // getJSON already dedupes the request, but two resolutions would each flip
   // the layer and the later one could turn on a layer the visitor just asked
   // to turn off.
-  if (state.loading) return
+  if (state.loading) return state.on
   if (!state.body) {
     state.loading = true
     try {
       state.body = await fetchJSON('/api/v1/wind')
     } catch {
       chrome.showWind(false, '')
-      return
+      return false
     } finally {
       state.loading = false
     }
@@ -478,6 +499,7 @@ export async function toggleWind(map, cfg, chrome, state, fetchJSON = getJSON) {
   map.setLayoutProperty(WIND_LAYER_ID, 'visibility', 'visible')
   state.on = true
   chrome.showWind(true, windLabel(state.body, cfg.t))
+  return true
 }
 
 // onMetricChange is what runs on every metric switch (and once, explicitly,
@@ -1415,22 +1437,14 @@ export function mountChrome(el, cfg) {
   locateButton.textContent = cfg.t.locateButton
   el.appendChild(locateButton)
 
-  // The wind overlay's toggle and its disclosure. aria-pressed, not a checkbox,
-  // because this shows and hides a map layer rather than submitting anything —
-  // and the pressed state is the only thing announcing that the layer is on,
-  // since a screen reader cannot see the arrows. The label is a sibling, not
-  // the button's own text: it must stay visible while the layer is, and a
-  // control's label disappears the moment focus moves on.
-  const windButton = document.createElement('button')
-  windButton.type = 'button'
-  windButton.className = 'map-wind'
-  windButton.setAttribute('aria-pressed', 'false')
-  windButton.textContent = cfg.t.windToggle
-  // What the button does, before it is pressed: a one-word label answers what
-  // the layer is called, not what turning it on will show you.
-  if (cfg.t.windNote) windButton.title = cfg.t.windNote
-  el.appendChild(windButton)
-
+  // The wind overlay's disclosure. Its control is a checkbox in the layers
+  // menu, with the other overlays — it was a button of its own in the corner,
+  // which said the layer was a different kind of thing from the rest of what
+  // the map draws when it is not. The checkbox's own checked state is what
+  // announces the layer is on, since a screen reader cannot see the arrows.
+  //
+  // The disclosure stays a sibling of the map rather than anything inside that
+  // menu: it must remain visible while the layer is, and the menu closes.
   const windNote = document.createElement('div')
   windNote.className = 'map-wind-label'
   windNote.hidden = true
@@ -1480,11 +1494,9 @@ export function mountChrome(el, cfg) {
     layersUI: layers,
     layerViews,
     locateButton,
-    windButton,
     // Both halves move together: the disclosure is shown exactly when the
     // arrows are, so no caller can turn one on without the other.
     showWind(on, text) {
-      windButton.setAttribute('aria-pressed', String(on))
       windNote.textContent = on ? text : ''
       windNote.hidden = !on || !text
     },

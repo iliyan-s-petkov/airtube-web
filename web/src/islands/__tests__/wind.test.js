@@ -3,7 +3,7 @@ import {
   arrowBearing, arrowImage, arrowLayout, arrowPaint, windFeatures, windLabel,
   ARROW_IMAGE_ID, ARROW_PX, WIND_LAYER_ID,
 } from '../wind.js'
-import { toggleWind } from '../map.js'
+import { setWind } from '../map.js'
 
 describe('arrowBearing', () => {
   // The API reports where the wind comes FROM. A northerly (0°) blows
@@ -190,7 +190,7 @@ describe('windLabel', () => {
   })
 })
 
-describe('toggleWind', () => {
+describe('setWind', () => {
   const body = {
     forecast: true,
     model: 'ecmwf_ifs025',
@@ -215,7 +215,7 @@ describe('toggleWind', () => {
     const { map, chrome, source } = fakes()
     const state = { on: false, body: null, loading: false }
 
-    await toggleWind(map, cfg, chrome, state, async () => body)
+    await setWind(map, cfg, chrome, state, true, async () => body)
 
     expect(map.layout.visibility).toBe('visible')
     expect(source.data.features).toHaveLength(1)
@@ -232,11 +232,15 @@ describe('toggleWind', () => {
     const { map, chrome } = fakes()
     const state = { on: false, body: null, loading: false }
 
-    await toggleWind(map, cfg, chrome, state, async () => { throw new Error('503') })
+    const reached = await setWind(map, cfg, chrome, state, true, async () => { throw new Error('503') })
 
     expect(state.on).toBe(false)
     expect(map.layout.visibility).toBeUndefined()
     expect(chrome.on).toBe(false)
+    // Reported back, not just left off: the checkbox in the layers menu takes
+    // this answer, and a ticked box over a map with no arrows would be the menu
+    // claiming a layer that is not there.
+    expect(reached).toBe(false)
   })
 
   it('hides both halves again, and does not refetch to do it', async () => {
@@ -244,26 +248,44 @@ describe('toggleWind', () => {
     const state = { on: true, body, loading: false }
     let fetches = 0
 
-    await toggleWind(map, cfg, chrome, state, async () => { fetches++; return body })
+    const reached = await setWind(map, cfg, chrome, state, false, async () => { fetches++; return body })
 
     expect(map.layout.visibility).toBe('none')
     expect(chrome.on).toBe(false)
     expect(chrome.text).toBe('')
     expect(fetches).toBe(0)
+    expect(reached).toBe(false)
   })
 
-  it('serves a second switch-on from the cached body, not a second request', async () => {
+  // A checkbox says what it wants, not "the other thing from last time". Asking
+  // for a state already held must be a no-op, where a toggle would flip it.
+  it('is idempotent: asking for on twice leaves it on', async () => {
     const { map, chrome } = fakes()
     const state = { on: false, body: null, loading: false }
     let fetches = 0
     const fetchJSON = async () => { fetches++; return body }
 
-    await toggleWind(map, cfg, chrome, state, fetchJSON)
-    await toggleWind(map, cfg, chrome, state, fetchJSON)
-    await toggleWind(map, cfg, chrome, state, fetchJSON)
+    await setWind(map, cfg, chrome, state, true, fetchJSON)
+    await setWind(map, cfg, chrome, state, true, fetchJSON)
+    await setWind(map, cfg, chrome, state, true, fetchJSON)
 
     expect(fetches).toBe(1)
     expect(map.layout.visibility).toBe('visible')
+    expect(state.on).toBe(true)
+  })
+
+  it('is idempotent the other way: asking for off twice leaves it off', async () => {
+    const { map, chrome } = fakes()
+    const state = { on: false, body: null, loading: false }
+    const fetchJSON = async () => body
+
+    await setWind(map, cfg, chrome, state, true, fetchJSON)
+    await setWind(map, cfg, chrome, state, false, fetchJSON)
+    await setWind(map, cfg, chrome, state, false, fetchJSON)
+
+    expect(map.layout.visibility).toBe('none')
+    expect(state.on).toBe(false)
+    expect(chrome.on).toBe(false)
   })
 
   it('names the layer it toggles, so a renamed layer cannot silently no-op', () => {

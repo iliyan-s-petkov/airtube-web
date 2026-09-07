@@ -170,15 +170,28 @@ export function installLayers(map, ui, { labels, caption, views = [], storage })
   // Applies held back until the categories have run — see the view loop below.
   const pending = []
 
-  const addOption = (key, text, extraClass, apply, { defer = false } = {}) => {
+  // An option whose apply reports back a state different from the one asked for
+  // takes the reported one. The wind overlay is fetched, and /api/v1/wind
+  // answers 503 whenever no forecast covers the current hour: a box that stayed
+  // ticked over a map with no arrows would be the menu reporting a layer that
+  // is not there. Anything that reports nothing is left exactly as the reader
+  // set it.
+  const settle = (input, key, asked, reached) => {
+    if (typeof reached !== 'boolean' || reached === asked) return
+    input.checked = reached
+    remember(key, reached)
+  }
+
+  const addOption = (key, text, extraClass, apply, { defer = false, defaultOff = false } = {}) => {
     const label = document.createElement('label')
     label.className = extraClass ? `colmenu__opt ${extraClass}` : 'colmenu__opt'
     const input = document.createElement('input')
     input.type = 'checkbox'
     // Everything is on until the reader switches it off: the map they were
     // shown is the map they keep, and a stored `false` is the only thing that
-    // changes it.
-    input.checked = state[key] !== false
+    // changes it. A defaultOff option is the other case — it is not part of the
+    // map they were shown, so it waits to be asked for.
+    input.checked = defaultOff ? state[key] === true : state[key] !== false
     input.setAttribute('data-layer-key', key)
     const span = document.createElement('span')
     span.textContent = text
@@ -187,8 +200,9 @@ export function installLayers(map, ui, { labels, caption, views = [], storage })
     ui.fieldset.appendChild(label)
 
     input.addEventListener('change', () => {
-      remember(key, input.checked)
-      apply(input.checked)
+      const asked = input.checked
+      remember(key, asked)
+      Promise.resolve(apply(asked)).then((reached) => settle(input, key, asked, reached))
     })
     // Applied at build time too, or a stored `false` would be a checkbox that
     // says the layer is off over a map still drawing it.
@@ -205,7 +219,10 @@ export function installLayers(map, ui, { labels, caption, views = [], storage })
   // boxes restoring their own layers.
   for (const view of views) {
     if (view.needsMap && !layers.length) continue
-    addOption(`view:${view.id}`, view.label, 'colmenu__opt--view', (on) => view.apply(on, map), { defer: true })
+    addOption(`view:${view.id}`, view.label, 'colmenu__opt--view', (on) => view.apply(on, map), {
+      defer: true,
+      defaultOff: view.defaultOff === true,
+    })
   }
 
   const setGroup = (group, on) => {

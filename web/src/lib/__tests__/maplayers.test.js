@@ -260,6 +260,72 @@ describe('installLayers', () => {
     expect(views[1].apply).not.toHaveBeenCalled()
   })
 
+  // Everything else here is on until the reader switches it off, because the
+  // map they were shown is the map they keep. A forecast overlay is the other
+  // case: it is not part of the map they were shown, and turning it on costs a
+  // request, so it has to ask rather than assume.
+  it('starts a defaultOff view off, and applies it off', () => {
+    const ui = mountLayers(frame(), { label: 'Layers' })
+    const views = [{ id: 'wind', label: 'Wind', defaultOff: true, apply: vi.fn() }]
+    installLayers(fakeMap(style), ui, { labels, caption: 'c', views, storage: fakeStorage() })
+
+    expect(ui.fieldset.querySelector('[data-layer-key="view:wind"]').checked).toBe(false)
+    expect(views[0].apply).toHaveBeenCalledWith(false, expect.anything())
+  })
+
+  it('remembers a defaultOff view the reader switched ON', () => {
+    const store = fakeStorage()
+    const first = mountLayers(frame(), { label: 'Layers' })
+    const views = () => [{ id: 'wind', label: 'Wind', defaultOff: true, apply: vi.fn() }]
+    installLayers(fakeMap(style), first, { labels, caption: 'c', views: views(), storage: store })
+    const box = first.fieldset.querySelector('[data-layer-key="view:wind"]')
+    box.checked = true
+    box.dispatchEvent(new Event('change'))
+
+    document.body.innerHTML = ''
+    const again = mountLayers(frame(), { label: 'Layers' })
+    installLayers(fakeMap(style), again, { labels, caption: 'c', views: views(), storage: store })
+    expect(again.fieldset.querySelector('[data-layer-key="view:wind"]').checked).toBe(true)
+  })
+
+  // The wind forecast is fetched, and /api/v1/wind answers 503 whenever no
+  // forecast covers the current hour. A box that stayed ticked over a map with
+  // no arrows on it would be the menu reporting a layer that is not there —
+  // the same silent lie the missing arrow glyph told.
+  it('follows what apply actually achieved, not what was asked', async () => {
+    const store = fakeStorage()
+    const ui = mountLayers(frame(), { label: 'Layers' })
+    const views = [{ id: 'wind', label: 'Wind', defaultOff: true, apply: async () => false }]
+    installLayers(fakeMap(style), ui, { labels, caption: 'c', views, storage: store })
+
+    const box = ui.fieldset.querySelector('[data-layer-key="view:wind"]')
+    box.checked = true
+    box.dispatchEvent(new Event('change'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(box.checked).toBe(false)
+    expect(JSON.parse(store.value)['view:wind']).toBe(false)
+  })
+
+  // Most applies report nothing, because most of them cannot fail. Reading a
+  // missing answer as "off" would silently untick every one of those boxes.
+  it('leaves the box alone when apply reports nothing', async () => {
+    const store = fakeStorage()
+    const ui = mountLayers(frame(), { label: 'Layers' })
+    const views = [{ id: 'wind', label: 'Wind', defaultOff: true, apply: () => undefined }]
+    installLayers(fakeMap(style), ui, { labels, caption: 'c', views, storage: store })
+
+    const box = ui.fieldset.querySelector('[data-layer-key="view:wind"]')
+    box.checked = true
+    box.dispatchEvent(new Event('change'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(box.checked).toBe(true)
+    expect(JSON.parse(store.value)['view:wind']).toBe(true)
+  })
+
   it('rebuilds rather than doubling up when called twice', () => {
     const ui = mountLayers(frame(), { label: 'Layers' })
     const map = fakeMap(style)

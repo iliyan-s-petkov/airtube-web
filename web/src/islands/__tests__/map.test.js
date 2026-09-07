@@ -36,6 +36,7 @@ vi.mock('maplibre-gl', () => {
       this.addSource = vi.fn()
       this.addLayer = vi.fn()
       this.addImage = vi.fn()
+      this.setLayoutProperty = vi.fn()
       this.getZoom = vi.fn(() => 7)
       // The zoom stack asks the camera for its own limits rather than
       // restating them (see installZoom), so a map that cannot answer is not
@@ -97,6 +98,7 @@ function mountTestMap({ metric, styleLayers = [] }) {
   el.dataset.zoomCity = '9'
   el.dataset.zoomSensor = '11'
   el.dataset.hexOpacity = '0.55'
+  el.dataset.tWindToggle = 'Wind'
 
   const { map, chrome } = mount(el)
   // Fired, not awaited: mount()'s 'load' handler registers the metric
@@ -108,7 +110,7 @@ function mountTestMap({ metric, styleLayers = [] }) {
   // ready; this harness fires it eagerly instead, since the fake map here
   // has no style to wait for.
   map.handlers.load()
-  return { map, chrome }
+  return { map, chrome, el }
 }
 
 // The no-data colour is configuration now (arrives as a data-* attribute), not
@@ -1824,23 +1826,36 @@ const chromeCfg = (over = {}) => ({
   ...over,
 })
 
-// The disclosure only appears once the layer is on, so before that the button
-// is a single word with no explanation. The title is where the answer lives
-// for someone deciding whether to press it at all.
-describe('the wind toggle explains itself before it is pressed', () => {
-  const button = (over) => {
+// Wind is an overlay like the rest of what the map draws, so its control sits
+// with them. A button of its own in the corner said it was a different kind of
+// thing, and left the corner carrying two stacked buttons and a disclosure.
+describe('the wind toggle lives in the layers menu, not in the corner', () => {
+  it('mounts no wind button of its own', () => {
     const el = document.createElement('div')
-    mountChrome(el, chromeCfg(over))
-    return el.querySelector('.map-wind')
-  }
-
-  it('carries the note as its title', () => {
-    expect(button({ t: { tier: {}, windToggle: 'Вятър', windNote: 'Стрелките сочат вятъра.' } }).title)
-      .toBe('Стрелките сочат вятъра.')
+    mountChrome(el, chromeCfg({ t: { tier: {}, windToggle: 'Вятър' } }))
+    expect(el.querySelector('.map-wind')).toBe(null)
   })
 
-  it('sets no title when the note is untranslated, rather than an empty tooltip', () => {
-    expect(button({ t: { tier: {}, windToggle: 'Вятър' } }).hasAttribute('title')).toBe(false)
+  it('offers wind as a layers option, off until it is asked for', () => {
+    const { el } = mountTestMap({ metric: 'P2' })
+    const box = el.querySelector('[data-layer-key="view:wind"]')
+
+    expect(box, 'no wind option in the layers menu').not.toBe(null)
+    // Every other option starts on. This one is not part of the map the reader
+    // was shown, and turning it on costs a request.
+    expect(box.checked).toBe(false)
+    expect(box.closest('.colmenu__opt').textContent).toBe('Wind')
+  })
+
+  it('shows the arrows when the option is ticked', async () => {
+    const { map, el } = mountTestMap({ metric: 'P2' })
+    const box = el.querySelector('[data-layer-key="view:wind"]')
+
+    box.checked = true
+    box.dispatchEvent(new Event('change'))
+    await vi.waitFor(() => {
+      expect(map.setLayoutProperty).toHaveBeenCalledWith(WIND_LAYER_ID, 'visibility', 'visible')
+    })
   })
 })
 
