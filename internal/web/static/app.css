@@ -27,6 +27,16 @@ body {
    labels on --surface-2). Same selector as the kit's, later in the cascade. */
 .footer p { color: var(--fg-2); }
 
+/* The second line on a chart comparing two metrics. Purple: it must not be read
+   as a scale colour, and the ramp's hues are forbidden on a series for exactly
+   that reason.
+
+   Defined here rather than in theme.css because base.gohtml loads theme.css
+   only when there is no built kit theme — in production the token was missing,
+   islands/panel.js read '' out of it, and the compared metric was drawn with no
+   stroke. This file is loaded on both branches. */
+:root { --chart-compare: #8a3ffc; }
+
 /* A <button> inside the theme list where the language list has links: choosing
    a theme is not navigation. It needs the type reset a link does not. */
 .langpick__opt {
@@ -259,7 +269,9 @@ strong, b { font-weight: var(--weight-emphasis); }
 /* The station's own description, under its readings and quieter than them:
    hardware and coordinates answer "what am I looking at", not "how is the air". */
 .panel-details { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-faint); }
-.panel-details h3 { font-size: var(--text-compact); font-weight: var(--weight-emphasis); margin: 0 0 var(--space-2); color: var(--fg-2); }
+.panel-details > summary { font-size: var(--text-compact); font-weight: var(--weight-emphasis); color: var(--fg-2); cursor: pointer; }
+.panel-details[open] > summary { margin-bottom: var(--space-2); }
+.panel-details > summary:focus-visible { box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
 .panel-details dd { color: var(--fg-2); }
 .panel-chart { margin-top: var(--space-4); }
 .panel-chart__controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3) var(--space-4); margin-bottom: var(--space-3); }

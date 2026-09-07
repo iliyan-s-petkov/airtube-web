@@ -2,6 +2,7 @@
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
   import { mergeSeries } from '../lib/series.js'
+  import { tickValues } from '../lib/timeaxis.js'
   import { getJSON } from '../lib/api.js'
 
   // Two ways in, one way through. `url`/`lineColour`/`valueLabel` describe a
@@ -89,7 +90,10 @@
           })),
         ],
         axes: [
-          {},
+          // The x labels are chosen from how much time this data covers, not
+          // from uPlot's tick spacing — see lib/timeaxis.js. The page's own
+          // language, so the axis reads like the rest of the page.
+          { values: tickValues(data[0], document.documentElement.lang || undefined) },
           ...scales.map((scale, i) => ({
             scale,
             side: i === 0 ? 3 : 1,

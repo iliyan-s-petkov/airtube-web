@@ -51,7 +51,9 @@ describe('SensorPanel.svelte', () => {
     expect(onclose).toHaveBeenCalledTimes(2)
   })
 
-  it('lists the station description under its own heading', () => {
+  // Closed by default: the readings are what the reader came for, and the
+  // hardware inventory pushed them below the chart on a phone.
+  it('lists the station description in a disclosure that starts closed', () => {
     const target = render({
       detailsLabel: 'About this station',
       details: [
@@ -60,7 +62,9 @@ describe('SensorPanel.svelte', () => {
       ],
     })
     const details = target.querySelector('.panel-details')
-    expect(details.querySelector('h3').textContent).toBe('About this station')
+    expect(details.tagName).toBe('DETAILS')
+    expect(details.open).toBe(false)
+    expect(details.querySelector('summary').textContent).toBe('About this station')
     expect([...details.querySelectorAll('dt')].map((n) => n.textContent))
       .toEqual(['Devices', 'In our data since'])
     expect([...details.querySelectorAll('dd')].map((n) => n.textContent))

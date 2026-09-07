@@ -64,15 +64,20 @@
   </dl>
 
   {#if details.length}
-    <section class="panel-details">
-      {#if detailsLabel}<h3>{detailsLabel}</h3>{/if}
+    <!-- A native <details>, like the language picker: the same three states
+         (closed, open, labelled) with no script and no aria bookkeeping. Closed
+         is the default because this block describes the HARDWARE — devices,
+         firmware, coordinates — and on a phone it stood between the readings
+         and the chart, which are what a reader opens a station for. -->
+    <details class="panel-details">
+      <summary>{detailsLabel}</summary>
       <dl>
         {#each details as row (row.key)}
           <dt>{row.label}</dt>
           <dd>{row.value}</dd>
         {/each}
       </dl>
-    </section>
+    </details>
   {/if}
 
   {#if chart}{@render chart()}{/if}
