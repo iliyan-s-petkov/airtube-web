@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  arrowBearing, arrowImage, arrowLayout, arrowPaint, windFeatures, windField, windLabel,
+  arrowBearing, arrowImage, arrowLayout, arrowPaint, windFeatures, windField, windLabel, windIsStale,
   ARROW_IMAGE_ID, ARROW_PX, WIND_LAYER_ID, WIND_FIELD_MAX,
 } from '../wind.js'
-import { setWind } from '../map.js'
+import { setWind, refreshWind } from '../map.js'
 
 describe('arrowBearing', () => {
   // The API reports where the wind comes FROM. A northerly (0°) blows
@@ -406,5 +406,117 @@ describe('setWind', () => {
 
   it('names the layer it toggles, so a renamed layer cannot silently no-op', () => {
     expect(WIND_LAYER_ID).toBe('airbg-wind-arrows')
+  })
+})
+
+describe('windIsStale', () => {
+  const body = { valid_at: '2026-09-05T14:00:00Z' }
+
+  // The forecast row is the one for the hour containing now, so within that
+  // hour a refetch returns the same national grid byte for byte.
+  it('is fresh anywhere inside the hour it is valid for', () => {
+    expect(windIsStale(body, new Date('2026-09-05T14:00:00Z'))).toBe(false)
+    expect(windIsStale(body, new Date('2026-09-05T14:59:59Z'))).toBe(false)
+  })
+
+  it('is stale one second into the next hour', () => {
+    expect(windIsStale(body, new Date('2026-09-05T15:00:00Z'))).toBe(true)
+  })
+
+  // A tab left open overnight: the same body, many hours old, still stale.
+  it('stays stale however far past the hour it gets', () => {
+    expect(windIsStale(body, new Date('2026-09-06T09:00:00Z'))).toBe(true)
+  })
+
+  // Nothing held is not staleness: dropping a null body would make every
+  // refresh refetch a layer the reader never switched on.
+  it('holds nothing against a body that is not there', () => {
+    expect(windIsStale(null, new Date('2026-09-06T09:00:00Z'))).toBe(false)
+    expect(windIsStale({}, new Date('2026-09-06T09:00:00Z'))).toBe(false)
+    expect(windIsStale({ valid_at: 'not a time' }, new Date())).toBe(false)
+  })
+})
+
+describe('refreshWind', () => {
+  const body = (validAt) => ({
+    forecast: true,
+    model: 'ecmwf_ifs025',
+    model_resolution_deg: 0.25,
+    valid_at: validAt,
+    vectors: [{ lon: 23.3, lat: 42.7, speed_ms: 3.5, direction_deg: 270 }],
+  })
+  const cfg = { t: { windAttribution: '{model} {resolution} {time}' } }
+
+  function fakes() {
+    const source = { data: null, setData(d) { this.data = d } }
+    const map = {
+      layout: {},
+      getSource: () => source,
+      setLayoutProperty(_id, k, v) { this.layout[k] = v },
+    }
+    const chrome = { on: null, text: null, showWind(on, text) { this.on = on; this.text = text } }
+    return { map, chrome }
+  }
+
+  const HELD = '2026-09-05T14:00:00Z'
+  const SAME_HOUR = new Date('2026-09-05T14:40:00Z')
+  const NEXT_HOUR = new Date('2026-09-05T15:00:00Z')
+
+  it('does not refetch inside the hour the held forecast is valid for', async () => {
+    const { map, chrome } = fakes()
+    const state = { on: true, body: body(HELD), loading: false }
+    let fetches = 0
+
+    const did = await refreshWind(map, cfg, chrome, state, SAME_HOUR, async () => { fetches++; return body(HELD) })
+
+    expect(did).toBe(false)
+    expect(fetches).toBe(0)
+    expect(state.body.valid_at).toBe(HELD)
+  })
+
+  // The bug: a tab open past the hour boundary showed the previous hour's wind
+  // for as long as it stayed open, and the refresh button did not touch it.
+  it('refetches and repaints once the hour has turned', async () => {
+    const { map, chrome } = fakes()
+    const state = { on: true, body: body(HELD), loading: false }
+    let fetches = 0
+
+    const did = await refreshWind(map, cfg, chrome, state, NEXT_HOUR, async () => {
+      fetches++
+      return body('2026-09-05T15:00:00Z')
+    })
+
+    expect(did).toBe(true)
+    expect(fetches).toBe(1)
+    expect(state.body.valid_at).toBe('2026-09-05T15:00:00Z')
+    expect(map.layout.visibility).toBe('visible')
+    // The disclosure names the hour on the map, so it has to move with it.
+    expect(chrome.text).toContain('2026-09-05 15:00 UTC')
+  })
+
+  // Layer off: the stale body still goes, but nothing is fetched for a layer
+  // nobody is looking at. The next toggle pays for the current hour.
+  it('drops the stale body without fetching when the layer is off', async () => {
+    const { map, chrome } = fakes()
+    const state = { on: false, body: body(HELD), loading: false }
+    let fetches = 0
+
+    const did = await refreshWind(map, cfg, chrome, state, NEXT_HOUR, async () => { fetches++; return body(HELD) })
+
+    expect(did).toBe(true)
+    expect(fetches).toBe(0)
+    expect(state.body).toBe(null)
+    expect(map.layout.visibility).toBeUndefined()
+  })
+
+  it('does nothing at all when no forecast is held', async () => {
+    const { map, chrome } = fakes()
+    const state = { on: false, body: null, loading: false }
+    let fetches = 0
+
+    const did = await refreshWind(map, cfg, chrome, state, NEXT_HOUR, async () => { fetches++; return body(HELD) })
+
+    expect(did).toBe(false)
+    expect(fetches).toBe(0)
   })
 })

@@ -121,6 +121,22 @@ export function windLabel(body, t, formatTime = defaultFormatTime) {
   return t.windNote ? `${t.windNote} ${attribution}` : attribution
 }
 
+// windIsStale asks whether the held forecast is still the current hour's.
+//
+// The model publishes hourly (wind.poll_interval, airbg.yaml) and the snapshot
+// serves the row for the hour containing now, so a forecast only ever changes
+// on an hour boundary. Anything else the refresh button reloads changes every
+// five minutes; this one would return a byte-identical national grid.
+//
+// No body and no valid_at are both "not stale": there is nothing held to drop,
+// and the next toggle fetches.
+export function windIsStale(body, now = new Date()) {
+  const validAt = new Date(body?.valid_at ?? NaN).getTime()
+  if (Number.isNaN(validAt)) return false
+  const hour = (ms) => Math.floor(ms / 3600000)
+  return hour(validAt) !== hour(now.getTime())
+}
+
 function defaultFormatTime(iso) {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'

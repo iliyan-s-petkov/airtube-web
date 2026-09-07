@@ -26,7 +26,7 @@ import {
   GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM,
 } from '../lib/hexes.js'
 import {
-  WIND_SOURCE_ID, WIND_LAYER_ID, ARROW_IMAGE_ID, windFeatures, windField, windLabel,
+  WIND_SOURCE_ID, WIND_LAYER_ID, ARROW_IMAGE_ID, windFeatures, windField, windLabel, windIsStale,
   arrowImage, arrowLayout, arrowPaint,
 } from './wind.js'
 
@@ -389,6 +389,7 @@ export function mount(el) {
       clearCache()
       await refresh(map, state, cfg, chrome, true)
       await refreshHexes(map, state, cfg)
+      await refreshWind(map, cfg, chrome, windState)
     })
 
     await initData(map, state, cfg, chrome)
@@ -528,6 +529,20 @@ export async function setWind(map, cfg, chrome, state, on, fetchJSON = getJSON) 
   map.setLayoutProperty(WIND_LAYER_ID, 'visibility', 'visible')
   state.on = true
   chrome.showWind(true, windLabel(state.body, cfg.t))
+  return true
+}
+
+// refreshWind is the wind layer's share of a refresh: nothing, until the hour
+// the held forecast is valid for has passed.
+//
+// Everything else the button reloads moves on the five-minute ingest cycle. The
+// forecast does not (see windIsStale), so this drops the body only on an hour
+// boundary — and refetches there and then only if the layer is on. With it off,
+// the cleared body is enough: the next toggle fetches the current hour.
+export async function refreshWind(map, cfg, chrome, state, now = new Date(), fetchJSON = getJSON) {
+  if (!windIsStale(state.body, now)) return false
+  state.body = null
+  if (state.on) await setWind(map, cfg, chrome, state, true, fetchJSON)
   return true
 }
 
