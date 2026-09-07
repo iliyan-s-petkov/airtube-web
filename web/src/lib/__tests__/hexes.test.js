@@ -323,7 +323,14 @@ describe('hexFeatures at the point tier', () => {
     expect(f.geometry.type).toBe('Polygon')
     // Same geometry the aggregate tiers get, at the size passed in: the ring is
     // hexPolygon's, so its width is the centre-to-centre spacing of that size.
-    expect(f.geometry.coordinates).toEqual([hexPolygon(23.356, 42.676, 0.08)])
+    // Its centre is the lattice cell the device falls in rather than the device
+    // itself (see "cells that would overlap" below), so the size is what this
+    // asserts — a hexagon 0.08 km wide, wherever the lattice put it.
+    const ring = f.geometry.coordinates[0]
+    const xs = ring.map((c) => c[0])
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+    const cy = ring[0][1] - (ring[0][1] - ring[3][1]) / 2
+    expect(f.geometry.coordinates).toEqual([hexPolygon(cx, cy, 0.08)])
   })
 
   // The size follows the zoom (resolutionForZoom), so the cell keeps its
@@ -388,7 +395,15 @@ describe('hexFeatures at the point tier', () => {
         { lon: 23.28, lat: 42.666, sensor_id: 3832, n: 1, values: { temperature: 28.1 } },
       ],
     }
-    const f = hexFeatures(paired, 'P1', [], '#eee', rampColour, 0.02)
+    // Drawn as cells the two share one lattice cell, so there is one cell and
+    // it carries the reading — the ordering below no longer decides it.
+    const cells = hexFeatures(paired, 'P1', [], '#eee', rampColour, 0.02)
+    expect(cells).toHaveLength(1)
+    expect(cells[0].properties.value).toBe(2.6)
+
+    // Drawn as bare points there is no cell to share, so the order still is
+    // what keeps the twin's mark off the reading's.
+    const f = hexFeatures(paired, 'P1', [], '#eee', rampColour)
     expect(f.map((x) => x.properties.sensorId)).toEqual([3832, 3831])
     expect(f[1].properties.value).toBe(2.6)
   })
@@ -408,6 +423,85 @@ describe('hexFeatures at the point tier', () => {
     }
     const f = hexFeatures(many, 'P1', [], '#eee', rampColour)
     expect(f.map((x) => x.properties.value)).toEqual([null, 5, 7, 9])
+  })
+
+  // A drawn size the ZOOM chose is not a spacing the sensors have. Two devices
+  // a hundred metres apart were two hexagons two hundred metres wide, centred
+  // where the devices stand, so they overlapped — a shape the grid never makes
+  // anywhere else, and one a reader can only read as a rendering fault. Snapped
+  // onto the lattice of the size they are drawn at, the cells tile: one cell of
+  // ground, however many devices happen to stand on it.
+  describe('cells that would overlap', () => {
+    const near = {
+      resolution_km: 0,
+      hexes: [
+        { lon: 23.3200, lat: 42.6800, sensor_id: 11, n: 3, values: { P1: 10 } },
+        { lon: 23.3203, lat: 42.6801, sensor_id: 12, n: 1, values: { P1: 20 } },
+      ],
+    }
+
+    it('collapses devices that share a cell into one', () => {
+      const f = hexFeatures(near, 'P1', [], '#eee', rampColour, 0.5)
+      expect(f).toHaveLength(1)
+      // The cell's reading is what the devices standing on it say, together.
+      expect(f[0].properties.value).toBe(15)
+      expect(f[0].properties.n).toBe(4)
+    })
+
+    it('still names a device, so the cell is still something to click', () => {
+      const [f] = hexFeatures(near, 'P1', [], '#eee', rampColour, 0.5)
+      expect([11, 12]).toContain(f.properties.sensorId)
+    })
+
+    it('leaves devices far enough apart in cells of their own, and they tile', () => {
+      const apart = {
+        resolution_km: 0,
+        hexes: [
+          { lon: 23.30, lat: 42.68, sensor_id: 1, n: 1, values: { P1: 10 } },
+          { lon: 23.32, lat: 42.68, sensor_id: 2, n: 1, values: { P1: 20 } },
+        ],
+      }
+      const f = hexFeatures(apart, 'P1', [], '#eee', rampColour, 0.5)
+      expect(f).toHaveLength(2)
+
+      // Two hexagons of the same size overlap exactly when their centres are
+      // closer than one cell width. On the lattice they never are.
+      const centre = (x) => {
+        const ring = x.geometry.coordinates[0]
+        const xs = ring.map((c) => c[0])
+        const ys = ring.map((c) => c[1])
+        return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]
+      }
+      const [a, b] = f.map(centre)
+      const kmPerDegLon = 111.32 * Math.cos((42.75 * Math.PI) / 180)
+      const dx = (a[0] - b[0]) * kmPerDegLon
+      const dy = (a[1] - b[1]) * 111.32
+      expect(Math.hypot(dx, dy)).toBeGreaterThanOrEqual(0.5 * 0.99)
+    })
+
+    // Snapping moves a cell, and how far it may move is the whole question: a
+    // cell that walked further than its own half-width would describe ground
+    // its device does not stand on.
+    it('keeps the cell over the device that put it there', () => {
+      const [f] = hexFeatures(near, 'P1', [], '#eee', rampColour, 0.5)
+      const ring = f.geometry.coordinates[0]
+      const xs = ring.map((c) => c[0])
+      const ys = ring.map((c) => c[1])
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+      const kmPerDegLon = 111.32 * Math.cos((42.75 * Math.PI) / 180)
+      const off = Math.hypot((cx - 23.32) * kmPerDegLon, (cy - 42.68) * 111.32)
+      expect(off).toBeLessThanOrEqual(0.5)
+    })
+
+    // The point tier alone. An aggregate cell is the server's own bin, already
+    // on the server's lattice, and moving it would be moving the ground its
+    // count came from.
+    it('leaves the aggregate bins exactly where the server put them', () => {
+      const body1 = { resolution_km: 1, hexes: [{ lon: 23.3007, lat: 42.7003, n: 4, values: { P1: 20 } }] }
+      const [f] = hexFeatures(body1, 'P1', [], '#eee', rampColour, 0.5)
+      expect(f.geometry.coordinates).toEqual([hexPolygon(23.3007, 42.7003, 1)])
+    })
   })
 
   it('still draws nothing for a body with no resolution', () => {

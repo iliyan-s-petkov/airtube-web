@@ -244,7 +244,7 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
   // A stable partition rather than a full sort: two co-located sensors that BOTH
   // report cannot be separated by anything here, and reordering them between
   // refreshes would just move the coin toss around.
-  const hexes = body?.hexes ?? []
+  const hexes = points && drawKM > 0 ? snapToLattice(body?.hexes ?? [], drawKM) : (body?.hexes ?? [])
   const ordered = [
     ...hexes.filter((h) => (h.values?.[metric] ?? null) === null),
     ...hexes.filter((h) => (h.values?.[metric] ?? null) !== null),
@@ -273,6 +273,78 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
       },
     }
   })
+}
+
+// snapToLattice moves each device onto the hex lattice of the size the point
+// tier is being DRAWN at, and merges the devices that land on the same cell.
+//
+// The point tier is the one tier whose cell size does not come from the data:
+// the zoom picks it (resolutionForZoom), and sensors are wherever people put
+// them. Two devices closer together than that size were two hexagons centred on
+// two positions, so they overlapped — the one shape the grid makes nowhere
+// else, and one that reads as a broken renderer rather than as two sensors on
+// one street. On the lattice, cells either coincide or tile.
+//
+// Merging is what the aggregate tiers do a resolution higher, done here for the
+// same reason: a cell stands for the ground under it, so it says what every
+// device standing there says. It also subsumes the climate twin — a station's
+// two sensor ids share one pair of coordinates and so one cell, and the twin's
+// missing PM reading stops being a grey cell laid over its sibling's.
+function snapToLattice(hexes, drawKM) {
+  const cells = new Map()
+  for (const h of hexes) {
+    const at = latticeCell(h.lon, h.lat, drawKM)
+    let cell = cells.get(at.key)
+    if (!cell) {
+      cell = { lon: at.lon, lat: at.lat, n: 0, sensor_id: h.sensor_id, sums: new Map() }
+      cells.set(at.key, cell)
+    }
+    cell.n += h.n ?? 0
+    for (const [metric, value] of Object.entries(h.values ?? {})) {
+      if (typeof value !== 'number') continue
+      const sum = cell.sums.get(metric) ?? { total: 0, count: 0 }
+      sum.total += value
+      sum.count++
+      cell.sums.set(metric, sum)
+    }
+  }
+  return [...cells.values()].map((c) => ({
+    lon: c.lon,
+    lat: c.lat,
+    n: c.n,
+    sensor_id: c.sensor_id,
+    values: Object.fromEntries([...c.sums].map(([m, s]) => [m, s.total / s.count])),
+  }))
+}
+
+// latticeCell rounds a position to the centre of the hexagon containing it, in
+// the same pointy-top layout hexPolygon draws and by the same projection, so a
+// snapped centre is a centre hexPolygon can tile from. The axial rounding is
+// the standard one: round all three cube coordinates and repair whichever moved
+// furthest, which is what keeps q + r + s at zero.
+function latticeCell(lon, lat, resKM) {
+  const size = resKM / Math.sqrt(3)
+  const lonKM = EARTH_RADIUS_KM * Math.cos(radians(HEX_REF_LAT))
+  const x = radians(lon) * lonKM
+  const y = radians(lat) * EARTH_RADIUS_KM
+
+  const qf = ((Math.sqrt(3) / 3) * x - y / 3) / size
+  const rf = ((2 / 3) * y) / size
+  const sf = -qf - rf
+  let q = Math.round(qf)
+  let r = Math.round(rf)
+  const s = Math.round(sf)
+  const dq = Math.abs(q - qf)
+  const dr = Math.abs(r - rf)
+  const ds = Math.abs(s - sf)
+  if (dq > dr && dq > ds) q = -r - s
+  else if (dr > ds) r = -q - s
+
+  return {
+    key: `${q},${r}`,
+    lon: degrees((size * Math.sqrt(3) * (q + r / 2)) / lonKM),
+    lat: degrees((size * 1.5 * r) / EARTH_RADIUS_KM),
+  }
 }
 
 function quantise(deg, roundFn) {
