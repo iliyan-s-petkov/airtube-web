@@ -24,9 +24,16 @@ type AreaAggregate struct {
 	CentroidLon float64
 	CentroidLat float64
 	DefaultZoom int
-	// SensorCount counts distinct sensors with a usable, fresh reading — the
-	// number the coverage threshold is applied to, not the total inside the
-	// polygon.
+	// SensorCount counts distinct STATIONS with a usable, fresh reading — one
+	// per address, not per device. Upstream publishes one address as several
+	// sensor ids (a particulate box and a climate box; see snapshot.stationIDs),
+	// and the map draws one marker per address, so counting ids made the card
+	// say 44 over a map with 27 dots on it.
+	//
+	// It is also the number the coverage threshold is applied to, and stations
+	// are the right basis for it: three devices bolted to one balcony are one
+	// place, and painting a whole oblast from them is exactly what the threshold
+	// exists to refuse.
 	SensorCount int
 	Values      map[string]float64
 	Covered     bool
@@ -42,9 +49,7 @@ WITH latest AS (
      ORDER BY r.sensor_id, r.metric, r.time DESC
 ),
 per_area AS (
-    SELECT a.slug, l.metric,
-           avg(l.value)               AS avg_value,
-           count(DISTINCT l.sensor_id) AS sensors
+    SELECT a.slug, l.metric, avg(l.value) AS avg_value
       FROM area a
       JOIN area_sensor asx ON asx.area_slug = a.slug
       JOIN latest l        ON l.sensor_id = asx.sensor_id
@@ -52,16 +57,25 @@ per_area AS (
      GROUP BY a.slug, l.metric
 ),
 coverage AS (
-    SELECT a.slug, count(DISTINCT asx.sensor_id) AS sensors
-      FROM area a
-      JOIN area_sensor asx ON asx.area_slug = a.slug
-      JOIN latest l        ON l.sensor_id = asx.sensor_id
-     WHERE a.kind = ANY($3::text[])
-     GROUP BY a.slug
+    -- Distinct published coordinates, not distinct sensor ids: the pair of
+    -- devices at one address is one station, one marker on the map and one
+    -- thing to count. Exact equality on the coordinate, the same rule
+    -- snapshot.stationIDs groups markers by, so the count and the map cannot
+    -- disagree.
+    SELECT slug, count(*) AS stations
+      FROM (SELECT DISTINCT a.slug,
+                   ST_X(s.location::geometry) AS lon,
+                   ST_Y(s.location::geometry) AS lat
+              FROM area a
+              JOIN area_sensor asx ON asx.area_slug = a.slug
+              JOIN latest l        ON l.sensor_id = asx.sensor_id
+              JOIN sensor s        ON s.sensor_id = asx.sensor_id
+             WHERE a.kind = ANY($3::text[])) sites
+     GROUP BY slug
 )
 SELECT a.slug, a.kind, a.name_bg, a.name_en,
        ST_X(a.centroid::geometry), ST_Y(a.centroid::geometry), a.default_zoom,
-       COALESCE(c.sensors, 0),
+       COALESCE(c.stations, 0),
        COALESCE(
            (SELECT jsonb_object_agg(p.metric, round(p.avg_value::numeric, 2))
               FROM per_area p WHERE p.slug = a.slug),

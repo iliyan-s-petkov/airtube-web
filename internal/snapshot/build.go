@@ -33,13 +33,16 @@ type areaPayload struct {
 }
 
 type areaPayloadEntry struct {
-	Slug        string             `json:"slug"`
-	Kind        string             `json:"kind"`
-	NameBG      string             `json:"name_bg"`
-	NameEN      string             `json:"name_en"`
-	Lon         float64            `json:"lon"`
-	Lat         float64            `json:"lat"`
-	Zoom        int                `json:"zoom"`
+	Slug   string  `json:"slug"`
+	Kind   string  `json:"kind"`
+	NameBG string  `json:"name_bg"`
+	NameEN string  `json:"name_en"`
+	Lon    float64 `json:"lon"`
+	Lat    float64 `json:"lat"`
+	Zoom   int     `json:"zoom"`
+	// Stations, not devices: one per address, matching the markers the map
+	// draws for this area. The wire name is unchanged — a station is what a
+	// reader calls a sensor — but the number is a count of places.
 	SensorCount int                `json:"sensor_count"`
 	Covered     bool               `json:"covered"`
 	Values      map[string]float64 `json:"values"`

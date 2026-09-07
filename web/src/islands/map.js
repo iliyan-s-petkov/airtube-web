@@ -933,7 +933,8 @@ export function urlFor(tier, slug) {
 // areaFeatures maps the choropleth payload straight onto point features.
 //
 // covered === false renders in the neutral no-data grey with no value label.
-// Fewer than three distinct sensors is not data, and drawing it in a band colour
+// Fewer than three distinct STATIONS is not data — three boxes at one address
+// are one place — and drawing it in a band colour
 // would imply a confidence the pipeline explicitly refuses.
 export function areaFeatures(body, metric, scales, noDataColour) {
   const bands = bandsFor(scales, metric)

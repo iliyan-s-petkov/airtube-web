@@ -74,6 +74,8 @@ type AreaMeta struct {
 	CentroidLat float64
 	DefaultZoom int
 	Covered     bool
+	// Stations, not devices — the same number the map has markers for. See
+	// store.AreaAggregate.SensorCount.
 	SensorCount int
 	// The area's current reading per metric, the same map the wire type
 	// already publishes. Carried here so a server-rendered page can rank and

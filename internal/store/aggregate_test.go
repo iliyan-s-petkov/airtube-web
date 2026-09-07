@@ -195,6 +195,61 @@ func TestAreaAggregatesCountsDistinctSensorsNotRows(t *testing.T) {
 	}
 }
 
+// TestAreaAggregatesCountsStationsNotDevices pins the count the reader sees.
+// Upstream publishes one address as a particulate box AND a climate box, two
+// sensor ids on the same coordinate, and the map draws one marker for the pair
+// (snapshot.stationIDs). Counting ids made Varna's card say 44 over a map with
+// 27 dots on it — and let three devices on one balcony cross a threshold that
+// exists to refuse exactly that.
+func TestAreaAggregatesCountsStationsNotDevices(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "one-address", "oblast", 23.0, 42.0)
+	seedArea(t, ctx, pool, "three-addresses", "oblast", 25.0, 43.0)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	// Three devices, two of them at the identical published coordinate.
+	seedSensorReading(t, ctx, pool, 50, 23.0, 42.0, "P2", 10, "ok", now)
+	seedSensorReading(t, ctx, pool, 51, 23.0, 42.0, "temperature", 21, "ok", now)
+	seedSensorReading(t, ctx, pool, 52, 23.001, 42.0, "P2", 20, "ok", now)
+
+	// Three devices at three addresses, for the other half of the claim: the
+	// change must not deflate a count that was already right. Two of them share
+	// a longitude and differ in latitude, so a grouping that looked at one axis
+	// would merge two separate addresses and show up here.
+	seedSensorReading(t, ctx, pool, 60, 25.0, 43.0, "P2", 10, "ok", now)
+	seedSensorReading(t, ctx, pool, 61, 25.0, 43.001, "P2", 20, "ok", now)
+	seedSensorReading(t, ctx, pool, 62, 25.002, 43.002, "P2", 30, "ok", now)
+
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.AreaAggregates(ctx, []string{"oblast"})
+	if err != nil {
+		t.Fatalf("AreaAggregates: %v", err)
+	}
+	byslug := map[string]store.AreaAggregate{}
+	for _, a := range aggs {
+		byslug[a.Slug] = a
+	}
+
+	one := byslug["one-address"]
+	if one.SensorCount != 2 {
+		t.Errorf("one-address SensorCount = %d, want 2; the two devices on one coordinate are one station and one marker", one.SensorCount)
+	}
+	if one.Covered {
+		t.Errorf("one-address Covered = true on 2 stations; CoverageThreshold is %d, and it counts places, not boxes", testStoreConfig().CoverageThreshold)
+	}
+
+	three := byslug["three-addresses"]
+	if three.SensorCount != 3 {
+		t.Errorf("three-addresses SensorCount = %d, want 3", three.SensorCount)
+	}
+	if !three.Covered {
+		t.Error("three-addresses Covered = false with 3 separate stations")
+	}
+}
+
 // TestAreaAggregatesExcludesStaleReadings pins freshnessWindow: a reading
 // older than the window must not count toward SensorCount or influence
 // Values, even though the sensor otherwise looks perfectly healthy.
