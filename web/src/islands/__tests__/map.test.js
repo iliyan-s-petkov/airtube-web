@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, openDeepLinkedSensor, areaPath, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -1211,6 +1211,92 @@ describe('locateVisitor', () => {
 
     await expect(locateVisitor(map, state, cfg, chrome, fetchJSON)).resolves.toBeUndefined()
     expect(map.jumpTo).not.toHaveBeenCalled()
+    expect(state.slug).toBeNull()
+  })
+})
+
+// A URL like /en/#sensor=11338 carries the sensor id in a fragment the server
+// never sees, so a page opened on it drew the whole country and left the reader
+// to find the sensor themselves. openDeepLinkedSensor is what turns that URL
+// into the view it promises.
+describe('openDeepLinkedSensor', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests(); setSensors(null) })
+  afterEach(() => { resetViewStateForTests(); setSensors(null) })
+
+  function fakeMap() {
+    return {
+      jumpTo: vi.fn(),
+      getZoom: vi.fn(() => 7),
+      getSource: vi.fn(() => ({ setData: vi.fn() })),
+    }
+  }
+
+  const chrome = () => ({ showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn(), showLegend: vi.fn() })
+  const cfg = {
+    lon: 25.4858, lat: 42.7339, zoom: 7,
+    zoomCity: 9, zoomSensor: 11, metric: 'P2', noDataColour: '#9ca3af',
+    t: { hint: 'h', unavailable: 'u' },
+  }
+  // The forced refresh openDeepLinkedSensor ends with goes through the real
+  // getJSON; stubbed so it resolves quietly instead of logging a failure.
+  const stubFetch = () => vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }))
+
+  function viewState(sensorId) {
+    return { get sensorId() { return sensorId } }
+  }
+
+  it('flies to the sensor at the sensor tier and adopts its area', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const fetchJSON = vi.fn().mockResolvedValue({ id: 11338, lon: 23.31, lat: 42.69, slug: 'sofia' })
+
+    const moved = await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(11338), fetchJSON)
+
+    expect(fetchJSON).toHaveBeenCalledWith('/api/v1/sensor/11338/locate')
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [23.31, 42.69], zoom: cfg.zoomSensor })
+    expect(state.slug).toBe('sofia')
+    expect(moved).toBe(true)
+  })
+
+  // Nothing to resolve: no deep link, or the sensor is already in the payload
+  // the map holds, in which case the panel opens without a request.
+  it('asks for nothing when there is no deep link, or the sensor is already loaded', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const fetchJSON = vi.fn()
+
+    expect(await openDeepLinkedSensor(fakeMap(), { slug: null }, cfg, chrome(), viewState(null), fetchJSON)).toBe(false)
+
+    setSensors({ sensors: { id: [11338], lon: [23.31], lat: [42.69], quality: ['ok'], type: ['SDS011'], P2: [12] } })
+    expect(await openDeepLinkedSensor(fakeMap(), { slug: null }, cfg, chrome(), viewState(11338), fetchJSON)).toBe(false)
+
+    expect(fetchJSON).not.toHaveBeenCalled()
+  })
+
+  // A refused or failed lookup — the enumeration limiter answers 429 — must
+  // leave the map exactly where the server put it, not throw out of mount().
+  it('stays put when the lookup fails or answers nothing usable', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    for (const body of [Promise.reject(new Error('429')), Promise.resolve(null), Promise.resolve({ id: 11338, slug: 'sofia' })]) {
+      const map = fakeMap()
+      const state = { slug: null, tier: null, scales: null }
+      const moved = await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(11338), vi.fn(() => body))
+      expect(moved).toBe(false)
+      expect(map.jumpTo).not.toHaveBeenCalled()
+      expect(state.slug).toBeNull()
+    }
+  })
+
+  // A sensor the snapshot knows but no area page owns: the position is still
+  // worth flying to, and adopting a slug no endpoint serves would be worse.
+  it('flies to a sensor with no area without adopting an empty slug', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const fetchJSON = vi.fn().mockResolvedValue({ id: 7, lon: 25, lat: 43, slug: '' })
+
+    expect(await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(7), fetchJSON)).toBe(true)
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [25, 43], zoom: cfg.zoomSensor })
     expect(state.slug).toBeNull()
   })
 })

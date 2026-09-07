@@ -123,6 +123,7 @@ func NewRouter(d Deps) *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/area/{slug}/sensors", d.handleAreaSensors)
 	mux.HandleFunc("GET /api/v1/area/{slug}/series", d.handleAreaSeries)
 	mux.HandleFunc("GET /api/v1/sensor/{id}/series", d.handleSensorSeries)
+	mux.HandleFunc("GET /api/v1/sensor/{id}/locate", d.handleSensorLocate)
 	mux.HandleFunc("GET /api/v1/locate", d.handleLocate)
 
 	// Phase 1 §7.4's partner API is deferred to Phase 4. The path is reserved

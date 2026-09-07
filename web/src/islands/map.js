@@ -15,7 +15,7 @@ import { getJSON, clearCache } from '../lib/api.js'
 import { getFreshness } from '../lib/freshness.svelte.js'
 import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
-import { setSensors, setScales } from '../lib/sensors.svelte.js'
+import { setSensors, setScales, findSensor } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
@@ -395,12 +395,18 @@ export function mount(el) {
     // work with, rather than racing it.
     onMetricChange(map, state, cfg, chrome, vs.metric)
 
+    // A #sensor= in the URL is the most specific thing anyone can say about
+    // where this map should open, so it is asked first and, when it answers,
+    // the geoip placement below is skipped: a link to a sensor in Plovdiv sent
+    // to a reader in Sofia must land on the sensor.
+    const deepLinked = await openDeepLinkedSensor(map, state, cfg, chrome, vs)
+
     // Home page only: an area page's map island carries a fixed data-slug
     // (cfg.slug is non-null there), so its opening view is already the
     // area's own centre and there is nothing for /api/v1/locate to improve.
     // Fired after the first paint above, not before it, so a slow or failed
     // lookup never delays the map the visitor already sees.
-    if (!cfg.slug) await locateVisitor(map, state, cfg, chrome)
+    if (!deepLinked && !cfg.slug) await locateVisitor(map, state, cfg, chrome)
   })
 
   map.on('moveend', debounce(() => {
@@ -798,6 +804,34 @@ export async function locateVisitor(map, state, cfg, chrome, fetchJSON = getJSON
   map.jumpTo({ center: located.centre, zoom: located.zoom })
   state.slug = located.slug
   await refresh(map, state, cfg, chrome, true)
+}
+
+// openDeepLinkedSensor resolves a #sensor=<id> the page was opened on into the
+// view that link promises: the map at the sensor tier, over the sensor, with
+// its area adopted so refresh() loads the sensors the panel then reads.
+//
+// The fragment never reaches the server, so this is the only moment the id can
+// be acted on, and /api/v1/sensor/{id}/locate exists for exactly this question.
+// Skipped entirely when the map already holds the sensor — that is the
+// marker-click path, where the panel opens with no request at all.
+//
+// Returns whether it moved the map, so mount() can leave the visitor where the
+// deep link put them rather than overriding it with a geoip placement. Any
+// failure — a refusal by the enumeration limiter, a sensor the snapshot does
+// not know — returns false and leaves the map exactly where it was.
+export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSON = getJSON) {
+  const id = vs.sensorId
+  if (id === null || id === undefined || findSensor(id)) return false
+
+  const body = await fetchJSON(`/api/v1/sensor/${id}/locate`).catch(() => null)
+  if (typeof body?.lon !== 'number' || typeof body?.lat !== 'number') return false
+
+  map.jumpTo({ center: [body.lon, body.lat], zoom: cfg.zoomSensor })
+  // Only a real slug: a sensor outside every area still deserves the flight,
+  // and adopting '' would make refresh() ask for an area page that cannot exist.
+  if (body.slug) state.slug = body.slug
+  await refresh(map, state, cfg, chrome, true)
+  return true
 }
 
 // locateMe is the PRECISE, user-initiated path to an area page — distinct

@@ -175,6 +175,7 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 		return nil, fmt.Errorf("snapshot: encode hexes: %w", err)
 	}
 	snap.points = pointsFrom(sensors)
+	snap.SensorLocations = sensorLocationsFrom(sensors, snap.KnownSlugs)
 
 	// The forecast overlay, read from our own table rather than fetched here:
 	// the met model updates hourly and the ingest cycle runs every five
