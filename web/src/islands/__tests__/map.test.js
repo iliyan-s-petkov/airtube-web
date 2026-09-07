@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, openDeepLinkedSensor, areaPath, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, openDeepLinkedSensor, DEEP_LINK_ZOOM, areaPath, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -1254,10 +1254,10 @@ describe('openDeepLinkedSensor', () => {
     const moved = await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(11338), fetchJSON)
 
     expect(fetchJSON).toHaveBeenCalledWith('/api/v1/sensor/11338/locate')
-    // The point tier, not cfg.zoomSensor: the link promises the sensor, and
-    // below this zoom the map draws bins that hold several of them.
-    expect(map.jumpTo).toHaveBeenCalledWith({ center: [23.31, 42.69], zoom: POINT_TIER_MIN_ZOOM })
-    expect(POINT_TIER_MIN_ZOOM).toBeGreaterThan(cfg.zoomSensor)
+    // Past the point tier, not at cfg.zoomSensor: the link promises one
+    // sensor, and below the point tier the map draws bins holding several.
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [23.31, 42.69], zoom: DEEP_LINK_ZOOM })
+    expect(DEEP_LINK_ZOOM).toBeGreaterThan(POINT_TIER_MIN_ZOOM)
     expect(state.slug).toBe('sofia')
     expect(moved).toBe(true)
   })
@@ -1299,7 +1299,7 @@ describe('openDeepLinkedSensor', () => {
     const fetchJSON = vi.fn().mockResolvedValue({ id: 7, lon: 25, lat: 43, slug: '' })
 
     expect(await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(7), fetchJSON)).toBe(true)
-    expect(map.jumpTo).toHaveBeenCalledWith({ center: [25, 43], zoom: POINT_TIER_MIN_ZOOM })
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [25, 43], zoom: DEEP_LINK_ZOOM })
     expect(state.slug).toBeNull()
   })
 })
