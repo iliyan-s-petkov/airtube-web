@@ -18,6 +18,7 @@ import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
+import { readFlag, writeFlag } from '../lib/storage.js'
 import { nearestArea } from '../lib/nearest.js'
 import {
   hexesURL, hexFeatures, resolutionForZoom,
@@ -80,6 +81,12 @@ const HEX_LAYER_ID = 'airbg-hex-fill'
 const HEX_OUTLINE_LAYER_ID = 'airbg-hex-outline'
 const HEX_POINT_LAYER_ID = 'airbg-hex-point'
 export const HEX_LABEL_LAYER_ID = 'airbg-hex-labels'
+
+// Whether the colour key is unrolled. Its own key, not part of the layers
+// menu's state: the menu decides whether the key exists, this decides whether
+// it is folded, and conflating them would make turning the key back on undo a
+// fold the reader never touched.
+export const LEGEND_FOLD_KEY = 'airbg:legend-open'
 
 // MapLibre's own maxzoom default. setLayerZoomRange takes both ends, so a call
 // that only means to move the floor still has to name a ceiling.
@@ -1384,12 +1391,18 @@ export function mountChrome(el, cfg) {
   const shell = el.closest('.map-shell') ?? el
 
   // <details>: it owns the open state, the keyboard and the accessible name, so
-  // nothing else has to record whether the key is folded. Open by default — a
-  // key the reader has to find and unfold does not explain the colours they are
-  // already looking at.
+  // nothing else in the DOM has to record whether the key is folded. Open by
+  // default — a key the reader has to find and unfold does not explain the
+  // colours they are already looking at.
+  //
+  // The fold is remembered, like every other map preference. It is a different
+  // control from the layers menu's "Legend": the menu says whether there is a
+  // key at all, the triangle says whether it is unrolled, and a reader who
+  // folds the key on a small screen wants it folded on the next page too.
   const legend = document.createElement('details')
   legend.className = LEGEND_CLASSES
-  legend.open = true
+  legend.open = readFlag(LEGEND_FOLD_KEY, true)
+  legend.addEventListener('toggle', () => writeFlag(LEGEND_FOLD_KEY, legend.open))
   shell.appendChild(legend)
 
   // What a dot aggregates at this zoom. Under the map as prose, not inside the

@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -1636,6 +1636,66 @@ describe('mountChrome() keeps the key on the map in fullscreen', () => {
     const legend = el.querySelector('details')
     expect(legend.tagName).toBe('DETAILS')
     expect(legend.open, 'the key came back folded shut').toBe(true)
+  })
+})
+
+// The fold and the layers-menu option are two different controls: the menu says
+// whether there is a key at all, the triangle says whether it is unrolled. A
+// fold that forgets is the one that reads as broken — the reader folds the key
+// away, reloads, and it is back over the map.
+describe('mountChrome() remembers whether the key is folded', () => {
+  const chromeFrame = () => {
+    const shell = document.createElement('div')
+    shell.className = 'map-shell'
+    const el = document.createElement('div')
+    el.className = 'map'
+    shell.appendChild(el)
+    document.body.appendChild(shell)
+    return { shell, el }
+  }
+
+  // This jsdom has no localStorage of its own, so the seam is stubbed rather
+  // than cleared — which also proves the code reaches for the real one.
+  let store
+  beforeEach(() => {
+    store = new Map()
+    vi.stubGlobal('localStorage', {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    })
+  })
+  // Left stubbed on purpose: vi.unstubAllGlobals would also drop the fetch stub
+  // the later suites install, and an empty store reads exactly like the absent
+  // localStorage this jsdom otherwise has.
+
+  it('opens the key on a first visit', () => {
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    expect(shell.querySelector('details').open).toBe(true)
+  })
+
+  it('records the fold when the reader closes it', () => {
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    const legend = shell.querySelector('details')
+
+    legend.open = false
+    legend.dispatchEvent(new Event('toggle'))
+
+    expect(store.get(LEGEND_FOLD_KEY)).toBe('false')
+  })
+
+  it('opens folded on the next visit, and records the reopening', () => {
+    store.set(LEGEND_FOLD_KEY, 'false')
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    const legend = shell.querySelector('details')
+    expect(legend.open, 'the key ignored the remembered fold').toBe(false)
+
+    legend.open = true
+    legend.dispatchEvent(new Event('toggle'))
+    expect(store.get(LEGEND_FOLD_KEY)).toBe('true')
   })
 })
 
