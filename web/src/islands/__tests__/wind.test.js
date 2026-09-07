@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  arrowBearing, arrowImage, arrowLayout, arrowPaint, windFeatures, windLabel,
-  ARROW_IMAGE_ID, ARROW_PX, WIND_LAYER_ID,
+  arrowBearing, arrowImage, arrowLayout, arrowPaint, windFeatures, windField, windLabel,
+  ARROW_IMAGE_ID, ARROW_PX, WIND_LAYER_ID, WIND_FIELD_MAX,
 } from '../wind.js'
 import { setWind } from '../map.js'
 
@@ -155,6 +155,92 @@ describe('windFeatures', () => {
   })
 })
 
+// The served field is a fixed national lattice at HexResolutionKM. Zoom past a
+// city and the viewport holds one vector, then none, and a layer the reader
+// switched on empties itself — which is indistinguishable from the forecast
+// having failed. The arrows are resampled onto a viewport-sized lattice so the
+// field stays a field at every zoom.
+//
+// This adds no information and is not allowed to imply any: every arrow is the
+// nearest served vector, repeated, and the disclosure already names the model's
+// own grid as the thing the reader should judge the detail by.
+describe('windField', () => {
+  const body = {
+    forecast: true,
+    vectors: [
+      { lon: 23.0, lat: 42.6, speed_ms: 3, direction_deg: 0 },
+      { lon: 23.4, lat: 42.6, speed_ms: 9, direction_deg: 90 },
+    ],
+  }
+  // A tight viewport around the first vector, at a zoom where the served field
+  // would put one arrow on the screen.
+  const view = { bounds: [22.9, 42.55, 23.1, 42.65], zoom: 13 }
+
+  it('draws many arrows where the served field would draw one', () => {
+    const served = windFeatures(body).filter((f) => {
+      const [lon, lat] = f.geometry.coordinates
+      return lon >= 22.9 && lon <= 23.1 && lat >= 42.55 && lat <= 42.65
+    })
+    expect(served).toHaveLength(1)
+    expect(windField(body, view).length).toBeGreaterThan(served.length * 5)
+  })
+
+  it('repeats the nearest served vector rather than inventing a value', () => {
+    const f = windField(body, view)
+    // Every point in this viewport is nearest the 3 m/s vector, so every arrow
+    // carries its speed and its bearing. An interpolated field would show
+    // values between 3 and 9 that no forecast ever reported.
+    expect([...new Set(f.map((x) => x.properties.speed))]).toEqual([3])
+    expect([...new Set(f.map((x) => x.properties.bearing))]).toEqual([180])
+  })
+
+  it('stays inside the viewport it was given', () => {
+    for (const f of windField(body, view)) {
+      const [lon, lat] = f.geometry.coordinates
+      expect(lon).toBeGreaterThanOrEqual(22.9)
+      expect(lon).toBeLessThanOrEqual(23.1)
+      expect(lat).toBeGreaterThanOrEqual(42.55)
+      expect(lat).toBeLessThanOrEqual(42.65)
+    }
+  })
+
+  // Zoomed out, the served lattice is already denser than the screen: resampling
+  // there would draw arrows on top of each other and cost a scan per point for
+  // nothing.
+  it('serves the whole field untouched when zoomed out', () => {
+    const wide = { bounds: [22, 41, 28, 44], zoom: 7 }
+    expect(windField(body, wide)).toEqual(windFeatures(body))
+  })
+
+  // The model does not cover the sea, and the served field stops at the
+  // country. A lattice point with no vector near it must draw nothing rather
+  // than borrow a reading from a hundred kilometres away.
+  it('draws nothing where no served vector is near', () => {
+    const offshore = { bounds: [28.5, 43.0, 28.7, 43.1], zoom: 13 }
+    expect(windField(body, offshore)).toEqual([])
+  })
+
+  it('is empty for a body that does not declare itself a forecast', () => {
+    expect(windField({ ...body, forecast: false }, view)).toEqual([])
+    expect(windField(null, view)).toEqual([])
+  })
+
+  // A lattice sized purely by zoom is unbounded: a wide viewport at a high zoom
+  // is tens of thousands of points, each costing a scan of the served field.
+  it('never builds more arrows than it can draw usefully', () => {
+    // Blanketed with vectors on purpose: a sparse field is capped by the
+    // distance cutoff instead, which would let an uncapped lattice pass.
+    const dense = { forecast: true, vectors: [] }
+    for (let lon = 22; lon <= 28; lon += 0.1) {
+      for (let lat = 41; lat <= 44; lat += 0.1) {
+        dense.vectors.push({ lon, lat, speed_ms: 4, direction_deg: 45 })
+      }
+    }
+    const huge = { bounds: [22, 41, 28, 44], zoom: 15 }
+    expect(windField(dense, huge).length).toBeLessThanOrEqual(WIND_FIELD_MAX)
+  })
+})
+
 describe('windLabel', () => {
   const t = { windAttribution: 'Forecast · {model} ({resolution}°) · valid {time}' }
   const body = {
@@ -211,6 +297,21 @@ describe('setWind', () => {
     return { map, chrome, source }
   }
 
+  const bounds = (w, s, e, n) => ({
+    getWest: () => w, getSouth: () => s, getEast: () => e, getNorth: () => n,
+  })
+
+  // A map that cannot report its viewport still gets arrows: the fallback is the
+  // served field, which is what the layer drew before it was resampled at all.
+  it('falls back to the served field when the map reports no bounds', async () => {
+    const { map, chrome, source } = fakes()
+    const state = { on: false, body: null, loading: false }
+
+    await setWind(map, cfg, chrome, state, true, async () => body)
+
+    expect(source.data.features).toEqual(windFeatures(body))
+  })
+
   it('shows the arrows and the disclosure in the same act', async () => {
     const { map, chrome, source } = fakes()
     const state = { on: false, body: null, loading: false }
@@ -241,6 +342,21 @@ describe('setWind', () => {
     // this answer, and a ticked box over a map with no arrows would be the menu
     // claiming a layer that is not there.
     expect(reached).toBe(false)
+  })
+
+  // The bug this fixes: at street zoom the served lattice puts one arrow in the
+  // viewport, then none, and a layer the reader deliberately switched on goes
+  // blank. setWind has to hand the source the resampled field, not the served
+  // one — otherwise the fix exists in windField and never reaches the map.
+  it('draws the field the viewport asked for, not the one the server sent', async () => {
+    const { map, chrome, source } = fakes()
+    map.getZoom = () => 13
+    map.getBounds = () => bounds(23.2, 42.65, 23.4, 42.75)
+    const state = { on: false, body: null, loading: false }
+
+    await setWind(map, cfg, chrome, state, true, async () => body)
+
+    expect(source.data.features.length).toBeGreaterThan(body.vectors.length)
   })
 
   it('hides both halves again, and does not refetch to do it', async () => {

@@ -27,6 +27,85 @@ export function windFeatures(body) {
   }))
 }
 
+// The served field is a fixed national lattice at the snapshot's own hex
+// resolution. Zoom past a city and the viewport holds one vector, then none,
+// and a layer the reader switched on empties itself — which from the outside
+// looks exactly like the forecast having failed.
+//
+// So the arrows are resampled onto a lattice sized to the screen. NEAREST
+// served vector, never an interpolation: an interpolated field would show
+// speeds and directions no forecast reported, and the arrows would stop being
+// the model's answer. Repetition is the honest artefact, and the disclosure
+// already names the model's own grid as the thing to judge the detail by.
+export const WIND_SERVED_SPACING_KM = 15
+const WIND_ARROW_PX = 64
+export const WIND_FIELD_MAX = 600
+
+const EARTH_RADIUS_KM = 6371
+const KM_PER_DEG_LAT = (Math.PI * EARTH_RADIUS_KM) / 180
+const M_PER_PX_Z0 = ((2 * Math.PI * EARTH_RADIUS_KM * 1000) / 256) * Math.cos((42.7 * Math.PI) / 180)
+
+// The spacing that puts an arrow every WIND_ARROW_PX on screen.
+function windSpacingKm(zoom) {
+  return (WIND_ARROW_PX * M_PER_PX_Z0) / 2 ** zoom / 1000
+}
+
+export function windField(body, { bounds, zoom }) {
+  const served = windFeatures(body)
+  const spacing = windSpacingKm(zoom)
+  // Zoomed out far enough that the served lattice is already denser than the
+  // screen: resampling would only throw arrows away.
+  if (!served.length || spacing >= WIND_SERVED_SPACING_KM) return served
+
+  const [west, south, east, north] = bounds
+  const dLat = spacing / KM_PER_DEG_LAT
+  const kmPerDegLon = KM_PER_DEG_LAT * Math.cos(((north + south) / 2 * Math.PI) / 180)
+  const dLon = spacing / kmPerDegLon
+
+  // Two ways to overrun: a wide viewport, and a high zoom. Both end in the same
+  // place — a lattice of tens of thousands of points, each costing a scan of
+  // the served field — so the step is widened until the count fits rather than
+  // the lattice being truncated, which would fill a corner and leave the rest
+  // blank.
+  const rows = Math.floor((north - south) / dLat) + 1
+  const cols = Math.floor((east - west) / dLon) + 1
+  let stride = Math.max(1, Math.ceil(Math.sqrt((rows * cols) / WIND_FIELD_MAX)))
+  while (Math.ceil(rows / stride) * Math.ceil(cols / stride) > WIND_FIELD_MAX) stride++
+
+  // A point with nothing near it draws nothing: the model stops at the coast
+  // and at the border, and borrowing a reading from across that gap would put
+  // arrows over water the forecast never described.
+  const reach = WIND_SERVED_SPACING_KM
+
+  const out = []
+  for (let r = 0; r * stride < rows; r++) {
+    for (let c = 0; c * stride < cols; c++) {
+      const lat = south + r * stride * dLat
+      const lon = west + c * stride * dLon
+      const near = nearest(served, lon, lat, kmPerDegLon)
+      if (!near || near.km > reach) continue
+      out.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [lon, lat] },
+        properties: { ...near.feature.properties },
+      })
+    }
+  }
+  return out
+}
+
+function nearest(features, lon, lat, kmPerDegLon) {
+  let best = null
+  for (const f of features) {
+    const [flon, flat] = f.geometry.coordinates
+    const dx = (flon - lon) * kmPerDegLon
+    const dy = (flat - lat) * KM_PER_DEG_LAT
+    const km = Math.hypot(dx, dy)
+    if (!best || km < best.km) best = { km, feature: f }
+  }
+  return best
+}
+
 // windLabel is the persistent attribution, shown whenever the layer is on.
 // Never behind a control: the point of sourcing wind from a met model rather
 // than deriving it from our own sensors was to avoid presenting inference as

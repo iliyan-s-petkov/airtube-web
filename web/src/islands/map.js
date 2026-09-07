@@ -24,7 +24,7 @@ import {
   GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL,
 } from '../lib/hexes.js'
 import {
-  WIND_SOURCE_ID, WIND_LAYER_ID, ARROW_IMAGE_ID, windFeatures, windLabel,
+  WIND_SOURCE_ID, WIND_LAYER_ID, ARROW_IMAGE_ID, windFeatures, windField, windLabel,
   arrowImage, arrowLayout, arrowPaint,
 } from './wind.js'
 
@@ -390,6 +390,9 @@ export function mount(el) {
   map.on('moveend', debounce(() => {
     refresh(map, state, cfg, chrome)
     refreshHexes(map, state, cfg)
+    // Only while the layer is on: the arrow lattice is sized to the viewport,
+    // so a move that changes the zoom changes which arrows exist.
+    if (windState.on) paintWind(map, windState)
   }, MOVE_DEBOUNCE_MS))
 
   // One layer, two kinds of feature (see sensorFeatures/areaFeatures): an
@@ -495,11 +498,33 @@ export async function setWind(map, cfg, chrome, state, on, fetchJSON = getJSON) 
       state.loading = false
     }
   }
-  map.getSource(WIND_SOURCE_ID).setData({ type: 'FeatureCollection', features: windFeatures(state.body) })
+  paintWind(map, state)
   map.setLayoutProperty(WIND_LAYER_ID, 'visibility', 'visible')
   state.on = true
   chrome.showWind(true, windLabel(state.body, cfg.t))
   return true
+}
+
+// paintWind redraws the arrows for the viewport the map is currently showing.
+//
+// The served field is one national lattice at the snapshot's hex resolution, so
+// drawing it as-is means the arrows thin out as the reader zooms in and are
+// gone entirely over a single neighbourhood — a layer that empties itself looks
+// exactly like a forecast that failed. windField resamples the same vectors
+// onto a screen-sized lattice instead; the values are still the model's, only
+// repeated, and the disclosure already names the grid they came from.
+export function paintWind(map, state) {
+  if (!state.body) return
+  const source = map.getSource(WIND_SOURCE_ID)
+  if (!source) return
+  const b = map.getBounds?.()
+  const features = b
+    ? windField(state.body, {
+      bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
+      zoom: map.getZoom(),
+    })
+    : windFeatures(state.body)
+  source.setData({ type: 'FeatureCollection', features })
 }
 
 // onMetricChange is what runs on every metric switch (and once, explicitly,

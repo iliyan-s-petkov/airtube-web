@@ -7,7 +7,7 @@
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
-import { ARROW_IMAGE_ID, WIND_LAYER_ID } from '../wind.js'
+import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
@@ -1856,6 +1856,53 @@ describe('the wind toggle lives in the layers menu, not in the corner', () => {
     await vi.waitFor(() => {
       expect(map.setLayoutProperty).toHaveBeenCalledWith(WIND_LAYER_ID, 'visibility', 'visible')
     })
+  })
+
+  // The arrow lattice is sized to the viewport, so the arrows a zoomed-in map
+  // needs do not exist until the move is over. Without this the layer keeps the
+  // field it was switched on with and empties out as the reader zooms in.
+  it('redraws the field after a move, while the layer is on', async () => {
+    const source = { setData: vi.fn() }
+    const { map, el } = mountTestMap({ metric: 'P2' })
+    // Only the wind source is spied: refresh and refreshHexes set data on their
+    // own sources on the same moveend, and a shared spy could not tell them apart.
+    map.getSource = vi.fn((id) => (id === WIND_SOURCE_ID ? source : { setData: vi.fn() }))
+    const box = el.querySelector('[data-layer-key="view:wind"]')
+
+    box.checked = true
+    box.dispatchEvent(new Event('change'))
+    await vi.waitFor(() => expect(source.setData).toHaveBeenCalled())
+
+    source.setData.mockClear()
+    map.getZoom.mockReturnValue(14)
+    map.handlers.moveend()
+
+    await vi.waitFor(() => expect(source.setData).toHaveBeenCalled(), { timeout: 2000 })
+  })
+
+  // Switched on and then off again, the forecast body is still cached — so the
+  // "have I got data" test is not enough to keep a hidden layer from being
+  // repainted on every move.
+  it('does not redraw the field after a move while the layer is off', async () => {
+    const source = { setData: vi.fn() }
+    const { map, el } = mountTestMap({ metric: 'P2' })
+    // Only the wind source is spied: refresh and refreshHexes set data on their
+    // own sources on the same moveend, and a shared spy could not tell them apart.
+    map.getSource = vi.fn((id) => (id === WIND_SOURCE_ID ? source : { setData: vi.fn() }))
+    const box = el.querySelector('[data-layer-key="view:wind"]')
+
+    box.checked = true
+    box.dispatchEvent(new Event('change'))
+    await vi.waitFor(() => expect(source.setData).toHaveBeenCalled())
+    box.checked = false
+    box.dispatchEvent(new Event('change'))
+    source.setData.mockClear()
+
+    map.getZoom.mockReturnValue(14)
+    map.handlers.moveend()
+
+    await new Promise((r) => setTimeout(r, 600))
+    expect(source.setData).not.toHaveBeenCalled()
   })
 })
 
