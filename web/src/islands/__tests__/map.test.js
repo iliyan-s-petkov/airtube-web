@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, openDeepLinkedSensor, DEEP_LINK_ZOOM, areaPath, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -1304,46 +1304,19 @@ describe('openDeepLinkedSensor', () => {
   })
 })
 
-// areaPath: the client-side navigation target locateMe hands to `navigate`.
-// The prefix comes from the server (data-lang-prefix, PageData.LangPrefix) and
-// is never sniffed from window.location — the language set is data, so the
-// browser cannot tell a language segment from a page segment.
-describe('areaPath', () => {
-  it('builds an unprefixed path for the default language', () => {
-    expect(areaPath('', 'sofia')).toBe('/area/sofia')
-  })
-
-  it('keeps the reader in whatever language the server rendered', () => {
-    expect(areaPath('/en', 'sofia')).toBe('/en/area/sofia')
-    // A language nobody compiled in works the same way — this is the case a
-    // hardcoded '/en' check silently got wrong.
-    expect(areaPath('/de', 'sofia')).toBe('/de/area/sofia')
-  })
-
-  it('percent-encodes the slug', () => {
-    expect(areaPath('', 'a/b')).toBe('/area/a%2Fb')
-  })
-
-  // The prefix is data from an attribute, and the slug is data from the API.
-  // Neither may open a path-traversal or protocol-switch hole; the prefix is
-  // server-rendered so it is trusted, but the slug never is.
-  it('cannot be talked out of the /area/ path by a hostile slug', () => {
-    expect(areaPath('', '../../evil')).toBe('/area/..%2F..%2Fevil')
-  })
-})
-
-// locateMe: the PRECISE, user-initiated path. Never touches the network with
-// a coordinate — nearestArea resolves it against state.areas entirely in the
-// browser (see nearest.js), and only the resulting slug is handed to
-// `navigate`.
+// locateMe zooms THIS map to the sensor nearest the fix; it no longer
+// navigates to the area page, and never sends the coordinate anywhere.
 describe('locateMe', () => {
+  beforeEach(() => { clearCache(); setSensors(null) })
+  afterEach(() => { clearCache(); setSensors(null) })
+
   const cfg = {
-    // Every real cfg carries this (readConfig defaults it to ''), and locateMe
-    // hands it to areaPath — a fixture without it produced "undefined/area/…".
-    langPrefix: '',
+    lon: 25.4858, lat: 42.7339, zoom: 7,
+    zoomCity: 9, zoomSensor: 11, metric: 'P2', noDataColour: '#9ca3af',
     t: {
       locateDenied: 'Location access was denied.',
       locateFailed: 'We could not determine your location.',
+      hint: 'h', unavailable: 'u',
     },
   }
 
@@ -1351,83 +1324,117 @@ describe('locateMe', () => {
     return { showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn(), showLegend: vi.fn() }
   }
 
+  // getZoom follows the last jumpTo, so refresh() sees the tier it lands in.
+  function fakeMap() {
+    let zoom = 7
+    return {
+      jumpTo: vi.fn(({ zoom: z }) => { zoom = z }),
+      getZoom: () => zoom,
+      getBounds: () => ({ getWest: () => 23.2, getSouth: () => 42.6, getEast: () => 23.4, getNorth: () => 42.8 }),
+      getSource: vi.fn(() => ({ setData: vi.fn() })),
+    }
+  }
+
   const areas = [{ slug: 'sofia', lon: 23.32, lat: 42.7, zoom: 11 }]
+  // Two sensors either side of the fix, so "nearest" is a real choice.
+  const sensorBody = {
+    generated_at: '2026-09-07T00:00:00Z',
+    sensors: { id: [11338, 22], lon: [23.30, 23.39], lat: [42.70, 42.70], quality: ['ok', 'ok'], type: ['SDS011', 'SDS011'], P2: [5, 6] },
+  }
 
-  it('navigates to the nearest area on a successful fix', () => {
-    const state = { areas }
-    const chrome = fakeChrome()
-    const navigate = vi.fn()
-    const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
+  function stubFetch(sensors = sensorBody) {
+    return vi.fn(async (url) => ({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => (String(url).includes('/sensors') ? sensors : { areas: [] }),
+    }))
+  }
 
-    locateMe(state, cfg, chrome, { geolocation, navigate })
+  const fixAt = (lon, lat) => ({ getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: lon, latitude: lat } }) })
 
-    expect(navigate).toHaveBeenCalledWith('/area/sofia')
-    expect(chrome.showHint).not.toHaveBeenCalled()
+  it('zooms this map to the nearest sensor and never leaves the page', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null, areas, hexUrl: null, hexBody: null }
+
+    await locateMe(map, state, cfg, fakeChrome(), { geolocation: fixAt(23.31, 42.70) })
+
+    // The sensor list is per area, so the area has to be adopted first.
+    expect(state.slug).toBe('sofia')
+    // First the fix, then the sensor closest to it: 11338 at 23.30, not 22.
+    expect(map.jumpTo).toHaveBeenNthCalledWith(1, { center: [23.31, 42.70], zoom: DEEP_LINK_ZOOM })
+    expect(map.jumpTo).toHaveBeenNthCalledWith(2, { center: [23.30, 42.70], zoom: DEEP_LINK_ZOOM })
+    expect(DEEP_LINK_ZOOM).toBeGreaterThan(POINT_TIER_MIN_ZOOM)
   })
 
-  // Find-me must not be the one control that ejects a reader from their
-  // language — including a language that only exists as a catalogue file.
-  it('keeps the visitor in the page language', () => {
-    const state = { areas }
-    const navigate = vi.fn()
-    const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
+  // Only the resolved slug may become a request: a coordinate in a URL would
+  // be the point query the API is built not to answer.
+  it('sends no coordinate to the server', async () => {
+    const fetchSpy = stubFetch()
+    vi.stubGlobal('fetch', fetchSpy)
+    const state = { slug: null, tier: null, scales: null, areas, hexUrl: null, hexBody: null }
 
-    locateMe(state, { ...cfg, langPrefix: '/de' }, fakeChrome(), { geolocation, navigate })
+    await locateMe(fakeMap(), state, cfg, fakeChrome(), { geolocation: fixAt(23.31, 42.70) })
 
-    expect(navigate).toHaveBeenCalledWith('/de/area/sofia')
+    for (const [url] of fetchSpy.mock.calls) {
+      expect(String(url)).not.toContain('42.70')
+      expect(String(url)).not.toContain('23.31')
+    }
   })
 
-  // nearestArea has no distance cutoff: any non-empty areas array always
-  // yields SOME nearest match, however far away. So its own null return can
-  // only mean "the area list is empty or has not loaded yet" — never
-  // "you're genuinely outside coverage" — and that unknown case must get
-  // locateFailed, the honest message. There is deliberately no
-  // outside-coverage string to show instead; give nearestArea a real cutoff
-  // before adding one back. Covers both null (never loaded, e.g. an area page
-  // still at the sensor tier — see state.areas's own comment in map.js) and
-  // [] (a country/city response with zero areas).
-  it('shows the "could not determine" message when the area list is unknown', () => {
-    const navigate = vi.fn()
-    const geolocation = { getCurrentPosition: (onSuccess) => onSuccess({ coords: { longitude: 23.3, latitude: 42.7 } }) }
+  // No sensor to centre on: the fix itself is still the best view.
+  it('stays over the fix when the area has no sensor to centre on', async () => {
+    vi.stubGlobal('fetch', stubFetch({ sensors: { id: [], lon: [], lat: [] } }))
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null, areas, hexUrl: null, hexBody: null }
+
+    await locateMe(map, state, cfg, fakeChrome(), { geolocation: fixAt(23.31, 42.70) })
+
+    expect(map.jumpTo).toHaveBeenCalledTimes(1)
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [23.31, 42.70], zoom: DEEP_LINK_ZOOM })
+  })
+
+  // null (never loaded) and [] (zero areas) both mean "we don't know", not
+  // "outside coverage" — nearestArea has no distance cutoff.
+  it('shows the "could not determine" message when the area list is unknown', async () => {
+    vi.stubGlobal('fetch', stubFetch())
 
     for (const unknownAreas of [null, []]) {
-      const state = { areas: unknownAreas }
+      const map = fakeMap()
       const chrome = fakeChrome()
 
-      locateMe(state, cfg, chrome, { geolocation, navigate })
+      await locateMe(map, { areas: unknownAreas }, cfg, chrome, { geolocation: fixAt(23.3, 42.7) })
 
-      expect(navigate).not.toHaveBeenCalled()
+      expect(map.jumpTo).not.toHaveBeenCalled()
       expect(chrome.showHint).toHaveBeenCalledTimes(1)
       expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
     }
   })
 
   // PERMISSION_DENIED === 1 per the Geolocation API spec.
-  it('shows the denied message for a PERMISSION_DENIED error', () => {
-    const state = { areas }
+  it('shows the denied message for a PERMISSION_DENIED error', async () => {
     const chrome = fakeChrome()
     const geolocation = { getCurrentPosition: (_s, onError) => onError({ code: 1 }) }
 
-    locateMe(state, cfg, chrome, { geolocation, navigate: vi.fn() })
+    await locateMe(fakeMap(), { areas }, cfg, chrome, { geolocation })
 
     expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateDenied)
   })
 
-  it('shows the generic failure message for any other geolocation error', () => {
-    const state = { areas }
+  it('shows the generic failure message for any other geolocation error', async () => {
     const chrome = fakeChrome()
     const geolocation = { getCurrentPosition: (_s, onError) => onError({ code: 2 }) }
 
-    locateMe(state, cfg, chrome, { geolocation, navigate: vi.fn() })
+    await locateMe(fakeMap(), { areas }, cfg, chrome, { geolocation })
 
     expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
   })
 
-  it('shows the generic failure message when the browser has no geolocation API at all', () => {
-    const state = { areas }
+  it('shows the generic failure message when the browser has no geolocation API at all', async () => {
     const chrome = fakeChrome()
 
-    locateMe(state, cfg, chrome, { geolocation: null, navigate: vi.fn() })
+    await locateMe(fakeMap(), { areas }, cfg, chrome, { geolocation: null })
 
     expect(chrome.showHint).toHaveBeenCalledWith(cfg.t.locateFailed)
   })

@@ -19,3 +19,23 @@ export function nearestArea([lon, lat], areas) {
   }
   return best
 }
+
+// Nearest sensor over the body the map already holds — same browser-side rule
+// as nearestArea, and asks for nothing more.
+export function nearestSensor([lon, lat], body) {
+  const cols = body?.sensors
+  if (!cols?.id) return null
+  const k = Math.cos((lat * Math.PI) / 180)
+  let best = null
+  let bestD = Infinity
+  for (let i = 0; i < cols.id.length; i++) {
+    const sLon = cols.lon?.[i]
+    const sLat = cols.lat?.[i]
+    if (typeof sLon !== 'number' || typeof sLat !== 'number') continue
+    const dx = (sLon - lon) * k
+    const dy = sLat - lat
+    const d = dx * dx + dy * dy
+    if (d < bestD) { bestD = d; best = { id: cols.id[i], lon: sLon, lat: sLat } }
+  }
+  return best
+}

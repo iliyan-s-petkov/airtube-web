@@ -15,11 +15,11 @@ import { getJSON, clearCache } from '../lib/api.js'
 import { getFreshness } from '../lib/freshness.svelte.js'
 import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
-import { setSensors, setScales, findSensor } from '../lib/sensors.svelte.js'
+import { setSensors, setScales, findSensor, getSensors } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
-import { nearestArea } from '../lib/nearest.js'
+import { nearestArea, nearestSensor } from '../lib/nearest.js'
 import {
   hexesURL, hexFeatures, resolutionForZoom,
   GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM,
@@ -155,7 +155,7 @@ export function mount(el) {
   // pans. See docs/wind-overlay.md.
   const windState = { on: false, body: null, loading: false }
 
-  chrome.locateButton.addEventListener('click', () => locateMe(state, cfg, chrome))
+  chrome.locateButton.addEventListener('click', () => locateMe(map, state, cfg, chrome))
 
   // unsubscribe is assigned inside the 'load' handler (see below) and read by
   // the returned `stop`. No call site in this app ever invokes `stop` today —
@@ -847,68 +847,45 @@ export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSO
   return true
 }
 
-// locateMe is the PRECISE, user-initiated path to an area page — distinct
-// from locateVisitor's coarse, server-side placement above. The coordinate
-// itself never reaches the network: nearestArea resolves it against the
-// already-loaded area list entirely in the browser, and only the resulting
-// slug becomes a request, as an ordinary page navigation. See nearest.js's
-// own comment for why: there is no server endpoint that accepts a point, by
-// design, because one would be a bounding-box query in disguise.
-//
-// geolocation/navigate are injected (default: the real browser APIs) so a
-// test can drive both the success and every error branch without a real
-// location prompt or a real page navigation.
-export function locateMe(state, cfg, chrome, { geolocation = navigator.geolocation, navigate = defaultNavigate } = {}) {
+// locateMe: the precise, user-initiated fix. Stays on this page — it zooms the
+// map the visitor is looking at, instead of navigating to the area page. The
+// coordinate never reaches the network (see nearest.js).
+export function locateMe(map, state, cfg, chrome, { geolocation = navigator.geolocation } = {}) {
   if (!geolocation) {
     chrome.showHint(cfg.t.locateFailed)
-    return
+    return Promise.resolve(false)
   }
-  geolocation.getCurrentPosition(
-    (pos) => {
-      // nearestArea has no distance cutoff: any non-empty areas array always
-      // yields SOME nearest match, however far away it actually is. So its
-      // own null return only ever means "the area list itself is empty or
-      // unknown" (state.areas hasn't loaded — see state.areas's own comment
-      // above), never "you are genuinely outside coverage". Checked here,
-      // BEFORE calling nearestArea, so that distinction reaches the honest
-      // message: locateFailed ("we don't know"), not an "you're outside
-      // coverage" claim this implementation cannot make true.
-      //
-      // Past this guard nearestArea cannot return null, so there is no
-      // outside-coverage branch to write. Give it a real distance cutoff
-      // before adding one back.
-      if (!state.areas || state.areas.length === 0) {
-        chrome.showHint(cfg.t.locateFailed)
-        return
-      }
-      const area = nearestArea([pos.coords.longitude, pos.coords.latitude], state.areas)
-      navigate(areaPath(cfg.langPrefix, area.slug))
-    },
-    (err) => {
-      // PERMISSION_DENIED === 1 is the Geolocation API's own constant
-      // (GeolocationPositionError.PERMISSION_DENIED); every other error
-      // (POSITION_UNAVAILABLE, TIMEOUT, or none of the above) gets the
-      // generic message.
-      chrome.showHint(err?.code === 1 ? cfg.t.locateDenied : cfg.t.locateFailed)
-    },
-  )
+  return new Promise((resolve) => {
+    geolocation.getCurrentPosition(
+      (pos) => resolve(showNearestSensor(map, state, cfg, chrome, [pos.coords.longitude, pos.coords.latitude])),
+      (err) => {
+        // PERMISSION_DENIED === 1 per the Geolocation API.
+        chrome.showHint(err?.code === 1 ? cfg.t.locateDenied : cfg.t.locateFailed)
+        resolve(false)
+      },
+    )
+  })
 }
 
-function defaultNavigate(url) {
-  window.location.href = url
-}
+// Two jumps, not one: sensor positions are only known once the area holding the
+// fix has been loaded, so the map goes to the fix first and re-centres on the
+// nearest sensor after. Hexes refreshed explicitly — the moveend pass is
+// debounced, and at this zoom the cells are the sensors.
+export async function showNearestSensor(map, state, cfg, chrome, point) {
+  // A null from nearestArea means the area list has not loaded, never
+  // "outside coverage" — it has no distance cutoff. Hence locateFailed.
+  if (!state.areas || state.areas.length === 0) {
+    chrome.showHint(cfg.t.locateFailed)
+    return false
+  }
+  map.jumpTo({ center: point, zoom: DEEP_LINK_ZOOM })
+  state.slug = nearestArea(point, state.areas).slug
+  await refresh(map, state, cfg, chrome, true)
 
-// areaPath builds the area URL under the language prefix the server rendered
-// this page at — a plain "/area/{slug}" would silently switch a non-default
-// reader back to the site's default language on click.
-//
-// The prefix is SERVER-SUPPLIED (data-lang-prefix), not sniffed from
-// window.location. The set of languages is data — an operator adds one by
-// dropping a catalogue into i18n.dir — so no expression here can know which
-// first path segment is a language and which is a page. Matching "/en" by hand
-// would send every German reader back to Bulgarian the day de.json lands.
-export function areaPath(prefix, slug) {
-  return `${prefix}/area/${encodeURIComponent(slug)}`
+  const sensor = nearestSensor(point, getSensors())
+  if (sensor) map.jumpTo({ center: [sensor.lon, sensor.lat], zoom: DEEP_LINK_ZOOM })
+  await refreshHexes(map, state, cfg)
+  return true
 }
 
 export function urlFor(tier, slug) {
@@ -1063,10 +1040,8 @@ export function readConfig(el) {
     metricLabels: byMetric(parseMetricList(d.metrics), splitAttr(d.metricLabels)),
     metricUnits: byMetric(parseMetricList(d.metrics), splitAttr(d.metricUnits)),
     basemap: d.basemap || '',
-    // The language prefix for in-app links: "" for the default language,
-    // "/de" otherwise. Server-rendered because the language set is data (see
-    // areaPath). Empty is a legitimate value, so the fallback is only for a
-    // missing attribute on the default-language page.
+    // Server-rendered: the language set is data, so no expression here could
+    // tell a language segment from a page segment. "" is the default language.
     langPrefix: d.langPrefix || '',
     // Which of the band table's two shipped label languages to show. Read off
     // <html lang>, which base.gohtml already renders, rather than derived from
