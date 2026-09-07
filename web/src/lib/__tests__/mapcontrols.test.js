@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mountFullscreen, mountZoom, installZoom } from '../mapcontrols.js'
+import { mountFullscreen, mountZoom, mountLocate, installZoom } from '../mapcontrols.js'
 
 const frame = () => {
   const el = document.createElement('div')
@@ -165,6 +165,35 @@ describe('mountZoom', () => {
     expect(paths(buttons.out)).toHaveLength(1)
     expect(paths(buttons.reset)).toHaveLength(3)
     expect(new Set([...paths(buttons.in), ...paths(buttons.reset)]).size).toBe(4)
+  })
+})
+
+describe('mountLocate', () => {
+  it('is an icon button with a name, not a word over the attribution', () => {
+    const el = frame()
+    const button = mountLocate(el, { label: 'Намери ме' })
+
+    expect(button.parentElement).toBe(el)
+    expect(button.className).toBe('map-locate')
+    expect(button.type).toBe('button')
+    // No text: a label beside the attribution is what made the two read as one
+    // control. The name moves to the places an icon-only control keeps it.
+    expect(button.textContent).toBe('')
+    expect(button.getAttribute('aria-label')).toBe('Намери ме')
+    expect(button.getAttribute('title')).toBe('Намери ме')
+    expect(button.querySelector('svg').getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('draws a crosshair, not one of the zoom stack marks', () => {
+    const el = frame()
+    const zoom = mountZoom(el, { inLabel: 'In', outLabel: 'Out', resetLabel: 'Reset' })
+    const button = mountLocate(el, { label: 'Locate' })
+    const paths = (b) => [...b.querySelectorAll('path')].map((p) => p.getAttribute('d'))
+
+    expect(paths(button).length).toBeGreaterThan(0)
+    for (const b of Object.values(zoom.buttons)) {
+      expect(paths(button)).not.toEqual(paths(b))
+    }
   })
 })
 

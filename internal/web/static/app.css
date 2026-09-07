@@ -182,16 +182,25 @@ strong, b { font-weight: var(--weight-emphasis); }
    full-screen button and zoom stack — bottom-right is the one spot nothing
    else claims. */
 .map-locate {
-  position: absolute; z-index: 1; bottom: var(--space-2); right: var(--space-2);
-  background: var(--overlay-bg); border: 0; border-radius: var(--radius); box-shadow: var(--elev-raised);
-  padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg); cursor: pointer;
+  position: absolute; z-index: 3; bottom: var(--space-2); right: var(--space-2);
+  display: inline-flex; align-items: center; justify-content: center;
+  inline-size: 2rem; block-size: 2rem;
+  background: var(--overlay-bg); border: 0; border-radius: 999px; box-shadow: var(--elev-raised);
+  padding: 0; color: var(--fg); cursor: pointer;
 }
 .map-locate:hover { background: var(--surface); }
+.map-locate:focus-visible { box-shadow: var(--focus-ring); }
+/* MapLibre pins its attribution to this same corner, and its compact form is a
+   round (i) the same size as the button above. Left unmoved the two sat on top
+   of each other: one control to look at, two to click. The margin is the
+   button's width plus its gutter, so the (i) ends up beside it — info on the
+   left, find-me on the right — rather than under it. */
+.maplibregl-ctrl-bottom-right { margin-inline-end: 2.5rem; }
 /* The forecast disclosure. Never behind a control and never a tooltip: it is
    the whole reason the layer is allowed on a map of measurements. Its control
    is a checkbox in the layers menu, so this corner holds only .map-locate. */
 .map-wind-label {
-  position: absolute; z-index: 1; bottom: 2.75rem; right: var(--space-2); max-width: 18rem;
+  position: absolute; z-index: 1; bottom: 3.5rem; right: var(--space-2); max-width: 18rem;
   background: var(--overlay-bg); border: 0; border-radius: var(--radius); box-shadow: var(--elev-raised);
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg-2);
 }

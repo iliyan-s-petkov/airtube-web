@@ -27,6 +27,13 @@ const GLYPHS = {
   in: ['M8 3.25v9.5', 'M3.25 8h9.5'],
   out: ['M3.25 8h9.5'],
   reset: ['M1.75 3.25h12.5v9.5H1.75z', 'M8 3.25v9.5', 'M1.75 8h12.5'],
+  // The crosshair every map uses for "where am I": a ring with four ticks
+  // breaking out of it. Not a pin — a pin is a place someone chose, and this
+  // button is about the reader's own position.
+  locate: [
+    'M8 3.25a4.75 4.75 0 1 0 0 9.5 4.75 4.75 0 0 0 0-9.5Z',
+    'M8 .75v2M8 13.25v2M.75 8h2M13.25 8h2',
+  ],
 }
 
 function icon(paths, className) {
@@ -148,6 +155,25 @@ export function mountZoom(frame, { inLabel, outLabel, resetLabel }) {
   }
   frame.appendChild(el)
   return { el, buttons }
+}
+
+// mountLocate builds the find-me button, unwired: the click handler needs the
+// area list and the camera, neither of which exists when the chrome is built.
+//
+// Icon-only, and a sibling of the attribution's own (i) rather than a word
+// sitting on top of it. It used to be a text button pinned to the same corner
+// MapLibre puts the attribution in, so the two overlapped: the reader saw one
+// control, clicked what looked like the middle of it, and got whichever was on
+// top. Two buttons of the same size, side by side, are two controls.
+export function mountLocate(frame, { label }) {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'map-locate'
+  button.setAttribute('aria-label', label)
+  button.setAttribute('title', label)
+  button.appendChild(icon(GLYPHS.locate, 'map-locate__ico'))
+  frame.appendChild(button)
+  return button
 }
 
 // installZoom connects the stack to a camera.
