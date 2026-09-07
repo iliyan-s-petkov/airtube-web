@@ -7,6 +7,7 @@ import {
   hexFeatures,
   BBOX_MIN_ZOOM,
   POINT_TIER_MIN_ZOOM,
+  TARGET_HEX_PX,
   GRID_MIN_ZOOM,
   GRID_MIN_ZOOM_FRACTIONAL,
   POINT_TIER_MIN_ZOOM_FRACTIONAL,
@@ -103,9 +104,18 @@ describe('resolutionForZoom', () => {
     const mPerPx = (z) => (156543.03392 * Math.cos(radians(42.75))) / 2 ** z
     for (let z = 6; z <= 16; z++) {
       const px = (resolutionForZoom(z) * 1000) / mPerPx(z)
-      expect(px).toBeGreaterThan(49)
-      expect(px).toBeLessThan(51)
+      expect(px).toBeGreaterThan(TARGET_HEX_PX - 1)
+      expect(px).toBeLessThan(TARGET_HEX_PX + 1)
     }
+  })
+
+  // The size itself, not just its consequences: every other assertion here
+  // derives from TARGET_HEX_PX and so holds at any value. These are the two
+  // limits that make the number a choice — a cell has to hold a two- or
+  // three-character reading, and it has to leave the map legible underneath.
+  it('draws a cell that holds a reading without hiding the map', () => {
+    expect(TARGET_HEX_PX).toBeGreaterThanOrEqual(24)
+    expect(TARGET_HEX_PX).toBeLessThanOrEqual(36)
   })
 
   // The whole feature in one assertion: country zoom asks for the coarse grid,
@@ -266,11 +276,13 @@ describe('the point tier', () => {
   const params = (z, b) => new URLSearchParams(hexesURL(z, b).split('?')[1])
 
   it('asks for points only once the grid runs out', () => {
-    // 0.25 km is the finest tier; resolutionForZoom crosses it between 14 and
-    // 15, so those two zooms are the boundary this asserts.
-    expect(params(14, bounds).get('resolution_km')).not.toBe('0')
-    expect(params(15, bounds).get('resolution_km')).toBe('0')
-    expect(params(16, bounds).get('resolution_km')).toBe('0')
+    // The boundary is the pair of zooms around POINT_TIER_MIN_ZOOM.
+    expect(params(POINT_TIER_MIN_ZOOM - 1, bounds).get('resolution_km')).not.toBe('0')
+    expect(params(POINT_TIER_MIN_ZOOM, bounds).get('resolution_km')).toBe('0')
+    expect(params(POINT_TIER_MIN_ZOOM + 1, bounds).get('resolution_km')).toBe('0')
+    // And it lands at street zoom, not country zoom: a point request is one
+    // feature per device.
+    expect(POINT_TIER_MIN_ZOOM).toBeGreaterThanOrEqual(12)
   })
 
   it('never asks for points without a bounding box', () => {
@@ -383,7 +395,7 @@ describe('GRID_MIN_ZOOM', () => {
   // The rule is "still big enough to READ", not "as big as this zoom would
   // ideally like". Those differ by several zoom levels, and answering the
   // second turned the grid off at the very zoom the country fits on screen.
-  const drawnPx = (z) => (50 * 100) / resolutionForZoom(z)
+  const drawnPx = (z) => (TARGET_HEX_PX * 100) / resolutionForZoom(z)
 
   it('is the first whole zoom the coarsest published bin is still legible at', () => {
     expect(drawnPx(GRID_MIN_ZOOM)).toBeGreaterThanOrEqual(8)

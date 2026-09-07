@@ -10,11 +10,9 @@
 const EARTH_RADIUS_KM = 6371
 const HEX_REF_LAT = 42.75
 
-// Target on-screen width of one hex, in CSS pixels. The whole point of the
-// tiered grid: the cell stays about this big at every zoom, so the map reads
-// the same whether it shows a country or a street. Roughly what
-// maps.sensor.community draws.
-const TARGET_HEX_PX = 50
+// Target on-screen width of one hex, in CSS pixels: the cell stays about this
+// big at every zoom. See docs/map-rendering.md for why it is not larger.
+export const TARGET_HEX_PX = 32
 
 // Metres per pixel at zoom 0 at the reference latitude — the standard Web
 // Mercator figure, 2*pi*R/256, narrowed by cos(lat).
