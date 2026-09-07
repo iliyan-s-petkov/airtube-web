@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<title>airbg.org — three modernisation directions</title>
+<style>
+:root {
+  --bg:#fff; --surface:#f4f4f4; --surface-2:#e0e0e0;
+  --fg:#161616; --fg-2:#525252; --muted:#6f6f6f; --meta:#8d8d8d;
+  --border:#c6c6c6; --border-soft:#e0e0e0;
+  --accent:#0f62fe; --accent-on:#fff; --accent-hover:#0043ce;
+  --map-sea:#b9ddf5;
+  --font-body:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --font-mono:"IBM Plex Mono","SF Mono",Menlo,monospace;
+  --ramp-1:#7ee8e0; --ramp-2:#d9e86a; --ramp-3:#f0b429; --ramp-4:#b3204d; --ramp-5:#7b2d8e;
+  --ramp-none:#b8b8b8;
+}
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font-body); color:var(--fg); background:#e8e8e8; }
+.page-title { padding:32px 24px 8px; max-width:1600px; margin:0 auto; }
+.page-title h1 { font-weight:300; font-size:2rem; margin:0 0 8px; }
+.page-title p { color:var(--fg-2); margin:0; max-width:70ch; font-size:.9375rem; line-height:1.5; }
+.grid { display:grid; grid-template-columns:repeat(3,1fr); gap:24px; padding:24px; max-width:1600px; margin:0 auto; align-items:start; }
+@media (max-width:1100px){ .grid { grid-template-columns:1fr; } }
+
+.col > h2 { font-size:.75rem; letter-spacing:.32px; text-transform:uppercase; color:var(--fg-2);
+            margin:0 0 4px; font-weight:600; }
+.col > .verdict { font-size:.8125rem; color:var(--fg-2); margin:0 0 12px; line-height:1.45; min-height:5.2em; }
+.col > .verdict b { color:var(--fg); font-weight:600; }
+.demo { background:var(--bg); overflow:hidden; }
+
+/* ---------- shared demo bones ---------- */
+.mast { display:flex; align-items:center; gap:20px; }
+.mast .brand { font-weight:600; }
+.mast nav { display:flex; gap:16px; margin-left:auto; font-size:.8125rem; }
+.maparea { position:relative; height:230px; background:var(--map-sea); overflow:hidden; }
+.land { position:absolute; inset:0; background:
+  radial-gradient(120px 90px at 30% 62%, #e9efdd 0 99%, transparent 100%),
+  radial-gradient(180px 120px at 62% 45%, #e9efdd 0 99%, transparent 100%),
+  radial-gradient(150px 110px at 45% 30%, #eef2e4 0 99%, transparent 100%); }
+.roads { position:absolute; inset:0; opacity:.5; background:
+  linear-gradient(105deg, transparent 46%, #d8c9a8 46% 47%, transparent 47%),
+  linear-gradient(15deg, transparent 58%, #d8c9a8 58% 59%, transparent 59%); }
+.hexes { position:absolute; inset:0; }
+.hx { position:absolute; width:34px; height:39px; clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); opacity:.75; }
+.hx.o { outline:none; }
+.chrome { position:absolute; }
+.tbl { width:100%; border-collapse:collapse; font-size:.8125rem; }
+.tbl th { text-align:left; font-weight:600; color:var(--fg-2); }
+.tbl td.num { font-family:var(--font-mono); text-align:right; }
+.dot { display:inline-block; width:10px; height:10px; vertical-align:-1px; margin-right:8px; }
+.btn { font:inherit; font-size:.8125rem; cursor:default; }
+
+/* ================= A · Carbon, sharpened ================= */
+.A .demo { border:1px solid var(--border-soft); }
+.A .mast { background:var(--fg); color:#c6c6c6; height:48px; padding:0 16px; }
+.A .mast .brand { color:#fff; }
+.A .mast a { color:#c6c6c6; text-decoration:none; }
+.A .mast a.on { color:#fff; box-shadow:inset 0 -2px 0 #fff; padding-bottom:14px; }
+.A .body { padding:24px 16px; }
+.A h3 { font-weight:300; font-size:2rem; margin:0 0 4px; letter-spacing:-.01em; }
+.A .sub { color:var(--fg-2); font-size:.875rem; margin:0 0 20px; }
+.A .metrics { display:flex; border:1px solid var(--border); width:max-content; margin-bottom:16px; }
+.A .metrics button { border:0; border-right:1px solid var(--border); background:var(--bg); padding:9px 14px; color:var(--fg-2); }
+.A .metrics button:last-child { border-right:0; }
+.A .metrics button.on { background:var(--accent); color:#fff; }
+.A .chrome.tr { top:12px; right:12px; display:flex; flex-direction:column; gap:1px; }
+.A .chrome.tr button { border:1px solid var(--border); background:#fff; padding:8px 12px; width:112px; text-align:left; }
+.A .key { position:absolute; left:12px; bottom:12px; background:#fff; border:1px solid var(--border); padding:8px 10px; }
+.A .key .bar { display:flex; height:8px; width:150px; }
+.A .key .bar i { flex:1; }
+.A .key .cap { font-size:.6875rem; letter-spacing:.32px; color:var(--fg-2); margin-top:5px; display:block; }
+.A .tbl { margin-top:20px; }
+.A .tbl th { border-bottom:1px solid var(--border); padding:8px 12px; font-size:.6875rem; letter-spacing:.32px; text-transform:uppercase; }
+.A .tbl td { border-bottom:1px solid var(--border-soft); padding:11px 12px; }
+.A .tbl tr:nth-child(even) td { background:var(--surface); }
+
+/* ================= B · Soft surfaces ================= */
+.B .demo { border-radius:14px; box-shadow:0 1px 2px rgba(22,22,22,.06),0 8px 24px rgba(22,22,22,.08); background:#f7f8fa; }
+.B .mast { background:rgba(255,255,255,.9); backdrop-filter:blur(8px); height:56px; padding:0 20px;
+           border-bottom:1px solid rgba(22,22,22,.07); }
+.B .mast a { color:var(--fg-2); text-decoration:none; padding:6px 12px; border-radius:999px; }
+.B .mast a.on { background:#eef3ff; color:var(--accent-hover); font-weight:600; }
+.B .body { padding:20px; }
+.B h3 { font-weight:600; font-size:1.5rem; margin:0 0 4px; letter-spacing:-.02em; }
+.B .sub { color:var(--muted); font-size:.875rem; margin:0 0 18px; }
+.B .metrics { display:inline-flex; background:#eceef2; border-radius:999px; padding:3px; margin-bottom:16px; }
+.B .metrics button { border:0; background:transparent; border-radius:999px; padding:7px 15px; color:var(--fg-2); }
+.B .metrics button.on { background:#fff; color:var(--fg); font-weight:600; box-shadow:0 1px 3px rgba(22,22,22,.14); }
+.B .maparea { border-radius:12px; }
+.B .chrome.tr { top:12px; right:12px; display:flex; flex-direction:column; gap:8px; }
+.B .chrome.tr button { border:0; background:rgba(255,255,255,.94); border-radius:10px; padding:9px 13px;
+                       width:118px; text-align:left; box-shadow:0 2px 8px rgba(22,22,22,.16); }
+.B .key { position:absolute; left:12px; bottom:12px; background:rgba(255,255,255,.94); border-radius:10px;
+          padding:10px 12px; box-shadow:0 2px 8px rgba(22,22,22,.16); }
+.B .key .bar { display:flex; height:8px; width:150px; border-radius:999px; overflow:hidden; }
+.B .key .bar i { flex:1; }
+.B .key .cap { font-size:.6875rem; color:var(--muted); margin-top:6px; display:block; }
+.B .card { background:#fff; border-radius:12px; margin-top:18px; padding:6px 4px;
+           box-shadow:0 1px 2px rgba(22,22,22,.06); }
+.B .tbl th { padding:10px 14px; font-size:.75rem; color:var(--muted); }
+.B .tbl td { padding:12px 14px; border-top:1px solid #f0f1f4; }
+.B .pill { font-family:var(--font-mono); font-size:.75rem; background:#eef3ff; color:var(--accent-hover);
+           border-radius:999px; padding:3px 9px; }
+
+/* ================= C · Editorial ================= */
+.C .demo { border-top:2px solid var(--fg); }
+.C .mast { height:64px; padding:0 4px; border-bottom:1px solid var(--fg); }
+.C .mast .brand { font-weight:300; font-size:1.25rem; letter-spacing:-.01em; }
+.C .mast a { color:var(--fg-2); text-decoration:none; font-size:.75rem; letter-spacing:.6px; text-transform:uppercase; }
+.C .mast a.on { color:var(--fg); font-weight:600; }
+.C .body { padding:28px 4px 20px; }
+.C h3 { font-weight:300; font-size:2.75rem; line-height:1.05; margin:0 0 10px; letter-spacing:-.03em; }
+.C .sub { color:var(--fg-2); font-size:.9375rem; margin:0 0 24px; max-width:44ch; line-height:1.5; }
+.C .metrics { display:flex; gap:22px; margin-bottom:18px; border-bottom:1px solid var(--border-soft); }
+.C .metrics button { border:0; background:transparent; padding:0 0 10px; color:var(--muted);
+                     font-size:.875rem; }
+.C .metrics button.on { color:var(--fg); box-shadow:inset 0 -2px 0 var(--fg); font-weight:600; }
+.C .maparea { border:1px solid var(--fg); }
+.C .chrome.tr { top:0; right:0; display:flex; }
+.C .chrome.tr button { border:0; border-left:1px solid var(--fg); border-bottom:1px solid var(--fg);
+                       background:#fff; padding:9px 12px; }
+.C .key { position:absolute; left:0; bottom:0; background:#fff; border-top:1px solid var(--fg);
+          border-right:1px solid var(--fg); padding:9px 12px; }
+.C .key .bar { display:flex; height:6px; width:170px; }
+.C .key .bar i { flex:1; }
+.C .key .cap { font-size:.6875rem; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); margin-top:6px; display:block; }
+.C .tbl { margin-top:26px; }
+.C .tbl th { padding:0 0 8px; border-bottom:1px solid var(--fg); font-size:.6875rem;
+             letter-spacing:.6px; text-transform:uppercase; }
+.C .tbl td { padding:14px 0; border-bottom:1px solid var(--border-soft); }
+.C .tbl td.name { font-size:1rem; }
+.C .tbl td.num { font-size:1.25rem; font-weight:300; }
+</style>
+</head>
+<body>
+
+<div class="page-title">
+  <h1>airbg.org — three modernisation directions</h1>
+  <p>Same content in all three: masthead, metric switcher, map with chrome and key, province table.
+     Air-quality band colours are identical everywhere — they carry regulated meaning and are not
+     a style choice. What differs is the interface around them.</p>
+</div>
+
+<div class="grid">
+
+  <!-- ============ A ============ -->
+  <div class="col A">
+    <h2>A · Carbon, sharpened</h2>
+    <p class="verdict"><b>Modernise by hierarchy, not decoration.</b> Keeps every current kit
+       ruling — square corners, no card shadows, no 700 weight, depth by background layering.
+       Gains come from a bigger type scale, real whitespace and lighter rules.
+       <b>Kit change: none structural.</b></p>
+    <div class="demo">
+      <div class="mast"><span class="brand">airbg.org</span>
+        <nav><a class="on" href="#">Карта</a><a href="#">Области</a><a href="#">За проекта</a></nav></div>
+      <div class="body">
+        <h3>Въздухът в България</h3>
+        <p class="sub">Данни от 412 сензора, обновени преди 4 минути</p>
+        <div class="metrics">
+          <button class="btn on">ФПЧ2.5</button><button class="btn">ФПЧ10</button><button class="btn">NO₂</button>
+        </div>
+        <div class="maparea">
+          <div class="land"></div><div class="roads"></div>
+          <div class="hexes" id="hexA"></div>
+          <div class="chrome tr">
+            <button class="btn">Слоеве</button><button class="btn">Легенда</button><button class="btn">Вятър</button>
+          </div>
+          <div class="key">
+            <div class="bar"><i style="background:var(--ramp-1)"></i><i style="background:var(--ramp-2)"></i><i style="background:var(--ramp-3)"></i><i style="background:var(--ramp-4)"></i><i style="background:var(--ramp-5)"></i></div>
+            <span class="cap">0 — 500 µg/m³</span>
+          </div>
+        </div>
+        <table class="tbl">
+          <tr><th>Област</th><th style="text-align:right">ФПЧ2.5</th><th style="text-align:right">Сензори</th></tr>
+          <tr><td><span class="dot" style="background:var(--ramp-1)"></span>София-град</td><td class="num">12</td><td class="num">96</td></tr>
+          <tr><td><span class="dot" style="background:var(--ramp-2)"></span>Пловдив</td><td class="num">31</td><td class="num">44</td></tr>
+          <tr><td><span class="dot" style="background:var(--ramp-4)"></span>Кърджали</td><td class="num">78</td><td class="num">7</td></tr>
+          <tr><td><span class="dot" style="background:var(--ramp-none)"></span>Видин</td><td class="num">—</td><td class="num">0</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ B ============ -->
+  <div class="col B">
+    <h2>B · Soft surfaces</h2>
+    <p class="verdict"><b>The conventional 2026 app look.</b> Tinted page, white cards with radius
+       and soft shadow, a segmented pill for metrics, floating translucent map chrome.
+       <b>Kit change: overturns §4.4 (“no shadows on cards”) and <code>--radius: 0</code></b> — the two
+       rulings that currently define the kit's character.</p>
+    <div class="demo">
+      <div class="mast"><span class="brand">airbg.org</span>
+        <nav><a class="on" href="#">Карта</a><a href="#">Области</a><a href="#">За проекта</a></nav></div>
+      <div class="body">
+        <h3>Въздухът в България</h3>
+        <p class="sub">Данни от 412 сензора, обновени преди 4 минути</p>
+        <div class="metrics">
+          <button class="btn on">ФПЧ2.5</button><button class="btn">ФПЧ10</button><button class="btn">NO₂</button>
+        </div>
+        <div class="maparea">
+          <div class="land"></div><div class="roads"></div>
+          <div class="hexes" id="hexB"></div>
+          <div class="chrome tr">
+            <button class="btn">Слоеве</button><button class="btn">Легенда</button><button class="btn">Вятър</button>
+          </div>
+          <div class="key">
+            <div class="bar"><i style="background:var(--ramp-1)"></i><i style="background:var(--ramp-2)"></i><i style="background:var(--ramp-3)"></i><i style="background:var(--ramp-4)"></i><i style="background:var(--ramp-5)"></i></div>
+            <span class="cap">0 — 500 µg/m³</span>
+          </div>
+        </div>
+        <div class="card">
+          <table class="tbl">
+            <tr><th>Област</th><th style="text-align:right">ФПЧ2.5</th><th style="text-align:right">Сензори</th></tr>
+            <tr><td><span class="dot" style="background:var(--ramp-1);border-radius:999px"></span>София-град</td><td class="num"><span class="pill">12</span></td><td class="num">96</td></tr>
+            <tr><td><span class="dot" style="background:var(--ramp-2);border-radius:999px"></span>Пловдив</td><td class="num"><span class="pill">31</span></td><td class="num">44</td></tr>
+            <tr><td><span class="dot" style="background:var(--ramp-4);border-radius:999px"></span>Кърджали</td><td class="num"><span class="pill">78</span></td><td class="num">7</td></tr>
+            <tr><td><span class="dot" style="background:var(--ramp-none);border-radius:999px"></span>Видин</td><td class="num">—</td><td class="num">0</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ C ============ -->
+  <div class="col C">
+    <h2>C · Editorial</h2>
+    <p class="verdict"><b>Modern the way a newsroom data page is modern.</b> Large light display
+       type, hairline rules, no boxes, the number itself is the loudest thing on the page.
+       <b>Kit change: type scale and layout only</b> — square corners and no-shadow survive, so it
+       is closer to the kit's stated intent than B is.</p>
+    <div class="demo">
+      <div class="mast"><span class="brand">airbg.org</span>
+        <nav><a class="on" href="#">Карта</a><a href="#">Области</a><a href="#">За проекта</a></nav></div>
+      <div class="body">
+        <h3>Въздухът<br>в България</h3>
+        <p class="sub">Данни от 412 сензора в мрежата на sensor.community, обновени преди 4 минути.</p>
+        <div class="metrics">
+          <button class="btn on">ФПЧ2.5</button><button class="btn">ФПЧ10</button><button class="btn">NO₂</button>
+        </div>
+        <div class="maparea">
+          <div class="land"></div><div class="roads"></div>
+          <div class="hexes" id="hexC"></div>
+          <div class="chrome tr">
+            <button class="btn">Слоеве</button><button class="btn">Вятър</button>
+          </div>
+          <div class="key">
+            <div class="bar"><i style="background:var(--ramp-1)"></i><i style="background:var(--ramp-2)"></i><i style="background:var(--ramp-3)"></i><i style="background:var(--ramp-4)"></i><i style="background:var(--ramp-5)"></i></div>
+            <span class="cap">0 — 500 µg/m³</span>
+          </div>
+        </div>
+        <table class="tbl">
+          <tr><th>Област</th><th style="text-align:right">ФПЧ2.5</th><th style="text-align:right">Сензори</th></tr>
+          <tr><td class="name"><span class="dot" style="background:var(--ramp-1)"></span>София-град</td><td class="num">12</td><td class="num">96</td></tr>
+          <tr><td class="name"><span class="dot" style="background:var(--ramp-2)"></span>Пловдив</td><td class="num">31</td><td class="num">44</td></tr>
+          <tr><td class="name"><span class="dot" style="background:var(--ramp-4)"></span>Кърджали</td><td class="num">78</td><td class="num">7</td></tr>
+          <tr><td class="name"><span class="dot" style="background:var(--ramp-none)"></span>Видин</td><td class="num">—</td><td class="num">0</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// The hex field is drawn here rather than written out four hundred times: the
+// point of the mock-up is the chrome around the grid, not the grid itself.
+const ramp = ['--ramp-1','--ramp-1','--ramp-1','--ramp-2','--ramp-1','--ramp-3','--ramp-1','--ramp-none','--ramp-1','--ramp-4']
+for (const [id, stroke] of [['hexA','#161616'],['hexB','rgba(22,22,22,.35)'],['hexC','#161616']]) {
+  const host = document.getElementById(id)
+  const w = 34, h = 39, dx = w, dy = h * 0.75
+  let n = 0
+  for (let row = -1; row < 8; row++) {
+    for (let col = -1; col < 16; col++) {
+      const el = document.createElement('div')
+      el.className = 'hx'
+      el.style.left = (col * dx + (row % 2 ? dx / 2 : 0)) + 'px'
+      el.style.top = (row * dy) + 'px'
+      el.style.background = `var(${ramp[n++ % ramp.length]})`
+      el.style.boxShadow = `inset 0 0 0 1px ${stroke}`
+      host.appendChild(el)
+    }
+  }
+}
+</script>
+</body>
+</html>
