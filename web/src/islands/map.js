@@ -23,7 +23,10 @@ import {
   hexesURL, hexFeatures, resolutionForZoom,
   GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL,
 } from '../lib/hexes.js'
-import { WIND_SOURCE_ID, WIND_LAYER_ID, windFeatures, windLabel, arrowLayout, arrowPaint } from './wind.js'
+import {
+  WIND_SOURCE_ID, WIND_LAYER_ID, ARROW_IMAGE_ID, windFeatures, windLabel,
+  arrowImage, arrowLayout, arrowPaint,
+} from './wind.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
@@ -290,6 +293,9 @@ export function mount(el) {
     // failing it here — before any visitor has asked for wind — keeps the
     // toggle itself down to setData plus a visibility flip.
     map.addSource(WIND_SOURCE_ID, { type: 'geojson', data: emptyCollection() })
+    // pixelRatio 2: the raster is drawn at twice its nominal size so it stays
+    // sharp on a retina screen and when icon-size scales it past 1.
+    map.addImage(ARROW_IMAGE_ID, arrowImage(cfg), { pixelRatio: 2 })
     map.addLayer({
       id: WIND_LAYER_ID,
       type: 'symbol',

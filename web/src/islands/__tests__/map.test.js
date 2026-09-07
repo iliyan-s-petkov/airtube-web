@@ -7,6 +7,7 @@
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
+import { ARROW_IMAGE_ID, WIND_LAYER_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
@@ -34,6 +35,7 @@ vi.mock('maplibre-gl', () => {
       this.setPaintProperty = vi.fn()
       this.addSource = vi.fn()
       this.addLayer = vi.fn()
+      this.addImage = vi.fn()
       this.getZoom = vi.fn(() => 7)
       // The zoom stack asks the camera for its own limits rather than
       // restating them (see installZoom), so a map that cannot answer is not
@@ -90,6 +92,7 @@ function mountTestMap({ metric, styleLayers = [] }) {
   el.dataset.noDataColour = '#9ca3af'
   el.dataset.unscaledColour = '#94a3b8'
   el.dataset.markerStrokeColour = '#ffffff'
+  el.dataset.markerLabelColour = '#161616'
   el.dataset.emptyBasemapColour = '#eef2f5'
   el.dataset.zoomCity = '9'
   el.dataset.zoomSensor = '11'
@@ -1040,6 +1043,7 @@ function mountSensorTierMap({ metric = 'P2' } = {}) {
   el.dataset.noDataColour = '#9ca3af'
   el.dataset.unscaledColour = '#94a3b8'
   el.dataset.markerStrokeColour = '#ffffff'
+  el.dataset.markerLabelColour = '#161616'
   el.dataset.emptyBasemapColour = '#eef2f5'
   el.dataset.zoomCity = '9'
   el.dataset.zoomSensor = '11'
@@ -1359,6 +1363,7 @@ describe('mount() wires the locate button to a real click', () => {
     el.dataset.noDataColour = '#9ca3af'
     el.dataset.unscaledColour = '#94a3b8'
     el.dataset.markerStrokeColour = '#ffffff'
+    el.dataset.markerLabelColour = '#161616'
     el.dataset.emptyBasemapColour = '#eef2f5'
     el.dataset.zoomCity = '9'
     el.dataset.zoomSensor = '11'
@@ -1644,6 +1649,25 @@ describe('mount() opens on the world raster', () => {
     const { map } = mountTestMap({ metric: 'P2' })
     expect(map.addSource.mock.calls.filter((c) => c[1]?.type === 'raster')).toHaveLength(0)
     expect(map.addLayer.mock.calls.filter((c) => c[0]?.type === 'raster')).toHaveLength(0)
+  })
+})
+
+// MapLibre resolves icon-image when the layer renders, and an unresolved one
+// draws nothing and says nothing — the exact failure the missing '→' glyph
+// already produced once. The ordering is what stops it happening again.
+describe('mount() registers the wind arrow before the layer that draws it', () => {
+  it('adds the arrow image, then the layer naming it', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+
+    const image = map.addImage.mock.calls.find((c) => c[0] === ARROW_IMAGE_ID)
+    expect(image, 'no arrow image registered').toBeDefined()
+    expect(image[1].data).toHaveLength(image[1].width * image[1].height * 4)
+
+    const at = map.addLayer.mock.calls.findIndex((c) => c[0]?.id === WIND_LAYER_ID)
+    expect(at, 'no wind layer added').toBeGreaterThanOrEqual(0)
+    expect(map.addLayer.mock.calls[at][0].layout['icon-image']).toBe(ARROW_IMAGE_ID)
+    expect(map.addImage.mock.invocationCallOrder[0])
+      .toBeLessThan(map.addLayer.mock.invocationCallOrder[at])
   })
 })
 

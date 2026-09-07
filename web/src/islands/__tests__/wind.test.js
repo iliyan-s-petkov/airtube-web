@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { arrowBearing, arrowPaint, windFeatures, windLabel, WIND_LAYER_ID } from '../wind.js'
+import {
+  arrowBearing, arrowImage, arrowLayout, arrowPaint, windFeatures, windLabel,
+  ARROW_IMAGE_ID, ARROW_PX, WIND_LAYER_ID,
+} from '../wind.js'
 import { toggleWind } from '../map.js'
 
 describe('arrowBearing', () => {
@@ -18,25 +21,107 @@ describe('arrowBearing', () => {
   })
 })
 
-// The arrows were painted the marker STROKE colour with no halo — white on a
-// pale basemap, so the layer switched on and drew nothing visible. Nothing in
-// the payload or the layer state showed the failure, which is why the colours
-// are asserted rather than eyeballed.
+// The arrow is a raster this file draws, not a character.
+//
+// It was '→' rendered through the style's glyph source, and the layer switched
+// on and drew NOTHING: the served font pack carries U+2100..U+2189 in the
+// 8448-8703 range and stops there, so the whole Arrows block is absent and
+// MapLibre silently omits a glyph it cannot find. A missing glyph reports
+// itself nowhere the map can see — the layer is visible, the source has its
+// features, the request for the range even answers 200. That is why the pixels
+// are asserted here rather than the layer state.
+describe('arrowImage', () => {
+  const cfg = { labelColour: '#000000', markerStrokeColour: '#ffffff' }
+
+  it('is a square RGBA raster of the declared size', () => {
+    const img = arrowImage(cfg)
+    expect(img.width).toBe(ARROW_PX)
+    expect(img.height).toBe(ARROW_PX)
+    expect(img.data).toHaveLength(ARROW_PX * ARROW_PX * 4)
+  })
+
+  const at = (img, x, y) => {
+    const i = (y * img.width + x) * 4
+    return [img.data[i], img.data[i + 1], img.data[i + 2], img.data[i + 3]]
+  }
+
+  it('draws in the label colour, haloed in the stroke colour', () => {
+    const img = arrowImage(cfg)
+    const mid = ARROW_PX >> 1
+    // On the shaft: the arrow's own colour, fully opaque.
+    const shaft = at(img, mid, mid)
+    expect(shaft[3]).toBe(255)
+    expect(shaft.slice(0, 3)).toEqual([0, 0, 0])
+    // Just off it: the halo, which is what keeps a dark arrow legible over a
+    // dark cell — the same pairing the marker labels use.
+    const halo = at(img, mid, mid - Math.round(ARROW_PX * 0.09))
+    expect(halo[3]).toBeGreaterThan(0)
+    expect(halo[0]).toBeGreaterThan(200)
+  })
+
+  // The glyph pointed east and the layout subtracts 90 from the bearing to
+  // match. A raster drawn pointing any other way would rotate every arrow on
+  // the map by a constant, which looks like weather rather than like a bug.
+  it('points east, which is what the layout rotation assumes', () => {
+    const img = arrowImage(cfg)
+    const mid = ARROW_PX >> 1
+    const opaque = (x) => at(img, x, mid)[3] > 0
+    // The head reaches further east than the tail reaches west.
+    let east = 0; let west = 0
+    for (let x = mid; x < ARROW_PX; x++) if (opaque(x)) east = x - mid
+    for (let x = mid; x >= 0; x--) if (opaque(x)) west = mid - x
+    expect(east).toBeGreaterThan(0)
+    // The barbs are the widest part and they sit on the head, east of centre.
+    const spread = (x) => {
+      let n = 0
+      for (let y = 0; y < ARROW_PX; y++) if (at(img, x, y)[3] > 0) n++
+      return n
+    }
+    expect(spread(mid + Math.round(ARROW_PX * 0.2))).toBeGreaterThan(spread(mid - Math.round(ARROW_PX * 0.2)))
+    expect(west).toBeGreaterThan(0)
+  })
+
+  it('leaves the corners transparent rather than drawing a filled tile', () => {
+    const img = arrowImage(cfg)
+    expect(at(img, 0, 0)[3]).toBe(0)
+    expect(at(img, ARROW_PX - 1, ARROW_PX - 1)[3]).toBe(0)
+  })
+})
+
+describe('arrowLayout', () => {
+  it('draws the image this file registers, not a font glyph', () => {
+    const layout = arrowLayout()
+    expect(layout['icon-image']).toBe(ARROW_IMAGE_ID)
+    expect(layout['text-field']).toBeUndefined()
+    expect(layout['text-font']).toBeUndefined()
+  })
+
+  it('rotates with the map, by the bearing the feature carries', () => {
+    const layout = arrowLayout()
+    expect(layout['icon-rotate']).toEqual(['-', ['get', 'bearing'], 90])
+    expect(layout['icon-rotation-alignment']).toBe('map')
+  })
+
+  // Overlap is deliberate: the model's grid is regular, so a placement rule
+  // that dropped colliding arrows would thin the field in exactly the places
+  // it is densest and make the wind look patchy.
+  it('lets the arrows overlap, so the field stays regular', () => {
+    expect(arrowLayout()['icon-allow-overlap']).toBe(true)
+  })
+
+  it('grows with the speed, between bounds', () => {
+    const size = arrowLayout()['icon-size']
+    expect(size[0]).toBe('interpolate')
+    expect(size[2]).toEqual(['get', 'speed'])
+    const stops = size.slice(3)
+    expect(stops[1]).toBeGreaterThan(0)
+    expect(stops[3]).toBeGreaterThan(stops[1])
+  })
+})
+
 describe('arrowPaint', () => {
-  const cfg = { labelColour: '#111', markerStrokeColour: '#ffffff' }
-
-  it('draws the arrow in the label colour, not the stroke colour', () => {
-    expect(arrowPaint(cfg)['text-color']).toBe('#111')
-  })
-
-  it('haloes the arrow in the stroke colour, so it stays legible over a dark cell', () => {
-    const paint = arrowPaint(cfg)
-    expect(paint['text-halo-color']).toBe('#ffffff')
-    expect(paint['text-halo-width']).toBeGreaterThan(0)
-  })
-
   it('does not fade the arrow to where the halo cannot save it', () => {
-    expect(arrowPaint(cfg)['text-opacity']).toBeGreaterThanOrEqual(0.9)
+    expect(arrowPaint()['icon-opacity']).toBeGreaterThanOrEqual(0.9)
   })
 })
 
