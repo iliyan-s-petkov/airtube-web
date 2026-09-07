@@ -15,7 +15,14 @@
   // unaffected: they are about what renders once shown, not about the
   // showing/hiding decision itself, which belongs to the caller that knows
   // about sensorId and the registry.
-  let { rows, title, flagText, closeLabel, noValue, onclose, chart = null, open = true } = $props()
+  //
+  // `details` (added with the panel's chart controls) describes the station
+  // rather than its readings — hardware, lifetime, coordinates. Defaults to
+  // empty so a caller that has nothing to say renders no second list.
+  let {
+    rows, title, flagText, closeLabel, noValue, onclose,
+    details = [], detailsLabel = '', chart = null, open = true,
+  } = $props()
 </script>
 
 {#if open}
@@ -32,9 +39,19 @@
   tabindex="-1"
   onkeydown={(e) => { if (e.key === 'Escape') onclose() }}
 >
+  <!-- The close control sits on the title row, at its right edge: a bare word
+       under the heading read as a link into somewhere rather than as the way
+       out of this card. The glyph is inline SVG (the site ships no icon font),
+       aria-hidden because the label beside it already names the action. -->
   <header>
     <h2 id="sensor-panel-title">{title}</h2>
-    <button type="button" data-close onclick={onclose}>{closeLabel}</button>
+    <button type="button" class="panel-close" data-close onclick={onclose}>
+      <svg class="panel-close__ico" width="16" height="16" viewBox="0 0 16 16"
+           fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
+      </svg>
+      {closeLabel}
+    </button>
   </header>
 
   {#if flagText}<p class="panel-flag">{flagText}</p>{/if}
@@ -45,6 +62,18 @@
       <dd>{#if row.missing}{noValue}{:else}{row.value} {row.unit}{/if}</dd>
     {/each}
   </dl>
+
+  {#if details.length}
+    <section class="panel-details">
+      {#if detailsLabel}<h3>{detailsLabel}</h3>{/if}
+      <dl>
+        {#each details as row (row.key)}
+          <dt>{row.label}</dt>
+          <dd>{row.value}</dd>
+        {/each}
+      </dl>
+    </section>
+  {/if}
 
   {#if chart}{@render chart()}{/if}
 </section>

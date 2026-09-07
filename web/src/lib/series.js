@@ -23,3 +23,28 @@ export function toUplotData(body) {
   }
   return [xs, ys]
 }
+
+// mergeSeries aligns several series onto one x axis: uPlot takes ONE x array
+// and one y array per series, so two metrics can only share a plot if they
+// share timestamps.
+//
+// They usually do — same bucket width, same window, same server — but not
+// always: a device that went quiet for an hour has no bucket there, and its
+// neighbour metric does. Aligning positionally would then slide every later
+// point of one series against the other and draw a plausible, wrong chart. So
+// the x axis is the UNION of the timestamps, sorted ascending, and a series
+// with nothing at an instant gets null there — the gap uPlot draws as a gap.
+export function mergeSeries(bodies) {
+  const columns = bodies.map((body) => {
+    const [xs, ys] = toUplotData(body)
+    const at = new Map()
+    for (let i = 0; i < xs.length; i++) at.set(xs[i], ys[i])
+    return at
+  })
+
+  const stamps = new Set()
+  for (const at of columns) for (const x of at.keys()) stamps.add(x)
+  const xs = [...stamps].sort((a, b) => a - b)
+
+  return [xs, ...columns.map((at) => xs.map((x) => (at.has(x) ? at.get(x) : null)))]
+}

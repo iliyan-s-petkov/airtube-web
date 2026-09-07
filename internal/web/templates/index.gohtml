@@ -149,7 +149,19 @@
      data-t-chart-value="{{.T "chart.axis.value"}}"
      data-t-chart-time="{{.T "chart.axis.time"}}"
      data-t-chart-empty="{{.T "chart.empty"}}"
-     data-t-chart-unavailable="{{.T "map.error.unavailable"}}"></div>
+     data-t-chart-unavailable="{{.T "map.error.unavailable"}}"
+     data-periods="{{.PeriodsAttr}}"
+     data-period-labels="{{.PeriodLabelsAttr}}"
+     data-t-chart-metric-legend="{{.T "metric.legend"}}"
+     data-t-chart-period-legend="{{.T "period.legend"}}"
+     data-t-chart-compare="{{.T "panel.compare"}}"
+     data-t-chart-compare-none="{{.T "panel.compare_none"}}"
+     data-t-details="{{.T "panel.details"}}"
+     data-t-detail-devices="{{.T "panel.detail.devices"}}"
+     data-t-detail-hardware="{{.T "panel.detail.hardware"}}"
+     data-t-detail-since="{{.T "panel.detail.since"}}"
+     data-t-detail-updated="{{.T "panel.detail.updated"}}"
+     data-t-detail-coords="{{.T "panel.detail.coords"}}"></div>
 
 {{/* Under the key, not above the data: the legend explains what the values
      mean and this line says how old they are — two captions on the same thing,

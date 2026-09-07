@@ -25,13 +25,18 @@
 //              `flag` because it is metadata ABOUT the readings
 //   station  - the address join key, this file's own subject
 //   measures - what each device's hardware measures, see measuresAt
+//   first_seen / last_seen
+//            - the device's lifetime as our ingest saw it, metadata about the
+//              readings rather than one of them
 //
 // Every other key in the columnar body is a canonical metric column
 // (upstream.CanonicalMetrics, internal/snapshot/build.go). Deriving the metric
 // list by exclusion from this fixed list — rather than an allow-list of known
 // metrics — is what lets a metric added server-side reach the panel with no
 // frontend change.
-export const META_COLUMNS = new Set(['id', 'type', 'lon', 'lat', 'quality', 'station', 'measures'])
+export const META_COLUMNS = new Set([
+  'id', 'type', 'lon', 'lat', 'quality', 'station', 'measures', 'first_seen', 'last_seen',
+])
 
 // metricColumnsOf is every metric the response carries a column for, in the
 // server's own order.

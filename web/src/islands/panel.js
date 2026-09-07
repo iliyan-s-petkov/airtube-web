@@ -14,8 +14,8 @@
 // itself trigger (a marker click handled in islands/map.js).
 import { mount as mountComponent, unmount, createRawSnippet } from 'svelte'
 import SensorPanel from '../components/SensorPanel.svelte'
-import Chart from '../components/Chart.svelte'
-import { panelRows } from '../lib/sensorview.js'
+import SensorChart from '../components/SensorChart.svelte'
+import { panelRows, detailRows } from '../lib/sensorview.js'
 import { parseMetricList, zipLabels } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { findSensor, getScales, normaliseSensor } from '../lib/sensors.svelte.js'
@@ -64,12 +64,25 @@ export function mount(el) {
   // should.
   let chartId = null
   let chartSnippet = null
-  function chartFor(id) {
+  function chartFor(sensor) {
+    const id = sensor?.id ?? null
     if (id === chartId) return chartSnippet
     chartId = id
-    chartSnippet = id === null ? null : buildChartSnippet(id, d)
+    chartSnippet = id === null ? null : buildChartSnippet(sensor, options, d)
     return chartSnippet
   }
+
+  const detailLabels = {
+    devices: d.tDetailDevices || '',
+    hardware: d.tDetailHardware || '',
+    since: d.tDetailSince || '',
+    updated: d.tDetailUpdated || '',
+    coords: d.tDetailCoords || '',
+  }
+  // The page's own language, so dates read the way the rest of the page does.
+  // document.documentElement.lang is what the server rendered; undefined (the
+  // browser's own locale) only if the attribute is missing.
+  const locale = document.documentElement.lang || undefined
 
   mountComponent(SensorPanel, {
     target: el,
@@ -92,15 +105,18 @@ export function mount(el) {
       },
       closeLabel: d.tClose || '',
       noValue: d.tNoValue || '',
-      onclose: () => vs.closeSensor(),
-      // Charted for the device that measured it, not for the station: a
-      // station is an address and the series endpoint is keyed by device, so
-      // asking the station's own id for a temperature the climate box beside
-      // it recorded would chart an empty series. sources carries the answer
-      // (see lib/sensors.svelte.js's normaliseSensor).
-      get chart() {
+      detailsLabel: d.tDetails || '',
+      get details() {
         const sensor = findSensor(vs.sensorId)
-        return chartFor(sensor?.sources?.[d.metric] ?? sensor?.id ?? null)
+        return sensor ? detailRows(sensor, detailLabels, locale) : []
+      },
+      onclose: () => vs.closeSensor(),
+      // Keyed by STATION now, not by the device charted: the chart component
+      // owns which metric it is drawing (and therefore which device it asks),
+      // so remounting it when the reader switches metric would throw away the
+      // selection that caused the switch.
+      get chart() {
+        return chartFor(findSensor(vs.sensorId))
       },
     },
   })
@@ -112,26 +128,37 @@ export function mount(el) {
 // valid inside .svelte files), but SensorPanel.svelte's `chart` prop is a
 // snippet, not a component reference.
 //
-// url is built the same way chart.js (the area-level chart island) builds
-// its own: from data-metric/data-period on the panel's OWN container, not
-// from vs.metric. The panel lists every metric a sensor reports regardless
-// of which metric the map is currently coloured by (see lib/sensorview.js),
-// so tying the embedded chart to the map's live metric would make the panel
-// disagree with itself the moment a visitor switches metric while it is
-// open.
-function buildChartSnippet(id, d) {
-  const url = `/api/v1/sensor/${encodeURIComponent(id)}/series` +
-    `?metric=${encodeURIComponent(d.metric)}&period=${encodeURIComponent(d.period)}`
+// The metric and period the chart OPENS on come from data-metric/data-period
+// on the panel's own container, not from vs.metric: the panel lists every
+// metric a sensor reports regardless of which metric the map is currently
+// coloured by (see lib/sensorview.js), so tying the embedded chart to the
+// map's live metric would make the panel disagree with itself the moment a
+// visitor switches metric while it is open. After that the reader owns both,
+// inside SensorChart.
+//
+// The metric list offered is this station's, not the map's seven: the switcher
+// must not offer a metric whose only possible answer is an empty plot.
+function buildChartSnippet(sensor, options, d) {
+  const measured = options.filter(({ metric }) => Object.hasOwn(sensor.values, metric))
   return createRawSnippet(() => ({
     render: () => '<div></div>',
     setup: (node) => {
-      const component = mountComponent(Chart, {
+      const component = mountComponent(SensorChart, {
         target: node,
         props: {
-          url,
-          lineColour: d.lineColour,
-          title: d.tChartTitle || '',
-          valueLabel: d.tChartValue || '',
+          stationId: sensor.id,
+          sources: sensor.sources,
+          options: measured,
+          periods: parseMetricList(d.periods),
+          periodLabels: parseMetricList(d.periodLabels),
+          initialPeriod: d.period,
+          initialMetric: d.metric,
+          metricLegend: d.tChartMetricLegend || '',
+          periodLegend: d.tChartPeriodLegend || '',
+          compareLabel: d.tChartCompare || '',
+          compareNone: d.tChartCompareNone || '',
+          primaryColour: d.lineColour,
+          compareColour: compareColour(),
           timeLabel: d.tChartTime || '',
           empty: d.tChartEmpty || '',
           unavailable: d.tChartUnavailable || '',
@@ -140,4 +167,12 @@ function buildChartSnippet(id, d) {
       return () => unmount(component)
     },
   }))
+}
+
+// The second line's colour comes from the stylesheet, not from config: it is a
+// theme decision like every other colour on the page, and reading the token
+// keeps the light and dark themes in charge of it. A canvas cannot inherit a
+// CSS variable, which is why it has to be read out explicitly.
+function compareColour() {
+  return getComputedStyle(document.documentElement).getPropertyValue('--chart-compare').trim()
 }

@@ -53,6 +53,18 @@ const PANEL_ATTR_FIXTURES = {
   tChartTime: 'Time',
   tChartEmpty: 'empty',
   tChartUnavailable: 'unavailable',
+  periods: '24h,7d',
+  periodLabels: '24 hours,7 days',
+  tChartMetricLegend: 'Metric',
+  tChartPeriodLegend: 'Period',
+  tChartCompare: 'Compare with',
+  tChartCompareNone: 'nothing',
+  tDetails: 'About this station',
+  tDetailDevices: 'Devices',
+  tDetailHardware: 'Hardware',
+  tDetailSince: 'In our data since',
+  tDetailUpdated: 'Last reading',
+  tDetailCoords: 'Coordinates',
 }
 
 // islandFrom returns the REAL server template's island container as a live DOM
@@ -101,7 +113,42 @@ describe('normaliseSensor', () => {
       // One device standing alone is a station of one, and every reading at
       // that station came from it.
       sources: { P1: 42, P2: 42 },
+      // The station's description, for the panel's detail list. A body with no
+      // coordinate or lifetime columns says null rather than inventing one.
+      lon: null,
+      lat: null,
+      devices: [{ id: 42, type: '', firstSeen: null, lastSeen: null }],
     })
+  })
+
+  // The lifetime and hardware columns are metadata about the readings, and the
+  // detail list is the only place they are shown — a projection that dropped
+  // them would leave the list silently empty.
+  it('carries each device s hardware, lifetime and coordinate', () => {
+    const body = {
+      sensors: {
+        id: [5965, 5966],
+        type: ['SDS011', 'BME280'],
+        lon: [27.976, 27.976],
+        lat: [43.224, 43.224],
+        quality: ['ok', 'ok'],
+        station: [5965, 5965],
+        measures: [['P2'], ['temperature']],
+        first_seen: ['2024-03-01T00:00:00Z', '2025-06-01T00:00:00Z'],
+        last_seen: ['2026-09-07T18:00:00Z', '2026-09-07T17:00:00Z'],
+        P2: [12, null],
+        temperature: [null, 21],
+      },
+    }
+    const got = normaliseSensor(body, 5966)
+    expect(got.devices).toEqual([
+      { id: 5965, type: 'SDS011', firstSeen: '2024-03-01T00:00:00Z', lastSeen: '2026-09-07T18:00:00Z' },
+      { id: 5966, type: 'BME280', firstSeen: '2025-06-01T00:00:00Z', lastSeen: '2026-09-07T17:00:00Z' },
+    ])
+    expect(got.lat).toBe(43.224)
+    expect(got.lon).toBe(27.976)
+    // The lifetime columns are metadata, so they must not become metric rows.
+    expect(Object.keys(got.values).sort()).toEqual(['P2', 'temperature'])
   })
 
   // id/type/lon/lat/quality describe the sensor, not a measurement: leaking
@@ -364,14 +411,43 @@ describe('mount() puts the panel copy on screen', () => {
     el.remove()
   })
 
-  it('renders the close control with its label', async () => {
+  // The chart snippet is memoised by station id, and this is what that is for:
+  // a refreshed payload for the sensor already on screen must not rebuild the
+  // chart, because rebuilding it resets the metric the reader just chose.
+  it('keeps the reader s chart selection across a refresh of the same sensor', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('no series in this test'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const el = mountPanel(104)
+    setSensors({ sensors: { id: [104], quality: ['ok'], P1: [12], P2: [30] } })
+
+    await vi.waitFor(() => {
+      expect(el.querySelector('input[name="panel-metric"][value="P1"]')).not.toBeNull()
+    })
+    const p1 = el.querySelector('input[name="panel-metric"][value="P1"]')
+    p1.checked = true
+    p1.dispatchEvent(new Event('change', { bubbles: true }))
+
+    setSensors({ sensors: { id: [104], quality: ['ok'], P1: [14], P2: [33] } })
+    await vi.waitFor(() => {
+      expect(el.textContent).toContain('14')
+    })
+    expect(el.querySelector('input[name="panel-metric"][value="P1"]').checked).toBe(true)
+    el.remove()
+  })
+
+  // The label sits beside an inline ✕ icon, so the button's text is padded by
+  // the SVG's own whitespace: the assertion is on the words, not the node.
+  it('renders the close control with its label and an icon', async () => {
     const el = mountPanel(104)
     setSensors({ sensors: { id: [104], quality: ['stuck'], P2: [300] } })
 
     await vi.waitFor(() => {
       expect(el.querySelector('button[data-close]')).not.toBeNull()
     })
-    expect(el.querySelector('button[data-close]').textContent).toBe(PANEL_ATTR_FIXTURES.tClose)
+    const close = el.querySelector('button[data-close]')
+    expect(close.textContent.trim()).toBe(PANEL_ATTR_FIXTURES.tClose)
+    expect(close.querySelector('svg')).not.toBeNull()
+    expect(close.querySelector('svg').getAttribute('aria-hidden')).toBe('true')
     el.remove()
   })
 

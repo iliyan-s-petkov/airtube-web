@@ -434,6 +434,40 @@ func TestLatestSensorsReturnsOneRowPerSensor(t *testing.T) {
 	assertInBulgaria(t, "sensor 30", sensors[0].Lon, sensors[0].Lat)
 }
 
+// TestLatestSensorsCarriesLifetime: the panel tells a reader how long this
+// device has been reporting to us, so the row has to carry first_seen and
+// last_seen from the sensor table — not the reading's own timestamp, and not
+// each other.
+func TestLatestSensorsCarriesLifetime(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	seedSensorReading(t, ctx, pool, 70, 23.0, 42.0, "P2", 12, "ok", now)
+
+	first := now.Add(-90 * 24 * time.Hour)
+	last := now.Add(-3 * time.Minute)
+	if _, err := pool.Exec(ctx,
+		`UPDATE sensor SET first_seen = $2, last_seen = $3 WHERE sensor_id = $1`,
+		70, first, last); err != nil {
+		t.Fatalf("set lifetime: %v", err)
+	}
+
+	sensors, err := s.LatestSensors(ctx)
+	if err != nil {
+		t.Fatalf("LatestSensors: %v", err)
+	}
+	if len(sensors) != 1 {
+		t.Fatalf("got %d sensors, want 1", len(sensors))
+	}
+	if got := sensors[0].FirstSeen.UTC(); !got.Equal(first) {
+		t.Errorf("FirstSeen = %v, want %v", got, first)
+	}
+	if got := sensors[0].LastSeen.UTC(); !got.Equal(last) {
+		t.Errorf("LastSeen = %v, want %v", got, last)
+	}
+}
+
 // TestAreaSeriesAveragesAcrossSensors: the area series is the mean of the
 // sensors in the area at each instant, not a concatenation of their readings.
 // Concatenating would produce a sawtooth that looks like violent air-quality

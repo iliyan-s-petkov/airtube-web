@@ -335,6 +335,57 @@ func TestBuildAreaSeriesRespectsConfiguredWindow(t *testing.T) {
 // TestBuildSensorPayloadIsColumnar pins the wire format from Phase 1 §7.3.
 // Phase 3's MapLibre layer consumes typed arrays; a silent switch to
 // row-per-sensor would break it at runtime, not at compile time.
+// TestBuildSensorPayloadCarriesLifetime: the panel's "reporting since" line has
+// no other source. Columns must be present, the same length as id, and carry
+// each sensor's OWN dates — the two are written to distinct values here so a
+// payload that emits last_seen under both names fails.
+func TestBuildSensorPayloadCarriesLifetime(t *testing.T) {
+	ctx, pool := migrated(t)
+	seed(t, ctx, pool)
+
+	wantFirst := time.Date(2024, 1, 15, 6, 30, 0, 0, time.UTC)
+	wantLast := time.Date(2026, 3, 4, 18, 45, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx,
+		`UPDATE sensor SET first_seen = $1, last_seen = $2`, wantFirst, wantLast); err != nil {
+		t.Fatalf("set lifetime: %v", err)
+	}
+
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), time.Unix(1_800_000_000, 0).UTC())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	body, ok := snap.AreaSensors["sofia"]
+	if !ok {
+		t.Fatal("no AreaSensors entry for sofia")
+	}
+
+	var got struct {
+		Sensors struct {
+			ID        []int64     `json:"id"`
+			FirstSeen []time.Time `json:"first_seen"`
+			LastSeen  []time.Time `json:"last_seen"`
+		} `json:"sensors"`
+	}
+	if err := json.Unmarshal(body.JSON, &got); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, body.JSON)
+	}
+	if len(got.Sensors.FirstSeen) != len(got.Sensors.ID) ||
+		len(got.Sensors.LastSeen) != len(got.Sensors.ID) {
+		t.Fatalf("lifetime columns are %d/%d long, want %d",
+			len(got.Sensors.FirstSeen), len(got.Sensors.LastSeen), len(got.Sensors.ID))
+	}
+	for i := range got.Sensors.ID {
+		if !got.Sensors.FirstSeen[i].Equal(wantFirst) {
+			t.Errorf("sensor %d first_seen = %v, want %v",
+				got.Sensors.ID[i], got.Sensors.FirstSeen[i], wantFirst)
+		}
+		if !got.Sensors.LastSeen[i].Equal(wantLast) {
+			t.Errorf("sensor %d last_seen = %v, want %v",
+				got.Sensors.ID[i], got.Sensors.LastSeen[i], wantLast)
+		}
+	}
+}
+
 func TestBuildSensorPayloadIsColumnar(t *testing.T) {
 	ctx, pool := migrated(t)
 	seed(t, ctx, pool)

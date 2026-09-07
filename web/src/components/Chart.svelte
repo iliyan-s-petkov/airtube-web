@@ -1,10 +1,24 @@
 <script>
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
-  import { toUplotData } from '../lib/series.js'
+  import { mergeSeries } from '../lib/series.js'
   import { getJSON } from '../lib/api.js'
 
-  let { url, lineColour, title, valueLabel, timeLabel, empty, unavailable } = $props()
+  // Two ways in, one way through. `url`/`lineColour`/`valueLabel` describe a
+  // single line — the area chart, which has only ever had one — and `sources`
+  // describes a list of them, which is what the sensor panel needs to draw
+  // temperature against PM2.5. Everything below the normalisation works on the
+  // list, so there is no second code path to keep in step.
+  //
+  // A source is { url, label, colour, scale }. scale names the y axis the line
+  // is measured against: two metrics in the same unit share one, and µg/m³
+  // against °C must not, or one of them is flattened into the other's range.
+  let {
+    url, lineColour, valueLabel, sources = null,
+    title, timeLabel, empty, unavailable,
+  } = $props()
+
+  const defs = $derived(sources ?? [{ url, label: valueLabel, colour: lineColour, scale: 'y' }])
 
   // Three states, one variable: the reader must always be told which one they
   // are in. 'loading' renders nothing rather than a spinner — the panel around
@@ -23,20 +37,33 @@
     // claiming an answer about a period nobody has asked the server about yet.
     status = 'loading'
 
+    // Read here, outside the async body, so the effect depends on them: a
+    // read after the first await happens outside the tracking context and the
+    // chart would never redraw when the reader picks another metric.
+    const lines = defs
+
     ;(async () => {
-      let body
+      let bodies
       try {
-        body = await getJSON(url)
+        bodies = await Promise.all(lines.map((s) => getJSON(s.url)))
       } catch (err) {
+        // One failure fails the plot. A chart drawn from the metrics that did
+        // answer, with no word about the one that did not, is a chart the
+        // reader would take as complete.
         if (!cancelled) status = 'unavailable'
         console.error('chart data:', err)
         return
       }
       if (cancelled) return
 
-      const data = toUplotData(body)
+      const data = mergeSeries(bodies)
       if (data[0].length === 0) { status = 'empty'; return }
       status = 'ok'
+
+      // One axis per distinct scale, in the order the lines name them: the
+      // first on the left as usual, a second on the right, so two units can
+      // share the plot without either being squashed into the other's range.
+      const scales = [...new Set(lines.map((s) => s.scale ?? 'y'))]
 
       chart = new uPlot({
         title,
@@ -48,7 +75,29 @@
         // The x series carries a label because uPlot supplies its own English
         // "Time" when it has none, and that label is visible in the hover
         // readout below — the one English word on a Bulgarian page.
-        series: [{ label: timeLabel }, { label: valueLabel, stroke: lineColour, width: 2 }],
+        series: [
+          { label: timeLabel },
+          // spanGaps false, the default, spelled out: mergeSeries writes null
+          // where a device reported nothing, and joining across that null
+          // would draw a straight line through hours nobody measured.
+          ...lines.map((s) => ({
+            label: s.label,
+            stroke: s.colour,
+            width: 2,
+            scale: s.scale ?? 'y',
+            spanGaps: false,
+          })),
+        ],
+        axes: [
+          {},
+          ...scales.map((scale, i) => ({
+            scale,
+            side: i === 0 ? 3 : 1,
+            // The right-hand axis draws no grid: two grids on one plot is a
+            // lattice nobody can read a value off.
+            grid: { show: i === 0 },
+          })),
+        ],
         scales: { x: { time: true } },
         // uPlot's legend IS the hover readout, and with no cursor on the plot
         // it renders the series labels beside em-dash placeholders. Switching

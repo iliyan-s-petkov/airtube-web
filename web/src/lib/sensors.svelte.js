@@ -98,6 +98,19 @@ export function normaliseSensor(responseBody, id) {
     flag: stationFlag(cols, members.indices),
     values,
     sources,
+    // The station's own coordinate, taken from its first member: every device
+    // at a station shares it by definition (they are grouped by exact equality
+    // — see internal/snapshot/build.go's stationIDs).
+    lon: cols.lon?.[members.indices[0]] ?? null,
+    lat: cols.lat?.[members.indices[0]] ?? null,
+    // One entry per box standing here, so the panel can say what the hardware
+    // is rather than leaving "Сензор 5965" to stand for a pair of instruments.
+    devices: members.indices.map((i) => ({
+      id: cols.id?.[i] ?? null,
+      type: cols.type?.[i] ?? '',
+      firstSeen: cols.first_seen?.[i] ?? null,
+      lastSeen: cols.last_seen?.[i] ?? null,
+    })),
   }
 }
 

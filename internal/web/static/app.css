@@ -230,12 +230,28 @@ strong, b { font-weight: var(--weight-emphasis); }
   background: var(--bg); border: 0; box-shadow: var(--elev-raised); border-radius: var(--radius);
   padding: var(--space-3) var(--space-4); font-size: var(--text-compact); letter-spacing: var(--track-compact); color: var(--fg);
 }
-.sensor-panel header { border-bottom: none; padding: 0 0 var(--space-1); margin: 0 0 var(--space-1); }
+/* Title left, way out right: the close control belongs at the edge the reader
+   dismisses from, not stacked under the heading where it read as a link. */
+.sensor-panel header {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  border-bottom: none; padding: 0 0 var(--space-1); margin: 0 0 var(--space-1);
+}
+.panel-close { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+.panel-close__ico { flex: none; }
 .sensor-panel h2 { font-size: var(--text-card); font-weight: var(--weight-emphasis); line-height: 1.4; margin: 0; }
 .panel-flag { color: var(--muted); margin: 0 0 var(--space-2); }
 .sensor-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space-2); margin: 0; }
 .sensor-panel dt { color: var(--fg-2); }
 .sensor-panel dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+/* The station's own description, under its readings and quieter than them:
+   hardware and coordinates answer "what am I looking at", not "how is the air". */
+.panel-details { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-faint); }
+.panel-details h3 { font-size: var(--text-compact); font-weight: var(--weight-emphasis); margin: 0 0 var(--space-2); color: var(--fg-2); }
+.panel-details dd { color: var(--fg-2); }
+.panel-chart { margin-top: var(--space-4); }
+.panel-chart__controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3) var(--space-4); margin-bottom: var(--space-3); }
+.panel-chart__compare { display: flex; flex-direction: column; gap: var(--space-1); color: var(--fg-2); }
+.panel-chart__compare select { min-height: var(--space-8); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--fg); padding: 0 var(--space-2); }
 /* Honour the reduced-motion preference before Phase 3 adds any transitions. */
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 

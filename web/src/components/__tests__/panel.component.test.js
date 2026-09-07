@@ -50,4 +50,26 @@ describe('SensorPanel.svelte', () => {
     )
     expect(onclose).toHaveBeenCalledTimes(2)
   })
+
+  it('lists the station description under its own heading', () => {
+    const target = render({
+      detailsLabel: 'About this station',
+      details: [
+        { key: 'devices', label: 'Devices', value: '42, 43' },
+        { key: 'since', label: 'In our data since', value: '5 Mar 2024' },
+      ],
+    })
+    const details = target.querySelector('.panel-details')
+    expect(details.querySelector('h3').textContent).toBe('About this station')
+    expect([...details.querySelectorAll('dt')].map((n) => n.textContent))
+      .toEqual(['Devices', 'In our data since'])
+    expect([...details.querySelectorAll('dd')].map((n) => n.textContent))
+      .toEqual(['42, 43', '5 Mar 2024'])
+  })
+
+  // An empty description list under a heading is a promise the panel cannot
+  // keep: a station we know nothing about shows the readings and stops.
+  it('renders no description list when there is nothing to describe', () => {
+    expect(render({ details: [] }).querySelector('.panel-details')).toBeNull()
+  })
 })

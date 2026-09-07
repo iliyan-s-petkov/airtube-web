@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount, unmount } from 'svelte'
 import Chart from '../Chart.svelte'
+import { clearCache } from '../../lib/api.js'
 
 // uPlot needs layout the jsdom environment does not provide, so it is stubbed:
 // this test is about which BRANCH runs and what text the reader ends up with,
@@ -31,6 +32,10 @@ const props = {
 
 let component
 afterEach(() => {
+  // lib/api.js caches by URL for the page's lifetime, and a module cache
+  // outlives a test: without this, a later case asking for a URL an earlier
+  // case fetched is answered from the cache and never reaches its own mock.
+  clearCache()
   if (component) unmount(component)
   vi.restoreAllMocks()
   uplotCalls.length = 0
@@ -108,6 +113,56 @@ describe('Chart.svelte', () => {
 
     await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
     expect(uplotCalls[0].opts.series[0].label).toBe('Време')
+  })
+
+  // Two metrics on one plot is the panel's whole reason for this prop. Each
+  // line keeps its own colour and its own y scale — with one shared scale,
+  // °C is a flat line along the bottom of a µg/m³ range.
+  it('draws one line per source, each on the scale it names', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(new Response(JSON.stringify(
+        String(input).includes('temperature')
+          ? { t: ['2026-08-14T00:00:00Z'], v: [21] }
+          : { t: ['2026-08-14T00:00:00Z'], v: [12.3] },
+      ), { status: 200 })))
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    render({
+      url: undefined,
+      timeLabel: 'Време',
+      sources: [
+        { url: '/api/v1/sensor/1/series?metric=P2', label: 'ПМ2.5', colour: '#111', scale: 'y' },
+        { url: '/api/v1/sensor/2/series?metric=temperature', label: '°C', colour: '#f90', scale: 'y2' },
+      ],
+    })
+
+    await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
+    const { opts, data } = uplotCalls[0]
+    expect(opts.series.map((s) => s.label)).toEqual(['Време', 'ПМ2.5', '°C'])
+    expect(opts.series[1].scale).toBe('y')
+    expect(opts.series[2].scale).toBe('y2')
+    expect(opts.series[2].stroke).toBe('#f90')
+    // x, then one y column per source — and the values not swapped between them.
+    expect(data).toEqual([[1786665600], [12.3], [21]])
+    // A second axis on the right, so the second unit has its own numbers.
+    expect(opts.axes.map((a) => a.side)).toEqual([undefined, 3, 1])
+  })
+
+  // A metric whose request fails must not leave a plot that looks complete
+  // with one line silently missing.
+  it('says the data is unavailable when one of several sources fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      String(input).includes('temperature')
+        ? Promise.reject(new Error('boom'))
+        : Promise.resolve(new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 })))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const target = render({
+      url: undefined,
+      sources: [
+        { url: '/api/v1/sensor/1/series?metric=P2', label: 'ПМ2.5', colour: '#111', scale: 'y' },
+        { url: '/api/v1/sensor/2/series?metric=temperature', label: '°C', colour: '#f90', scale: 'y2' },
+      ],
+    })
+    await vi.waitFor(() => expect(target.textContent).toContain(props.unavailable))
   })
 
   // uPlot's legend IS its hover readout, and at rest it renders the series

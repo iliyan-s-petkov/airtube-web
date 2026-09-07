@@ -33,6 +33,11 @@
   --success: #24a148;
   --notice-bg: #fcf4d6;
 
+  /* The second line on a chart comparing two metrics. Purple: it must not be
+     read as a scale colour, and the ramp's hues are forbidden on a series for
+     exactly that reason. */
+  --chart-compare: #8a3ffc;
+
   /* Map chrome */
   --map-placeholder-bg: #f4f4f4;
   --overlay-bg: rgba(255, 255, 255, .9);

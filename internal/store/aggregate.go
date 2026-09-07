@@ -145,6 +145,12 @@ type SensorReading struct {
 	// what lets a panel say "no reading right now" about a metric this device
 	// does measure while saying nothing at all about one it does not.
 	Measures []string
+	// FirstSeen and LastSeen are this device's lifetime AS OUR INGEST SAW IT:
+	// when we first wrote it down and when upstream last published it. Neither
+	// is a registration date — sensor.community does not publish one, and the
+	// panel must not call ours one.
+	FirstSeen time.Time
+	LastSeen  time.Time
 }
 
 const latestSensorsSQL = `
@@ -171,10 +177,12 @@ SELECT s.sensor_id, s.sensor_type,
            FILTER (WHERE l.quality = ANY($2::quality_flag[])),
        -- Unfiltered, unlike the values above: a metric whose latest reading was
        -- rejected for quality is still a metric this device measures.
-       array_agg(DISTINCT l.metric::text)
+       array_agg(DISTINCT l.metric::text),
+       s.first_seen, s.last_seen
   FROM sensor s
   JOIN latest l ON l.sensor_id = s.sensor_id
- GROUP BY s.sensor_id, s.sensor_type, s.location, s.country_code
+ GROUP BY s.sensor_id, s.sensor_type, s.location, s.country_code,
+          s.first_seen, s.last_seen
  ORDER BY s.sensor_id`
 
 // LatestSensors returns one row per sensor with a fresh reading, carrying every
@@ -195,7 +203,8 @@ func (s *Store) LatestSensors(ctx context.Context) ([]SensorReading, error) {
 		var sr SensorReading
 		var values map[string]float64
 		if err := rows.Scan(&sr.SensorID, &sr.SensorType, &sr.Lon, &sr.Lat,
-			&sr.Country, &sr.AreaSlugs, &sr.Quality, &values, &sr.Measures); err != nil {
+			&sr.Country, &sr.AreaSlugs, &sr.Quality, &values, &sr.Measures,
+			&sr.FirstSeen, &sr.LastSeen); err != nil {
 			return nil, fmt.Errorf("store: scan sensor: %w", err)
 		}
 		if values == nil {

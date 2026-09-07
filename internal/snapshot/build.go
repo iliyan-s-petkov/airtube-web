@@ -78,6 +78,12 @@ type sensorColumns struct {
 	// row that should say no reading right now — and this column is the only
 	// thing that distinguishes them.
 	Measures [][]string `json:"measures"`
+	// FirstSeen and LastSeen are the device's lifetime as our ingest saw it —
+	// not a registration date, which upstream does not publish. Same length as
+	// ID. The panel prints them so a reader can tell a box that has reported
+	// for two years from one that appeared this morning.
+	FirstSeen []time.Time `json:"first_seen"`
+	LastSeen  []time.Time `json:"last_seen"`
 	// Metrics holds one column per canonical metric, each the same length as
 	// ID. A nil entry means that sensor does not report that metric — which is
 	// distinct from reporting zero, and must stay distinct: 0 µg/m³ is a
@@ -91,13 +97,15 @@ type sensorColumns struct {
 // siblings, and Phase 3 reads them that way.
 func (c sensorColumns) MarshalJSON() ([]byte, error) {
 	out := map[string]any{
-		"id":       c.ID,
-		"type":     c.Type,
-		"lon":      c.Lon,
-		"lat":      c.Lat,
-		"quality":  c.Quality,
-		"station":  c.Station,
-		"measures": c.Measures,
+		"id":         c.ID,
+		"type":       c.Type,
+		"lon":        c.Lon,
+		"lat":        c.Lat,
+		"quality":    c.Quality,
+		"station":    c.Station,
+		"measures":   c.Measures,
+		"first_seen": c.FirstSeen,
+		"last_seen":  c.LastSeen,
 	}
 	for metric, col := range c.Metrics {
 		out[metric] = col
@@ -262,14 +270,16 @@ func areaPayloadFrom(now time.Time, aggs []store.AreaAggregate) areaPayload {
 func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPayload {
 	n := len(sensors)
 	cols := sensorColumns{
-		ID:       make([]int64, 0, n),
-		Type:     make([]string, 0, n),
-		Lon:      make([]float64, 0, n),
-		Lat:      make([]float64, 0, n),
-		Quality:  make([]string, 0, n),
-		Measures: make([][]string, 0, n),
-		Station:  stationIDs(sensors),
-		Metrics:  make(map[string][]*float64),
+		ID:        make([]int64, 0, n),
+		Type:      make([]string, 0, n),
+		Lon:       make([]float64, 0, n),
+		Lat:       make([]float64, 0, n),
+		Quality:   make([]string, 0, n),
+		Measures:  make([][]string, 0, n),
+		FirstSeen: make([]time.Time, 0, n),
+		LastSeen:  make([]time.Time, 0, n),
+		Station:   stationIDs(sensors),
+		Metrics:   make(map[string][]*float64),
 	}
 	// Every canonical metric gets a column of exactly n entries, present or
 	// not. A ragged payload — where P2 has 40 entries and pressure has 3 — has
@@ -286,6 +296,8 @@ func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPaylo
 		cols.Lat = append(cols.Lat, sr.Lat)
 		cols.Quality = append(cols.Quality, sr.Quality)
 		cols.Measures = append(cols.Measures, measuresOf(sr, metrics))
+		cols.FirstSeen = append(cols.FirstSeen, sr.FirstSeen)
+		cols.LastSeen = append(cols.LastSeen, sr.LastSeen)
 		for _, m := range metrics {
 			if v, ok := sr.Values[m]; ok {
 				value := v

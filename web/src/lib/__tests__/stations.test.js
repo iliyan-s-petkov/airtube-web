@@ -17,6 +17,8 @@ function body() {
       quality: ['ok', 'ok', 'ok'],
       station: [5965, 5965, 19774],
       measures: [['humidity', 'pressure', 'temperature'], ['P1', 'P2'], ['P1', 'P2']],
+      first_seen: ['2023-11-01T08:00:00Z', '2024-03-05T10:00:00Z', '2025-01-09T12:00:00Z'],
+      last_seen: ['2026-09-07T18:10:00Z', '2026-09-07T18:20:00Z', '2026-09-07T17:55:00Z'],
       P1: [null, 12, 5],
       P2: [null, 7, 3],
       temperature: [18, null, null],

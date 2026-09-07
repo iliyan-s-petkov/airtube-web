@@ -29,3 +29,69 @@ export function panelRows(sensor, options, scales) {
       missing: values[metric] === null || values[metric] === undefined,
     }))
 }
+
+// detailRows describes the STATION itself, as opposed to what it is currently
+// reading: which boxes stand there, what hardware they are, how long they have
+// been reporting to us and where they are.
+//
+// "Reporting since" is deliberately not called a registration date. Upstream
+// publishes no such date; what we have is the first time OUR ingest wrote the
+// device down (internal/store: SensorReading.FirstSeen), and a device that has
+// reported for years but only reached us in June must not be presented as new
+// — the label says "in our data", and this is the only place that promise is
+// kept.
+//
+// A row whose value is unknown is omitted rather than printed empty: an
+// address with nothing to say about its hardware should show a shorter list,
+// not a list of blanks.
+export function detailRows(sensor, labels, locale) {
+  const devices = sensor?.devices ?? []
+  const rows = []
+
+  const ids = devices.map((d) => d.id).filter((id) => id !== null && id !== undefined)
+  if (ids.length) rows.push({ key: 'devices', label: labels.devices, value: ids.join(', ') })
+
+  const types = [...new Set(devices.map((d) => d.type).filter(Boolean))]
+  if (types.length) rows.push({ key: 'hardware', label: labels.hardware, value: types.join(', ') })
+
+  // The earliest first_seen and the latest last_seen across the boxes: the
+  // station has been reporting since its oldest device arrived, and it is as
+  // fresh as its most recent one.
+  const first = earliest(devices.map((d) => d.firstSeen))
+  if (first) rows.push({ key: 'since', label: labels.since, value: formatDate(first, locale) })
+
+  const last = latest(devices.map((d) => d.lastSeen))
+  if (last) rows.push({ key: 'updated', label: labels.updated, value: formatDateTime(last, locale) })
+
+  if (Number.isFinite(sensor?.lat) && Number.isFinite(sensor?.lon)) {
+    rows.push({
+      key: 'coords',
+      label: labels.coords,
+      value: `${sensor.lat.toFixed(4)}, ${sensor.lon.toFixed(4)}`,
+    })
+  }
+
+  return rows
+}
+
+function stamps(list) {
+  return list.map((s) => (s ? Date.parse(s) : NaN)).filter((n) => Number.isFinite(n))
+}
+
+function earliest(list) {
+  const times = stamps(list)
+  return times.length ? new Date(Math.min(...times)) : null
+}
+
+function latest(list) {
+  const times = stamps(list)
+  return times.length ? new Date(Math.max(...times)) : null
+}
+
+function formatDate(date, locale) {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
+}
+
+function formatDateTime(date, locale) {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' }).format(date)
+}
