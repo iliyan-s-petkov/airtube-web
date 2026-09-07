@@ -43,7 +43,7 @@ body {
 /* Readout strip: a measured value, what it is, and the tier it aggregates.
    The 1px gap over a --border-soft ground is what draws the dividers, so the
    cells need no borders of their own and reflow without leaving a stray edge. */
-.readouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; background: var(--border-soft); border: 1px solid var(--border-soft); }
+.readouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; background: var(--border-soft); border: 0; border-radius: var(--radius); overflow: hidden; box-shadow: var(--elev-card); }
 .readout { background: var(--bg); padding: var(--space-4); display: grid; gap: var(--space-1); }
 .readout__label { color: var(--fg-2); font: var(--weight-body) var(--text-caption)/var(--leading-caption) var(--font-body); letter-spacing: var(--track-caption); }
 .readout__value { font: var(--weight-display) var(--text-readout)/var(--leading-readout) var(--font-body); font-variant-numeric: tabular-nums; }
@@ -1024,7 +1024,8 @@ body.has-faux-full { overflow: hidden; }
   padding: 0;
   list-style: none;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 0;
+  border-radius: var(--radius);
   border-radius: var(--radius);
   /* A dropdown genuinely floats above the page — the sanctioned shadow (§4.4). */
   box-shadow: var(--elev-float);
@@ -1078,7 +1079,8 @@ body.has-faux-full { overflow: hidden; }
   min-inline-size: 15rem;
   padding: var(--space-4);
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 0;
+  border-radius: var(--radius);
   border-radius: var(--radius);
   box-shadow: var(--elev-float);   /* it floats — sanctioned shadow (§4.4) */
 }
@@ -1362,7 +1364,8 @@ body.has-faux-full { overflow: hidden; }
   margin: 0; padding: 0;
   list-style: none;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 0;
+  border-radius: var(--radius);
   border-radius: var(--radius);
   box-shadow: var(--elev-float);   /* it floats — sanctioned shadow (§4.4) */
 }
@@ -1522,10 +1525,10 @@ body.has-faux-full { overflow: hidden; }
   place-items: center;
   padding: 0;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: 0;
+  border-radius: var(--radius);
   color: var(--fg);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  box-shadow: var(--elev-raised);
   cursor: pointer;
 }
 .map__layers .colmenu__btn:hover { background: var(--surface-2); }
@@ -1546,9 +1549,9 @@ body.has-faux-full { overflow: hidden; }
   max-block-size: 46vh;
   overflow-y: auto;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: var(--elev-float);
   padding: 8px 10px;
 }
 /* Zoomed in past the served resolution. The cell is no longer drawn at the size

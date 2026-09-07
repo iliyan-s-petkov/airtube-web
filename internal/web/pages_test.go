@@ -114,6 +114,11 @@ func TestFaviconIsServedAndDeclared(t *testing.T) {
 	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "image/svg+xml") {
 		t.Errorf("Content-Type = %q, want image/svg+xml", got)
 	}
+	// The mark follows the system's geometry (DESIGN.md 4.3). It is a separate
+	// document that never sees theme.css, so only a test keeps it in step.
+	if !strings.Contains(rec.Body.String(), `rx="7"`) {
+		t.Error("favicon.svg has no rx: the mark is square while every other corner in the system is rounded")
+	}
 
 	// The about page, not "/": the home page needs a warm snapshot and answers
 	// 503 without one. The declaration lives in base.gohtml, so any page that

@@ -183,8 +183,7 @@ borders made every surface read as a cell in one big grid, and the page could no
 which of two neighbouring blocks was the thing to look at. Rounding, a soft shadow and
 a tinted page ground do that job without adding a colour.
 
-`favicon.svg` keeps its `rx="7"`, which now agrees with the system rather than
-contradicting it. Its literal `#0f62fe` still has to be kept in step with `--accent` by
+`favicon.svg` takes `rx="7"` — the 10px radius at the mark's 32px box. Its literal `#0f62fe` still has to be kept in step with `--accent` by
 hand — an `<img>`-referenced SVG never sees `theme.css`.
 
 **A swatch that stands for one map cell is a hexagon**, clipped to the same pointy-top
