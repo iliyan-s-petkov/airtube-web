@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, showArea, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, showArea, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -80,7 +80,7 @@ vi.mock('maplibre-gl', () => {
 // returns. No harness by this name or shape existed before this task; the
 // brief assumed one without it being written, so this is built fresh, kept to
 // exactly what the two tests below need.
-function mountTestMap({ metric, styleLayers = [] }) {
+function mountTestMap({ metric, styleLayers = [], dataset = {} }) {
   fakeStyle.layers = styleLayers
   resetViewStateForTests()
   history.replaceState(null, '', `/#metric=${metric}`)
@@ -101,6 +101,12 @@ function mountTestMap({ metric, styleLayers = [] }) {
   el.dataset.hexOpacity = '0.55'
   el.dataset.tWindToggle = 'Wind'
   el.dataset.tViewCellValues = 'Cell values'
+  Object.assign(el.dataset, dataset)
+  // In the document, in a wrapper of its own: mountChrome puts the tier caption
+  // AFTER the map's element, which a detached node has nowhere to put.
+  const wrapper = document.createElement('div')
+  wrapper.appendChild(el)
+  document.body.appendChild(wrapper)
 
   const { map, chrome } = mount(el)
   // Fired, not awaited: mount()'s 'load' handler registers the metric
@@ -1369,6 +1375,21 @@ describe('openDeepLinkedSensor', () => {
     }
   })
 
+  // A cell click is already looking at the sensor, so resolving it must not
+  // move the map out from under the reader — only load it.
+  it('adopts the area without moving the map when asked not to', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const fetchJSON = vi.fn().mockResolvedValue({ id: 11338, lon: 23.31, lat: 42.69, slug: 'sofia' })
+
+    const moved = await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(11338), fetchJSON, { move: false })
+
+    expect(map.jumpTo).not.toHaveBeenCalled()
+    expect(state.slug).toBe('sofia')
+    expect(moved).toBe(true)
+  })
+
   // A sensor the snapshot knows but no area page owns: the position is still
   // worth flying to, and adopting a slug no endpoint serves would be worse.
   it('flies to a sensor with no area without adopting an empty slug', async () => {
@@ -2056,6 +2077,34 @@ describe('mount() opens a sensor from the cell that carries one', () => {
     expect(getViewState().sensorId).toBe(4242)
   })
 
+  // The hash alone opened nothing: the panel reads the registry, which the home
+  // page (no slug) never fills.
+  it('loads a sensor the map does not hold yet, so the panel opens without a reload', async () => {
+    clearCache()
+    setSensors(null)
+    const asked = []
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      asked.push(String(url))
+      return {
+        ok: true, status: 200, headers: new Headers(),
+        json: async () => ({ id: 4242, lon: 23.31, lat: 42.69, slug: 'sofia', areas: [] }),
+      }
+    }))
+    const { map } = mountTestMap({ metric: 'P2' })
+    // After the load pass, which flies to a #sensor= of its own.
+    await vi.waitFor(() => expect(asked.some((u) => u.endsWith('/api/v1/locate'))).toBe(true))
+    map.jumpTo.mockClear()
+
+    map.clickHandlers['airbg-hex-fill']({ features: [{ properties: { sensorId: 4242 } }] })
+
+    await vi.waitFor(() => {
+      expect(asked.some((u) => u.includes('/api/v1/sensor/4242/locate'))).toBe(true)
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    // In place: the reader is already looking at the cell they clicked.
+    expect(map.jumpTo.mock.calls.every((c) => c[0]?.zoom !== DEEP_LINK_ZOOM)).toBe(true)
+  })
+
   it('opens no panel for an aggregate cell, which names no device', () => {
     const { map } = mountTestMap({ metric: 'P2' })
     map.clickHandlers['airbg-hex-fill']({
@@ -2092,6 +2141,41 @@ describe('mount() opens a sensor from the cell that carries one', () => {
     it('selects nothing for a click with no position', () => {
       expect(cellArea({ areas }, undefined)).toBeNull()
     })
+  })
+})
+
+// Keyed off the marker tier, the caption told a reader zoomed onto one device
+// that every cell was an area average.
+describe('cellTier', () => {
+  it('says one device per cell only where the grid draws one', () => {
+    expect(cellTier(POINT_TIER_MIN_ZOOM, 'city')).toBe('sensors')
+    expect(cellTier(POINT_TIER_MIN_ZOOM + 3, 'country')).toBe('sensors')
+  })
+
+  it('never claims a bin is a device, whatever the markers are', () => {
+    expect(cellTier(POINT_TIER_MIN_ZOOM - 1, 'sensors')).not.toBe('sensors')
+    expect(cellTier(7, 'country')).toBe('country')
+    expect(cellTier(10, 'city')).toBe('city')
+  })
+
+  it('is what the caption under the key is written from', async () => {
+    clearCache()
+    setSensors(null)
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }),
+    })))
+    const { map, el } = mountTestMap({
+      metric: 'P2',
+      dataset: { tTierCountry: 'each cell averages', tTierCity: 'each cell averages', tTierSensors: 'each cell is one sensor' },
+    })
+    map.getZoom = vi.fn(() => POINT_TIER_MIN_ZOOM + 1)
+
+    map.handlers.moveend()
+
+    await vi.waitFor(() => {
+      expect(el.parentNode?.querySelector('.legend__tier')?.textContent ?? el.querySelector('.legend__tier')?.textContent)
+        .toBe('each cell is one sensor')
+    }, { timeout: 2000 })
   })
 })
 

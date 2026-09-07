@@ -531,6 +531,9 @@ export function mount(el) {
     const id = e.features?.[0]?.properties?.sensorId
     if (id !== undefined && id !== null) {
       vs.openSensor(Number(id))
+      // The hash alone is not the panel: it reads the registry, which a map
+      // with no area selected never fills.
+      openDeepLinkedSensor(map, state, cfg, chrome, vs, getJSON, { move: false })
       return
     }
     const slug = cellArea(state, e.lngLat)
@@ -828,6 +831,13 @@ export async function loadScales(chrome, cfg, fetchJSON = getJSON) {
   return scales
 }
 
+// The caption says what one CELL is, so the grid's resolution decides it, not
+// the marker tier.
+export function cellTier(zoom, markerTier) {
+  if (zoom >= POINT_TIER_MIN_ZOOM_FRACTIONAL) return 'sensors'
+  return markerTier === 'sensors' ? 'city' : markerTier
+}
+
 // refresh fetches the tier the current zoom permits and repaints.
 //
 // `force` bypasses the tier:slug dedup key below. Ordinary callers (moveend,
@@ -850,7 +860,11 @@ async function refresh(map, state, cfg, chrome, force = false) {
   // Naming the raw tier here would restate that contradiction instead of
   // resolving it. Placed before the dedup return below so the legend is correct
   // even on the passes that fetch nothing.
-  chrome.showLegend({ bands: bandsFor(state.scales, cfg.metric), tier: effective, metric: cfg.metric })
+  chrome.showLegend({
+    bands: bandsFor(state.scales, cfg.metric),
+    tier: cellTier(map.getZoom(), effective),
+    metric: cfg.metric,
+  })
 
   // Before the dedup return, like the legend: the handover depends on what the
   // markers are, and a pass that fetches nothing can still be the pass where
@@ -1038,14 +1052,15 @@ export const DEEP_LINK_ZOOM = POINT_TIER_MIN_ZOOM + 2
 // deep link put them rather than overriding it with a geoip placement. Any
 // failure — a refusal by the enumeration limiter, a sensor the snapshot does
 // not know — returns false and leaves the map exactly where it was.
-export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSON = getJSON) {
+// `move: false`: the cell-click path is already looking at the sensor.
+export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSON = getJSON, { move = true } = {}) {
   const id = vs.sensorId
   if (id === null || id === undefined || findSensor(id)) return false
 
   const body = await fetchJSON(`/api/v1/sensor/${id}/locate`).catch(() => null)
   if (typeof body?.lon !== 'number' || typeof body?.lat !== 'number') return false
 
-  map.jumpTo({ center: [body.lon, body.lat], zoom: DEEP_LINK_ZOOM })
+  if (move) map.jumpTo({ center: [body.lon, body.lat], zoom: DEEP_LINK_ZOOM })
   // Only a real slug: a sensor outside every area still deserves the flight,
   // and adopting '' would make refresh() ask for an area page that cannot exist.
   if (body.slug) state.slug = body.slug
