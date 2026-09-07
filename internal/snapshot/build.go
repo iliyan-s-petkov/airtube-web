@@ -64,6 +64,17 @@ type sensorColumns struct {
 	// Same length as ID, and for a sensor standing alone it is that sensor's
 	// own id.
 	Station []int64 `json:"station"`
+	// Measures names, per sensor, the metrics that piece of hardware measures.
+	// Same length as ID.
+	//
+	// The metric columns below cannot answer that on their own: every canonical
+	// metric gets a column for every sensor, so a null in the temperature
+	// column means BOTH "an SDS011 has no thermometer" and "the thermometer's
+	// last reading was rejected as out of range". Those are different things to
+	// tell a reader — one is a row that should not be on screen, the other is a
+	// row that should say no reading right now — and this column is the only
+	// thing that distinguishes them.
+	Measures [][]string `json:"measures"`
 	// Metrics holds one column per canonical metric, each the same length as
 	// ID. A nil entry means that sensor does not report that metric — which is
 	// distinct from reporting zero, and must stay distinct: 0 µg/m³ is a
@@ -77,12 +88,13 @@ type sensorColumns struct {
 // siblings, and Phase 3 reads them that way.
 func (c sensorColumns) MarshalJSON() ([]byte, error) {
 	out := map[string]any{
-		"id":      c.ID,
-		"type":    c.Type,
-		"lon":     c.Lon,
-		"lat":     c.Lat,
-		"quality": c.Quality,
-		"station": c.Station,
+		"id":       c.ID,
+		"type":     c.Type,
+		"lon":      c.Lon,
+		"lat":      c.Lat,
+		"quality":  c.Quality,
+		"station":  c.Station,
+		"measures": c.Measures,
 	}
 	for metric, col := range c.Metrics {
 		out[metric] = col
@@ -247,13 +259,14 @@ func areaPayloadFrom(now time.Time, aggs []store.AreaAggregate) areaPayload {
 func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPayload {
 	n := len(sensors)
 	cols := sensorColumns{
-		ID:      make([]int64, 0, n),
-		Type:    make([]string, 0, n),
-		Lon:     make([]float64, 0, n),
-		Lat:     make([]float64, 0, n),
-		Quality: make([]string, 0, n),
-		Station: stationIDs(sensors),
-		Metrics: make(map[string][]*float64),
+		ID:       make([]int64, 0, n),
+		Type:     make([]string, 0, n),
+		Lon:      make([]float64, 0, n),
+		Lat:      make([]float64, 0, n),
+		Quality:  make([]string, 0, n),
+		Measures: make([][]string, 0, n),
+		Station:  stationIDs(sensors),
+		Metrics:  make(map[string][]*float64),
 	}
 	// Every canonical metric gets a column of exactly n entries, present or
 	// not. A ragged payload — where P2 has 40 entries and pressure has 3 — has
@@ -269,6 +282,7 @@ func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPaylo
 		cols.Lon = append(cols.Lon, sr.Lon)
 		cols.Lat = append(cols.Lat, sr.Lat)
 		cols.Quality = append(cols.Quality, sr.Quality)
+		cols.Measures = append(cols.Measures, measuresOf(sr, metrics))
 		for _, m := range metrics {
 			if v, ok := sr.Values[m]; ok {
 				value := v
@@ -279,6 +293,32 @@ func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPaylo
 		}
 	}
 	return sensorPayload{GeneratedAt: now, Sensors: cols}
+}
+
+// measuresOf is the metrics one device measures, in the canonical order.
+//
+// The store's answer is every metric with a fresh reading of any quality; this
+// filters it to the canonical set (the same set the columns are built from, so
+// the client can never be told about a metric it has no column for) and adds
+// anything present in Values but missing from it — a usable value the device
+// did not also report as measured would otherwise be a reading the panel
+// refuses to show.
+//
+// A device the store has no Measures for at all — a row written before the
+// column existed — falls back to what it has values for, which is the old
+// behaviour minus the phantom rows.
+func measuresOf(sr store.SensorReading, canonical []string) []string {
+	reported := make(map[string]bool, len(sr.Measures))
+	for _, m := range sr.Measures {
+		reported[m] = true
+	}
+	out := make([]string, 0, len(canonical))
+	for _, m := range canonical {
+		if _, has := sr.Values[m]; has || reported[m] {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // stationIDs answers, for each sensor and in the same order, which physical

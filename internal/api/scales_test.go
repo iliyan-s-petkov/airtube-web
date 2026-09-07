@@ -1,9 +1,11 @@
 package api_test
 
 import (
+	"math"
 	"testing"
 
 	"airbg.org/internal/api"
+	"airbg.org/internal/upstream"
 )
 
 // TestScaleBandsAreMonotonic. Bands out of order, or with a repeated upper
@@ -15,7 +17,10 @@ func TestScaleBandsAreMonotonic(t *testing.T) {
 			t.Errorf("%s/%s: %d bands, want at least 2", s.Name, s.Metric, len(s.Bands))
 			continue
 		}
-		prev := -1.0
+		// Below every possible boundary, not below zero: temperature bands are
+		// legitimately negative, and a floor of -1 would reject the frost band
+		// for being where frost is.
+		prev := math.Inf(-1)
 		for i, b := range s.Bands {
 			if b.Upper == nil {
 				if i != len(s.Bands)-1 {
@@ -45,7 +50,7 @@ func TestEveryScaleStatesItsCeiling(t *testing.T) {
 			t.Errorf("%s/%s: no ceiling; the client would have to guess the top of the ramp", s.Name, s.Metric)
 			continue
 		}
-		var highest float64
+		highest := math.Inf(-1)
 		for _, b := range s.Bands {
 			if b.Upper != nil && *b.Upper > highest {
 				highest = *b.Upper
@@ -100,5 +105,37 @@ func TestScalesCoverBothParticulateMetrics(t *testing.T) {
 		if !seen[want] {
 			t.Errorf("missing scale %s", want)
 		}
+	}
+}
+
+// TestEveryCanonicalMetricIsScaled. A metric the store keeps but this file has
+// no table for reaches the reader as a bare number with no unit after it and a
+// dot painted the same grey as one with no reading at all — which is how
+// temperature, humidity and pressure shipped. The metric list is the store's,
+// so a metric added there fails here until it has a table.
+func TestEveryCanonicalMetricIsScaled(t *testing.T) {
+	units := map[string]string{}
+	for _, s := range api.Scales() {
+		units[s.Metric] = s.Unit
+	}
+	for _, m := range upstream.CanonicalMetrics() {
+		if units[m] == "" {
+			t.Errorf("canonical metric %q has no scale, so it has no unit and no colour", m)
+		}
+	}
+}
+
+// TestEveryScaleForOneMetricAgreesOnItsUnit. The frontend asks for a metric's
+// unit and takes the first table it finds (unitFor, web/src/lib/metrics.js), so
+// two tables for one metric disagreeing about the unit would make the printed
+// unit depend on the order of this slice.
+func TestEveryScaleForOneMetricAgreesOnItsUnit(t *testing.T) {
+	first := map[string]string{}
+	for _, s := range api.Scales() {
+		if prev, seen := first[s.Metric]; seen && prev != s.Unit {
+			t.Errorf("%s: unit %q here but %q in an earlier table", s.Metric, s.Unit, prev)
+			continue
+		}
+		first[s.Metric] = s.Unit
 	}
 }

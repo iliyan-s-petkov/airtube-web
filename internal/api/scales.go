@@ -11,6 +11,15 @@ package api
 //     PM2.5 25 µg/m³ annual.
 //   - WHO: 2021 Global Air Quality Guidelines — PM10 45 µg/m³ 24-hour,
 //     PM2.5 15 µg/m³ 24-hour.
+//   - WHO Environmental Noise Guidelines for the European Region (2018):
+//     road traffic Lden 53 dB, Lnight 45 dB.
+//   - Directive 2003/10/EC: 85 dB(A) upper exposure action value.
+//
+// Temperature, humidity and pressure have no health legislation behind them and
+// their tables here claim none: they are weather bands, and they exist because
+// a metric with no table is a metric with no unit and no colour — the panel
+// printed "19.59" with nothing after it, and the map painted every dot the same
+// grey. Their notes say so in both languages.
 //
 // A sensor.community reading is a ~2.5-minute mean from a low-cost nephelometer,
 // not a 24-hour reference-method measurement. Bands are therefore INDICATIVE and
@@ -76,7 +85,7 @@ func Scales() []Scale {
 	const indicativeBG = "Данните от нискобюджетни сензори са индикативни и не " +
 		"са измервания по референтен метод."
 
-	scales := []Scale{
+	particulate := []Scale{
 		{Name: "eaqi", Metric: "P2", Unit: "µg/m³", Bands: eaqiPM25,
 			Notes:   "European Air Quality Index bands for PM2.5. " + indicative,
 			NotesBG: "Класове на Европейския индекс за качество на въздуха за ПМ2.5. " + indicativeBG},
@@ -116,8 +125,85 @@ func Scales() []Scale {
 	// Every table above is particulate matter in µg/m³, so they all draw to the
 	// same ceiling; set here rather than per entry so a new one cannot ship
 	// without one and fall back to a guessed top of scale.
-	for i := range scales {
-		scales[i].Ceiling = upper(pmCeiling)
+	for i := range particulate {
+		particulate[i].Ceiling = upper(pmCeiling)
 	}
-	return scales
+
+	// The rest of what the network measures. Each states its own ceiling,
+	// because unlike the particulate tables they share no axis: the top of the
+	// temperature bar and the top of the pressure bar are different numbers in
+	// different units.
+	return append(particulate, weather()...)
+}
+
+// weather returns the tables for the five non-particulate metrics.
+//
+// Bulgarian summer maxima reach the low forties and winter minima the low
+// negatives, so the temperature ceiling is 45 and the coldest band is open at
+// the bottom the way every first band here is. Pressure is drawn around the
+// standard atmosphere (1013.25 hPa) with a band either side, humidity across
+// the full 0-100 % it is defined on.
+func weather() []Scale {
+	const orientation = "Weather bands for orientation. They are not a health " +
+		"standard, and low-cost sensor readings are indicative."
+	const orientationBG = "Метеорологични класове за ориентация. Те не са " +
+		"здравен стандарт, а данните от нискобюджетни сензори са индикативни."
+	const noiseIndicative = "Low-cost sensor readings are indicative and are " +
+		"not reference-method measurements."
+	const noiseIndicativeBG = "Данните от нискобюджетни сензори са индикативни " +
+		"и не са измервания по референтен метод."
+
+	return []Scale{
+		{Name: "meteo", Metric: "temperature", Unit: "°C", Ceiling: upper(45),
+			Bands: []Band{
+				{Label: "Severe frost", LabelBG: "Силен студ", Upper: upper(-10), Colour: "#313695"},
+				{Label: "Frost", LabelBG: "Мраз", Upper: upper(0), Colour: "#4575b4"},
+				{Label: "Cold", LabelBG: "Хладно", Upper: upper(10), Colour: "#74add1"},
+				{Label: "Mild", LabelBG: "Умерено", Upper: upper(20), Colour: "#fee090"},
+				{Label: "Warm", LabelBG: "Топло", Upper: upper(30), Colour: "#f46d43"},
+				{Label: "Hot", LabelBG: "Горещо", Upper: nil, Colour: "#a50026"},
+			},
+			Notes:   "Air temperature in degrees Celsius. " + orientation,
+			NotesBG: "Температура на въздуха в градуси Целзий. " + orientationBG},
+		{Name: "meteo", Metric: "humidity", Unit: "%", Ceiling: upper(100),
+			Bands: []Band{
+				{Label: "Very dry", LabelBG: "Много сухо", Upper: upper(30), Colour: "#a6611a"},
+				{Label: "Dry", LabelBG: "Сухо", Upper: upper(40), Colour: "#dfc27d"},
+				{Label: "Comfortable", LabelBG: "Комфортно", Upper: upper(60), Colour: "#80cdc1"},
+				{Label: "Humid", LabelBG: "Влажно", Upper: upper(80), Colour: "#35978f"},
+				{Label: "Very humid", LabelBG: "Много влажно", Upper: nil, Colour: "#01665e"},
+			},
+			Notes:   "Relative humidity. " + orientation,
+			NotesBG: "Относителна влажност. " + orientationBG},
+		{Name: "meteo", Metric: "pressure", Unit: "hPa", Ceiling: upper(1050),
+			Bands: []Band{
+				{Label: "Low", LabelBG: "Ниско", Upper: upper(990), Colour: "#4575b4"},
+				{Label: "Below average", LabelBG: "Под средното", Upper: upper(1005), Colour: "#91bfdb"},
+				{Label: "Average", LabelBG: "Средно", Upper: upper(1020), Colour: "#d9d9d9"},
+				{Label: "Above average", LabelBG: "Над средното", Upper: upper(1035), Colour: "#fdae61"},
+				{Label: "High", LabelBG: "Високо", Upper: nil, Colour: "#d73027"},
+			},
+			Notes:   "Barometric pressure; the standard atmosphere is 1013 hPa. " + orientation,
+			NotesBG: "Атмосферно налягане; стандартната атмосфера е 1013 hPa. " + orientationBG},
+		{Name: "who", Metric: "noise_LAeq", Unit: "dB(A)", Ceiling: upper(100),
+			Bands: []Band{
+				{Label: "Quiet", LabelBG: "Тихо", Upper: upper(45), Colour: "#50f0e6"},
+				{Label: "Within the WHO road-traffic guideline", LabelBG: "В рамките на насоката на СЗО за пътен шум", Upper: upper(53), Colour: "#50ccaa"},
+				{Label: "Noisy", LabelBG: "Шумно", Upper: upper(65), Colour: "#f0e641"},
+				{Label: "Very noisy", LabelBG: "Много шумно", Upper: upper(75), Colour: "#ff5050"},
+				{Label: "Extremely noisy", LabelBG: "Изключително шумно", Upper: nil, Colour: "#960032"},
+			},
+			Notes:   "WHO 2018 environmental noise guidelines: road traffic Lden 53 dB, night 45 dB. " + noiseIndicative,
+			NotesBG: "Насоки на СЗО 2018 за шума в околната среда: пътен шум Lden 53 dB, нощем 45 dB. " + noiseIndicativeBG},
+		{Name: "peak", Metric: "noise_LA_max", Unit: "dB(A)", Ceiling: upper(120),
+			Bands: []Band{
+				{Label: "Low", LabelBG: "Ниско", Upper: upper(55), Colour: "#50f0e6"},
+				{Label: "Moderate", LabelBG: "Умерено", Upper: upper(70), Colour: "#f0e641"},
+				{Label: "High", LabelBG: "Високо", Upper: upper(85), Colour: "#ff5050"},
+				{Label: "Very high", LabelBG: "Много високо", Upper: upper(100), Colour: "#960032"},
+				{Label: "Extreme", LabelBG: "Екстремно", Upper: nil, Colour: "#7d2181"},
+			},
+			Notes:   "Loudest sound level in the interval. 85 dB(A) is the EU upper exposure action value (Directive 2003/10/EC). " + noiseIndicative,
+			NotesBG: "Най-силното ниво на звука в интервала. 85 dB(A) е горната стойност на експозиция за предприемане на действие в ЕС (Директива 2003/10/ЕО). " + noiseIndicativeBG},
+	}
 }

@@ -124,6 +124,13 @@ type SensorReading struct {
 	Country string
 	Quality string
 	Values  map[string]float64
+	// Measures names the metrics this device produced a fresh reading for, of
+	// any quality — what the hardware measures, as opposed to Values, which is
+	// what it currently has a USABLE reading for. The two differ exactly when a
+	// reading was rejected by the quality filter, and telling them apart is
+	// what lets a panel say "no reading right now" about a metric this device
+	// does measure while saying nothing at all about one it does not.
+	Measures []string
 }
 
 const latestSensorsSQL = `
@@ -147,7 +154,10 @@ SELECT s.sensor_id, s.sensor_type,
        -- if every metric is 'ok' does max() see nothing and COALESCE to 'ok'.
        COALESCE(max(l.quality::text) FILTER (WHERE l.quality <> 'ok'), 'ok'),
        jsonb_object_agg(l.metric, round(l.value::numeric, 2))
-           FILTER (WHERE l.quality = ANY($2::quality_flag[]))
+           FILTER (WHERE l.quality = ANY($2::quality_flag[])),
+       -- Unfiltered, unlike the values above: a metric whose latest reading was
+       -- rejected for quality is still a metric this device measures.
+       array_agg(DISTINCT l.metric::text)
   FROM sensor s
   JOIN latest l ON l.sensor_id = s.sensor_id
  GROUP BY s.sensor_id, s.sensor_type, s.location, s.country_code
@@ -171,7 +181,7 @@ func (s *Store) LatestSensors(ctx context.Context) ([]SensorReading, error) {
 		var sr SensorReading
 		var values map[string]float64
 		if err := rows.Scan(&sr.SensorID, &sr.SensorType, &sr.Lon, &sr.Lat,
-			&sr.Country, &sr.AreaSlugs, &sr.Quality, &values); err != nil {
+			&sr.Country, &sr.AreaSlugs, &sr.Quality, &values, &sr.Measures); err != nil {
 			return nil, fmt.Errorf("store: scan sensor: %w", err)
 		}
 		if values == nil {

@@ -1,4 +1,4 @@
-import { stationMembers, readingAt } from './stations.js'
+import { stationMembers, readingAt, measuresAt } from './stations.js'
 
 // What the map has last loaded, published for the panel to read — not
 // refetched. Refetching would double every page's request count against a
@@ -47,22 +47,6 @@ export function getSensors() {
   return body
 }
 
-// The columns every sensor row carries that are NOT a metric reading —
-// verified against internal/snapshot/build.go's sensorColumns.MarshalJSON
-// (build.go:73-79), which flattens Metrics as sibling keys of exactly these
-// five fixed columns:
-//   id      - the sensor's identity, not a reading
-//   type    - the hardware model, not a reading
-//   lon/lat - the sensor's location, not a reading
-//   quality - the sensor's own data-quality flag; exposed separately below
-//             as `flag`, not folded into `values`, since it is metadata
-//             ABOUT the readings rather than a reading itself
-// Every other key in the columnar body is a canonical metric column
-// (upstream.CanonicalMetrics, build.go:186). Deriving by exclusion from this
-// fixed list — rather than an allow-list of known metrics — is what lets a
-// metric added server-side show up in the panel with no frontend change.
-const META_COLUMNS = new Set(['id', 'type', 'lon', 'lat', 'quality', 'station'])
-
 // normaliseSensor projects ONE STATION out of the columnar body into the shape
 // lib/sensorview.js's panelRows expects: { id, flag, values, sources }.
 //
@@ -76,12 +60,13 @@ const META_COLUMNS = new Set(['id', 'type', 'lon', 'lat', 'quality', 'station'])
 // Resolves by id, not by index, and by ANY member's id: a deep link naming the
 // climate box and a click on the particulate box are the same station.
 //
-// A metric column that EXISTS but holds null at every member lands in `values`
-// as null (still reported, no current reading — see lib/sensorview.js's own
-// comment on why that distinction matters). A metric column the response does
-// not carry AT ALL is never visited by the loop below, so it never becomes a
-// key of `values` — "reported" and "measured by this hardware" stay distinct
-// all the way through.
+// The keys of `values` are what is MEASURED at this address (measuresAt), not
+// every column the response carries. A metric measured here with no usable
+// reading right now lands as null and the panel says so; a metric no device
+// here measures never becomes a key at all, and the panel omits the row. That
+// is the distinction lib/sensorview.js's panelRows filters on — before the
+// server published `measures`, every station claimed all seven metrics and the
+// panel said "no reading" for the four it has no hardware for.
 export function normaliseSensor(responseBody, id) {
   const members = stationMembers(responseBody, id)
   if (!members) return null
@@ -89,8 +74,7 @@ export function normaliseSensor(responseBody, id) {
 
   const values = {}
   const sources = {}
-  for (const key of Object.keys(cols)) {
-    if (META_COLUMNS.has(key)) continue
+  for (const key of measuresAt(responseBody, members.indices)) {
     const { value, sensorId } = readingAt(responseBody, members.indices, key)
     values[key] = value
     sources[key] = sensorId

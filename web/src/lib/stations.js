@@ -16,6 +16,52 @@
 // so the markers, the count line and the panel cannot disagree about how many
 // there are.
 
+// The columns every sensor row carries that are NOT a metric reading:
+//
+//   id       - the sensor's identity, not a reading
+//   type     - the hardware model, not a reading
+//   lon/lat  - the sensor's location, not a reading
+//   quality  - the sensor's own data-quality flag, exposed to the panel as
+//              `flag` because it is metadata ABOUT the readings
+//   station  - the address join key, this file's own subject
+//   measures - what each device's hardware measures, see measuresAt
+//
+// Every other key in the columnar body is a canonical metric column
+// (upstream.CanonicalMetrics, internal/snapshot/build.go). Deriving the metric
+// list by exclusion from this fixed list — rather than an allow-list of known
+// metrics — is what lets a metric added server-side reach the panel with no
+// frontend change.
+export const META_COLUMNS = new Set(['id', 'type', 'lon', 'lat', 'quality', 'station', 'measures'])
+
+// metricColumnsOf is every metric the response carries a column for, in the
+// server's own order.
+export function metricColumnsOf(body) {
+  return Object.keys(body?.sensors ?? {}).filter((key) => !META_COLUMNS.has(key))
+}
+
+// measuresAt is what is MEASURED at a station: the metrics some device standing
+// there has the hardware for, whether or not it has a usable reading right now.
+//
+// This is not the same question as "which columns hold a value". Every canonical
+// metric gets a column for every device, so a null in the noise column says both
+// "this address has no microphone" and "the microphone's reading was rejected" —
+// and the panel printed "no reading" for all seven metrics on every station in
+// the country as a result. The server answers the first question outright (the
+// `measures` column, build.go's measuresOf); this joins its members' answers.
+//
+// A body without the column — one served before it existed — falls back to every
+// metric column there is, which is exactly the old behaviour.
+export function measuresAt(body, indices) {
+  const columns = metricColumnsOf(body)
+  const measures = body?.sensors?.measures
+  if (!Array.isArray(measures)) return columns
+  const measured = new Set()
+  for (const i of indices) {
+    for (const metric of measures[i] ?? []) measured.add(metric)
+  }
+  return columns.filter((metric) => measured.has(metric))
+}
+
 // stationsOf groups the columnar body by station, in first-appearance order so
 // the marker order stays the server's.
 //

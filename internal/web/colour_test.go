@@ -1,6 +1,10 @@
 package web
 
-import "testing"
+import (
+	"testing"
+
+	"airbg.org/internal/upstream"
+)
 
 // bandColour is a second copy of a rule web/src/lib/colour.js already applies to
 // the map's dots, so these cases are that file's cases: the boundary is
@@ -34,12 +38,23 @@ func TestBandColourPicksTheBandTheValueFallsIn(t *testing.T) {
 	}
 }
 
-// Five of the seven metrics have no band table at all. A colour here would be a
-// class the scale never published — the caller draws no swatch instead.
+// A metric no table claims gets no colour rather than the nearest one: a
+// colour here would be a class the scale never published, and the caller draws
+// no swatch instead.
 func TestBandColourRefusesAMetricWithNoScale(t *testing.T) {
-	for _, metric := range []string{"temperature", "humidity", "pressure", "noise_LAeq", ""} {
+	for _, metric := range []string{"", "durP1", "signal"} {
 		if got := bandColour(metric, 20); got != "" {
 			t.Errorf("bandColour(%q, 20) = %q, want no colour", metric, got)
+		}
+	}
+}
+
+// Every metric the store keeps now has a table (api.Scales), so every row this
+// package renders can carry a swatch. Before, five of the seven drew none.
+func TestBandColourCoversEveryCanonicalMetric(t *testing.T) {
+	for _, metric := range upstream.CanonicalMetrics() {
+		if got := bandColour(metric, 20); got == "" {
+			t.Errorf("bandColour(%q, 20) is empty; the metric has no band table", metric)
 		}
 	}
 }

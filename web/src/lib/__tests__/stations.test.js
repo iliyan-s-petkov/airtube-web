@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stationsOf, stationMembers, readingAt } from '../stations.js'
+import { stationsOf, stationMembers, readingAt, measuresAt, metricColumnsOf } from '../stations.js'
 import { normaliseSensor } from '../sensors.svelte.js'
 import { countSensors } from '../sensorcount.js'
 import { sensorFeatures } from '../../islands/map.js'
@@ -16,11 +16,15 @@ function body() {
       lat: [43.224, 43.224, 43.2178],
       quality: ['ok', 'ok', 'ok'],
       station: [5965, 5965, 19774],
+      measures: [['humidity', 'pressure', 'temperature'], ['P1', 'P2'], ['P1', 'P2']],
       P1: [null, 12, 5],
       P2: [null, 7, 3],
       temperature: [18, null, null],
       humidity: [60, null, null],
       pressure: [1012, null, null],
+      // A column nobody here has a microphone for. It exists because the server
+      // emits every canonical metric for every device.
+      noise_LAeq: [null, null, null],
     },
   }
 }
@@ -125,10 +129,52 @@ describe('normaliseSensor over a station', () => {
     expect(normaliseSensor(b, 5965).flag).toBe('stuck')
   })
 
-  it('leaves a lone device exactly as it was', () => {
+  // The bug this half of the change exists for: a particulate box claimed
+  // temperature, humidity, pressure and both noise metrics, and the panel
+  // printed "no reading" for all five under a station that has no such hardware.
+  it('claims only what the hardware at the address measures', () => {
     const s = normaliseSensor(body(), 19774)
     expect(s.id).toBe(19774)
-    expect(s.values).toEqual({ P1: 5, P2: 3, temperature: null, humidity: null, pressure: null })
+    expect(s.values).toEqual({ P1: 5, P2: 3 })
+  })
+
+  // The other side of the same coin: a metric the address DOES measure stays,
+  // null, so the panel can say the reading is missing rather than pretend the
+  // instrument is not there.
+  it('keeps a measured metric with no usable reading, as null', () => {
+    const b = body()
+    b.sensors.pressure = [null, null, null]
+    expect(normaliseSensor(b, 5965).values.pressure).toBe(null)
+  })
+})
+
+describe('metricColumnsOf', () => {
+  // Every meta column left in would become a panel row: a station listing
+  // "measures" or "station" beside its PM10 reading.
+  it('is the metric columns and nothing else', () => {
+    expect(metricColumnsOf(body())).toEqual(['P1', 'P2', 'temperature', 'humidity', 'pressure', 'noise_LAeq'])
+  })
+})
+
+describe('measuresAt', () => {
+  it('is the union over the devices at the address', () => {
+    const b = body()
+    const [varna] = stationsOf(b)
+    expect(measuresAt(b, varna.indices)).toEqual(['P1', 'P2', 'temperature', 'humidity', 'pressure'])
+  })
+
+  // A response served before the server published the column: every column is
+  // fair game, which is exactly how it behaved then.
+  it('falls back to every metric column when the body has no measures', () => {
+    const b = body()
+    delete b.sensors.measures
+    expect(measuresAt(b, [0])).toEqual(metricColumnsOf(b))
+  })
+
+  it('names no metric for a device that measures nothing', () => {
+    const b = body()
+    b.sensors.measures = [[], [], []]
+    expect(measuresAt(b, [0, 1])).toEqual([])
   })
 })
 
