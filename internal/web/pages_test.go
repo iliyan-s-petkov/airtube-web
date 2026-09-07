@@ -81,22 +81,51 @@ func TestDotPrefixedBuildPathsAre404(t *testing.T) {
 	}
 }
 
-// TestHandWrittenStaticIsCacheableButNotImmutable. app.css has a stable name,
-// so immutable would pin an edited stylesheet in every visitor's browser for a
-// year.
-func TestHandWrittenStaticIsCacheableButNotImmutable(t *testing.T) {
+// TestHandWrittenStaticIsImmutableOnlyWhenStamped. app.css has a stable name,
+// so the hash rides in the query string instead. The stamp the page renders is
+// good for a year; the bare name, and any older stamp, must keep revalidating,
+// or one deploy pins an edited stylesheet in every visitor's browser.
+func TestHandWrittenStaticIsImmutableOnlyWhenStamped(t *testing.T) {
 	rr := renderer(t, nil)
 
-	rec := fetch(t, rr, "/static/app.css")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+	stamped := staticHref(t, rr, "app.css")
+	if !strings.Contains(stamped, "?v=") {
+		t.Fatalf("the page links app.css unstamped: %q", stamped)
 	}
-	if got, want := rec.Header().Get("Cache-Control"), "public, max-age=3600"; got != want {
-		t.Errorf("Cache-Control = %q, want %q", got, want)
+	if got, want := fetch(t, rr, stamped).Header().Get("Cache-Control"), immutableCC; got != want {
+		t.Errorf("%s: Cache-Control = %q, want %q", stamped, got, want)
 	}
-	if strings.Contains(rec.Header().Get("Cache-Control"), "immutable") {
-		t.Error("app.css is marked immutable; its filename is not content-hashed")
+
+	for _, path := range []string{"/static/app.css", "/static/app.css?v=deadbeef"} {
+		rec := fetch(t, rr, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", path, rec.Code)
+		}
+		if got, want := rec.Header().Get("Cache-Control"), shortRevalidateCC; got != want {
+			t.Errorf("%s: Cache-Control = %q, want %q", path, got, want)
+		}
 	}
+}
+
+const (
+	immutableCC       = "public, max-age=31536000, immutable"
+	shortRevalidateCC = "public, max-age=300, must-revalidate"
+)
+
+// staticHref returns the URL a rendered page uses for a hand-written static
+// file — the stamp is a content hash, so the test cannot hard-code it.
+func staticHref(t *testing.T, rr *web.Renderer, name string) string {
+	t.Helper()
+	body := fetch(t, rr, "/about-the-data").Body.String()
+	i := strings.Index(body, "/static/"+name)
+	if i < 0 {
+		t.Fatalf("no reference to %s on the page", name)
+	}
+	end := strings.IndexAny(body[i:], `"'`)
+	if end < 0 {
+		t.Fatalf("unterminated href for %s", name)
+	}
+	return body[i : i+end]
 }
 
 // TestFaviconIsServedAndDeclared. A missing favicon was the only console error
@@ -127,7 +156,7 @@ func TestFaviconIsServedAndDeclared(t *testing.T) {
 	if page.Code != http.StatusOK {
 		t.Fatalf("GET /about-the-data: status = %d, want 200", page.Code)
 	}
-	if want := `<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">`; !strings.Contains(page.Body.String(), want) {
+	if want := `<link rel="icon" href="` + staticHref(t, rr, "favicon.svg") + `" type="image/svg+xml">`; !strings.Contains(page.Body.String(), want) {
 		t.Errorf("home page head does not contain %s", want)
 	}
 }

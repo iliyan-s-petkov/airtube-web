@@ -7,7 +7,9 @@
 package web
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -48,6 +50,7 @@ type Renderer struct {
 	// the config author chose — alphabetical would put "1y" first.
 	periodNames []string
 	assets      Assets
+	static      StaticAssets
 
 	// One parsed template set per page, each cloned from the base. A single
 	// set would not work: every page defines "main", and the last parse would
@@ -93,6 +96,7 @@ func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, cfg config.Config
 	// resolves to the zero Assets, and every template call site degrades to
 	// no <script> tag rather than failing.
 	rr.assets, _ = LoadAssets()
+	rr.static = LoadStaticAssets()
 
 	for _, page := range []string{"index", "area", "about", "error"} {
 		t, err := template.New("base.gohtml").ParseFS(templateFS,
@@ -126,6 +130,10 @@ type PageData struct {
 	// embedded, and to nothing when the dist tree holds only .keep — see
 	// assets.go and internal/web/dist/.keep.
 	Assets Assets
+
+	// static stamps the hand-written /static/ files with their content hash;
+	// templates reach it through the Static method below.
+	static StaticAssets
 
 	// BasemapStyleURL is the self-hosted MapLibre style document's URL, or
 	// empty when no basemap is configured. See config.Tiles.StyleURL.
@@ -506,6 +514,10 @@ func (p PageData) GeneratedAtHuman() string {
 	return p.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC")
 }
 
+// Static is the URL for a hand-written static file, carrying the hash of what
+// is currently embedded, so an edit cannot be served from a stale cache.
+func (p PageData) Static(name string) string { return p.static.URL(name) }
+
 // newPageData builds the common fields for one request.
 func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageData {
 	// CanonicalMetrics is sorted, not map-ordered — see its own doc comment —
@@ -529,6 +541,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		Lang: lang, RequestPath: path,
 		BaseURL: rr.baseURL, GeneratedAt: generatedAt, cat: rr.cat,
 		Assets:          rr.assets,
+		static:          rr.static,
 		BasemapStyleURL: rr.basemapStyleURL,
 
 		NoDataColour:       rr.frontend.NoDataColour,
@@ -553,9 +566,11 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 	}
 }
 
-// pageCacheControl is what a SUCCESSFUL page render carries. 150 s matches the
-// API's dataMaxAge — half the poll interval — for the same reason: a copy cached
-// just after a rebuild would otherwise survive until just after the next one.
+// pageCacheControl is what a SUCCESSFUL page render carries.
+//
+// max-age=0 with an ETag, not a TTL: a page names the content-hashed bundle it
+// loads, so a cached page pins a whole deploy's worth of frontend. Revalidation
+// is a 304 against the ETag below, which costs one render and no body.
 //
 // A page is entity-keyed at /{lang}/area/{slug} and still public, unlike the
 // entity-keyed JSON endpoints. That is safe for two specific reasons, and it
@@ -565,7 +580,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 // it cannot hide an observation the breadth counter was relying on. If this page
 // ever grows sensor-level data, or starts feeding the breadth counter, it must
 // become private like /api/v1/area/{slug}/sensors.
-const pageCacheControl = "public, max-age=150"
+const pageCacheControl = "public, max-age=0, must-revalidate"
 
 // render executes one page.
 //
@@ -573,7 +588,7 @@ const pageCacheControl = "public, max-age=150"
 // ResponseWriter means a template error halfway through leaves a truncated page
 // under a 200 that has already been committed — the client sees a broken page
 // and the status says everything is fine.
-func (rr *Renderer) render(w http.ResponseWriter, status int, page string, data PageData) {
+func (rr *Renderer) render(w http.ResponseWriter, r *http.Request, status int, page string, data PageData) {
 	t, ok := rr.pages[page]
 	if !ok {
 		rr.writePlain(w, http.StatusInternalServerError)
@@ -587,6 +602,8 @@ func (rr *Renderer) render(w http.ResponseWriter, status int, page string, data 
 		rr.writePlain(w, http.StatusInternalServerError)
 		return
 	}
+
+	body := buf.String()
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Cacheability is decided HERE, from the status, rather than trusted from
@@ -609,8 +626,37 @@ func (rr *Renderer) render(w http.ResponseWriter, status int, page string, data 
 		w.Header().Set("Cache-Control", "no-store")
 	}
 	w.Header().Set("Vary", "Accept-Encoding")
+
+	// The ETag is what makes max-age=0 cheap, and it is only set on a 200: an
+	// error page is no-store, so a validator for it would be a cache key for a
+	// response no cache may keep.
+	if status == http.StatusOK {
+		sum := sha256.Sum256([]byte(body))
+		etag := `"` + hex.EncodeToString(sum[:])[:16] + `"`
+		w.Header().Set("ETag", etag)
+		if matchesETag(r.Header.Get("If-None-Match"), etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(buf.String()))
+	_, _ = w.Write([]byte(body))
+}
+
+// matchesETag reports whether an If-None-Match header covers etag.
+//
+// "*" matches anything, and the header may carry a list; a weak validator
+// ("W/...") compares equal to its strong form, which is what a proxy that
+// weakened the tag on the way out will send back.
+func matchesETag(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == etag {
+			return true
+		}
+	}
+	return false
 }
 
 func (rr *Renderer) writePlain(w http.ResponseWriter, status int) {
@@ -632,5 +678,5 @@ func (rr *Renderer) RenderError(w http.ResponseWriter, r *http.Request, status i
 	// No Cache-Control set here: render derives it from the status, so an error
 	// page is no-store by construction. Setting it here as well was how the
 	// overwrite bug hid — it looked handled at this level and was undone below.
-	rr.render(w, status, "error", data)
+	rr.render(w, r, status, "error", data)
 }

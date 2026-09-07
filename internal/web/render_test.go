@@ -136,11 +136,11 @@ func TestNewRendererFailsClosedOnEmptyPeriodNames(t *testing.T) {
 func TestThemeCSSLoadsBeforeAppCSS(t *testing.T) {
 	body := fetch(t, renderer(t, fixture(t)), "/").Body.String()
 
-	theme := strings.Index(body, `<link rel="stylesheet" href="/static/theme.css">`)
+	theme := strings.Index(body, `<link rel="stylesheet" href="/static/theme.css`)
 	if theme < 0 {
 		theme = strings.Index(body, `href="/static/build/assets/theme-`)
 	}
-	app := strings.Index(body, `<link rel="stylesheet" href="/static/app.css">`)
+	app := strings.Index(body, `<link rel="stylesheet" href="/static/app.css`)
 	if theme < 0 {
 		t.Fatal("the page links neither /static/theme.css nor a built theme entry")
 	}
@@ -431,17 +431,63 @@ func TestRenderedErrorPagesAreNotCacheable(t *testing.T) {
 		}
 	}
 
-	// And the other half: a successful page render keeps its public caching.
+	// And the other half: a successful page render stays publicly cacheable,
+	// now under a validator rather than a TTL.
 	for _, path := range []string{"/", "/en/", "/area/sofia"} {
 		rec := fetch(t, renderer(t, fixture(t)), path)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: status = %d, want 200", path, rec.Code)
 		}
-		if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=150" {
+		if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=0, must-revalidate" {
 			t.Errorf("%s: Cache-Control = %q, want %q — page renders are the aggregate, "+
-				"non-enumerable surface and must stay edge-cacheable", path, cc,
-				"public, max-age=150")
+				"non-enumerable surface and stay cacheable, but only against the ETag",
+				path, cc, "public, max-age=0, must-revalidate")
 		}
+		if rec.Header().Get("ETag") == "" {
+			t.Errorf("%s: no ETag; max-age=0 without one makes every revalidation a full body", path)
+		}
+	}
+}
+
+// TestPageRevalidatesAgainstItsETag. A page names the content-hashed bundle it
+// loads, so a page held in a cache holds a whole deploy's frontend with it.
+// max-age=0 is only affordable if the revalidation is a 304, and only correct
+// if the tag changes when the page does.
+func TestPageRevalidatesAgainstItsETag(t *testing.T) {
+	rr := renderer(t, fixture(t))
+
+	first := fetch(t, rr, "/area/sofia")
+	etag := first.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag on a rendered page")
+	}
+
+	for _, inm := range []string{etag, "W/" + etag, "\"other\", " + etag, "*"} {
+		req := httptest.NewRequest(http.MethodGet, "/area/sofia", nil)
+		req.Header.Set("If-None-Match", inm)
+		rec := httptest.NewRecorder()
+		rr.Routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotModified {
+			t.Errorf("If-None-Match: %s -> status %d, want 304", inm, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("If-None-Match: %s -> %d bytes of body on a 304", inm, rec.Body.Len())
+		}
+	}
+
+	// A tag from a different page must not satisfy this one.
+	req := httptest.NewRequest(http.MethodGet, "/area/sofia", nil)
+	req.Header.Set("If-None-Match", fetch(t, rr, "/about-the-data").Header().Get("ETag"))
+	rec := httptest.NewRecorder()
+	rr.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("another page's ETag returned %d, want 200", rec.Code)
+	}
+
+	// An error page carries no validator: it is no-store, so a cache key for it
+	// would be a key for a response nothing may keep.
+	if tag := fetch(t, renderer(t, nil), "/").Header().Get("ETag"); tag != "" {
+		t.Errorf("the 503 page carries ETag %q", tag)
 	}
 }
 

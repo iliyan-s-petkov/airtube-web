@@ -15,11 +15,10 @@ import (
 
 const (
 	immutableCacheControl = "public, max-age=31536000, immutable"
-	staticCacheControl    = "public, max-age=3600"
 
-	// shortRevalidateCacheControl is used only for mapLibreUnhashedAssets — see
-	// the comment there for why those two files cannot share immutableCacheControl
-	// with the rest of the build tree.
+	// shortRevalidateCacheControl is what anything unhashed gets: the two
+	// mapLibreUnhashedAssets below, and any /static/ URL that arrives without
+	// the current content stamp (see staticAssetCacheControl).
 	shortRevalidateCacheControl = "public, max-age=300, must-revalidate"
 )
 
@@ -76,10 +75,10 @@ func (rr *Renderer) Routes() *http.ServeMux {
 	mux.Handle("GET /static/build/", http.StripPrefix("/static/build/",
 		noDirList(buildAssetCacheControl(http.FileServer(http.FS(distSubFS()))))))
 
-	// Hand-written CSS keeps a stable name, so it gets a short TTL instead. An
-	// immutable header here would pin an edited stylesheet in every visitor's
-	// browser for a year.
-	mux.Handle("GET /static/", cacheControl(noDirList(http.FileServer(http.FS(staticFS))), staticCacheControl))
+	// Hand-written files keep stable names, so the templates stamp them with a
+	// content hash instead and this decides the TTL from that stamp — see
+	// staticAssetCacheControl.
+	mux.Handle("GET /static/", staticAssetCacheControl(noDirList(http.FileServer(http.FS(staticFS))), rr.static))
 
 	// Anything unmatched is a rendered 404, not net/http's bare text one.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +98,7 @@ func (rr *Renderer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	lang, path := rr.cat.LangFromPath(r.URL.Path)
 	data := rr.newPageData(lang, path, snap.GeneratedAt)
 	data.Areas = rr.areaRows(snap, lang, "oblast")
-	rr.render(w, http.StatusOK, "index", data)
+	rr.render(w, r, http.StatusOK, "index", data)
 }
 
 func (rr *Renderer) handleArea(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +120,7 @@ func (rr *Renderer) handleArea(w http.ResponseWriter, r *http.Request) {
 	data := rr.newPageData(lang, path, snap.GeneratedAt)
 	row := rr.rowFrom(meta, lang)
 	data.Area = &row
-	rr.render(w, http.StatusOK, "area", data)
+	rr.render(w, r, http.StatusOK, "area", data)
 }
 
 // handleAbout serves the data caveats — what the map does not tell you on the
@@ -144,7 +143,7 @@ func (rr *Renderer) handleAbout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lang, path := rr.cat.LangFromPath(r.URL.Path)
-	rr.render(w, http.StatusOK, "about", rr.newPageData(lang, path, generatedAt))
+	rr.render(w, r, http.StatusOK, "about", rr.newPageData(lang, path, generatedAt))
 }
 
 func (rr *Renderer) areaRows(snap *snapshot.Snapshot, lang, kind string) []AreaRow {
@@ -245,16 +244,7 @@ func distSubFS() fs.FS {
 	return sub
 }
 
-// cacheControl sets the header before delegating, so a FileServer that writes
-// its own headers cannot clobber it.
-func cacheControl(next http.Handler, value string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", value)
-		next.ServeHTTP(w, r)
-	})
-}
-
-// buildAssetCacheControl is cacheControl specialised for /static/build/: every
+// buildAssetCacheControl gives /static/build/ its header: every
 // asset gets immutableCacheControl except the exact basenames listed in
 // mapLibreUnhashedAssets, which get shortRevalidateCacheControl instead.
 //

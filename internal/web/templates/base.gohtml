@@ -7,12 +7,12 @@
 <meta name="description" content="{{.T "site.tagline"}}">
 <link rel="canonical" href="{{.CanonicalURL}}">
 {{range .Alternates}}<link rel="alternate" hreflang="{{.Lang}}" href="{{.URL}}">
-{{end}}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+{{end}}<link rel="icon" href="{{.Static "favicon.svg"}}" type="image/svg+xml">
 {{with .Assets.Style "theme"}}<link rel="stylesheet" href="{{.}}">
-{{else}}<link rel="stylesheet" href="/static/theme.css">
-{{end}}<link rel="stylesheet" href="/static/app.css">
+{{else}}<link rel="stylesheet" href="{{.Static "theme.css"}}">
+{{end}}<link rel="stylesheet" href="{{.Static "app.css"}}">
 {{/* Before the stylesheets finish and before anything paints: see the file. */}}
-<script src="/static/theme-init.js"></script>
+<script src="{{.Static "theme-init.js"}}"></script>
 {{with .Assets.Style "main"}}<link rel="stylesheet" href="{{.}}">
 {{end}}</head>
 <body>
@@ -20,7 +20,7 @@
      every language, so it is written here rather than pulled from the
      catalogue. The muted .org is the kit's lockup. */}}
 <header class="masthead">
-  <a class="masthead__brand" href="{{.Path "/"}}"><img src="/static/favicon.svg" width="20" height="20" alt="">airbg<span class="tld">.org</span></a>
+  <a class="masthead__brand" href="{{.Path "/"}}"><img src="{{.Static "favicon.svg"}}" width="20" height="20" alt="">airbg<span class="tld">.org</span></a>
   <nav class="masthead__nav" aria-label="{{.T "nav.map"}}">
     <a class="masthead__link" href="{{.Path "/"}}"{{if .OnPath "/"}} aria-current="page"{{end}}>{{.T "nav.map"}}</a>
     <a class="masthead__link" href="{{.Path "/areas"}}"{{if .OnPath "/areas"}} aria-current="page"{{end}}>{{.T "nav.areas"}}</a>
