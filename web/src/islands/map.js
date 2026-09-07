@@ -22,7 +22,7 @@ import { readFlag, writeFlag } from '../lib/storage.js'
 import { nearestArea } from '../lib/nearest.js'
 import {
   hexesURL, hexFeatures, resolutionForZoom,
-  GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL,
+  GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM,
 } from '../lib/hexes.js'
 import {
   WIND_SOURCE_ID, WIND_LAYER_ID, ARROW_IMAGE_ID, windFeatures, windField, windLabel,
@@ -826,11 +826,19 @@ export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSO
   const body = await fetchJSON(`/api/v1/sensor/${id}/locate`).catch(() => null)
   if (typeof body?.lon !== 'number' || typeof body?.lat !== 'number') return false
 
-  map.jumpTo({ center: [body.lon, body.lat], zoom: cfg.zoomSensor })
+  // POINT_TIER_MIN_ZOOM, not cfg.zoomSensor: zoomSensor is only the zoom at
+  // which the map may ask for per-area SENSOR DATA. The sensor itself is not
+  // drawn as itself until the cells become one-per-device, which is what this
+  // constant names — landing below it left the reader centred on a bin of
+  // several sensors, looking for the one the link named.
+  map.jumpTo({ center: [body.lon, body.lat], zoom: POINT_TIER_MIN_ZOOM })
   // Only a real slug: a sensor outside every area still deserves the flight,
   // and adopting '' would make refresh() ask for an area page that cannot exist.
   if (body.slug) state.slug = body.slug
   await refresh(map, state, cfg, chrome, true)
+  // The cells too, and not left to the moveend jumpTo will fire: that pass is
+  // debounced, and the sensor the link named is drawn by this layer.
+  await refreshHexes(map, state, cfg)
   return true
 }
 

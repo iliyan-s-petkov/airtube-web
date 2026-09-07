@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, openDeepLinkedSensor, areaPath, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
-import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../../lib/hexes.js'
+import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
@@ -1254,7 +1254,10 @@ describe('openDeepLinkedSensor', () => {
     const moved = await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(11338), fetchJSON)
 
     expect(fetchJSON).toHaveBeenCalledWith('/api/v1/sensor/11338/locate')
-    expect(map.jumpTo).toHaveBeenCalledWith({ center: [23.31, 42.69], zoom: cfg.zoomSensor })
+    // The point tier, not cfg.zoomSensor: the link promises the sensor, and
+    // below this zoom the map draws bins that hold several of them.
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [23.31, 42.69], zoom: POINT_TIER_MIN_ZOOM })
+    expect(POINT_TIER_MIN_ZOOM).toBeGreaterThan(cfg.zoomSensor)
     expect(state.slug).toBe('sofia')
     expect(moved).toBe(true)
   })
@@ -1296,7 +1299,7 @@ describe('openDeepLinkedSensor', () => {
     const fetchJSON = vi.fn().mockResolvedValue({ id: 7, lon: 25, lat: 43, slug: '' })
 
     expect(await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(7), fetchJSON)).toBe(true)
-    expect(map.jumpTo).toHaveBeenCalledWith({ center: [25, 43], zoom: cfg.zoomSensor })
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [25, 43], zoom: POINT_TIER_MIN_ZOOM })
     expect(state.slug).toBeNull()
   })
 })
