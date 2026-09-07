@@ -16,7 +16,10 @@ func TestSnapResolutionKMSnapsGeometrically(t *testing.T) {
 	}{
 		{15, 15},
 		{0.25, 0.25},
-		{100, 15},
+		{100, 100},
+		// Off the top and off the bottom both clamp to the nearest published tier
+		// rather than falling through to the default.
+		{300, 100},
 		{0.001, 0.25},
 		// The ratio rule, not the absolute one: 0.4 is 0.15 above 0.25 and only
 		// 0.1 below 0.5, but it is a factor 1.6 above 0.25 and 1.25 below 0.5.

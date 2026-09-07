@@ -54,22 +54,29 @@ export const POINT_TIER_MIN_ZOOM = (() => {
 // The COARSEST cell the server publishes, in km — the first entry of
 // snapshot.HexTiersKM, and a deliberate duplicate for the same reason
 // FINEST_TIER_KM is one.
-const COARSEST_TIER_KM = 15
+const COARSEST_TIER_KM = 100
 
-// The first whole zoom at which the coarsest published bin is as small as the
-// grid wants to draw. Below it every zoom is answered with the same 15 km bins
-// — the server has nothing coarser to snap to — and a 15 km cell is ~33 px at
-// z8, ~17 px at z7 and under a pixel at z2. That is the grid the reader saw
-// collapse into dots at national zoom.
+// The smallest a cell may be drawn before it stops reading as a cell, in screen
+// pixels. A hexagon under about this size is a speck: its colour is still there
+// but its shape, its border and any number inside it are not.
 //
-// There is no honest way to draw a 15 km bin any bigger than 15 km: the cell
-// has to cover the ground its count describes. So below this zoom the grid does
-// not draw at all, and the area markers — which are the right representation at
-// national scale, one reading per province rather than per bin — carry the map
-// alone.
+// This is what decides where the grid stops, NOT whether the coarsest tier is
+// as big as the zoom would ideally like. Those are different questions, and
+// answering the second one is what previously turned the grid off at the
+// national view: at zoom 7 the ideal cell is ~45 km wide, and a 15 km bin drawn
+// there is a third of that — small, but 17 px and perfectly legible. Turning
+// the grid off at the very zoom the country fits on screen is the defect that
+// rule produced.
+const MIN_HEX_PX = 8
+
+// The first whole zoom at which the coarsest published bin is still big enough
+// to read. Below it there is nothing coarser for the server to snap to, so the
+// same bins would be drawn smaller and smaller until the grid is a field of
+// specks; there the area markers carry the map alone.
 export const GRID_MIN_ZOOM = (() => {
+  const drawnPx = (z) => (TARGET_HEX_PX * COARSEST_TIER_KM) / resolutionForZoom(z)
   let z = 0
-  while (resolutionForZoom(z) > COARSEST_TIER_KM) z++
+  while (drawnPx(z) < MIN_HEX_PX) z++
   return z
 })()
 

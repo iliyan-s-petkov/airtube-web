@@ -380,9 +380,18 @@ describe('POINT_TIER_MIN_ZOOM', () => {
 // coarsest published cell is 15 km, so below this zoom a cell is drawn under a
 // pixel wide and the whole grid reads as a field of dots.
 describe('GRID_MIN_ZOOM', () => {
-  it('is the first whole zoom whose cell the coarsest published tier can fill', () => {
-    expect(resolutionForZoom(GRID_MIN_ZOOM)).toBeLessThanOrEqual(15)
-    expect(resolutionForZoom(GRID_MIN_ZOOM - 1)).toBeGreaterThan(15)
+  // The rule is "still big enough to READ", not "as big as this zoom would
+  // ideally like". Those differ by several zoom levels, and answering the
+  // second turned the grid off at the very zoom the country fits on screen.
+  const drawnPx = (z) => (50 * 100) / resolutionForZoom(z)
+
+  it('is the first whole zoom the coarsest published bin is still legible at', () => {
+    expect(drawnPx(GRID_MIN_ZOOM)).toBeGreaterThanOrEqual(8)
+    expect(drawnPx(GRID_MIN_ZOOM - 1)).toBeLessThan(8)
+  })
+
+  it('leaves the grid on at the zoom the whole country is on screen', () => {
+    expect(GRID_MIN_ZOOM).toBeLessThanOrEqual(7)
   })
 
   it('is below the zoom the cells take the reading over at', () => {
@@ -408,6 +417,9 @@ describe('the fractional handovers', () => {
   it('are the first zoom each tier is actually fetched at', () => {
     expect(tierAt(POINT_TIER_MIN_ZOOM_FRACTIONAL)).toBe('0')
     expect(tierAt(POINT_TIER_MIN_ZOOM_FRACTIONAL - 0.001)).not.toBe('0')
-    expect(Number(tierAt(GRID_MIN_ZOOM_FRACTIONAL))).toBeLessThanOrEqual(15)
+    // hexesURL sends the resolution it WANTS; the server snaps that onto its
+    // nearest published tier. At the grid's first zoom it must still be asking
+    // for a bin, not for devices.
+    expect(Number(tierAt(GRID_MIN_ZOOM_FRACTIONAL))).toBeGreaterThan(0)
   })
 })

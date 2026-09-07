@@ -69,9 +69,9 @@
   "map.layers.button": "Layers",
   "map.layers.caption": "Show on the map",
   "map.legend.no_data": "Not enough data",
-  "map.legend.tier.city": "Each dot is a city average",
-  "map.legend.tier.country": "Each dot is a province average",
-  "map.legend.tier.sensors": "Each dot is a single sensor",
+  "map.legend.tier.city": "Each cell averages the ground beneath it",
+  "map.legend.tier.country": "Each cell averages the ground beneath it",
+  "map.legend.tier.sensors": "Each cell is a single sensor",
   "map.legend.title": "Air quality",
   "map.legend.toggle": "Legend",
   "map.text_alternative": "The list of provinces below the map carries the same readings as text.",
@@ -162,5 +162,6 @@
   "unit.pressure": "hPa",
   "unit.temperature": "°C",
   "wind.attribution": "Wind forecast · {model} model, {resolution}° grid · valid {time}",
+  "wind.note": "The arrows point where the wind blows and how hard; wind disperses the pollution, still air holds it in place.",
   "wind.toggle": "Wind"
 }

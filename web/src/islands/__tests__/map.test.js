@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
@@ -298,6 +298,7 @@ describe('readConfig', () => {
         tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
         tLocateFailed: 'We could not determine your location.',
         tWindToggle: 'Wind',
+        tWindNote: 'Arrows show where the wind blows.',
         tWindAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
         // Neither is rendered any more; toEqual below is what keeps them from
         // reappearing in cfg.t. tLocateOutside went with the unreachable
@@ -332,6 +333,7 @@ describe('readConfig', () => {
       locateButton: 'Find me', locateDenied: 'Location access was denied.',
       locateFailed: 'We could not determine your location.',
       windToggle: 'Wind',
+      windNote: 'Arrows show where the wind blows.',
       windAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
     })
   })
@@ -696,6 +698,105 @@ describe('mapStyle', () => {
 
   it('omits glyphs rather than inventing one when no basemap is configured', () => {
     expect(mapStyle({ basemap: '', emptyBasemapColour: '#eef2f5' }).glyphs).toBeUndefined()
+  })
+})
+
+// The vector archive is a BULGARIA extract. Its background and fill layers are
+// opaque polygons clipped to the extract's rectangle, so over the world raster
+// they painted a box across it — the Danube ending at Silistra, the ground
+// changing colour at the border, the Black Sea unnamed. Every one of those is a
+// FILLED layer; the traced ones draw only what they trace and let the raster
+// through, which is how the POI categories come back without the box.
+describe('overlayLayers', () => {
+  const style = {
+    sources: { basemap: { type: 'vector' }, unused: { type: 'vector' } },
+    layers: [
+      { id: 'bg', type: 'background', source: undefined },
+      { id: 'water', type: 'fill', source: 'basemap' },
+      { id: 'roads', type: 'line', source: 'basemap' },
+      { id: 'poi-shop-name', type: 'symbol', source: 'basemap' },
+      { id: 'poi-shop', type: 'circle', source: 'basemap' },
+    ],
+  }
+
+  it('drops every filled layer and keeps every traced one', () => {
+    expect(overlayLayers(style).layers.map((l) => l.id))
+      .toEqual(['roads', 'poi-shop-name', 'poi-shop'])
+  })
+
+  it('keeps the sources the surviving layers need, and no others', () => {
+    expect(Object.keys(overlayLayers(style).sources)).toEqual(['basemap'])
+  })
+
+  it('has nothing to say about a style it was handed nothing of', () => {
+    expect(overlayLayers(undefined)).toEqual({ sources: {}, layers: [] })
+  })
+})
+
+describe('addBasemapOverlay', () => {
+  const fakeMap = () => {
+    const calls = { sources: [], layers: [] }
+    return {
+      calls,
+      getSource: () => undefined,
+      getLayer: (id) => (id === 'airbg-hex-fill' ? { id } : undefined),
+      addSource: (id, s) => calls.sources.push([id, s]),
+      addLayer: (l, before) => calls.layers.push([l.id, before]),
+    }
+  }
+  const style = {
+    sources: { basemap: { type: 'vector' } },
+    layers: [{ id: 'water', type: 'fill', source: 'basemap' }, { id: 'roads', type: 'line', source: 'basemap' }],
+  }
+
+  // Under the readings, never over: a POI label drawn on top of a value is the
+  // ground obscuring the thing the page exists to show.
+  it('slots the traced layers beneath the grid', async () => {
+    const map = fakeMap()
+    await addBasemapOverlay(map, 'https://tiles.airbg.org/style.json', 'airbg-hex-fill', async () => style)
+
+    expect(map.calls.sources).toEqual([['basemap', { type: 'vector' }]])
+    expect(map.calls.layers).toEqual([['roads', 'airbg-hex-fill']])
+  })
+
+  it('adds them on top when the grid is not there to sit under', async () => {
+    const map = { ...fakeMap(), getLayer: () => undefined }
+    map.calls = { sources: [], layers: [] }
+    map.addSource = (id, s) => map.calls.sources.push([id, s])
+    map.addLayer = (l, before) => map.calls.layers.push([l.id, before])
+    await addBasemapOverlay(map, 'https://x/style.json', 'airbg-hex-fill', async () => style)
+    expect(map.calls.layers).toEqual([['roads', undefined]])
+  })
+
+  // The ground is optional detail; the map is not. An unreachable archive must
+  // leave the raster and every reading standing.
+  it('leaves the raster alone when the style cannot be fetched', async () => {
+    const map = fakeMap()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await expect(addBasemapOverlay(map, 'https://x/style.json', 'airbg-hex-fill', async () => {
+      throw new Error('502')
+    })).resolves.toBeUndefined()
+    expect(map.calls.layers).toEqual([])
+    warn.mockRestore()
+  })
+
+  it('does nothing at all when no basemap is configured', async () => {
+    const map = fakeMap()
+    await addBasemapOverlay(map, '', 'airbg-hex-fill', async () => style)
+    expect(map.calls.sources).toEqual([])
+  })
+})
+
+// The archive is referenced as pmtiles://, which MapLibre cannot read until the
+// protocol is registered — and addProtocol is global module state, so a second
+// registration for the same scheme silently replaces the first.
+describe('registerProtocols', () => {
+  it('registers pmtiles exactly once across repeated calls', () => {
+    const seen = []
+    const add = (scheme, fn) => seen.push([scheme, typeof fn])
+    registerProtocols(add)
+    registerProtocols(add)
+    expect(seen).toEqual([['pmtiles', 'function']])
   })
 })
 
@@ -1465,7 +1566,7 @@ describe('mount() prints the reading inside the cell', () => {
 // style set and the raster-only style cannot: the toggle reported itself on and
 // hid nothing.
 describe('the basemap toggle', () => {
-  it('hides the world raster and nothing else', () => {
+  it('hides the ground, raster and vector detail alike, and no reading', () => {
     const el = document.createElement('div')
     document.body.appendChild(el)
     const { layerViews } = mountChrome(el, readConfig(el))
@@ -1473,13 +1574,21 @@ describe('the basemap toggle', () => {
     expect(basemap, 'no basemap view in the layers menu').toBeTruthy()
 
     const set = []
-    const map = { setLayoutProperty: (...a) => set.push(a) }
+    const map = {
+      setLayoutProperty: (...a) => set.push(a),
+      // The ground is the raster PLUS the vector detail over it. Every layer
+      // carrying an airbg:group came from the vector style; the readings carry
+      // none, and must be left standing.
+      getStyle: () => ({ layers: [
+        { id: 'poi-shop', metadata: { 'airbg:group': 'poi-shop' } },
+        { id: 'airbg-hex-fill' },
+      ] }),
+    }
     basemap.apply(false, map)
-    basemap.apply(true, map)
 
     expect(set).toEqual([
       ['airbg-raster-base', 'visibility', 'none'],
-      ['airbg-raster-base', 'visibility', 'visible'],
+      ['poi-shop', 'visibility', 'none'],
     ])
   })
 })
@@ -1552,10 +1661,42 @@ describe('mount() opens a sensor from the cell that carries one', () => {
     expect(getViewState().sensorId).toBe(4242)
   })
 
-  it('ignores an aggregate cell, which names no device', () => {
+  it('opens no panel for an aggregate cell, which names no device', () => {
     const { map } = mountTestMap({ metric: 'P2' })
-    map.clickHandlers['airbg-hex-fill']({ features: [{ properties: { n: 9, value: 7 } }] })
+    map.clickHandlers['airbg-hex-fill']({
+      features: [{ properties: { n: 9, value: 7 } }],
+      lngLat: { lng: 23.32, lat: 42.7 },
+    })
     expect(getViewState().sensorId ?? null).toBeNull()
+  })
+
+  // With the grid on at every zoom the country is visible at, the area markers
+  // are hidden — so a cell is the only thing left to click, and it has to be
+  // the way into a province. It resolves to the nearest area centroid, the same
+  // rule the locate button navigates by.
+  describe('cellArea', () => {
+    const areas = [
+      { slug: 'sofia', lon: 23.32, lat: 42.7 },
+      { slug: 'varna', lon: 27.91, lat: 43.2 },
+    ]
+
+    it('selects the area the click falls nearest', () => {
+      expect(cellArea({ areas }, { lng: 27.8, lat: 43.1 })).toBe('varna')
+      expect(cellArea({ areas }, { lng: 23.4, lat: 42.6 })).toBe('sofia')
+    })
+
+    it('selects nothing on a map already scoped to one area', () => {
+      expect(cellArea({ areas, slug: 'sofia' }, { lng: 27.8, lat: 43.1 })).toBeNull()
+    })
+
+    it('selects nothing before the area list has loaded', () => {
+      expect(cellArea({ areas: [] }, { lng: 27.8, lat: 43.1 })).toBeNull()
+      expect(cellArea({}, { lng: 27.8, lat: 43.1 })).toBeNull()
+    })
+
+    it('selects nothing for a click with no position', () => {
+      expect(cellArea({ areas }, undefined)).toBeNull()
+    })
   })
 })
 
@@ -1622,14 +1763,18 @@ describe('mount() hands the reading from the dots to the cells', () => {
     for (const l of grid) expect(l.minzoom).toBe(GRID_MIN_ZOOM_FRACTIONAL)
   })
 
-  it('draws the cell borders in a colour that is not the fill', () => {
+  it('draws the cell borders in an ink that shows against a pale street map', () => {
     // The outline used to be ['get', 'colour'] — the fill's own value colour —
     // so every border vanished into the cell it bounded and the grid read as a
     // smear. It is now the marker stroke, the same edge the dots carry.
-    const paint = hexOutlinePaint({ markerStrokeColour: '#fff', hexOpacity: 0.7 })
-    expect(paint['line-color']).toBe('#fff')
-    expect(paint['line-width']).toBeGreaterThan(0)
-    expect(paint['line-opacity']).toBeGreaterThan(0)
+    const paint = hexOutlinePaint({ labelColour: '#111827', markerStrokeColour: '#ffffff' })
+    expect(paint['line-color']).toBe('#111827')
+    // Not the marker stroke either: white lifts a dot off a dark map and
+    // vanishes into a pale one, which over the OSM raster left the cells with
+    // no visible edge at all.
+    expect(paint['line-color']).not.toBe('#ffffff')
+    expect(paint['line-width']).toBeGreaterThanOrEqual(1)
+    expect(paint['line-opacity']).toBeGreaterThanOrEqual(0.6)
   })
 })
 
@@ -1653,6 +1798,26 @@ const chromeCfg = (over = {}) => ({
   metricLabels: { P1: 'ФПЧ10', P2: 'ФПЧ2.5' },
   metricUnits: { P1: 'µg/m³', P2: 'µg/m³' },
   ...over,
+})
+
+// The disclosure only appears once the layer is on, so before that the button
+// is a single word with no explanation. The title is where the answer lives
+// for someone deciding whether to press it at all.
+describe('the wind toggle explains itself before it is pressed', () => {
+  const button = (over) => {
+    const el = document.createElement('div')
+    mountChrome(el, chromeCfg(over))
+    return el.querySelector('.map-wind')
+  }
+
+  it('carries the note as its title', () => {
+    expect(button({ t: { tier: {}, windToggle: 'Вятър', windNote: 'Стрелките сочат вятъра.' } }).title)
+      .toBe('Стрелките сочат вятъра.')
+  })
+
+  it('sets no title when the note is untranslated, rather than an empty tooltip', () => {
+    expect(button({ t: { tier: {}, windToggle: 'Вятър' } }).hasAttribute('title')).toBe(false)
+  })
 })
 
 describe('mountChrome anchors the key to the shell and the tier line outside it', () => {

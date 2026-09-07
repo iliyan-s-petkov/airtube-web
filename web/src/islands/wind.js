@@ -33,10 +33,13 @@ export function windFeatures(body) {
 // measurement, and a disclosure a user has to open does not do that.
 export function windLabel(body, t, formatTime = defaultFormatTime) {
   if (!body) return ''
-  return t.windAttribution
+  const attribution = t.windAttribution
     .replace('{model}', body.model)
     .replace('{resolution}', String(body.model_resolution_deg))
     .replace('{time}', formatTime(body.valid_at))
+  // The note leads: a visitor who has just turned the layer on needs to know
+  // what the arrows mean before they need to know which model drew them.
+  return t.windNote ? `${t.windNote} ${attribution}` : attribution
 }
 
 function defaultFormatTime(iso) {

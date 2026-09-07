@@ -69,9 +69,9 @@
   "map.layers.button": "Слоеве",
   "map.layers.caption": "Показвай на картата",
   "map.legend.no_data": "Недостатъчно данни",
-  "map.legend.tier.city": "Всяка точка е средно за град",
-  "map.legend.tier.country": "Всяка точка е средно за област",
-  "map.legend.tier.sensors": "Всяка точка е отделен сензор",
+  "map.legend.tier.city": "Всяка клетка е средно за площта под нея",
+  "map.legend.tier.country": "Всяка клетка е средно за площта под нея",
+  "map.legend.tier.sensors": "Всяка клетка е отделен сензор",
   "map.legend.title": "Качество на въздуха",
   "map.legend.toggle": "Легенда",
   "map.text_alternative": "Списъкът с областите под картата съдържа същите стойности в текстов вид.",
@@ -162,5 +162,6 @@
   "unit.pressure": "hPa",
   "unit.temperature": "°C",
   "wind.attribution": "Прогноза за вятъра · модел {model}, мрежа {resolution}° · за {time}",
+  "wind.note": "Стрелките сочат накъде духа вятърът и колко силно; вятърът разнася замърсяването, затишието го задържа.",
   "wind.toggle": "Вятър"
 }

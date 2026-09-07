@@ -51,7 +51,14 @@ const HexResolutionKM = 15.0
 // ever draw, and it keeps the number of distinct cacheable responses small.
 // 0.25 km is the address-level tier — roughly a city block, and the point at
 // which a lone sensor in a bin is locatable.
-var HexTiersKM = []float64{15, 5, 2, 1, 0.5, 0.25}
+//
+// The three coarse tiers exist for the national view. The client sizes a cell
+// to ~50 screen pixels, which at the zoom the country fits on a screen wants a
+// bin around 45 km wide; with 15 km as the coarsest, that view was answered
+// with bins a third of the size it asked for and the grid rendered as a field
+// of specks. Coarse tiers also cost the least to build — a coarser bin means
+// fewer of them.
+var HexTiersKM = []float64{100, 50, 25, 15, 5, 2, 1, 0.5, 0.25}
 
 // SnapResolutionKM maps a requested resolution onto the published tier nearest
 // it in ratio, not in absolute difference: tiers are geometric, so 0.4 km is

@@ -137,3 +137,55 @@ giving it an `Upper` would misstate the legislation; the ceiling only affects
 where the drawn ramp stops. Set to 500 µg/m³ for every particulate scale, the
 same ceiling maps.sensor.community draws to. `bandsFor` carries it onto the top
 band so `rampSpans` and `legendRows` both see it without four signature changes.
+
+---
+
+# Follow-up round: four defects reported after the first seven shipped
+
+## 8. No hexagons at the default zoom
+
+`GRID_MIN_ZOOM` was derived from the wrong question — "at which zoom is the
+coarsest tier as small as this zoom ideally wants" (z9) rather than "at which
+zoom is the coarsest tier still legible" (z4). The grid switched off at every
+zoom a visitor uses.
+
+**Fix.** Two halves. The server publishes three coarser tiers — `HexTiersKM`
+gains 100, 50 and 25 km — because the national view asks for a ~45 km bin and
+15 km was a third of that, rendering as a field of specks. The client derives
+`GRID_MIN_ZOOM` from `MIN_HEX_PX = 8`: the first zoom at which a cell of the
+coarsest tier is at least 8 screen pixels. That is now z4.
+
+**Consequence, deliberate.** `markerMaxZoom` hands over to the grid at
+`GRID_MIN_ZOOM_FRACTIONAL` (3.5), so the province and city dots are hidden at
+every real zoom. The drill-down click target moved onto the cells: `cellArea`
+resolves an aggregate cell to the nearest area slug, and the tier captions were
+rewritten from "each dot" to "each cell".
+
+## 9. Hiding the basemap left an empty canvas
+
+Issue 6's raster-only style removed every layer carrying `airbg:group`
+metadata, which is what the POI categories menu reads. Switching OSM off left
+nothing at all.
+
+**Fix, superseding Issue 6's decision.** The OSM raster stays the ground; the
+vector archive's style is fetched and its **non-fill, non-background** layers
+are added over it (`overlayLayers` / `addBasemapOverlay`). Fills and the
+background were the whole cause of the Bulgaria-shaped box — they are clipped
+opaque polygons. Lines, symbols and circles cover only what they trace, so
+outside the extract they draw nothing and the world raster shows through. The
+POI menu comes back with no rectangle, no severed Danube, no missing sea label.
+The overlay is not awaited: it is detail the map does not need to be a map, and
+it slots under the grid by id when it arrives.
+
+## 10. Hexagons not contrast enough against the basemap
+
+White outlines on a pale raster are invisible. `hexOutlinePaint` now draws
+`cfg.labelColour` at 1.2 px / 0.7 opacity, and `hex_opacity` went 0.55 → 0.75.
+
+## 11. "Still not sure what the wind button does"
+
+Not a rendering bug — the arrows draw, and `/api/v1/wind` returns 296 vectors.
+The control was unexplained: a one-word button and an attribution line naming a
+model. New `wind.note` string says what the arrows mean and why wind matters to
+a pollution map. It leads the disclosure and doubles as the button's `title`,
+so the answer is available before the layer is turned on.

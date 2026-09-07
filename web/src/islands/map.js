@@ -3,7 +3,8 @@
 // under Vitest (which does not check the export list) but fails a real Rollup
 // build with MISSING_EXPORT. Importing the one class actually used avoids the
 // mismatch entirely.
-import { Map as MapLibreMap } from 'maplibre-gl'
+import { Map as MapLibreMap, addProtocol } from 'maplibre-gl'
+import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { tierFor } from '../lib/tier.js'
 import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../lib/legend.js'
@@ -79,6 +80,7 @@ const HEX_LABEL_LAYER_ID = 'airbg-hex-labels'
 
 export function mount(el) {
   const cfg = readConfig(el)
+  registerProtocols()
   const chrome = mountChrome(el, cfg)
 
   // Shared with the switcher island through the module-level singleton (see
@@ -152,17 +154,21 @@ export function mount(el) {
   let unfilter = null
 
   map.on('load', async () => {
+    // Not awaited: mount()'s metric subscription must be registered before this
+    // handler's first await (see below), and the ground is detail the map does
+    // not need in order to be a map. It slots itself under the grid when it
+    // arrives, by id.
+    addBasemapOverlay(map, cfg.basemap, HEX_LAYER_ID)
+
     // The hex grid goes in FIRST, so every later layer draws over it. It is the
     // background density field — where sensors are and roughly what they read —
     // and the area markers and sensor dots are the foreground a visitor clicks.
     // Added before the marker source for that ordering alone; MapLibre paints in
     // insertion order.
     map.addSource(HEX_SOURCE_ID, { type: 'geojson', data: emptyCollection() })
-    // GRID_MIN_ZOOM_FRACTIONAL on all three grid layers: below it the server has
-    // no bin coarser than 15 km to answer with, and a 15 km cell is under a
-    // pixel at national zoom — the grid stopped being a grid and became the
-    // field of dots the map used to show when zoomed out. Off entirely there,
-    // and the area markers carry the reading alone.
+    // GRID_MIN_ZOOM_FRACTIONAL on all three grid layers: below it the coarsest
+    // bin the server publishes is drawn too small to read as a cell at all, and
+    // the area markers carry the reading alone.
     map.addLayer({
       id: HEX_LAYER_ID,
       type: 'fill',
@@ -388,17 +394,44 @@ export function mount(el) {
     if (props.id !== undefined) vs.openSensor(Number(props.id))
   })
 
-  // The cells inherit that click above the handover zoom, where the markers
-  // have stepped aside. Only a point-tier cell answers: the server sends
-  // sensor_id there and nowhere else, so an aggregate cell — which stands for
-  // a bin, not a device — has no panel to open and stays inert rather than
-  // opening some arbitrary member of itself.
+  // The cells inherit that click wherever the markers have stepped aside,
+  // which is now everywhere the grid draws. A point-tier cell names its device
+  // and opens the panel.
+  //
+  // An aggregate cell names none — it stands for a bin, not a device — but it
+  // used to answer nothing at all, and with the markers hidden that left the
+  // map with no way to drill into a province by clicking it. It resolves to the
+  // area its centre falls nearest instead, by the same nearest-centroid rule
+  // the locate button already navigates by. In place, like the marker click:
+  // the bin is not the area, so it selects the area rather than claiming to be
+  // one.
   map.on('click', HEX_LAYER_ID, (e) => {
     const id = e.features?.[0]?.properties?.sensorId
-    if (id !== undefined && id !== null) vs.openSensor(Number(id))
+    if (id !== undefined && id !== null) {
+      vs.openSensor(Number(id))
+      return
+    }
+    const slug = cellArea(state, e.lngLat)
+    if (!slug) return
+    state.slug = slug
+    refresh(map, state, cfg, chrome)
   })
 
   return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.() } }
+}
+
+// cellArea decides which area an aggregate cell click selects: the one whose
+// centroid the click falls nearest.
+//
+// Returns null rather than a slug in the three cases where selecting anything
+// would be wrong — a click MapLibre reported no position for, a map already
+// scoped to one area (there is nothing to drill into), and a map that has not
+// yet loaded the area list. Separated from the handler because that is the
+// whole decision, and the handler around it needs a real MapLibre instance the
+// "no jsdom" rule puts out of reach.
+export function cellArea(state, lngLat) {
+  if (!lngLat || state.slug) return null
+  return nearestArea([lngLat.lng, lngLat.lat], state.areas)?.slug ?? null
 }
 
 // toggleWind is the whole wind control: fetch once, then show or hide.
@@ -807,21 +840,22 @@ export function markerMaxZoom(tier) {
   return tier === 'sensors' ? POINT_TIER_MIN_ZOOM_FRACTIONAL : GRID_MIN_ZOOM_FRACTIONAL
 }
 
-// hexOutlinePaint: the hairline between one cell and the next.
+// hexOutlinePaint: the border between one cell and the next.
 //
-// Drawn in the marker stroke colour, not in the cell's own `colour`. Outlining
-// a fill in the fill's colour draws a border that is by definition invisible —
-// the reader reported cell edges they could barely see, and this is why. The
-// stroke colour is already the app's separator: it is what lifts a sensor dot
-// off whatever is under it, and a grid needs the same lift for the same reason.
+// Drawn in the label ink — a dark colour — and NOT in either of the two that
+// have already been tried and failed. The cell's own `colour` outlines a fill
+// in the fill's own colour, which is by definition invisible. The marker stroke
+// is white, which is what lifts a dot off a dark map but disappears completely
+// into a pale one: over the OSM raster it left the cells edgeless, floating.
 //
-// Faded, because the cells are a background wash and a grid at full contrast
-// reads as a mesh drawn over the map rather than as the shape of the data.
+// A cell has to win against a busy street map, because the reading is what the
+// page is for. Full width and most of the way opaque; the streets stay legible
+// around the cell and through its fill.
 export function hexOutlinePaint(cfg) {
   return {
-    'line-color': cfg.markerStrokeColour,
-    'line-width': 0.6,
-    'line-opacity': 0.45,
+    'line-color': cfg.labelColour,
+    'line-width': 1.2,
+    'line-opacity': 0.7,
   }
 }
 
@@ -961,6 +995,7 @@ export function readConfig(el) {
       locateDenied: d.tLocateDenied || '',
       locateFailed: d.tLocateFailed || '',
       windToggle: d.tWindToggle || '',
+      windNote: d.tWindNote || '',
       windAttribution: d.tWindAttribution || '',
     },
   }
@@ -984,21 +1019,77 @@ export function glyphsURL(basemap) {
   return basemap.replace(/[^/]*$/, '') + 'glyphs/{fontstack}/{range}.pbf'
 }
 
-// mapStyle is the whole style the map mounts: the world raster, and nothing
-// else drawn.
+// overlayLayers splits the self-hosted vector style into the part that may be
+// drawn over the world raster and the part that may not.
 //
-// It used to be the self-hosted vector style, with the raster slid in beneath
-// it. That archive is a BULGARIA extract, and its land/water fills are opaque
-// polygons clipped to the extract's rectangle — so they painted a box over the
-// world raster underneath. Inside the box the Danube stopped at the edge of
-// the extract at Silistra, the ground changed colour at the border, and the
-// Black Sea got no name because the label was outside it. Dropping the vector
-// layers entirely is what the operator chose over rebuilding the archive from
-// a Europe-wide extract.
+// The archive is a BULGARIA extract. Its `background` and `fill` layers are
+// opaque polygons clipped to the extract's rectangle, so laid over the raster
+// they painted a box across it: inside the box the Danube ended at Silistra,
+// the ground changed colour at the border, and the Black Sea carried no label
+// because its own is outside the extract. Every one of those defects is a
+// FILLED layer. The lines, symbols and circles — roads, boundaries, street
+// names, place names, the POI categories the layers menu is built from — cover
+// only what they trace, so outside the extract they simply draw nothing and
+// the raster shows through.
 //
-// The raster is a source-and-layer pair in the style rather than something
-// added on 'load', because there is no longer another style for it to be
-// inserted relative to.
+// So: keep the traced layers, drop the filled ones, and let OpenStreetMap's
+// own raster be the ground everywhere.
+export function overlayLayers(style) {
+  const layers = (style?.layers ?? []).filter((l) => l.type !== 'background' && l.type !== 'fill')
+  const used = new Set(layers.map((l) => l.source))
+  const sources = Object.fromEntries(
+    Object.entries(style?.sources ?? {}).filter(([id]) => used.has(id)),
+  )
+  return { sources, layers }
+}
+
+// addBasemapOverlay fetches the vector style and lays its traced layers over
+// the raster, beneath everything the map itself draws.
+//
+// Beneath, via beforeId: the readings are the point of the page and a POI label
+// must never be drawn on top of a value. A failure is logged and leaves the
+// raster standing alone — the ground is optional detail, the map is not.
+export async function addBasemapOverlay(map, basemap, beforeId, fetchStyle = fetchJSON) {
+  if (!basemap) return
+  let style
+  try {
+    style = await fetchStyle(basemap)
+  } catch (e) {
+    console.warn('basemap detail unavailable, showing the raster alone', e)
+    return
+  }
+  const { sources, layers } = overlayLayers(style)
+  for (const [id, source] of Object.entries(sources)) {
+    if (!map.getSource?.(id)) map.addSource(id, source)
+  }
+  const under = map.getLayer?.(beforeId) ? beforeId : undefined
+  for (const l of layers) map.addLayer(l, under)
+}
+
+// registerProtocols teaches MapLibre to read pmtiles:// URLs, which is how the
+// vector style references the single archive: the protocol turns each tile read
+// into an HTTP range request, so a visitor transfers only the ranges their
+// viewport needs.
+//
+// Idempotent, and takes `add` as a parameter, because MapLibre's addProtocol is
+// global module state: registering twice would silently replace the first
+// handler, and a test cannot observe a global it cannot inject into.
+let protocolsRegistered = false
+export function registerProtocols(add = addProtocol) {
+  if (protocolsRegistered) return
+  protocolsRegistered = true
+  add('pmtiles', new Protocol().tile)
+}
+
+async function fetchJSON(url) {
+  const r = await fetch(url)
+  if (!r.ok) throw new Error(`${url}: ${r.status}`)
+  return r.json()
+}
+
+// mapStyle is the style the map BOOTS with: the world raster and nothing else.
+// The vector detail arrives afterwards through addBasemapOverlay, which needs
+// the map loaded before it can position its layers under the readings.
 export function mapStyle(cfg) {
   const glyphs = glyphsURL(cfg.basemap)
   return {
@@ -1267,10 +1358,11 @@ export function mountChrome(el, cfg) {
   // the categories rather than smuggled in beside "Shops" as if they were one
   // more kind of place.
   //
-  // The basemap one hides the world raster and only that. The kit's own
-  // version walks every layer in the style, which on this map would take the
-  // readings down with the ground. "Hide the basemap" has to leave the
-  // measurements standing, or it is not the control it says it is.
+  // The basemap one hides the ground — the raster and the vector detail drawn
+  // over it — and only that. The kit's own version walks every layer in the
+  // style, which on this map would take the readings down with it. "Hide the
+  // basemap" has to leave the measurements standing, or it is not the control
+  // it says it is.
   const layerViews = [
     { id: 'legend', label: cfg.t.viewLegend, apply: (on) => { legend.hidden = !on } },
     {
@@ -1278,7 +1370,13 @@ export function mountChrome(el, cfg) {
       label: cfg.t.viewBasemap,
       needsMap: true,
       apply: (on, map) => {
-        map.setLayoutProperty(RASTER_LAYER_ID, 'visibility', on ? 'visible' : 'none')
+        const v = on ? 'visible' : 'none'
+        map.setLayoutProperty(RASTER_LAYER_ID, 'visibility', v)
+        // The raster AND the vector detail over it: hiding one and leaving the
+        // other would strand road lines and POI pins over a blank canvas.
+        for (const l of map.getStyle()?.layers ?? []) {
+          if (l.metadata?.['airbg:group']) map.setLayoutProperty(l.id, 'visibility', v)
+        }
       },
     },
   ]
@@ -1322,6 +1420,9 @@ export function mountChrome(el, cfg) {
   windButton.className = 'map-wind'
   windButton.setAttribute('aria-pressed', 'false')
   windButton.textContent = cfg.t.windToggle
+  // What the button does, before it is pressed: a one-word label answers what
+  // the layer is called, not what turning it on will show you.
+  if (cfg.t.windNote) windButton.title = cfg.t.windNote
   el.appendChild(windButton)
 
   const windNote = document.createElement('div')

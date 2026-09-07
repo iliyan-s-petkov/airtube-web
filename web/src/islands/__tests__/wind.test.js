@@ -90,6 +90,19 @@ describe('windLabel', () => {
   it('is empty with no body, so nothing claims a forecast that is not there', () => {
     expect(windLabel(null, t)).toBe('')
   })
+
+  // A visitor who presses the toggle gets arrows and a model name, neither of
+  // which says what the arrows are for. The note does, and it leads.
+  it('leads with the note that says what the arrows mean', () => {
+    const withNote = { ...t, windNote: 'Arrows show where the wind blows.' }
+    const label = windLabel(body, withNote)
+    expect(label.startsWith('Arrows show where the wind blows. ')).toBe(true)
+    expect(label).toContain('ecmwf_ifs025')
+  })
+
+  it('still names the model when no note is translated', () => {
+    expect(windLabel(body, { ...t, windNote: '' })).toContain('ecmwf_ifs025')
+  })
 })
 
 describe('toggleWind', () => {
