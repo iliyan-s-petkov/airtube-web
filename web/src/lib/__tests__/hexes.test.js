@@ -222,20 +222,26 @@ describe('hexFeatures', () => {
     ],
   }
 
+  // By count, not by position: hexFeatures orders no-data cells first so a
+  // reading always paints over a co-located blank, and a positional assertion
+  // here would be asserting that ordering by accident.
+  const byCount = (features, n) => features.find((f) => f.properties.n === n)
+
   it('makes one closed polygon per bin, carrying its count and value', () => {
     const f = hexFeatures(body, 'P1', bands, '#ccc', rampColour)
     expect(f).toHaveLength(3)
-    expect(f[0].geometry.type).toBe('Polygon')
-    expect(f[0].geometry.coordinates[0]).toHaveLength(7)
-    expect(f[0].properties).toMatchObject({ n: 3, value: 12 })
-    expect(f[0].properties.colour).not.toBe(f[1].properties.colour)
+    const cell = byCount(f, 3)
+    expect(cell.geometry.type).toBe('Polygon')
+    expect(cell.geometry.coordinates[0]).toHaveLength(7)
+    expect(cell.properties).toMatchObject({ n: 3, value: 12 })
+    expect(cell.properties.colour).not.toBe(byCount(f, 1).properties.colour)
   })
 
   // A bin with no reading for this metric is not a bin with no sensors. The
   // count is still true, so the cell stays and only its colour says "no value".
   it('keeps a bin that has no value for the current metric', () => {
     const f = hexFeatures(body, 'P1', bands, '#ccc', rampColour)
-    expect(f[2].properties).toMatchObject({ n: 2, value: null, colour: '#ccc' })
+    expect(byCount(f, 2).properties).toMatchObject({ n: 2, value: null, colour: '#ccc' })
   })
 
   // The size the server SERVED, not the size the client asked for. The server
@@ -362,6 +368,46 @@ describe('hexFeatures at the point tier', () => {
     )
     expect(f.geometry.type).toBe('Polygon')
     expect(f.properties.sensorId).toBeUndefined()
+  })
+
+  // Every sensor.community station registers as TWO sensor ids at one pair of
+  // coordinates: the dust sensor carrying P1/P2 and its climate twin carrying
+  // temperature, humidity and pressure. On a PM metric the twin has no reading,
+  // so it is painted noDataColour — and it is a full cell at the identical
+  // centre as its coloured sibling. Whichever came last in the response won the
+  // fill, so a street full of readings came out with grey cells scattered
+  // through it, each one still showing its sibling's number (the label layer
+  // filters value != null, the fill layer cannot). Ordering is the whole fix:
+  // a cell with nothing to say is drawn first, so a cell with a reading always
+  // covers it.
+  it('draws no-data cells before cells that carry a reading', () => {
+    const paired = {
+      resolution_km: 0,
+      hexes: [
+        { lon: 23.28, lat: 42.666, sensor_id: 3831, n: 1, values: { P1: 2.6 } },
+        { lon: 23.28, lat: 42.666, sensor_id: 3832, n: 1, values: { temperature: 28.1 } },
+      ],
+    }
+    const f = hexFeatures(paired, 'P1', [], '#eee', rampColour, 0.02)
+    expect(f.map((x) => x.properties.sensorId)).toEqual([3832, 3831])
+    expect(f[1].properties.value).toBe(2.6)
+  })
+
+  // Stable within each group: the server's order is the only order there is, and
+  // reshuffling readings against each other would make two co-located dust
+  // sensors swap places between refreshes for no reason.
+  it('keeps the served order among cells that all carry a reading', () => {
+    const many = {
+      resolution_km: 1,
+      hexes: [
+        { lon: 23.1, lat: 42.1, n: 1, values: { P1: 5 } },
+        { lon: 23.2, lat: 42.2, n: 1, values: {} },
+        { lon: 23.3, lat: 42.3, n: 1, values: { P1: 7 } },
+        { lon: 23.4, lat: 42.4, n: 1, values: { P1: 9 } },
+      ],
+    }
+    const f = hexFeatures(many, 'P1', [], '#eee', rampColour)
+    expect(f.map((x) => x.properties.value)).toEqual([null, 5, 7, 9])
   })
 
   it('still draws nothing for a body with no resolution', () => {

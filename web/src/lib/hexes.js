@@ -230,7 +230,27 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
   // aggregate tier, and the caller's zoom-derived size on the point tier.
   const drawKM = points ? pointResKM : resKM
 
-  return (body?.hexes ?? []).map((h) => {
+  // No-data cells first, and the served order kept within each group.
+  //
+  // A station is two sensor ids at ONE pair of coordinates — the dust sensor
+  // and its climate twin — so on a PM metric the twin is a full no-data cell
+  // sitting exactly on top of a real reading, and on the point tier the two are
+  // drawn at the same size. Nothing else decides which wins: MapLibre paints a
+  // fill layer in feature order, so whichever the server listed last covered
+  // the other, and a street of readings came out speckled grey. The label layer
+  // filters value != null and so kept showing the reading underneath, which is
+  // what made it look like the ramp had failed rather than like two cells.
+  //
+  // A stable partition rather than a full sort: two co-located sensors that BOTH
+  // report cannot be separated by anything here, and reordering them between
+  // refreshes would just move the coin toss around.
+  const hexes = body?.hexes ?? []
+  const ordered = [
+    ...hexes.filter((h) => (h.values?.[metric] ?? null) === null),
+    ...hexes.filter((h) => (h.values?.[metric] ?? null) !== null),
+  ]
+
+  return ordered.map((h) => {
     const value = h.values?.[metric] ?? null
     return {
       type: 'Feature',
