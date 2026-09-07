@@ -30,6 +30,12 @@ import {
   WIND_SOURCE_ID, WIND_LAYER_ID, ARROW_IMAGE_ID, windFeatures, windField, windLabel, windIsStale,
   arrowImage, arrowLayout, arrowPaint,
 } from './wind.js'
+import {
+  BOUNDARY_SOURCE_ID, BOUNDARY_FILL_LAYER_ID, BOUNDARY_LINE_LAYER_ID,
+  BOUNDARY_SELECTED_LAYER_ID, BOUNDARY_LAYER_IDS,
+  boundaryFillPaint, boundaryLinePaint, boundarySelectedPaint,
+  selectedFilter, boundsOf, findBoundary,
+} from '../lib/boundaries.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
@@ -157,6 +163,12 @@ export function mount(el) {
   // pans. See docs/wind-overlay.md.
   const windState = { on: false, body: null, loading: false }
 
+  // The province outlines' own state, on the same one-fetch-per-page terms as
+  // the wind: the borders do not move, so the collection is fetched once and
+  // kept. On, unlike the wind, because the outlines are part of the map a
+  // reader is shown rather than an overlay they ask for.
+  const boundaryState = { on: false, body: null, loading: false }
+
   chrome.locateButton.addEventListener('click', () => locateMe(map, state, cfg, chrome))
 
   // unsubscribe is assigned inside the 'load' handler (see below) and read by
@@ -265,6 +277,35 @@ export function mount(el) {
       paint: labelPaint(cfg),
     })
 
+    // Between the grid and the markers: the outlines frame the readings, so
+    // they draw over the cells, and the dots a visitor clicks draw over them.
+    // Added empty and hidden for the reason the wind layer is — the part that
+    // can fail is adding a source and three layers to a live map, and failing
+    // it here costs nothing a reader can see.
+    map.addSource(BOUNDARY_SOURCE_ID, { type: 'geojson', data: emptyCollection() })
+    map.addLayer({
+      id: BOUNDARY_FILL_LAYER_ID,
+      type: 'fill',
+      source: BOUNDARY_SOURCE_ID,
+      layout: { visibility: 'none' },
+      paint: boundaryFillPaint(cfg),
+    })
+    map.addLayer({
+      id: BOUNDARY_LINE_LAYER_ID,
+      type: 'line',
+      source: BOUNDARY_SOURCE_ID,
+      layout: { visibility: 'none' },
+      paint: boundaryLinePaint(cfg),
+    })
+    map.addLayer({
+      id: BOUNDARY_SELECTED_LAYER_ID,
+      type: 'line',
+      source: BOUNDARY_SOURCE_ID,
+      layout: { visibility: 'none' },
+      filter: selectedFilter(state.slug),
+      paint: boundarySelectedPaint(cfg),
+    })
+
     map.addSource(SOURCE_ID, { type: 'geojson', data: emptyCollection() })
     map.addLayer({
       id: LAYER_ID,
@@ -341,10 +382,19 @@ export function mount(el) {
     // map.getStyle() has no layers to report until the style has loaded. A menu
     // built any earlier is a menu of nothing, which is why it stays hidden
     // until this call finds something to put in it.
+    // No defaultOff: the outlines are on unless the reader has switched them
+    // off, because a province map with no provinces drawn on it is a claim the
+    // page keeps making in words and never showing.
+    const boundaryView = {
+      id: 'boundaries',
+      label: cfg.t.viewBoundaries,
+      apply: (on) => setBoundaries(map, state, boundaryState, on),
+    }
+
     installLayers(map, chrome.layersUI, {
       labels: cfg.t.layers,
       caption: cfg.t.layersCaption,
-      views: [...chrome.layerViews, windView],
+      views: [...chrome.layerViews, windView, boundaryView],
     })
 
     // Registered synchronously, right here — after addLayer so setPaintProperty
@@ -470,7 +520,105 @@ export function mount(el) {
     refresh(map, state, cfg, chrome)
   })
 
+  // The province outlines answer a click the two handlers above did not.
+  //
+  // Registered on the map rather than on the outline layer, and asking first
+  // whether anything else was hit: the hit fill covers the whole country at
+  // every zoom, so a layer-bound handler would fire on top of the marker and
+  // cell handlers and select a second area for one click. Those two are the
+  // more specific claim — a dot is a station, a cell is a bin — and this is
+  // what the ground between them means.
+  map.on('click', (e) => {
+    if (!boundaryState.on) return
+    if (hit(map, e.point, [LAYER_ID, HEX_LAYER_ID]).length) return
+    const slug = boundaryChoice(state, hit(map, e.point, [BOUNDARY_FILL_LAYER_ID])[0])
+    if (!slug) return
+    state.slug = slug
+    highlightBoundary(map, slug)
+    refresh(map, state, cfg, chrome)
+    const bounds = boundsOf(findBoundary(boundaryState.body, slug))
+    if (bounds) map.fitBounds(bounds, { padding: BOUNDARY_FIT_PADDING })
+  })
+
   return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.(); unselect() } }
+}
+
+// Padding in pixels around a province fitted into the frame. Enough that the
+// outline the reader just selected is not flush against the edge of the map,
+// where the highlight it was given would be half a line wide.
+const BOUNDARY_FIT_PADDING = 24
+
+// queryRenderedFeatures over whichever of the named layers the map actually
+// carries. MapLibre throws on a layer id it does not know, and every caller
+// here runs on a map whose layers were added in an async 'load' handler that
+// may not have reached them yet.
+function hit(map, point, layers) {
+  const present = layers.filter((id) => map.getLayer?.(id))
+  if (!present.length) return []
+  return map.queryRenderedFeatures(point, { layers: present }) ?? []
+}
+
+// boundaryChoice is the whole decision behind a click on open ground: the
+// province under the pointer, or nothing.
+//
+// Nothing on a map already scoped to one area — /area/{slug} is one province,
+// ever, and there is nothing to drill into — which is the same rule cellArea
+// applies to the cells, for the same reason. Separated from the handler because
+// the handler needs a real MapLibre instance the "no jsdom" rule puts out of
+// reach.
+export function boundaryChoice(state, feature) {
+  if (state.slug) return null
+  return feature?.properties?.slug || null
+}
+
+// highlightBoundary is the selection, expressed as a filter on the heavy
+// outline layer. One write, no geometry: the selected province is already in
+// the source.
+export function highlightBoundary(map, slug) {
+  if (!map.getLayer?.(BOUNDARY_SELECTED_LAYER_ID)) return
+  map.setFilter(BOUNDARY_SELECTED_LAYER_ID, selectedFilter(slug))
+}
+
+// setBoundaries is the outline control: fetch once, then show or hide.
+//
+// The same shape as setWind, and for the same reasons — it returns the state
+// actually reached so a failed fetch corrects the checkbox rather than leaving
+// it ticked over a map with no outlines on it, and it takes the state asked for
+// rather than flipping the one it finds.
+//
+// A failed fetch leaves the outlines off and raises no banner: the readings are
+// what the page is for, and they are all still there.
+export async function setBoundaries(map, state, bstate, on, fetchJSON = getJSON) {
+  if (!on) {
+    bstate.on = false
+    setBoundaryVisibility(map, 'none')
+    return false
+  }
+  if (bstate.loading) return bstate.on
+  if (!bstate.body) {
+    bstate.loading = true
+    try {
+      bstate.body = await fetchJSON('/api/v1/boundaries')
+    } catch {
+      setBoundaryVisibility(map, 'none')
+      return false
+    } finally {
+      bstate.loading = false
+    }
+  }
+  map.getSource?.(BOUNDARY_SOURCE_ID)?.setData(bstate.body)
+  // On /area/{slug} the province is already chosen, so the outlines arrive with
+  // that one already picked out.
+  highlightBoundary(map, state.slug)
+  setBoundaryVisibility(map, 'visible')
+  bstate.on = true
+  return true
+}
+
+function setBoundaryVisibility(map, visibility) {
+  for (const id of BOUNDARY_LAYER_IDS) {
+    if (map.getLayer?.(id)) map.setLayoutProperty(id, 'visibility', visibility)
+  }
 }
 
 // cellArea decides which area an aggregate cell click selects: the one whose
@@ -1141,6 +1289,10 @@ export function readConfig(el) {
       viewBasemap: d.tViewBasemap || '',
       viewCellValues: d.tViewCellValues || '',
       viewInactiveSensors: d.tViewInactiveSensors || '',
+      // Its own string, not map.layer.boundaries: that one names the basemap's
+      // administrative lines, which are a different set of lines from a
+      // different source and switch independently.
+      viewBoundaries: d.tViewBoundaries || '',
       // One label per style group, keyed by the group's own name so the menu
       // can look up whatever the style turns out to carry. Derived from
       // LAYER_ORDER rather than written out, because the attribute name is a

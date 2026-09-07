@@ -295,6 +295,7 @@ describe('readConfig', () => {
         tViewLegend: 'Scale', tViewBasemap: 'OpenStreetMap basemap',
         tViewCellValues: 'Cell values',
         tViewInactiveSensors: 'Inactive sensors',
+        tViewBoundaries: 'Province outlines',
         // Two of the twelve groups, deliberately: the other ten prove the
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
@@ -326,6 +327,7 @@ describe('readConfig', () => {
       viewLegend: 'Scale', viewBasemap: 'OpenStreetMap basemap',
       viewCellValues: 'Cell values',
       viewInactiveSensors: 'Inactive sensors',
+      viewBoundaries: 'Province outlines',
       // One entry per group in LAYER_ORDER, always: the menu looks a label up
       // by the group the STYLE reports, so a key that is simply absent here
       // would be a group that renders under its own slug the day the style

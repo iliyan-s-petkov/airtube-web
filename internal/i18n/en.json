@@ -78,6 +78,7 @@
   "map.text_alternative": "The list of provinces below the map carries the same readings as text.",
   "map.text_alternative.areas": "The same readings are available as text on the page",
   "map.view.basemap": "OpenStreetMap basemap",
+  "map.view.boundaries": "Province outlines",
   "map.view.cell_values": "Cell values",
   "map.view.inactive_sensors": "Inactive sensors",
   "map.view.legend": "Scale",
