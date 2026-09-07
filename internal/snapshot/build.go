@@ -60,6 +60,10 @@ type sensorColumns struct {
 	Lon     []float64 `json:"lon"`
 	Lat     []float64 `json:"lat"`
 	Quality []string  `json:"quality"`
+	// Station names the physical site each sensor stands at — see stationIDs.
+	// Same length as ID, and for a sensor standing alone it is that sensor's
+	// own id.
+	Station []int64 `json:"station"`
 	// Metrics holds one column per canonical metric, each the same length as
 	// ID. A nil entry means that sensor does not report that metric — which is
 	// distinct from reporting zero, and must stay distinct: 0 µg/m³ is a
@@ -78,6 +82,7 @@ func (c sensorColumns) MarshalJSON() ([]byte, error) {
 		"lon":     c.Lon,
 		"lat":     c.Lat,
 		"quality": c.Quality,
+		"station": c.Station,
 	}
 	for metric, col := range c.Metrics {
 		out[metric] = col
@@ -247,6 +252,7 @@ func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPaylo
 		Lon:     make([]float64, 0, n),
 		Lat:     make([]float64, 0, n),
 		Quality: make([]string, 0, n),
+		Station: stationIDs(sensors),
 		Metrics: make(map[string][]*float64),
 	}
 	// Every canonical metric gets a column of exactly n entries, present or
@@ -273,6 +279,43 @@ func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPaylo
 		}
 	}
 	return sensorPayload{GeneratedAt: now, Sensors: cols}
+}
+
+// stationIDs answers, for each sensor and in the same order, which physical
+// site it stands at.
+//
+// Upstream publishes a station as SEVERAL sensor ids at one address: the PM
+// box (SDS011, SPS30, PMS5003) and the climate box (BME280, SHT3x) are
+// separate devices with separate ids and identical published coordinates, each
+// reporting only the metrics its own hardware measures. Nationwide that is 259
+// sensors at 151 addresses. A map of one marker per id therefore draws the
+// climate box exactly underneath the PM box, where nothing can click it, and
+// the PM box's panel answers "no reading" for temperature, humidity and
+// pressure that are being measured a metre away.
+//
+// Grouped on the exact published coordinate, not on a radius. Both devices of
+// a pair carry the same position to the last digit, so exact equality catches
+// every real pair; a radius would additionally merge devices at genuinely
+// different addresses on the same street, which is a claim about the data
+// nobody made.
+//
+// The station's id is the SMALLEST member id, so the grouping does not depend
+// on the order rows arrive in, and so the same site keeps the same id from one
+// snapshot to the next for as long as that member reports.
+func stationIDs(sensors []store.SensorReading) []int64 {
+	type site struct{ lon, lat float64 }
+	lowest := make(map[site]int64, len(sensors))
+	for _, sr := range sensors {
+		k := site{sr.Lon, sr.Lat}
+		if id, seen := lowest[k]; !seen || sr.SensorID < id {
+			lowest[k] = sr.SensorID
+		}
+	}
+	out := make([]int64, 0, len(sensors))
+	for _, sr := range sensors {
+		out = append(out, lowest[site{sr.Lon, sr.Lat}])
+	}
+	return out
 }
 
 // seriesPayloadFrom converts store points to the wire shape.

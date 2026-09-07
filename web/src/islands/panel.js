@@ -93,9 +93,14 @@ export function mount(el) {
       closeLabel: d.tClose || '',
       noValue: d.tNoValue || '',
       onclose: () => vs.closeSensor(),
+      // Charted for the device that measured it, not for the station: a
+      // station is an address and the series endpoint is keyed by device, so
+      // asking the station's own id for a temperature the climate box beside
+      // it recorded would chart an empty series. sources carries the answer
+      // (see lib/sensors.svelte.js's normaliseSensor).
       get chart() {
         const sensor = findSensor(vs.sensorId)
-        return chartFor(sensor?.id ?? null)
+        return chartFor(sensor?.sources?.[d.metric] ?? sensor?.id ?? null)
       },
     },
   })

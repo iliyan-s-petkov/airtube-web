@@ -21,6 +21,7 @@ import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
 import { setMapAreas, provideAreaSelect } from '../lib/mapareas.svelte.js'
+import { stationsOf, readingAt } from '../lib/stations.js'
 import {
   hexesURL, hexFeatures, resolutionForZoom,
   GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM,
@@ -957,16 +958,21 @@ export function areaFeatures(body, metric, scales, noDataColour) {
 export function sensorFeatures(body, metric, scales, noDataColour) {
   const bands = bandsFor(scales, metric)
   const s = body?.sensors ?? {}
-  const ids = s.id ?? []
-  const column = s[metric] ?? []
   const features = []
-  for (let i = 0; i < ids.length; i++) {
-    const value = column[i] ?? null
+  // One dot per STATION, not per device: the two boxes at one address carry
+  // the same coordinate, so a dot each drew one exactly on top of the other
+  // and left the underneath one unclickable. See lib/stations.js.
+  for (const { station, indices } of stationsOf(body)) {
+    // The reading is the first member that HAS one for this metric — the
+    // climate box has no P2 and must not paint the address grey when the
+    // particulate box beside it is reporting.
+    const { value } = readingAt(body, indices, metric)
+    const i = indices[0]
     features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [s.lon[i], s.lat[i]] },
       properties: {
-        id: ids[i],
+        id: station,
         colour: rampColour(value, bands, noDataColour),
         value,
         quality: s.quality?.[i] ?? '',

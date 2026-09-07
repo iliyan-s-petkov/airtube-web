@@ -1,3 +1,5 @@
+import { stationMembers, readingAt } from './stations.js'
+
 // What the map has last loaded, published for the panel to read — not
 // refetched. Refetching would double every page's request count against a
 // per-IP enumeration limiter that counts distinct sensor ids, so the panel
@@ -59,45 +61,68 @@ export function getSensors() {
 // (upstream.CanonicalMetrics, build.go:186). Deriving by exclusion from this
 // fixed list — rather than an allow-list of known metrics — is what lets a
 // metric added server-side show up in the panel with no frontend change.
-const META_COLUMNS = new Set(['id', 'type', 'lon', 'lat', 'quality'])
+const META_COLUMNS = new Set(['id', 'type', 'lon', 'lat', 'quality', 'station'])
 
-// normaliseSensor projects ONE sensor out of the columnar body into the shape
-// lib/sensorview.js's panelRows expects: { id, flag, values }.
+// normaliseSensor projects ONE STATION out of the columnar body into the shape
+// lib/sensorview.js's panelRows expects: { id, flag, values, sources }.
 //
-// Projects by id, not by index: every caller (findSensor, and ultimately
-// viewstate's sensorId) already has an id, never an index, so requiring an
-// index here would just push an id->index lookup onto every caller instead
-// of doing it once, here.
+// A station, not a device (lib/stations.js says why): the reader clicked one
+// dot on one address, and the address is where the temperature is measured as
+// much as the particulate matter is. So the seven rows are filled from every
+// device standing there, and `sources` records which device each reading came
+// from — the chart endpoint is keyed by device, so the panel has to be able to
+// say which one to ask.
 //
-// A metric column that EXISTS but holds null at this sensor's index lands in
-// `values` as null (still reported, no current reading — see
-// lib/sensorview.js's own comment on why that distinction matters). A metric
-// column the response does not carry AT ALL is simply never visited by the
-// loop below, so it never becomes a key of `values` — "reported" and
-// "measured by this hardware" stay distinct all the way through.
+// Resolves by id, not by index, and by ANY member's id: a deep link naming the
+// climate box and a click on the particulate box are the same station.
+//
+// A metric column that EXISTS but holds null at every member lands in `values`
+// as null (still reported, no current reading — see lib/sensorview.js's own
+// comment on why that distinction matters). A metric column the response does
+// not carry AT ALL is never visited by the loop below, so it never becomes a
+// key of `values` — "reported" and "measured by this hardware" stay distinct
+// all the way through.
 export function normaliseSensor(responseBody, id) {
+  const members = stationMembers(responseBody, id)
+  if (!members) return null
   const cols = responseBody?.sensors ?? {}
-  const ids = cols.id ?? []
-  const idx = ids.findIndex((v) => Number(v) === Number(id))
-  if (idx === -1) return null
 
   const values = {}
-  for (const [key, col] of Object.entries(cols)) {
+  const sources = {}
+  for (const key of Object.keys(cols)) {
     if (META_COLUMNS.has(key)) continue
-    values[key] = Array.isArray(col) ? col[idx] ?? null : null
+    const { value, sensorId } = readingAt(responseBody, members.indices, key)
+    values[key] = value
+    sources[key] = sensorId
   }
 
   return {
-    id: ids[idx],
+    // The station's id, which is its lowest member's — stable across
+    // snapshots, and the id the marker for this address carries.
+    id: members.station,
     // quality -> flag: SensorPanel's flag lookup (see islands/panel.js) keys
     // off `flag`. The wire vocabulary (a data-quality field, matching the
     // store/API's own naming) must not leak into the panel's own vocabulary
     // unrenamed — a future reader grepping the panel for "quality" would
     // find nothing, and grepping the wire format for "flag" would find
     // nothing either, without this comment.
-    flag: cols.quality?.[idx] ?? '',
+    //
+    // The first member flagged as anything other than ok, if any: a station
+    // with one misbehaving device has a problem the reader should see, and
+    // averaging or hiding it behind the healthy device would be the panel
+    // deciding not to mention it.
+    flag: stationFlag(cols, members.indices),
     values,
+    sources,
   }
+}
+
+function stationFlag(cols, indices) {
+  for (const i of indices) {
+    const flag = cols.quality?.[i] ?? ''
+    if (flag && flag !== 'ok') return flag
+  }
+  return cols.quality?.[indices[0]] ?? ''
 }
 
 export function findSensor(id) {

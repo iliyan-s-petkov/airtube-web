@@ -94,7 +94,14 @@ beforeEach(() => setSensors(null))
 describe('normaliseSensor', () => {
   it('projects one sensor out of the columnar body into the shape panelRows expects', () => {
     const body = { sensors: { id: [42], quality: ['ok'], P1: [30], P2: [12] } }
-    expect(normaliseSensor(body, 42)).toEqual({ id: 42, flag: 'ok', values: { P1: 30, P2: 12 } })
+    expect(normaliseSensor(body, 42)).toEqual({
+      id: 42,
+      flag: 'ok',
+      values: { P1: 30, P2: 12 },
+      // One device standing alone is a station of one, and every reading at
+      // that station came from it.
+      sources: { P1: 42, P2: 42 },
+    })
   })
 
   // id/type/lon/lat/quality describe the sensor, not a measurement: leaking

@@ -1,3 +1,5 @@
+import { stationsOf, readingAt } from './stations.js'
+
 // How many sensors the map is drawing, and how many of them are silent.
 //
 // Counted from the RAW columnar body the map published into sensors.svelte.js,
@@ -13,17 +15,21 @@
 // is a reading, and the cleanest sensor in the area is exactly the one a falsy
 // test would misfile.
 export function countSensors(responseBody, metric) {
-  const column = responseBody?.sensors?.[metric]
-  const ids = responseBody?.sensors?.id ?? []
-  const total = ids.length
+  // Stations, not devices — the same unit the map draws (lib/stations.js).
+  // Counting devices would say 44 under a map showing 27 dots, and the reader
+  // would be right to trust the map.
+  const stations = stationsOf(responseBody)
+  const total = stations.length
 
   // The metric column can be absent entirely — an area where no sensor reports
   // this metric at all. Every sensor is then silent FOR THIS METRIC, which is
   // what the map paints, so that is what the line must say.
-  if (!Array.isArray(column)) return { total, active: 0, silent: total }
+  if (!Array.isArray(responseBody?.sensors?.[metric])) return { total, active: 0, silent: total }
 
   let active = 0
-  for (let i = 0; i < total; i++) if ((column[i] ?? null) !== null) active++
+  for (const { indices } of stations) {
+    if (readingAt(responseBody, indices, metric).value !== null) active++
+  }
   return { total, active, silent: total - active }
 }
 
