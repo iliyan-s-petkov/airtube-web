@@ -37,5 +37,17 @@ export function formatTick(seconds, mode, locale) {
 export function tickValues(xs, locale) {
   const span = xs.length > 1 ? xs[xs.length - 1] - xs[0] : 0
   const mode = tickMode(span)
-  return (u, splits) => splits.map((s) => formatTick(s, mode, locale))
+  // uPlot spaces its ticks by pixels, so several of them land inside one day —
+  // and a day label repeated four times reads as four days that all happened on
+  // the 31st. A repeat is blanked rather than dropped: the tick itself still
+  // marks the position, it just does not claim to be a new date.
+  return (u, splits) => {
+    let last = null
+    return splits.map((s) => {
+      const label = formatTick(s, mode, locale)
+      if (label === last) return ''
+      last = label
+      return label
+    })
+  }
 }

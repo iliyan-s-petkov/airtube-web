@@ -80,6 +80,18 @@ describe('tickValues', () => {
     expect(values(null, splits)).toEqual(splits.map((s) => formatTick(s, 'month', 'en-GB')))
   })
 
+  // uPlot spaces ticks by pixels: on a week-wide plot several land in one day,
+  // and repeating the date makes one day look like four.
+  it('blanks a label that repeats the one before it', () => {
+    const values = tickValues(xs(8, DAY), 'en-GB')
+    const noon = NOON
+    const got = values(null, [noon, noon + 3600, noon + 7200, noon + DAY])
+    expect(got[0]).toContain('Sep')
+    expect(got[1]).toBe('')
+    expect(got[2]).toBe('')
+    expect(got[3]).not.toBe('')
+  })
+
   it('survives a plot with no points', () => {
     expect(tickValues([], 'en-GB')(null, [NOON])[0]).toMatch(/\d{2}:\d{2}/)
   })
