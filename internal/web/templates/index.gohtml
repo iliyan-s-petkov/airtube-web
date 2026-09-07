@@ -31,20 +31,20 @@
      data-t-legend="{{.T "metric.legend"}}"></div>
 {{end}}
 <div class="toolbar__spacer"></div>
-{{if not $map}}
-{{/* The finder carries no list of its own: it reads the area list rendered at
-     the foot of this page, which is already the no-JS fallback. A second copy
-     of the same 28 names is a second thing that can disagree with the one the
-     reader can see — and it settles the empty case too, since a page with no
-     list mounts no finder. That is also why it is on this tab and not the map
-     tab: with no table to read, it would have nothing to search. */}}
+{{/* The finder carries no list of its own. On the list tab it reads the table
+     rendered at the foot of this page, which is already the no-JS fallback: a
+     second copy of the same 28 names is a second thing that can disagree with
+     the one the reader can see. The map tab renders no table, so data-source is
+     omitted there and the island reads the areas the map has already loaded —
+     still one list, still no extra request. A pick means the same thing on both
+     tabs, which is "show me this province": the list tab opens its page, the
+     map tab flies to it, and the hint says which. */}}
 <div data-island="finder"
-     data-source=".table tbody"
+     {{if not $map}}data-source=".table tbody"{{end}}
      data-t-label="{{.T "find.label"}}"
      data-t-placeholder="{{.T "find.placeholder"}}"
-     data-t-hint="{{.T "find.hint"}}"
+     data-t-hint="{{if $map}}{{.T "find.hint_map"}}{{else}}{{.T "find.hint"}}{{end}}"
      data-t-empty="{{.T "find.no_match"}}"></div>
-{{end}}
 {{/* Solid-bordered and full height, on the finder's baseline: the toolbar is
      where this screen's controls live, so the reload belongs beside the finder
      rather than in a line of prose. Secondary, not primary — the page has no

@@ -33,6 +33,7 @@
   "error.unavailable.body": "Please try again in a minute.",
   "error.unavailable.title": "Data is not ready yet",
   "find.hint": "Use the arrow keys to choose an area and Enter to open its page.",
+  "find.hint_map": "Use the arrow keys to choose an area and Enter to centre the map on it.",
   "find.label": "Find an area",
   "find.no_match": "No area by that name",
   "find.placeholder": "Area name",

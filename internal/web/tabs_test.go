@@ -3,6 +3,8 @@ package web_test
 import (
 	"strings"
 	"testing"
+
+	"airbg.org/internal/i18n"
 )
 
 // "/" and "/areas" render from one template. They used to render the SAME
@@ -56,9 +58,43 @@ func TestAreasTabIsTheListAndNotASecondMap(t *testing.T) {
 	if strings.Contains(body, `data-island="map"`) {
 		t.Error("the areas tab renders a second map; the map tab is where the map lives")
 	}
-	// The finder searches the rendered rows, so it belongs on the tab that has
-	// them. On the map tab it would mount against nothing.
+	// The finder searches the rendered rows here, and says so: data-source is
+	// what tells the island to read the table rather than the map.
 	if !strings.Contains(body, `data-island="finder"`) {
 		t.Error("the areas tab does not mount the finder over its own list")
+	}
+	if !strings.Contains(body, `data-source=".table tbody"`) {
+		t.Error("the areas tab's finder does not name the list it searches")
+	}
+}
+
+// The finder is on the map tab too, over the areas the map has loaded. Its
+// absent data-source is the whole switch (web/src/islands/finder.js), so an
+// attribute copied onto this tab would send the field looking for a table that
+// is not there — and the hint has to say what Enter does HERE, which is centre
+// the map, not open a page.
+func hintMap(t *testing.T) string {
+	t.Helper()
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+	return cat.T("bg", "find.hint_map")
+}
+
+func TestMapTabFindsAProvinceOnTheMap(t *testing.T) {
+	rr := renderer(t, rankingSnapshot())
+	body := fetch(t, rr, "/").Body.String()
+
+	i := strings.Index(body, `data-island="finder"`)
+	if i < 0 {
+		t.Fatal("the map tab mounts no finder")
+	}
+	island := body[i:min(i+600, len(body))]
+	if strings.Contains(island, "data-source=") {
+		t.Error("the map tab's finder names a source list; there is no table on this tab to read")
+	}
+	if !strings.Contains(island, hintMap(t)) {
+		t.Error("the map tab's finder promises the list tab's Enter, which opens a page instead of moving the map")
 	}
 }

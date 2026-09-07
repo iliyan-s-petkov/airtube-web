@@ -37,7 +37,7 @@
     if (!match) return
     query = match.name
     hide()
-    onpick(match.href)
+    onpick(match)
   }
 
   function move(step) {
@@ -127,7 +127,7 @@
            has no area for is an ordinary thing to do. -->
       <li class="combobox__empty">{empty}</li>
     {:else}
-      {#each matches as match, i (match.href)}
+      {#each matches as match, i (match.name)}
         {@const parts = splitMark(match.name, match.at, match.len)}
         <!-- mousedown, not click: click arrives after blur has already closed
              the list, so a mouse pick would land on nothing. -->

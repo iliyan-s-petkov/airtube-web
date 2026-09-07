@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, showArea, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -2444,5 +2444,49 @@ describe('the sensor status filter', () => {
     // getSource, not setData: a stopped island never reaches the source at
     // all, so there is no spy on the sensor layer to interrogate.
     expect(map.getSource).not.toHaveBeenCalled()
+  })
+})
+
+// The finder names an area; this is what the map does about it. Same page, no
+// navigation — and the area's own centre and zoom, not a guess.
+describe('showArea', () => {
+  beforeEach(() => { clearCache() })
+  afterEach(() => { clearCache() })
+
+  const cfg = {
+    lon: 25.4858, lat: 42.7339, zoom: 7, zoomCity: 9, zoomSensor: 11,
+    metric: 'P2', noDataColour: '#9ca3af',
+    t: { hint: 'h', unavailable: 'u' },
+  }
+
+  function fakeMap() {
+    let zoom = 7
+    return {
+      flyTo: vi.fn(({ zoom: z }) => { zoom = z }),
+      getZoom: () => zoom,
+      getBounds: () => ({ getWest: () => 23.2, getSouth: () => 42.6, getEast: () => 23.4, getNorth: () => 42.8 }),
+      getSource: vi.fn(() => ({ setData: vi.fn() })),
+    }
+  }
+
+  const chrome = () => ({ showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn(), showLegend: vi.fn() })
+
+  it('flies to the area and selects it', async () => {
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null, areas: [], hexUrl: null, hexBody: null, sensorBody: null }
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }))
+
+    expect(await showArea(map, state, cfg, chrome(), { slug: 'varna', lon: 27.9, lat: 43.2, zoom: 11 })).toBe(true)
+    expect(map.flyTo).toHaveBeenCalledWith({ center: [27.9, 43.2], zoom: 11 })
+    expect(state.slug).toBe('varna')
+  })
+
+  it('does nothing without an area', async () => {
+    const map = fakeMap()
+    const state = { slug: 'sofia', tier: null, scales: null, areas: [], hexUrl: null, hexBody: null, sensorBody: null }
+    expect(await showArea(map, state, cfg, chrome(), null)).toBe(false)
+    expect(await showArea(map, state, cfg, chrome(), { lon: 1, lat: 2, zoom: 9 })).toBe(false)
+    expect(map.flyTo).not.toHaveBeenCalled()
+    expect(state.slug).toBe('sofia')
   })
 })

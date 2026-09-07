@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest'
-import { unmount } from 'svelte'
+import { unmount, tick } from 'svelte'
 import { mount } from '../finder.js'
+import { setMapAreas, provideAreaSelect } from '../../lib/mapareas.svelte.js'
 
 let component
 afterEach(() => {
   if (component) unmount(component)
   component = null
   document.body.innerHTML = ''
+  setMapAreas([])
 })
 
-function page({ lang = 'bg', areas = true, source } = {}) {
+function page({ lang = 'bg', areas = true, source = '.areas' } = {}) {
   document.documentElement.setAttribute('lang', lang)
   const el = document.createElement('div')
   el.dataset.island = 'finder'
@@ -67,5 +69,42 @@ describe('finder island', () => {
     el.querySelector('input[role="combobox"]').dispatchEvent(new Event('focus', { bubbles: true }))
     expect([...el.querySelectorAll('.combobox__opt')].map((li) => li.textContent))
       .toEqual(['Burgas', 'Sofia', 'Varna'])
+  })
+
+  // The map tab renders no table. Absent data-source, the names come from the
+  // area payload the map has already loaded, and a pick moves that map instead
+  // of leaving the page.
+  it('reads the map\'s own areas when the server names no list', async () => {
+    const el = page({ lang: 'en', areas: false, source: null })
+    const picked = []
+    const unselect = provideAreaSelect((area) => { picked.push(area.slug); return true })
+    setMapAreas([
+      { slug: 'varna', name_bg: 'Варна', name_en: 'Varna', lon: 27.9, lat: 43.2, zoom: 11 },
+      { slug: 'burgas', name_bg: 'Бургас', name_en: 'Burgas', lon: 27.5, lat: 42.5, zoom: 11 },
+    ])
+    component = mount(el)
+    el.querySelector('input[role="combobox"]').dispatchEvent(new Event('focus', { bubbles: true }))
+    await tick()
+    expect([...el.querySelectorAll('.combobox__opt')].map((li) => li.textContent))
+      .toEqual(['Burgas', 'Varna'])
+
+    el.querySelectorAll('.combobox__opt')[1]
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    await tick()
+    expect(picked).toEqual(['varna'])
+    expect(globalThis.location.pathname).not.toContain('/area/')
+    unselect()
+  })
+
+  // The field mounts before the first area response lands, so an empty list is
+  // a state it passes through rather than a reason not to exist.
+  it('fills in when the map\'s areas arrive after it mounted', async () => {
+    const el = page({ areas: false, source: null })
+    component = mount(el)
+    expect(component).not.toBeNull()
+    setMapAreas([{ slug: 'sofia', name_bg: 'София', lon: 23.3, lat: 42.7, zoom: 11 }])
+    el.querySelector('input[role="combobox"]').dispatchEvent(new Event('focus', { bubbles: true }))
+    await tick()
+    expect([...el.querySelectorAll('.combobox__opt')].map((li) => li.textContent)).toEqual(['София'])
   })
 })

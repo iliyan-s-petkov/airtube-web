@@ -20,6 +20,7 @@ import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange 
 import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
+import { setMapAreas, provideAreaSelect } from '../lib/mapareas.svelte.js'
 import {
   hexesURL, hexFeatures, resolutionForZoom,
   GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM,
@@ -166,6 +167,9 @@ export function mount(el) {
   let unsubscribe = null
   let unprovide = null
   let unfilter = null
+  // The finder island is beside this one, not inside it: it names an area and
+  // this map is what moves. Registered here, where the camera is.
+  const unselect = provideAreaSelect((area) => showArea(map, state, cfg, chrome, area))
 
   map.on('load', async () => {
     // Not awaited: mount()'s metric subscription must be registered before this
@@ -464,7 +468,7 @@ export function mount(el) {
     refresh(map, state, cfg, chrome)
   })
 
-  return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.() } }
+  return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.(); unselect() } }
 }
 
 // cellArea decides which area an aggregate cell click selects: the one whose
@@ -701,12 +705,28 @@ async function refresh(map, state, cfg, chrome, force = false) {
     // entirely and fold lon/lat into GeoJSON geometry, but locateMe needs
     // exactly {slug, lon, lat, zoom} per area (see nearestArea's signature).
     state.areas = body?.areas ?? []
+    setMapAreas(state.areas)
   }
 
   const features = effective === 'sensors'
     ? filterByStatus(sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour), getSensorStatus())
     : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
   map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
+}
+
+// showArea is what the finder's pick does: fly to the area and select it, on
+// the page the reader is already on.
+//
+// The area payload carries its own centre and zoom, so nothing here decides how
+// close is close enough. refresh is forced because the slug changed while the
+// tier may not have; the hex grid is left to the moveend the flight ends with,
+// which is the only pass that knows the viewport it landed on.
+export async function showArea(map, state, cfg, chrome, area) {
+  if (!area || area.slug === undefined) return false
+  state.slug = area.slug
+  map.flyTo({ center: [area.lon, area.lat], zoom: area.zoom })
+  await refresh(map, state, cfg, chrome, true)
+  return true
 }
 
 // applyMarkerZoomRange moves both marker layers onto the handover the current

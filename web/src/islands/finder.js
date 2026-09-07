@@ -1,34 +1,50 @@
-// The area finder: a way in, not a report.
+// The area finder: a way in, not a report. Picking a name takes the reader to
+// the area, rather than printing a line saying where it is.
 //
-// Picking a name GOES to that area's page. The alternative — centre the map,
-// then print a line saying the map was centred, then offer a link to the page —
-// puts two controls and a sentence between the reader and the thing they just
-// named. A reader who types an area is asking to see it.
-//
-// It mounts only where there is a list to read, which today is the home page.
-// A finder over an empty list is a field that can never match anything.
+// data-source is the switch: it names the list to read, and its absence means
+// the names come from the map on the page. On the list tab the finder mounts
+// only if that list has something in it — a finder over an empty list is a
+// field that can never match anything.
 import { mount as mountComponent } from 'svelte'
 import AreaFind from '../components/AreaFind.svelte'
-import { readAreas } from '../lib/find.js'
+import { areaOptions, readAreas } from '../lib/find.js'
+import { getMapAreas, selectMapArea } from '../lib/mapareas.svelte.js'
 
 export function mount(el, doc = document) {
   const d = el.dataset
-  const areas = readAreas(doc.querySelector(d.source || '.areas'))
-  if (!areas.length) return null
+  // The language the page is written in, which is the language the reader is
+  // typing and therefore the one the sort has to follow.
+  const lang = doc.documentElement.getAttribute('lang') || 'bg'
+  const props = {
+    lang,
+    label: d.tLabel || '',
+    placeholder: d.tPlaceholder || '',
+    hint: d.tHint || '',
+    empty: d.tEmpty || '',
+  }
+
+  // Two tabs, two lists and two meanings for a pick. The list tab has the
+  // rendered table and picking GOES to that area's page. The map tab has no
+  // table — it has a map — so the names come from what the map has loaded and
+  // picking moves the map the reader is already looking at.
+  if (d.source) {
+    const areas = readAreas(doc.querySelector(d.source))
+    if (!areas.length) return null
+    return mountComponent(AreaFind, {
+      target: el,
+      // The href is the server's, already carrying the language prefix, so
+      // there is no second place that knows how a URL is built.
+      props: { ...props, areas, onpick: (m) => { globalThis.location.assign(m.href) } },
+    })
+  }
+
   return mountComponent(AreaFind, {
     target: el,
     props: {
-      areas,
-      // The language the page is written in, which is the language the reader
-      // is typing and therefore the one the sort has to follow.
-      lang: doc.documentElement.getAttribute('lang') || 'bg',
-      label: d.tLabel || '',
-      placeholder: d.tPlaceholder || '',
-      hint: d.tHint || '',
-      empty: d.tEmpty || '',
-      // The href is the server's, already carrying the language prefix, so
-      // there is no second place that knows how a URL is built.
-      onpick: (href) => { globalThis.location.assign(href) },
+      ...props,
+      // A getter, not a snapshot: the map's list lands after this mounts.
+      get areas() { return areaOptions(getMapAreas(), lang) },
+      onpick: (m) => selectMapArea(m.area),
     },
   })
 }

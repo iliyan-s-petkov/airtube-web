@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import { readAreas, matchAreas, exactMatch, splitMark } from '../find.js'
+import { areaOptions, readAreas, matchAreas, exactMatch, splitMark } from '../find.js'
 
 const AREAS = [
   { name: 'Варна', href: '/area/varna' },
@@ -109,5 +109,28 @@ describe('splitMark', () => {
   it('leaves the name whole when there is nothing to mark', () => {
     expect(splitMark('Варна', -1, 0)).toEqual({ before: 'Варна', hit: '', after: '' })
     expect(splitMark('Варна', 0, 0)).toEqual({ before: 'Варна', hit: '', after: '' })
+  })
+})
+
+describe('areaOptions', () => {
+  const entries = [
+    { slug: 'varna', name_bg: 'Варна', name_en: 'Varna' },
+    { slug: 'sofia', name_bg: 'София' },
+  ]
+
+  it('names each area in the language the page is written in', () => {
+    expect(areaOptions(entries, 'en').map((o) => o.name)).toEqual(['Varna', 'София'])
+    expect(areaOptions(entries, 'bg').map((o) => o.name)).toEqual(['Варна', 'София'])
+  })
+
+  // The picker moves a camera, so it needs the entry itself — lon, lat and the
+  // area's own zoom — not just a name.
+  it('carries the payload entry through', () => {
+    expect(areaOptions(entries, 'bg')[0].area).toBe(entries[0])
+  })
+
+  it('drops an entry with no name and survives no list at all', () => {
+    expect(areaOptions([{ slug: 'x' }], 'bg')).toEqual([])
+    expect(areaOptions(null)).toEqual([])
   })
 })

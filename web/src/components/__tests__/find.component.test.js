@@ -139,7 +139,9 @@ describe('AreaFind.svelte', () => {
     await tick()
     await key(t, 'ArrowDown')
     await key(t, 'Enter')
-    expect(onpick).toHaveBeenCalledWith('/area/burgas')
+    // The whole match, not its href: what a pick MEANS is the caller's — the
+    // list tab opens match.href, the map tab flies to match.area.
+    expect(onpick).toHaveBeenCalledWith(expect.objectContaining({ href: '/area/burgas' }))
   })
 
   // A half-typed name must never navigate: Enter without a cursor acts only on
@@ -152,7 +154,7 @@ describe('AreaFind.svelte', () => {
     expect(onpick).not.toHaveBeenCalled()
     await type(t, 'вел')
     await key(t, 'Enter')
-    expect(onpick).toHaveBeenCalledWith('/area/veliko-tarnovo')
+    expect(onpick).toHaveBeenCalledWith(expect.objectContaining({ href: '/area/veliko-tarnovo' }))
   })
 
   // click fires after blur has already closed the list, so a mouse pick has to
@@ -163,7 +165,7 @@ describe('AreaFind.svelte', () => {
     await type(t, 'варна')
     opts(t)[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
     await tick()
-    expect(onpick).toHaveBeenCalledWith('/area/varna')
+    expect(onpick).toHaveBeenCalledWith(expect.objectContaining({ href: '/area/varna' }))
     expect(input(t).value).toBe('Варна')
     expect(t.querySelector('ul.combobox__list').hidden).toBe(true)
   })

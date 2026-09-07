@@ -21,6 +21,18 @@ export function readAreas(root) {
     .filter((x) => x.name)
 }
 
+// areaOptions is the other source of names: the map's own area payload, for the
+// tab that renders no list. The entry rides along under `area` so the picker
+// gets back the coordinates and zoom it needs to move the camera.
+//
+// name_en is optional in the payload; a missing one falls back to the Bulgarian
+// name rather than to an empty option the reader cannot type.
+export function areaOptions(entries, lang = 'bg') {
+  return (entries || [])
+    .map((a) => ({ name: (lang === 'en' ? a.name_en || a.name_bg : a.name_bg) || '', area: a }))
+    .filter((o) => o.name)
+}
+
 // matchAreas returns the areas whose name contains the query, each carrying
 // where the match starts and how long it is, so the option can mark the matched
 // run without the renderer searching the string a second time.
