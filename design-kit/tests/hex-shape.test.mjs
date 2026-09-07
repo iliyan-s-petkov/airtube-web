@@ -85,5 +85,29 @@ console.log('\n4. a foreign hex is styled, not hidden');
      'the served colour is an attribute; a CSS fill would win and grey them out');
 }
 
+console.log('\n5. a discrete swatch is a hexagon; the band swatch is not');
+{
+  /* The map draws hexagons, so anything that stands for one cell — the chip in
+   * the province table, a legend row — is drawn as one too. The scale's band
+   * swatches are the exception: they are a continuous bar, and a hexagon would
+   * break the join. */
+  const rule = (sel) => {
+    const m = css.match(new RegExp('\\' + sel + '\\s*\\{([^}]*)\\}'));
+    return m ? m[1] : '';
+  };
+  const hexClip = /clip-path:\s*polygon\(([^)]*)\)/;
+  const chip = rule('.chip__swatch');
+  const clip = chip.match(hexClip);
+  ok('.chip__swatch is clipped to a polygon', !!clip);
+  ok('that polygon has six points',
+     !!clip && clip[1].split(',').length === 6,
+     clip ? clip[1] : 'no clip-path');
+  ok('the chip is taller than it is wide, as a pointy-top hexagon is',
+     /width:\s*12px/.test(chip) && /height:\s*14px/.test(chip));
+  ok('the scale band swatch stays rectangular',
+     !hexClip.test(rule('.scale__band-swatch')),
+     'the bands touch to form one bar; clipping them opens gaps');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

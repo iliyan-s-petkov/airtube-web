@@ -8,7 +8,7 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--page-bg);
   color: var(--fg);
   font: var(--weight-body) var(--text-body)/var(--leading-body) var(--font-body);
   -webkit-font-smoothing: antialiased;
@@ -59,9 +59,16 @@ body {
 
 /* ------------------------------------------------------- Masthead (§5.1) */
 
+/* Light, translucent, and stuck to the top: the masthead sits over the page
+   rather than capping it. See DESIGN.md 5.1. */
 .masthead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 10;
   height: 48px;
-  background: var(--fg);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-block-end: 1px solid var(--border-soft);
   display: flex;
   align-items: center;
   gap: var(--space-6);
@@ -70,34 +77,32 @@ body {
 }
 .masthead__brand {
   display: flex; align-items: center; gap: var(--space-2);
-  color: var(--accent-on);
+  color: var(--fg);
   font: var(--weight-emphasis) var(--text-body)/1 var(--font-body);
   text-decoration: none;
 }
 .masthead__brand img { display: block; }
-.masthead__brand .tld { color: #c6c6c6; font-weight: var(--weight-body); }
-.masthead__nav { display: flex; align-items: stretch; height: 48px; margin-inline-start: auto; }
+.masthead__brand .tld { color: var(--fg-2); font-weight: var(--weight-body); }
+.masthead__nav { display: flex; align-items: center; gap: var(--space-1); margin-inline-start: auto; }
 .masthead__link {
   display: flex; align-items: center;
-  padding-inline: var(--space-4);
-  color: #c6c6c6;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  color: var(--fg-2);
   font: var(--weight-body) var(--text-compact)/1 var(--font-body);
   letter-spacing: var(--track-compact);
   text-decoration: none;
-  border-bottom: 2px solid transparent;
   transition: color var(--dur-base) var(--ease-standard),
               background-color var(--dur-base) var(--ease-standard);
 }
-.masthead__link:hover { color: #ffffff; background: #262626; }
+.masthead__link:hover { color: var(--fg); background: var(--surface); }
 /* The current tab was a 2px underline in the same white as hover text — too
    close to the hover state to read as "you are here". It now carries a lifted
    background AND a 3px rule, so the current tab differs from every other state
    on two channels, not one. */
 .masthead__link[aria-current] {
-  color: #ffffff;
-  background: #262626;
-  border-bottom-width: 3px;
-  border-bottom-color: #ffffff;
+  color: var(--accent-on);
+  background: var(--accent);
   font-weight: var(--weight-emphasis);
 }
 /* The language switcher is two identically styled links, not bare text beside
@@ -111,8 +116,9 @@ body {
 /* --------------------------------------------------------- Cards / tiles */
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
+  background: var(--bg);
+  border: 0;
+  box-shadow: var(--elev-card);
   border-radius: var(--radius);
   padding: var(--space-4);
   box-shadow: none;              /* depth is layering, never shadow (§4.4) */
@@ -123,7 +129,10 @@ body {
 /* ---------------------------------------------------- Map & chart (§5.2/3) */
 
 .data-frame {
-  border: 1px solid var(--border);
+  background: var(--bg);
+  border: 0;
+  box-shadow: var(--elev-card);
+  overflow: hidden;
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: none;
@@ -198,7 +207,8 @@ body {
 .readout-float {
   position: absolute;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 0;
+  border-radius: var(--radius-sm);
   box-shadow: var(--elev-float);
   padding: var(--space-2) var(--space-3);
   transition: opacity var(--dur-slow) var(--ease-standard);
@@ -214,7 +224,6 @@ body {
   letter-spacing: var(--track-caption);
   text-transform: none;
 }
-/* The sole rounded element in the system. */
 .chip {
   display: inline-flex; align-items: center; gap: var(--space-2);
   border-radius: var(--radius-pill);
@@ -225,15 +234,15 @@ body {
   letter-spacing: var(--track-caption);
   font-variant-numeric: tabular-nums;
 }
+/* A hexagon, because the map draws hexagons: the swatch and the cell it stands
+   for are the same shape. Clipped rather than drawn, so the same rule shapes an
+   SVG swatch and a CSS-filled one. */
 .chip__swatch {
-  width: 12px; height: 12px; flex: none;
-  /* Filled from a --ramp-* custom property set by the app at runtime from
-     /api/v1/scales. Unset here on purpose: the ramp is data, not brand. */
+  width: 12px; height: 14px; flex: none;
   background: var(--chip-ramp, transparent);
-  outline: 1px dashed var(--border);
-  outline-offset: 0;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
 }
-.chip--none .chip__swatch { background: var(--ramp-none); outline: none; }
+.chip--none .chip__swatch { background: var(--ramp-none); }
 /* Grey means "no recent data". The legend says so in words; it is not an error. */
 .legend__tier {
   color: var(--fg-2);
@@ -309,7 +318,12 @@ body {
    rather than reflowing. Two options never reach the wrap, so this is inert for
    the sets that already fit. The row-gap separates wrapped lines so the seam
    below reads as a new band and not a broken join. */
-.switcher__set { display: flex; flex-wrap: wrap; row-gap: var(--space-2); }
+.switcher__set {
+  display: inline-flex; flex-wrap: wrap; row-gap: var(--space-1); gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface);
+  border-radius: var(--radius-pill);
+}
 .switcher__opt { position: relative; display: flex; }
 .switcher__opt input {
   position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer;
@@ -318,18 +332,17 @@ body {
   display: flex; align-items: center; justify-content: center;
   min-height: var(--control-height-compact);
   padding-inline: var(--space-4);
-  margin-inline-start: -1px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--fg);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--fg-2);
   font: var(--weight-body) var(--text-compact)/1 var(--font-body);
   letter-spacing: var(--track-compact);
   transition: background-color var(--dur-base) var(--ease-standard);
 }
-.switcher__opt:first-child span { margin-inline-start: 0; }
-.switcher__opt input:hover + span { background: var(--surface-hover); }
+.switcher__opt input:hover + span { background: var(--surface-hover); color: var(--fg); }
 .switcher__opt input:checked + span {
-  background: var(--accent); color: var(--accent-on); border-color: var(--accent);
+  background: var(--accent); color: var(--accent-on);
   position: relative; z-index: 1;
 }
 .switcher__opt input:focus-visible + span { box-shadow: var(--focus-ring); position: relative; z-index: 2; }
@@ -443,8 +456,9 @@ body {
   z-index: 2;
   display: grid; place-items: center;
   inline-size: 40px; block-size: 40px; padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 0;
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: var(--elev-raised);
   background: var(--bg);
   color: var(--fg);
   font: inherit; font-size: var(--text-compact); letter-spacing: var(--track-compact);
@@ -470,8 +484,10 @@ body {
   inset-inline-end: var(--space-2);
   z-index: 2;
   display: grid; gap: 1px;
-  background: var(--border);            /* the seam between the buttons */
-  border: 1px solid var(--border);
+  background: var(--border-soft);       /* the seam between the buttons */
+  border-radius: var(--radius);
+  box-shadow: var(--elev-raised);
+  overflow: hidden;
 }
 .map-zoom__btn {
   display: grid; place-items: center;

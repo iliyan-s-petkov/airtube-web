@@ -17,7 +17,9 @@
 /* ---------------------------------------------------------------- 1. Colour */
 
 :root {
-  /* Surfaces — depth is background layering, never shadow */
+  /* Surfaces. --page-bg is the ground the page sits on; --bg is the card that
+     sits on it. See DESIGN.md 4.4. */
+  --page-bg: #f7f8fa;
   --bg: #ffffff;
   --surface: #f4f4f4;
   --surface-2: #e0e0e0;
@@ -189,6 +191,7 @@
      measures 5.68:1 on it and the river 4.26:1. */
   --map-sea: oklch(0.30 0.035 236);     /* #1c313d */
   --map-river: oklch(0.65 0.09 236);    /* #5598bf */
+    --page-bg: #0b0b0b;
     --surface-hover: #333333;
     --surface-sel: #001d6c;
     --fg: #f4f4f4;
@@ -204,7 +207,11 @@
     --danger: #ff8389;
     --warn: #f1c21b;
     --success: #42be65;
-    --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+    /* A shadow on a dark ground reads as a halo, not a lift, so the dark theme
+       carries its depth in the surface colours and keeps only a faint edge. */
+    --elev-card: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --elev-raised: 0 2px 8px rgba(0, 0, 0, 0.55);
+    --elev-float: 0 8px 24px rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -217,6 +224,7 @@ color-scheme: dark;
      measures 5.68:1 on it and the river 4.26:1. */
   --map-sea: oklch(0.30 0.035 236);     /* #1c313d */
   --map-river: oklch(0.65 0.09 236);    /* #5598bf */
+  --page-bg: #0b0b0b;
   --surface-hover: #333333;
   --surface-sel: #001d6c;
   --fg: #f4f4f4;
@@ -232,5 +240,7 @@ color-scheme: dark;
   --danger: #ff8389;
   --warn: #f1c21b;
   --success: #42be65;
-  --elev-float: 0 2px 6px rgba(0, 0, 0, 0.4);
+  --elev-card: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --elev-raised: 0 2px 8px rgba(0, 0, 0, 0.55);
+  --elev-float: 0 8px 24px rgba(0, 0, 0, 0.6);
 }

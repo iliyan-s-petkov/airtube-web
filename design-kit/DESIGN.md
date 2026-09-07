@@ -173,18 +173,39 @@ nudges only. Component padding is 16px. Major section rhythm is 48px.
 
 ### 4.3 Geometry
 
-**`border-radius: 0`.** Buttons, inputs, cards, tiles, the map frame, the chart
-frame. The one exception is the legend tag, at `24px` (pill).
+**Rounded, in three sizes.** `--radius-sm: 6px` for anything under about 24px tall,
+`--radius: 10px` for buttons, inputs, cards, tiles, the map frame and the chart frame,
+`--radius-lg: 14px` for a panel that holds other cards. Anything that reads as a tag or
+a segmented control takes `--radius-pill: 999px`.
 
-This makes the current `favicon.svg` wrong: it has `rx="7"`. Square it, and keep its
-literal `#0f62fe` in step with `--accent` by hand — an `<img>`-referenced SVG never
-sees `theme.css`.
+This overturns the original square ruling. The reason: square corners plus hairline
+borders made every surface read as a cell in one big grid, and the page could not say
+which of two neighbouring blocks was the thing to look at. Rounding, a soft shadow and
+a tinted page ground do that job without adding a colour.
+
+`favicon.svg` keeps its `rx="7"`, which now agrees with the system rather than
+contradicting it. Its literal `#0f62fe` still has to be kept in step with `--accent` by
+hand — an `<img>`-referenced SVG never sees `theme.css`.
+
+**A swatch that stands for one map cell is a hexagon**, clipped to the same pointy-top
+proportion the map draws (`12 × 14`). That covers the province table's value chip and
+the legend's no-data swatch. The scale's band swatches are the exception: they are one
+continuous bar, and clipping them would open gaps between the segments.
 
 ### 4.4 Depth
 
-There are no shadows on cards. Depth is background layering:
-`#ffffff → #f4f4f4 → #e0e0e0`. A shadow (`0 2px 6px rgba(0,0,0,.12)`) means the
-element genuinely floats: the chart hover readout, a dropdown. Nothing else.
+Three steps, and the page itself is the bottom one. The body sits on `--page-bg`
+(`#f7f8fa`); content sits on `--bg` (white) and is lifted off it:
+
+- `--elev-card` — a card, a table frame, a panel. Resting state, no border.
+- `--elev-raised` — a control that sits *on top of* something else, chiefly the map
+  chrome: the zoom cluster, the full-screen button, the locate and wind buttons.
+- `--elev-float` — the thing that genuinely floats over the page: the chart hover
+  readout, a menu, a popover.
+
+A shadowed element does not also take a border. In the dark theme the shadows deepen
+but do most of their work through surface colour, because a shadow on a dark ground
+reads as a halo rather than a lift.
 
 ---
 
@@ -192,9 +213,16 @@ element genuinely floats: the chart hover readout, a dropdown. Nothing else.
 
 ### 5.1 Header
 
-Dark masthead, `--fg` background, 48px tall, full-bleed — it is the one element that
-ignores both containers. Wordmark left in `--accent-on`. Nav links 14px/400 in
-`#c6c6c6`, white on hover, white with a 2px bottom border when current.
+Light masthead, 48px tall, sticky at the top and full-bleed — it is the one element
+that ignores both containers. It is translucent (`--bg` at 82%) over a backdrop blur,
+so the map and the page scroll visibly beneath it, and it is separated from the page by
+a single `--border-soft` rule rather than by a block of dark. Wordmark left in `--fg`.
+Nav links are 14px/400 pills in `--fg-2`, `--fg` on `--surface` when hovered, and
+`--accent-on` on `--accent` when current.
+
+This replaces the original dark bar. A 48px slab of `--fg` above a map read as a piece
+of a different, heavier application, and it competed with the map for the top of the
+page; the translucent version stays out of the way and still marks the top.
 
 **The nav carries destinations only.** Карта and Области are places; an oblast detail
 view is not. It is reached from a name in the table or a dot on the map, and it has no
@@ -2265,14 +2293,15 @@ than about air. That the ramp is server-owned is a rule for whoever builds the s
 
 ### 5.6 Buttons and the metric switcher
 
-48px tall, `0` radius, `--accent` / `--accent-on` for primary; ghost is transparent
+48px tall, `--radius`, `--accent` / `--accent-on` for primary; ghost is transparent
 with `--accent` text. Focus is the Carbon double ring:
 `0 0 0 2px #fff, 0 0 0 4px var(--accent)`.
 
 The metric switcher is currently a native `fieldset`/`legend`. Keep the fieldset —
 it is the correct grouping semantics for a radio set, and it is what a screen reader
-needs. Style the legend as a 12px `--fg-2` label and the options as a segmented
-control of square 40px buttons. Do not replace it with divs.
+needs. Style the legend as a 12px `--fg-2` label and the options as one segmented
+pill: a `--surface` track at `--radius-pill`, options borderless inside it in `--fg-2`,
+the selected one filled `--accent` / `--accent-on`. Do not replace it with divs.
 
 ### 5.7 Text input
 

@@ -423,6 +423,37 @@ func TestEveryCSSVarUsedIsDefinedInTheme(t *testing.T) {
 // So: for a selector both files style, app.css may not anchor one edge of an
 // axis the kit already anchors from the other side. Overriding the kit's own
 // property is fine — that is how an override is meant to work.
+// The site's own swatches follow the kit's motif: a swatch that stands for one
+// map cell is a hexagon, and the scale's bands stay rectangular so the key reads
+// as one continuous bar.
+func TestTheSiteSwatchesFollowTheHexagonMotif(t *testing.T) {
+	data, err := staticFS.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatalf("ReadFile app.css error = %v", err)
+	}
+	app := cssRulesOf(string(data))
+
+	clip, ok := app[".legend-swatch"]["clip-path"]
+	if !ok {
+		t.Fatal(".legend-swatch has no clip-path: the no-data swatch must be a hexagon, like the cell it stands for")
+	}
+	if n := strings.Count(clip, ",") + 1; n != 6 {
+		t.Errorf(".legend-swatch clip-path has %d points, want 6: %s", n, clip)
+	}
+	if got := app[".legend-swatch"]["height"]; got != "14px" {
+		t.Errorf(".legend-swatch height = %q, want 14px so the pointy-top hexagon is not squashed", got)
+	}
+
+	for sel, decls := range app {
+		if !strings.Contains(sel, "scale__band-swatch") {
+			continue
+		}
+		if _, clipped := decls["clip-path"]; clipped {
+			t.Errorf("%s is clipped: the bands must touch to form one bar", sel)
+		}
+	}
+}
+
 func TestAppCSSDoesNotCoAnchorAKitSelector(t *testing.T) {
 	kit := cssRules(t, "../../design-kit/components.css")
 	data, err := staticFS.ReadFile("static/app.css")

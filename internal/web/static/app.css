@@ -3,7 +3,7 @@ body {
   margin: 0;
   font: var(--weight-body) var(--text-body)/1.5 var(--font-body);
   color: var(--fg);
-  background: var(--bg);
+  background: var(--page-bg);
 }
 /* The two containers are the kit's .frame (data) and .measure (prose), applied
    per block in the templates. The element-selector version this file used
@@ -123,7 +123,7 @@ strong, b { font-weight: var(--weight-emphasis); }
    own inset, so the two share a top edge and read as a row. */
 .map-note {
   position: absolute; z-index: 1; left: calc(12px + 32px + var(--space-2)); top: 12px;
-  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--overlay-bg); border: 0; border-radius: var(--radius); box-shadow: var(--elev-raised);
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--muted);
 }
 .map-note[hidden] { display: none; }
@@ -132,7 +132,10 @@ strong, b { font-weight: var(--weight-emphasis); }
    span cannot work under the CSP. The BAND swatches need nothing: the kit sizes
    .scale__band-swatch to the height of its own band, which is what makes the
    segments touch and read as one bar. */
-.legend-swatch { width: 12px; height: 12px; flex: none; }
+.legend-swatch {
+  width: 12px; height: 14px; flex: none;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
 /* Two corrections to the kit's .scale--progressive, both of which follow from
    the same difference: the kit places its numbers by VALUE on a piecewise axis
    and so hides the per-row ones, while this key's bands are equal rows and the
@@ -180,23 +183,23 @@ strong, b { font-weight: var(--weight-emphasis); }
    else claims. */
 .map-locate {
   position: absolute; z-index: 1; bottom: var(--space-2); right: var(--space-2);
-  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--overlay-bg); border: 0; border-radius: var(--radius); box-shadow: var(--elev-raised);
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg); cursor: pointer;
 }
 .map-locate:hover { background: var(--surface); }
 /* Stacked above .map-locate, same corner, same chrome. */
 .map-wind {
   position: absolute; z-index: 1; bottom: 2.75rem; right: var(--space-2);
-  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--overlay-bg); border: 0; border-radius: var(--radius); box-shadow: var(--elev-raised);
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg); cursor: pointer;
 }
 .map-wind:hover { background: var(--surface); }
-.map-wind[aria-pressed="true"] { background: var(--surface); border-color: var(--fg-2); }
+.map-wind[aria-pressed="true"] { background: var(--accent); color: var(--accent-on); }
 /* The forecast disclosure. Never behind a control and never a tooltip: it is
    the whole reason the layer is allowed on a map of measurements. */
 .map-wind-label {
   position: absolute; z-index: 1; bottom: 5.25rem; right: var(--space-2); max-width: 18rem;
-  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--overlay-bg); border: 0; border-radius: var(--radius); box-shadow: var(--elev-raised);
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg-2);
 }
 .map-wind-label[hidden] { display: none; }
@@ -214,7 +217,7 @@ strong, b { font-weight: var(--weight-emphasis); }
    right-offset was working around. It also stops covering the map it describes,
    so the marker that was clicked stays visible beside its own numbers. */
 .sensor-panel {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); border: 0; box-shadow: var(--elev-raised); border-radius: var(--radius);
   padding: var(--space-3) var(--space-4); font-size: var(--text-compact); letter-spacing: var(--track-compact); color: var(--fg);
 }
 .sensor-panel header { border-bottom: none; padding: 0 0 var(--space-1); margin: 0 0 var(--space-1); }
