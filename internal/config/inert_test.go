@@ -179,6 +179,7 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			{"frontend.marker_label_colour", cfg.Frontend.MarkerLabelColour, "#161616"},
 			{"frontend.empty_basemap_colour", cfg.Frontend.EmptyBasemapColour, "#eef2f5"},
 			{"frontend.chart_line_colour", cfg.Frontend.ChartLineColour, "#2563eb"},
+			{"frontend.chart_compare_colour", cfg.Frontend.ChartCompareColour, "#8a3ffc"},
 			// The tiles keys are NEW, not moved: this pin records the decision that
 			// the shipped configuration has no basemap, rather than proving a
 			// non-change. Configuring one is a deployment step (docs/tiles.md).

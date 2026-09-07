@@ -212,6 +212,7 @@ type Frontend struct {
 	EmptyBasemapColour string
 	HexOpacity         float64
 	ChartLineColour    string
+	ChartCompareColour string
 	ZoomCity           int
 	ZoomSensor         int
 	// The national fallback view: roughly Bulgaria's centre, at a zoom that
@@ -429,6 +430,7 @@ func resolve(r *raw) Config {
 			EmptyBasemapColour: *r.Frontend.EmptyBasemapColour,
 			HexOpacity:         *r.Frontend.HexOpacity,
 			ChartLineColour:    *r.Frontend.ChartLineColour,
+			ChartCompareColour: *r.Frontend.ChartCompareColour,
 			ZoomCity:           *r.Frontend.ZoomCity,
 			ZoomSensor:         *r.Frontend.ZoomSensor,
 			DefaultZoom:        *r.Frontend.DefaultZoom,

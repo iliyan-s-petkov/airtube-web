@@ -9,7 +9,7 @@
   let {
     slug, metric, periods, periodLabels, initialPeriod,
     metricLabel, tier, periodLegend,
-    lineColour, valueLabel, timeLabel, empty, unavailable,
+    lineColour, valueLabel, valueUnit = '', timeLabel, empty, unavailable,
   } = $props()
 
   // Seeded from the server's default and owned here after that — untrack says
@@ -58,6 +58,7 @@
     {url}
     {lineColour}
     {valueLabel}
+    {valueUnit}
     {timeLabel}
     {empty}
     {unavailable}

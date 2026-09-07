@@ -214,6 +214,7 @@ type rawFrontend struct {
 	EmptyBasemapColour *string  `yaml:"empty_basemap_colour"`
 	HexOpacity         *float64 `yaml:"hex_opacity"`
 	ChartLineColour    *string  `yaml:"chart_line_colour"`
+	ChartCompareColour *string  `yaml:"chart_compare_colour"`
 	ZoomCity           *int     `yaml:"zoom_city"`
 	ZoomSensor         *int     `yaml:"zoom_sensor"`
 	// The national fallback view. One home for it, because it is rendered into

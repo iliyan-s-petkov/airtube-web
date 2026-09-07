@@ -149,6 +149,7 @@ type PageData struct {
 	EmptyBasemapColour string
 	HexOpacity         float64
 	ChartLineColour    string
+	ChartCompareColour string
 	ZoomCity           int
 	ZoomSensor         int
 	DefaultMetric      string
@@ -551,6 +552,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		EmptyBasemapColour: rr.frontend.EmptyBasemapColour,
 		HexOpacity:         rr.frontend.HexOpacity,
 		ChartLineColour:    rr.frontend.ChartLineColour,
+		ChartCompareColour: rr.frontend.ChartCompareColour,
 		ZoomCity:           rr.frontend.ZoomCity,
 		ZoomSensor:         rr.frontend.ZoomSensor,
 		DefaultMetric:      rr.defaultMetric,

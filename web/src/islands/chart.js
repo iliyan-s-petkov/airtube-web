@@ -26,6 +26,8 @@ export function mount(el) {
       periodLegend: d.tPeriodLegend || '',
       lineColour: d.lineColour,
       valueLabel: d.tValue || '',
+      // The y axis unit; server-rendered from unit.<metric>.
+      valueUnit: d.tUnit || '',
       timeLabel: d.tTime || '',
       empty: d.tEmpty || '',
       unavailable: d.tUnavailable || '',

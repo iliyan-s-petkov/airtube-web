@@ -33,10 +33,6 @@
   --success: #24a148;
   --notice-bg: #fcf4d6;
 
-  /* --chart-compare is NOT here: this sheet only loads when there is no built
-     kit theme, and the chart needs the token on both branches. It lives in
-     app.css. */
-
   /* Map chrome */
   --map-placeholder-bg: #f4f4f4;
   --overlay-bg: rgba(255, 255, 255, .9);

@@ -16,14 +16,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // render a chart. Same mock as components/__tests__/chart.component.test.js,
 // for the same reason: this file is about normaliseSensor/the registry, not
 // about uPlot construction.
+const uplotCalls = []
 vi.mock('uplot', () => ({
-  default: vi.fn(function () { this.setSize = vi.fn() }),
+  default: vi.fn(function (opts) {
+    uplotCalls.push({ opts })
+    this.setSize = vi.fn()
+  }),
 }))
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { clearCache } from '../../lib/api.js'
 import { mount, normaliseSensor, flagTextFor } from '../panel.js'
 import { setSensors, findSensor } from '../../lib/sensors.svelte.js'
 import { getViewState, resetViewStateForTests } from '../../lib/viewstate.svelte.js'
@@ -42,6 +47,7 @@ const PANEL_ATTR_FIXTURES = {
   metric: 'P2',
   period: '24h',
   lineColour: '#2563eb',
+  compareColour: '#8a3ffc',
   tTitle: 'Sensor',
   tClose: 'Close this panel',
   tNoValue: 'no reading',
@@ -287,6 +293,7 @@ describe('mount() end to end: deep link before data', () => {
     el.dataset.metric = 'P2'
     el.dataset.period = '24h'
     el.dataset.lineColour = '#2563eb'
+    el.dataset.compareColour = '#8a3ffc'
     el.dataset.tTitle = 'Sensor'
     el.dataset.tClose = 'Close'
     el.dataset.tNoValue = 'no data'
@@ -466,6 +473,47 @@ describe('mount() puts the panel copy on screen', () => {
     })
     expect(el.textContent).toContain('PM10')
     expect(el.querySelector('dl').textContent).toContain(PANEL_ATTR_FIXTURES.tNoValue)
+    el.remove()
+  })
+})
+
+// Both chart colours are attributes now, and neither is visible in the DOM:
+// uPlot strokes a canvas. An island that dropped one would paint an invisible
+// line, which is what shipped once already.
+describe('the island hands the chart both line colours', () => {
+  beforeEach(() => {
+    uplotCalls.length = 0
+    resetViewStateForTests()
+    setSensors(null)
+    // A fresh Response per call: a body can only be read once.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12] }), { status: 200 }),
+    ))
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  })
+  afterEach(() => {
+    clearCache()
+    resetViewStateForTests()
+    setSensors(null)
+    vi.restoreAllMocks()
+  })
+
+  it('strokes the primary line, then the compared one, in the configured colours', async () => {
+    history.replaceState(null, '', '/#sensor=42')
+    const el = fillFixtures(islandFrom('area.gohtml', 'panel'))
+    document.body.append(el)
+    mount(el)
+    setSensors({ sensors: { id: [42], quality: ['ok'], P2: [12], P1: [20] } })
+
+    await vi.waitFor(() => expect(uplotCalls.length).toBeGreaterThan(0))
+    expect(uplotCalls.at(-1).opts.series[1].stroke).toBe(PANEL_ATTR_FIXTURES.lineColour)
+
+    const select = el.querySelector('.panel-chart__compare select')
+    select.value = 'P1'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+
+    await vi.waitFor(() => expect(uplotCalls.at(-1).opts.series).toHaveLength(3))
+    expect(uplotCalls.at(-1).opts.series[2].stroke).toBe(PANEL_ATTR_FIXTURES.compareColour)
     el.remove()
   })
 })

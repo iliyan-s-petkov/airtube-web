@@ -11,15 +11,18 @@
   // temperature against PM2.5. Everything below the normalisation works on the
   // list, so there is no second code path to keep in step.
   //
-  // A source is { url, label, colour, scale }. scale names the y axis the line
-  // is measured against: two metrics in the same unit share one, and µg/m³
+  // A source is { url, label, colour, scale, unit }. scale names the y axis the
+  // line is measured against: two metrics in the same unit share one, and µg/m³
   // against °C must not, or one of them is flattened into the other's range.
+  // unit is what that axis's numbers are counted in — without it a plot of two
+  // metrics shows two columns of bare numbers and leaves the reader to guess
+  // which quantity each one belongs to.
   let {
-    url, lineColour, valueLabel, sources = null,
+    url, lineColour, valueLabel, valueUnit = '', sources = null,
     title, timeLabel, empty, unavailable,
   } = $props()
 
-  const defs = $derived(sources ?? [{ url, label: valueLabel, colour: lineColour, scale: 'y' }])
+  const defs = $derived(sources ?? [{ url, label: valueLabel, colour: lineColour, scale: 'y', unit: valueUnit }])
 
   // Three states, one variable: the reader must always be told which one they
   // are in. 'loading' renders nothing rather than a spinner — the panel around
@@ -90,17 +93,24 @@
           })),
         ],
         axes: [
-          // The x labels are chosen from how much time this data covers, not
-          // from uPlot's tick spacing — see lib/timeaxis.js. The page's own
-          // language, so the axis reads like the rest of the page.
-          { values: tickValues(data[0], document.documentElement.lang || undefined) },
-          ...scales.map((scale, i) => ({
-            scale,
-            side: i === 0 ? 3 : 1,
-            // The right-hand axis draws no grid: two grids on one plot is a
-            // lattice nobody can read a value off.
-            grid: { show: i === 0 },
-          })),
+          // Labels from the data's span, not uPlot's tick spacing — timeaxis.js.
+          {
+            values: tickValues(data[0], document.documentElement.lang || undefined),
+            label: timeLabel || undefined,
+          },
+          ...scales.map((scale, i) => {
+            // Colour and unit of the line measured against it — two unlabelled
+            // columns of numbers cannot be attributed to either line.
+            const line = lines.find((s) => (s.scale ?? 'y') === scale)
+            return {
+              scale,
+              side: i === 0 ? 3 : 1,
+              stroke: line?.colour,
+              label: line?.unit || undefined,
+              // One grid only: two is a lattice nobody can read a value off.
+              grid: { show: i === 0 },
+            }
+          }),
         ],
         scales: { x: { time: true } },
         // uPlot's legend IS the hover readout, and with no cursor on the plot

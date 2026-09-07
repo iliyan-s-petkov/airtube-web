@@ -2,6 +2,8 @@
   import { untrack } from 'svelte'
   import Chart from './Chart.svelte'
   import MetricSwitcher from './MetricSwitcher.svelte'
+  import { unitFor } from '../lib/metrics.js'
+  import { getScales } from '../lib/sensors.svelte.js'
 
   // The panel's chart and its controls: which metric, which window, and
   // optionally a second metric drawn against it.
@@ -47,10 +49,15 @@
   // axis flattens whichever has the smaller range into a straight line at the
   // bottom of the plot — a chart that says "nothing happens here" about data
   // that moved all day.
+  // Same scales table the panel's rows take their units from.
+  const unitOf = (m) => unitFor(getScales(), m)
+
   const chartSources = $derived([
-    ...(metric ? [{ url: urlFor(metric), label: labelOf(metric), colour: primaryColour, scale: 'y' }] : []),
+    ...(metric
+      ? [{ url: urlFor(metric), label: labelOf(metric), colour: primaryColour, scale: 'y', unit: unitOf(metric) }]
+      : []),
     ...(compare
-      ? [{ url: urlFor(compare), label: labelOf(compare), colour: compareColour, scale: 'y2' }]
+      ? [{ url: urlFor(compare), label: labelOf(compare), colour: compareColour, scale: 'y2', unit: unitOf(compare) }]
       : []),
   ])
 </script>

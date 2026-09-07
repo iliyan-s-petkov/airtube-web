@@ -152,6 +152,7 @@
      data-metric="{{.DefaultMetric}}"
      data-period="{{.DefaultPeriod}}"
      data-line-colour="{{.ChartLineColour}}"
+     data-compare-colour="{{.ChartCompareColour}}"
      data-t-title="{{.T "panel.title"}}"
      data-t-close="{{.T "panel.close"}}"
      data-t-no-value="{{.T "panel.no_value"}}"
@@ -214,6 +215,7 @@
        data-t-period-legend="{{.T "period.legend"}}"
        data-t-empty="{{.T "chart.empty"}}"
        data-t-value="{{.T "chart.axis.value"}}"
+       data-t-unit="{{.T (printf "unit.%s" .DefaultMetric)}}"
        data-t-time="{{.T "chart.axis.time"}}"
        {{/* Reuses map.error.unavailable rather than adding a chart-specific
             key: the sentence is generic ("data is unavailable right now") and

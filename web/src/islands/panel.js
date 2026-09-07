@@ -157,8 +157,10 @@ function buildChartSnippet(sensor, options, d) {
           periodLegend: d.tChartPeriodLegend || '',
           compareLabel: d.tChartCompare || '',
           compareNone: d.tChartCompareNone || '',
+          // Config (frontend.chart_*_colour), not CSS: a canvas inherits no
+          // custom property.
           primaryColour: d.lineColour,
-          compareColour: compareColour(),
+          compareColour: d.compareColour,
           timeLabel: d.tChartTime || '',
           empty: d.tChartEmpty || '',
           unavailable: d.tChartUnavailable || '',
@@ -169,15 +171,3 @@ function buildChartSnippet(sensor, options, d) {
   }))
 }
 
-// The second line's colour comes from the stylesheet, not from config: it is a
-// theme decision like every other colour on the page, and reading the token
-// keeps the light and dark themes in charge of it. A canvas cannot inherit a
-// CSS variable, which is why it has to be read out explicitly.
-// The token has to live in app.css, not in theme.css: base.gohtml loads
-// theme.css only in its {{else}} branch, so in production — where the built kit
-// theme wins — --chart-compare resolved to '', uPlot drew the compared metric
-// with no stroke, and a reader who picked a second metric saw the same single
-// line. app.css is the one sheet loaded on both branches.
-function compareColour() {
-  return getComputedStyle(document.documentElement).getPropertyValue('--chart-compare').trim()
-}

@@ -1,27 +1,31 @@
 import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 
-// The tokens a CANVAS needs. A canvas cannot inherit a custom property, so
-// islands read these out with getComputedStyle — and a token that is not in a
-// sheet the page actually loads reads back as '', which paints nothing at all
-// rather than failing loudly.
-//
-// base.gohtml loads static/theme.css ONLY when there is no built kit theme, so
-// it cannot hold them: in production the kit theme wins and theme.css is never
-// requested. app.css is loaded on both branches. That is what shipped the bug
-// this file guards — the sensor panel's compared metric was drawn with an empty
-// stroke and the reader saw one line where they had asked for two.
+// uPlot paints a canvas, which inherits no custom property, so both chart line
+// colours are config the server renders onto the island. Read from a sheet,
+// the compared line shipped unstroked: the token's sheet does not load in
+// production. These assert the config key and the attribute that carries it.
+const CONFIG = '../airbg.yaml'
 const APP_CSS = '../internal/web/static/app.css'
 const THEME_CSS = '../internal/web/static/theme.css'
+const INDEX = '../internal/web/templates/index.gohtml'
+const AREA = '../internal/web/templates/area.gohtml'
 
-describe('canvas colour tokens', () => {
-  it('defines --chart-compare in the sheet every page loads', () => {
-    expect(readFileSync(APP_CSS, 'utf8')).toMatch(/--chart-compare:\s*#[0-9a-fA-F]{3,8}\s*;/)
+describe('chart line colours', () => {
+  it('are configured, both of them', () => {
+    const yaml = readFileSync(CONFIG, 'utf8')
+    expect(yaml).toMatch(/^\s+chart_line_colour:\s*"#[0-9a-fA-F]{6}"/m)
+    expect(yaml).toMatch(/^\s+chart_compare_colour:\s*"#[0-9a-fA-F]{6}"/m)
   })
 
-  // One definition, not two: a second copy in the branch-only sheet is how the
-  // two drift, and the copy that shipped there is the one nobody could see.
-  it('does not also define it in the fallback theme sheet', () => {
-    expect(readFileSync(THEME_CSS, 'utf8')).not.toMatch(/^\s*--chart-compare:/m)
+  it('reach the panel island on every page that mounts it', () => {
+    for (const path of [INDEX, AREA]) {
+      expect(readFileSync(path, 'utf8')).toContain('data-compare-colour="{{.ChartCompareColour}}"')
+    }
+  })
+
+  it('are not also a CSS token', () => {
+    expect(readFileSync(APP_CSS, 'utf8')).not.toMatch(/--chart-compare\b/)
+    expect(readFileSync(THEME_CSS, 'utf8')).not.toMatch(/--chart-compare\b/)
   })
 })

@@ -405,6 +405,7 @@ func (c Config) validateFrontend(p *problems) {
 		"frontend.marker_label_colour":  c.Frontend.MarkerLabelColour,
 		"frontend.empty_basemap_colour": c.Frontend.EmptyBasemapColour,
 		"frontend.chart_line_colour":    c.Frontend.ChartLineColour,
+		"frontend.chart_compare_colour": c.Frontend.ChartCompareColour,
 	} {
 		if !colourPattern.MatchString(colour) {
 			p.addf("%s = %q, must be a six-digit hex colour such as #9ca3af", path, colour)

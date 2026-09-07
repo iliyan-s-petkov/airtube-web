@@ -147,6 +147,55 @@ describe('Chart.svelte', () => {
     expect(opts.axes.map((a) => a.side)).toEqual([undefined, 3, 1])
   })
 
+  // Distinct colours and units, so a swapped mapping cannot pass.
+  it('paints each y axis in its own line s colour and labels it with that line s unit', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(new Response(JSON.stringify(
+        String(input).includes('temperature')
+          ? { t: ['2026-08-14T00:00:00Z'], v: [21] }
+          : { t: ['2026-08-14T00:00:00Z'], v: [12.3] },
+      ), { status: 200 })))
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    render({
+      url: undefined,
+      timeLabel: 'Време',
+      sources: [
+        { url: '/api/v1/sensor/1/series?metric=P2', label: 'ПМ2.5', colour: '#111', scale: 'y', unit: 'µg/m³' },
+        { url: '/api/v1/sensor/2/series?metric=temperature', label: 'Температура', colour: '#f90', scale: 'y2', unit: '°C' },
+      ],
+    })
+
+    await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
+    const { opts } = uplotCalls[0]
+    expect(opts.axes.map((a) => a.stroke)).toEqual([undefined, '#111', '#f90'])
+    expect(opts.axes.map((a) => a.label)).toEqual(['Време', 'µg/m³', '°C'])
+  })
+
+  // The area page's path: its unit arrives as a prop, not in a sources list.
+  it('labels the y axis of a one-line chart from valueUnit', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+    )
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    render({ valueUnit: 'µg/m³', lineColour: '#2563eb' })
+
+    await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
+    expect(uplotCalls[0].opts.axes[1].label).toBe('µg/m³')
+    expect(uplotCalls[0].opts.axes[1].stroke).toBe('#2563eb')
+  })
+
+  // No unit in the scales table must not print an empty label box.
+  it('leaves the axis unlabelled when the metric has no unit', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+    )
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    render({ valueUnit: '' })
+
+    await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
+    expect(uplotCalls[0].opts.axes[1].label).toBeUndefined()
+  })
+
   // A metric whose request fails must not leave a plot that looks complete
   // with one line silently missing.
   it('says the data is unavailable when one of several sources fails', async () => {

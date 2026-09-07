@@ -27,16 +27,6 @@ body {
    labels on --surface-2). Same selector as the kit's, later in the cascade. */
 .footer p { color: var(--fg-2); }
 
-/* The second line on a chart comparing two metrics. Purple: it must not be read
-   as a scale colour, and the ramp's hues are forbidden on a series for exactly
-   that reason.
-
-   Defined here rather than in theme.css because base.gohtml loads theme.css
-   only when there is no built kit theme — in production the token was missing,
-   islands/panel.js read '' out of it, and the compared metric was drawn with no
-   stroke. This file is loaded on both branches. */
-:root { --chart-compare: #8a3ffc; }
-
 /* A <button> inside the theme list where the language list has links: choosing
    a theme is not navigation. It needs the type reset a link does not. */
 .langpick__opt {
