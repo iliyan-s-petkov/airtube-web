@@ -78,6 +78,7 @@
   "map.text_alternative.areas": "Същите стойности в текстов вид има на страницата",
   "map.view.basemap": "Карта на OpenStreetMap",
   "map.view.cell_values": "Стойности в клетките",
+  "map.view.inactive_sensors": "Неактивни сензори",
   "map.view.legend": "Скала",
   "map.zoom.in": "Приближи",
   "map.zoom.out": "Отдалечи",

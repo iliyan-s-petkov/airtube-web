@@ -12,7 +12,7 @@ import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../../
 import { clearCache } from '../../lib/api.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
-import { setSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
+import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
 
 // mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
 // out of reach under jsdom (see the "no jsdom" rule respected everywhere else
@@ -294,6 +294,7 @@ describe('readConfig', () => {
         tLayersButton: 'Layers', tLayersCaption: 'Show on the map',
         tViewLegend: 'Scale', tViewBasemap: 'OpenStreetMap basemap',
         tViewCellValues: 'Cell values',
+        tViewInactiveSensors: 'Inactive sensors',
         // Two of the twelve groups, deliberately: the other ten prove the
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
@@ -323,6 +324,7 @@ describe('readConfig', () => {
       layersButton: 'Layers', layersCaption: 'Show on the map',
       viewLegend: 'Scale', viewBasemap: 'OpenStreetMap basemap',
       viewCellValues: 'Cell values',
+      viewInactiveSensors: 'Inactive sensors',
       // One entry per group in LAYER_ORDER, always: the menu looks a label up
       // by the group the STYLE reports, so a key that is simply absent here
       // would be a group that renders under its own slug the day the style
@@ -1601,6 +1603,68 @@ describe('the basemap toggle', () => {
       ['airbg-raster-base', 'visibility', 'none'],
       ['poi-shop', 'visibility', 'none'],
     ])
+  })
+})
+
+// A sensor that has stopped reporting still has a cell on the grid, drawn in
+// the no-data colour. At country zoom that is most of what a reader sees on a
+// bad day for the network, and it reads as "nothing here" rather than "nobody
+// is measuring here". The status filter already governed the markers; the grid
+// is the tier that actually covers the country, so it is governed too.
+describe('the inactive-sensors toggle', () => {
+  const hexCfg = { metric: 'P2', noDataColour: '#cccccc' }
+  const scales = [{ metric: 'P2', bands: [{ upper: 10, colour: '#00ff00' }, { upper: null, colour: '#ff0000' }] }]
+  const mixed = {
+    resolution_km: 1,
+    hexes: [
+      { lon: 23.32, lat: 42.65, n: 1, values: { P2: 5 } },
+      { lon: 23.34, lat: 42.66, n: 0, values: {} },
+    ],
+  }
+
+  function hexMap() {
+    const painted = []
+    return {
+      painted,
+      getZoom: () => 12,
+      getBounds: () => ({ getWest: () => 23.3, getSouth: () => 42.6, getEast: () => 23.4, getNorth: () => 42.7 }),
+      getSource: (id) => (id === 'airbg-hexes' ? { setData: (d) => painted.push(d) } : undefined),
+    }
+  }
+
+  afterEach(() => resetSensorFilterForTests())
+
+  it('leaves the silent cells off the grid by default', async () => {
+    const map = hexMap()
+    await refreshHexes(map, { scales, hexUrl: null, hexBody: null }, hexCfg, async () => mixed)
+
+    const values = map.painted[0].features.map((f) => f.properties.value)
+    expect(values).toEqual([5])
+  })
+
+  it('draws them once the reader asks for them', async () => {
+    setSensorStatus('all')
+    const map = hexMap()
+    await refreshHexes(map, { scales, hexUrl: null, hexBody: null }, hexCfg, async () => mixed)
+
+    const values = map.painted[0].features.map((f) => f.properties.value)
+    expect(values).toHaveLength(2)
+    expect(values).toContain(null)
+  })
+
+  it('offers the option unticked, and flips the shared status', () => {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const { layerViews } = mountChrome(el, readConfig(el))
+    const view = layerViews.find((v) => v.id === 'inactiveSensors')
+    expect(view, 'no inactive-sensors view in the layers menu').toBeTruthy()
+
+    // Unticked on arrival: the default is the quieter map.
+    expect(view.defaultOff).toBe(true)
+    view.apply(true)
+    expect(getSensorStatus()).toBe('all')
+    view.apply(false)
+    expect(getSensorStatus()).toBe('active')
   })
 })
 

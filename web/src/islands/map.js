@@ -8,7 +8,7 @@ import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { tierFor } from '../lib/tier.js'
 import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../lib/legend.js'
-import { mountFullscreen, mountZoom, installZoom } from '../lib/mapcontrols.js'
+import { mountFullscreen, mountZoom, mountLocate, installZoom } from '../lib/mapcontrols.js'
 import { mountLayers, installLayers, LAYER_ORDER } from '../lib/maplayers.js'
 import { rampColour, rampValueStops } from '../lib/ramp.js'
 import { getJSON, clearCache } from '../lib/api.js'
@@ -16,7 +16,7 @@ import { getFreshness } from '../lib/freshness.svelte.js'
 import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales } from '../lib/sensors.svelte.js'
-import { filterByStatus, getSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
+import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
 import { nearestArea } from '../lib/nearest.js'
@@ -366,7 +366,12 @@ export function mount(el) {
     // untouched by a filter change, so a refresh would be a request (cached,
     // but still a full repaint cycle) for data that has not changed. Only which
     // of it is drawn has.
-    unfilter = onSensorStatusChange(() => repaintSensors(map, state, cfg))
+    unfilter = onSensorStatusChange(() => {
+      repaintSensors(map, state, cfg)
+      // The grid too, from the body already held: refreshHexes short-circuits
+      // the fetch when the URL has not moved, so this is a repaint, not a call.
+      refreshHexes(map, state, cfg)
+    })
 
     // What "refresh" MEANS lives here, with the map that owns the data; the
     // toolbar button and the freshness line only ask for it (see
@@ -765,7 +770,13 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
     state.hexBody, cfg.metric, bands, cfg.noDataColour, rampColour,
     resolutionForZoom(Math.round(map.getZoom())),
   )
-  map.getSource(HEX_SOURCE_ID)?.setData({ type: 'FeatureCollection', features })
+  // The same filter the markers answer to. The grid is the tier that covers the
+  // country, so leaving it out made "hide inactive sensors" a control with no
+  // visible effect anywhere a reader was likely to be looking.
+  map.getSource(HEX_SOURCE_ID)?.setData({
+    type: 'FeatureCollection',
+    features: filterByStatus(features, getSensorStatus()),
+  })
 }
 
 // locateVisitor asks the server where the visitor is and, only for a genuine
@@ -1065,6 +1076,7 @@ export function readConfig(el) {
       viewLegend: d.tViewLegend || '',
       viewBasemap: d.tViewBasemap || '',
       viewCellValues: d.tViewCellValues || '',
+      viewInactiveSensors: d.tViewInactiveSensors || '',
       // One label per style group, keyed by the group's own name so the menu
       // can look up whatever the style turns out to carry. Derived from
       // LAYER_ORDER rather than written out, because the attribute name is a
@@ -1465,6 +1477,15 @@ export function mountChrome(el, cfg) {
       apply: (on, map) => setCellValues(map, on),
     },
     {
+      id: 'inactiveSensors',
+      label: cfg.t.viewInactiveSensors,
+      // Off by default: a sensor that stopped reporting has no reading to show,
+      // and a grid full of no-data cells reads as an empty country rather than
+      // a quiet one. The subscription in mount() repaints both tiers.
+      defaultOff: true,
+      apply: (on) => setSensorStatus(on ? 'all' : 'active'),
+    },
+    {
       id: 'basemap',
       label: cfg.t.viewBasemap,
       needsMap: true,
@@ -1498,15 +1519,10 @@ export function mountChrome(el, cfg) {
   el.appendChild(note)
 
   // The find-me button: precise, user-initiated geolocation (see locateMe in
-  // this file). textContent, never innerHTML — same CSP constraint as
-  // everything else in this container. The click handler itself is wired by
-  // mount(), which is where `state` (the loaded area list locateMe reads)
-  // and the real `map` first exist; mountChrome only owns the DOM.
-  const locateButton = document.createElement('button')
-  locateButton.type = 'button'
-  locateButton.className = 'map-locate'
-  locateButton.textContent = cfg.t.locateButton
-  el.appendChild(locateButton)
+  // this file). The click handler is wired by mount(), which is where `state`
+  // (the loaded area list locateMe reads) and the real `map` first exist;
+  // mountChrome only owns the DOM.
+  const locateButton = mountLocate(el, { label: cfg.t.locateButton })
 
   // The wind overlay's disclosure. Its control is a checkbox in the layers
   // menu, with the other overlays — it was a button of its own in the corner,
