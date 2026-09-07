@@ -77,6 +77,7 @@
   "map.text_alternative": "Списъкът с областите под картата съдържа същите стойности в текстов вид.",
   "map.text_alternative.areas": "Същите стойности в текстов вид има на страницата",
   "map.view.basemap": "Карта на OpenStreetMap",
+  "map.view.cell_values": "Стойности в клетките",
   "map.view.legend": "Скала",
   "map.zoom.in": "Приближи",
   "map.zoom.out": "Отдалечи",

@@ -79,7 +79,11 @@ const HEX_SOURCE_ID = 'airbg-hexes'
 const HEX_LAYER_ID = 'airbg-hex-fill'
 const HEX_OUTLINE_LAYER_ID = 'airbg-hex-outline'
 const HEX_POINT_LAYER_ID = 'airbg-hex-point'
-const HEX_LABEL_LAYER_ID = 'airbg-hex-labels'
+export const HEX_LABEL_LAYER_ID = 'airbg-hex-labels'
+
+// MapLibre's own maxzoom default. setLayerZoomRange takes both ends, so a call
+// that only means to move the floor still has to name a ceiling.
+const MAX_ZOOM_CEILING = 24
 
 export function mount(el) {
   const cfg = readConfig(el)
@@ -503,6 +507,26 @@ export async function setWind(map, cfg, chrome, state, on, fetchJSON = getJSON) 
   state.on = true
   chrome.showWind(true, windLabel(state.body, cfg.t))
   return true
+}
+
+// setCellValues moves the cell-label layer's floor, and nothing else.
+//
+// The number is normally reserved for the point tier, where a cell is one
+// sensor: below that a cell is an average of several, and a country covered in
+// printed figures reads as noise over the ramp that is the primary reading.
+// But a reader comparing two neighbourhoods should not have to zoom to sensor
+// level one cell at a time to get the figures, so the floor is theirs to lower.
+//
+// Down to the CELLS' own floor, not to zero: a number below that would print
+// over ground with no cell drawn under it. The label layer's own collision
+// thinning does the rest — where the cells are too small to hold a number, it
+// simply drops the ones that will not fit.
+export function setCellValues(map, on) {
+  map.setLayerZoomRange(
+    HEX_LABEL_LAYER_ID,
+    on ? GRID_MIN_ZOOM_FRACTIONAL : POINT_TIER_MIN_ZOOM_FRACTIONAL,
+    MAX_ZOOM_CEILING,
+  )
 }
 
 // paintWind redraws the arrows for the viewport the map is currently showing.
@@ -1033,6 +1057,7 @@ export function readConfig(el) {
       layersCaption: d.tLayersCaption || '',
       viewLegend: d.tViewLegend || '',
       viewBasemap: d.tViewBasemap || '',
+      viewCellValues: d.tViewCellValues || '',
       // One label per style group, keyed by the group's own name so the menu
       // can look up whatever the style turns out to carry. Derived from
       // LAYER_ORDER rather than written out, because the attribute name is a
@@ -1418,6 +1443,14 @@ export function mountChrome(el, cfg) {
   // it says it is.
   const layerViews = [
     { id: 'legend', label: cfg.t.viewLegend, apply: (on) => { legend.hidden = !on } },
+    {
+      id: 'cellValues',
+      label: cfg.t.viewCellValues,
+      // No needsMap: the cells are this island's own layer and are drawn on a
+      // map served without tiles like any other.
+      defaultOff: true,
+      apply: (on, map) => setCellValues(map, on),
+    },
     {
       id: 'basemap',
       label: cfg.t.viewBasemap,

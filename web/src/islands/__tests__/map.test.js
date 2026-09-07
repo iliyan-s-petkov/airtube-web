@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, locateVisitor, locateMe, areaPath, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -37,6 +37,7 @@ vi.mock('maplibre-gl', () => {
       this.addLayer = vi.fn()
       this.addImage = vi.fn()
       this.setLayoutProperty = vi.fn()
+      this.setLayerZoomRange = vi.fn()
       this.getZoom = vi.fn(() => 7)
       // The zoom stack asks the camera for its own limits rather than
       // restating them (see installZoom), so a map that cannot answer is not
@@ -99,6 +100,7 @@ function mountTestMap({ metric, styleLayers = [] }) {
   el.dataset.zoomSensor = '11'
   el.dataset.hexOpacity = '0.55'
   el.dataset.tWindToggle = 'Wind'
+  el.dataset.tViewCellValues = 'Cell values'
 
   const { map, chrome } = mount(el)
   // Fired, not awaited: mount()'s 'load' handler registers the metric
@@ -291,6 +293,7 @@ describe('readConfig', () => {
         tZoomIn: 'Zoom in', tZoomOut: 'Zoom out', tZoomReset: 'Reset view',
         tLayersButton: 'Layers', tLayersCaption: 'Show on the map',
         tViewLegend: 'Scale', tViewBasemap: 'OpenStreetMap basemap',
+        tViewCellValues: 'Cell values',
         // Two of the twelve groups, deliberately: the other ten prove the
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
@@ -319,6 +322,7 @@ describe('readConfig', () => {
       zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomReset: 'Reset view',
       layersButton: 'Layers', layersCaption: 'Show on the map',
       viewLegend: 'Scale', viewBasemap: 'OpenStreetMap basemap',
+      viewCellValues: 'Cell values',
       // One entry per group in LAYER_ORDER, always: the menu looks a label up
       // by the group the STYLE reports, so a key that is simply absent here
       // would be a group that renders under its own slug the day the style
@@ -1829,6 +1833,54 @@ const chromeCfg = (over = {}) => ({
 // Wind is an overlay like the rest of what the map draws, so its control sits
 // with them. A button of its own in the corner said it was a different kind of
 // thing, and left the corner carrying two stacked buttons and a disclosure.
+// Below the point tier a cell is an average of many sensors, and the number in
+// it is the one thing the colour cannot say precisely. It stays off by default
+// — a country of printed numbers is unreadable and the ramp is the primary
+// reading — but a reader comparing two neighbourhoods should not have to zoom
+// to sensor level, one cell at a time, to get the figures.
+describe('the cell-values toggle', () => {
+  const range = (map) =>
+    map.setLayerZoomRange.mock.calls.filter((c) => c[0] === HEX_LABEL_LAYER_ID).at(-1)
+
+  it('offers cell values as a layers option, off until asked for', () => {
+    const { el } = mountTestMap({ metric: 'P2' })
+    const box = el.querySelector('[data-layer-key="view:cellValues"]')
+
+    expect(box, 'no cell-values option in the layers menu').not.toBe(null)
+    expect(box.checked).toBe(false)
+    expect(box.closest('.colmenu__opt').textContent).toBe('Cell values')
+  })
+
+  it('leaves the labels at the point tier while it is off', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    expect(range(map)[1]).toBe(POINT_TIER_MIN_ZOOM_FRACTIONAL)
+  })
+
+  // The same zoom the cells themselves start at: a number that appeared at some
+  // zoom of its own would print over ground that has no cell drawn under it.
+  it('prints a number in every drawn cell once it is ticked', () => {
+    const { map, el } = mountTestMap({ metric: 'P2' })
+    const box = el.querySelector('[data-layer-key="view:cellValues"]')
+
+    box.checked = true
+    box.dispatchEvent(new Event('change'))
+
+    expect(range(map)[1]).toBe(GRID_MIN_ZOOM_FRACTIONAL)
+  })
+
+  it('gives the point tier back when it is unticked', () => {
+    const { map, el } = mountTestMap({ metric: 'P2' })
+    const box = el.querySelector('[data-layer-key="view:cellValues"]')
+
+    box.checked = true
+    box.dispatchEvent(new Event('change'))
+    box.checked = false
+    box.dispatchEvent(new Event('change'))
+
+    expect(range(map)[1]).toBe(POINT_TIER_MIN_ZOOM_FRACTIONAL)
+  })
+})
+
 describe('the wind toggle lives in the layers menu, not in the corner', () => {
   it('mounts no wind button of its own', () => {
     const el = document.createElement('div')
