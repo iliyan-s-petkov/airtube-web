@@ -205,6 +205,14 @@ strong, b { font-weight: var(--weight-emphasis); }
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg-2);
 }
 .map-wind-label[hidden] { display: none; }
+/* Folded by default (see mountChrome): unrolled, the note is two sentences and
+   a model name over the map, which on a phone is most of the screen the arrows
+   are drawn on. The summary is the line that keeps it honest while folded. */
+.map-wind-label__toggle { cursor: pointer; list-style: none; color: var(--fg); }
+.map-wind-label__toggle::-webkit-details-marker { display: none; }
+.map-wind-label__toggle::before { content: 'ⓘ'; margin-inline-end: var(--space-1); }
+.map-wind-label__toggle:focus-visible { box-shadow: var(--focus-ring); border-radius: var(--radius); }
+.map-wind-label__text:not(:empty) { margin-block-start: var(--space-1); }
 /* A card under the map, in the flow — the kit's .place-host slot (see
    components.css, which supplies the slot's own spacing).
 

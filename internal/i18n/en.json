@@ -163,6 +163,7 @@
   "unit.noise_LAeq": "dB(A)",
   "unit.pressure": "hPa",
   "unit.temperature": "°C",
+  "wind.about": "About the wind layer",
   "wind.attribution": "Wind forecast · {model} model, {resolution}° grid · valid {time}",
   "wind.note": "The arrows point where the wind blows and how hard; wind disperses the pollution, still air holds it in place.",
   "wind.toggle": "Wind"

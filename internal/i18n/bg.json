@@ -163,6 +163,7 @@
   "unit.noise_LAeq": "dB(A)",
   "unit.pressure": "hPa",
   "unit.temperature": "°C",
+  "wind.about": "За слоя с вятъра",
   "wind.attribution": "Прогноза за вятъра · модел {model}, мрежа {resolution}° · за {time}",
   "wind.note": "Стрелките сочат накъде духа вятърът и колко силно; вятърът разнася замърсяването, затишието го задържа.",
   "wind.toggle": "Вятър"

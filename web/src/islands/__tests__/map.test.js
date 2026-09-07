@@ -307,6 +307,7 @@ describe('readConfig', () => {
         tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
         tLocateFailed: 'We could not determine your location.',
         tWindToggle: 'Wind',
+        tWindAbout: 'About the wind layer',
         tWindNote: 'Arrows show where the wind blows.',
         tWindAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
         // Neither is rendered any more; toEqual below is what keeps them from
@@ -344,6 +345,7 @@ describe('readConfig', () => {
       locateButton: 'Find me', locateDenied: 'Location access was denied.',
       locateFailed: 'We could not determine your location.',
       windToggle: 'Wind',
+      windAbout: 'About the wind layer',
       windNote: 'Arrows show where the wind blows.',
       windAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
     })
@@ -1606,6 +1608,51 @@ describe('the basemap toggle', () => {
   })
 })
 
+// The disclosure is why an unmeasured forecast layer is allowed on a map of
+// measurements, so it is never dismissible — but two sentences and a model name
+// unrolled over the map is most of a phone screen. Folded, it is a line the
+// reader can open.
+describe('the wind disclosure', () => {
+  // Scoped to its own frame: the disclosure is one of two <details> the chrome
+  // builds, and a document-wide query would find whichever came first.
+  const chrome = () => {
+    const el = document.createElement('div')
+    el.className = 'map'
+    el.dataset.tWindAbout = 'About the wind layer'
+    document.body.appendChild(el)
+    return { el, ...mountChrome(el, readConfig(el)) }
+  }
+
+  it('arrives folded, with the full text inside it', () => {
+    const c = chrome()
+    c.showWind(true, 'Wind forecast · valid now')
+    const note = c.el.querySelector('.map-wind-label')
+    expect(note.tagName).toBe('DETAILS')
+    expect(note.open).toBe(false)
+    expect(note.hidden).toBe(false)
+    expect(note.textContent).toContain('Wind forecast · valid now')
+  })
+
+  it('names itself on the summary, so a folded line still says what it is', () => {
+    const c = chrome()
+    c.showWind(true, 'Wind forecast · valid now')
+    const summary = c.el.querySelector('.map-wind-label summary')
+    expect(summary).toBeTruthy()
+    expect(summary.textContent.trim()).not.toBe('')
+  })
+
+  it('goes away with the arrows, and comes back folded', () => {
+    const c = chrome()
+    c.showWind(true, 'Wind forecast · valid now')
+    const note = c.el.querySelector('.map-wind-label')
+    note.open = true
+    c.showWind(false, '')
+    expect(note.hidden).toBe(true)
+    c.showWind(true, 'Wind forecast · valid now')
+    expect(note.open).toBe(false)
+  })
+})
+
 // A sensor that has stopped reporting still has a cell on the grid, drawn in
 // the no-data colour. At country zoom that is most of what a reader sees on a
 // bad day for the network, and it reads as "nothing here" rather than "nobody
@@ -1682,7 +1729,7 @@ describe('mountChrome() keeps the key on the map in fullscreen', () => {
   it('moves the key into the frame and back out again', () => {
     const { shell, el } = chromeFrame()
     mountChrome(el, readConfig(el))
-    const legend = shell.querySelector('details')
+    const legend = shell.querySelector('details.scale')
     expect(legend, 'no key on the shell').toBeTruthy()
 
     el.querySelector('.map__full').click()
@@ -1697,7 +1744,7 @@ describe('mountChrome() keeps the key on the map in fullscreen', () => {
     mountChrome(el, readConfig(el))
     el.querySelector('.map__full').click()
 
-    const legend = el.querySelector('details')
+    const legend = el.querySelector('details.scale')
     expect(legend.tagName).toBe('DETAILS')
     expect(legend.open, 'the key came back folded shut').toBe(true)
   })
@@ -1736,13 +1783,13 @@ describe('mountChrome() remembers whether the key is folded', () => {
   it('opens the key on a first visit', () => {
     const { shell, el } = chromeFrame()
     mountChrome(el, readConfig(el))
-    expect(shell.querySelector('details').open).toBe(true)
+    expect(shell.querySelector('details.scale').open).toBe(true)
   })
 
   it('records the fold when the reader closes it', () => {
     const { shell, el } = chromeFrame()
     mountChrome(el, readConfig(el))
-    const legend = shell.querySelector('details')
+    const legend = shell.querySelector('details.scale')
 
     legend.open = false
     legend.dispatchEvent(new Event('toggle'))
@@ -1754,7 +1801,7 @@ describe('mountChrome() remembers whether the key is folded', () => {
     store.set(LEGEND_FOLD_KEY, 'false')
     const { shell, el } = chromeFrame()
     mountChrome(el, readConfig(el))
-    const legend = shell.querySelector('details')
+    const legend = shell.querySelector('details.scale')
     expect(legend.open, 'the key ignored the remembered fold').toBe(false)
 
     legend.open = true

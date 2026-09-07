@@ -1092,6 +1092,7 @@ export function readConfig(el) {
       locateDenied: d.tLocateDenied || '',
       locateFailed: d.tLocateFailed || '',
       windToggle: d.tWindToggle || '',
+      windAbout: d.tWindAbout || '',
       windNote: d.tWindNote || '',
       windAttribution: d.tWindAttribution || '',
     },
@@ -1532,9 +1533,20 @@ export function mountChrome(el, cfg) {
   //
   // The disclosure stays a sibling of the map rather than anything inside that
   // menu: it must remain visible while the layer is, and the menu closes.
-  const windNote = document.createElement('div')
+  //
+  // Folded, and folded again every time the layer comes back: unrolled it is
+  // two sentences and a model name over the map, which on a phone is most of
+  // the screen the arrows are drawn on. The summary keeps it a line that says
+  // what it is, so nothing is hidden — only rolled up.
+  const windNote = document.createElement('details')
   windNote.className = 'map-wind-label'
   windNote.hidden = true
+  const windSummary = document.createElement('summary')
+  windSummary.className = 'map-wind-label__toggle'
+  windSummary.textContent = cfg.t.windAbout || cfg.t.windToggle
+  const windText = document.createElement('div')
+  windText.className = 'map-wind-label__text'
+  windNote.append(windSummary, windText)
   el.appendChild(windNote)
 
   // The precedence rule lives in hintController; this is only the wiring from
@@ -1584,8 +1596,9 @@ export function mountChrome(el, cfg) {
     // Both halves move together: the disclosure is shown exactly when the
     // arrows are, so no caller can turn one on without the other.
     showWind(on, text) {
-      windNote.textContent = on ? text : ''
+      windText.textContent = on ? text : ''
       windNote.hidden = !on || !text
+      if (!on) windNote.open = false
     },
   }
 }
