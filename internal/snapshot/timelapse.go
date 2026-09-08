@@ -10,39 +10,21 @@ import (
 	"airbg.org/internal/upstream"
 )
 
-// A timelapse answers the question neither the live view nor a window can: not
-// what the air is, nor what it averaged, but how it MOVED — the morning build-up
-// in the valley, the evening inversion, a front crossing the country.
-//
-// It is one body per (metric, span) rather than a frame per request. The
-// geometry is the bulk of a hex payload and it is the same in every frame, so
-// stating the cells once and giving each frame a bare array of numbers is the
-// difference between 35 KB a frame and about 3 KB a frame — an animation that
-// arrives in one fetch instead of twenty-four.
+// One prepared body per (metric, span): geometry once, a bare number array per
+// frame. Name is the wire value of ?span=.
 type FrameSpec struct {
-	// Name is the wire value of ?span=, and Step is how much ground one frame
-	// covers. Both are published on /api/v1/meta so the client can label the
-	// scrubber without a second vocabulary of its own.
 	Name string
 	Step time.Duration
 	Dur  time.Duration
 }
 
-// FrameSpecs are the spans a timelapse may be asked for — closed, for the same
-// reason WindowSpecs is: each one is a precomputed body per metric, so the cache
-// stays bounded by this list rather than by what the internet asks for.
-//
-// A week runs at six hours rather than at one. 168 frames is not an animation a
-// reader can follow, and at that length what shows is the daily cycle, which six
-// hours still resolves.
+// Closed like WindowSpecs: each entry is a precomputed body per metric.
 var FrameSpecs = []FrameSpec{
 	{Name: "24h", Step: time.Hour, Dur: 24 * time.Hour},
 	{Name: "7d", Step: 6 * time.Hour, Dur: 7 * 24 * time.Hour},
 }
 
-// KnownSpan reports whether name may be served. Handlers answer 400 otherwise
-// rather than substituting a default, so a reader who asked for a week and got a
-// day has been told.
+// KnownSpan reports whether name may be served; handlers 400 anything else.
 func KnownSpan(name string) bool {
 	for _, s := range FrameSpecs {
 		if s.Name == name {
@@ -52,9 +34,7 @@ func KnownSpan(name string) bool {
 	return false
 }
 
-// ringDur is how much history the ring holds: the longest span published, and no
-// more. Anything older can never appear in a body, so keeping it would be memory
-// spent on frames no request can reach.
+// ringDur is the longest span published; older hours can reach no body.
 func ringDur() time.Duration {
 	d := time.Duration(0)
 	for _, s := range FrameSpecs {
@@ -65,27 +45,20 @@ func ringDur() time.Duration {
 	return d
 }
 
-// hourCells is one rollup hour reduced to the grid: the median of every sensor
-// that reported in that cell in that hour. Reduced at build time and kept
-// reduced, because the ring is held in memory across cycles and a week of raw
-// per-sensor rows would be two orders of magnitude more of it.
+// hourCells is one rollup hour reduced to the grid, kept reduced: the ring
+// lives in memory across cycles.
 type hourCells struct {
 	bucket time.Time
 	cells  map[axial]float64
 }
 
-// frameRing is one metric's recent hours, oldest first. It is carried forward
-// from the previous snapshot and extended by the hours that have completed
-// since: a past hour's rollup does not change once the hour has passed, so
-// re-reading a week of it every cycle would be a week of work to learn one new
-// number.
+// frameRing is one metric's recent hours, oldest first, carried between cycles:
+// a past hour's rollup does not change.
 type frameRing struct {
 	hours []hourCells
 }
 
-// timelapsePayload is the wire shape. Cells is the union of every cell any frame
-// touches, and each frame's Values is positional against it — index i is Cells[i]
-// — with null where that cell had no reading in that frame.
+// Cells is the union across the span; each frame's V is positional against it.
 type timelapsePayload struct {
 	GeneratedAt  time.Time        `json:"generated_at"`
 	Metric       string           `json:"metric"`
@@ -98,14 +71,11 @@ type timelapsePayload struct {
 
 type timelapseFrame struct {
 	T time.Time `json:"t"`
-	// Pointers, so a cell with no reading in this frame is null rather than 0 —
-	// 0 µg/m³ is a reading, and the client draws the two differently.
+	// Pointers: an absent cell is null, and 0 µg/m³ is a reading.
 	V []*float64 `json:"v"`
 }
 
-// TimelapseBody returns the prepared body for one metric and span, and whether
-// there is one. A metric outside the catalogue, or a span outside FrameSpecs,
-// has no body; the handler turns that into a 400 rather than an empty animation.
+// TimelapseBody returns the prepared body for one metric and span, if there is one.
 func (s *Snapshot) TimelapseBody(metric, span string) (Body, bool) {
 	if s == nil {
 		return Body{}, false
@@ -117,16 +87,9 @@ func (s *Snapshot) TimelapseBody(metric, span string) (Body, bool) {
 func timelapseKey(metric, span string) string { return metric + "|" + span }
 
 // buildTimelapse extends the previous cycle's rings and re-encodes the bodies.
-//
-// prev is the snapshot currently being served, or nil on the first build after a
-// restart — which is the only cycle that reads a whole week. Its errors are the
-// build's errors: a timelapse that silently failed would leave the player
-// showing the previous cycle's animation as though it were current.
+// prev is nil only on the first build after a restart, which reads a whole week.
 func buildTimelapse(ctx context.Context, st *store.Store, prev, snap *Snapshot, now time.Time) error {
-	// Truncated because the ring is made of rollup hours, and the hour in
-	// progress has only part of its samples in it — including it would make the
-	// last frame of every animation dip for reasons that are about the clock
-	// rather than about the air.
+	// The hour in progress has only part of its samples, so it is left out.
 	end := now.Truncate(time.Hour)
 	oldest := end.Add(-ringDur())
 
@@ -182,9 +145,8 @@ func extendRing(ctx context.Context, st *store.Store, metric string, carried *fr
 	return ring, nil
 }
 
-// foldHours bins each hour's readings onto the grid. The readings arrive in
-// bucket order, so the result is in bucket order too, which is what lets
-// extendRing resume from the last one.
+// foldHours bins each hour's readings onto the grid, in bucket order — which is
+// what lets extendRing resume from the last one.
 func foldHours(readings []store.FrameReading) []hourCells {
 	byHour := map[time.Time]map[axial][]float64{}
 	var order []time.Time
@@ -211,16 +173,12 @@ func foldHours(readings []store.FrameReading) []hourCells {
 	return out
 }
 
-// timelapseFrom folds the ring into one span's frames.
-//
-// A step wider than an hour takes the median of the hours in it, per cell —
-// the same statistic a cell already carries, so a six-hourly frame and an
-// hourly one mean the same thing about the same ground.
+// timelapseFrom folds the ring into one span's frames; a step wider than an hour
+// takes the median of the hours in it, per cell.
 func timelapseFrom(now time.Time, metric string, spec FrameSpec, ring *frameRing, end time.Time) timelapsePayload {
 	start := end.Add(-spec.Dur)
 
-	// Grouped by step index rather than by wall clock, so the frames of one
-	// request tile the span exactly and the last one ends at end.
+	// By step index, so the frames tile the span exactly and the last ends at end.
 	groups := map[int64]map[axial][]float64{}
 	for _, h := range ring.hours {
 		if h.bucket.Before(start) {
@@ -237,10 +195,7 @@ func timelapseFrom(now time.Time, metric string, spec FrameSpec, ring *frameRing
 		}
 	}
 
-	// The cell list is the union across the whole span, sorted by grid
-	// coordinate: a frame's array is positional against it, and a cell that
-	// appears only halfway through must hold the same index throughout or the
-	// animation would slide sideways.
+	// Union across the span, sorted: a cell must hold one index in every frame.
 	seen := map[axial]bool{}
 	for _, g := range groups {
 		for c := range g {

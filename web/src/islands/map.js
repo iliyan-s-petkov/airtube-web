@@ -425,9 +425,7 @@ export function mount(el) {
     // sources exist. The grid comes along because it is the same readings under
     // the same markers, and a map where half the picture averaged a week and
     // the other half did not would be two answers to one question.
-    // Wired here for the same reason, and kept on state so a metric switch —
-    // which arrives through a callback that holds no chrome of its own — can
-    // drop the history it no longer describes.
+    // On state so a metric switch, which holds no chrome of its own, can reset it.
     state.timelapse = installTimelapse(map, state, cfg, chrome)
 
     chrome.windowMenu.onpick(async (name) => {
@@ -808,9 +806,7 @@ export function paintWind(map, state) {
 // this a silent no-op.
 function onMetricChange(map, state, cfg, chrome, metric) {
   applyMetricColours(map, state, cfg, chrome, metric)
-  // The animation is one metric's numbers, not a payload with a column per
-  // metric: it cannot be recoloured the way the markers below can, so it is
-  // dropped and refetched on the next press.
+  // One metric's numbers, not a column per metric: it cannot be recoloured.
   state.timelapse?.reset()
   refresh(map, state, cfg, chrome, true)
   // On every call the URL is unchanged, so refreshHexes recolours the body it
@@ -1057,18 +1053,10 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
   })
 }
 
-// installTimelapse wires the play button to the grid the map already draws.
-//
-// An animation is the same hex layer with a past hour's numbers in it, so this
-// swaps the source's data and changes nothing else: the ramp, the legend and
-// the reader's filter all keep meaning what they meant. Stopping hands the
-// layer back to refreshHexes, which is the only thing that puts live readings
-// on screen — nothing here writes to state.hexBody, so the live grid survives
-// an animation untouched.
-//
-// The body is fetched on the first press rather than at mount: most visitors
-// never press play, and a hundred-odd kilobytes of history on every page load
-// would be paid for by all of them.
+// installTimelapse swaps a past hour's numbers into the hex layer the map
+// already draws, and nothing else — state.hexBody is never written, so the live
+// grid survives an animation. Fetched on the first press, not at mount: most
+// visitors never press play.
 export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   const ui = chrome.player
   if (!ui) return null
@@ -1101,10 +1089,8 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     timer = null
     head.playing = false
     ui.playing(false)
-    // The grid on screen is a past hour's, so the live one has to be put back.
-    // No refetch is needed for that and none happens: refreshHexes' dedup skips
-    // the request for a URL it already holds but repaints from the body it kept,
-    // which is the live grid this never wrote over.
+    // No refetch: refreshHexes' dedup skips a URL it holds and repaints from the
+    // live body it kept, which this never wrote over.
     if (restore) await refreshHexes(map, state, cfg, fetchJSON)
   }
 
@@ -1114,9 +1100,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     try {
       body = await fetchJSON(url)
     } catch (err) {
-      // Quiet, like refreshHexes': the map underneath is working, and a hint
-      // saying the data is unavailable would misdescribe it. The button simply
-      // does not start.
+      // Quiet, like refreshHexes': the map underneath is working.
       console.error('timelapse:', err)
       return false
     }
@@ -1139,9 +1123,8 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     timer = setInterval(() => paint(step(head)), FRAME_MS)
   })
 
-  // A drag is a request to look at one hour, which is the opposite of running:
-  // leaving the timer going would yank the map off the frame under the reader's
-  // finger a third of a second later.
+  // A drag is a request to look at one hour: leaving the timer going would move
+  // the map off that frame a third of a second later.
   ui.onscrub((i) => {
     if (timer) {
       clearInterval(timer)
@@ -1152,9 +1135,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     if (head.count > 0) paint(seek(head, i))
   })
 
-  // A different window is a different animation, and a different metric is
-  // different numbers for the same hours. Either way what is held is stale, so
-  // it is dropped and the live grid comes back.
+  // A different window or metric is a different animation; what is held is stale.
   return {
     async reset() {
       body = null
@@ -1951,9 +1932,7 @@ export function mountChrome(el, cfg) {
     host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
   })
 
-  // Third in the bottom-left cluster, in the same box: refresh, then which
-  // window, then play. The order is the order a reader arrives at them — what
-  // is on screen, over what period, and then set it moving.
+  // Third in the bottom-left cluster: refresh, then which window, then play.
   const player = mountPlayer(el, {
     label: cfg.t.timeLabel,
     playLabel: cfg.t.playLabel,

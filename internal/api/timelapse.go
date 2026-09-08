@@ -8,14 +8,9 @@ import (
 	"airbg.org/internal/upstream"
 )
 
-// handleTimelapse serves one animation: a metric's grid over a published span,
-// as a cell list and a frame per step.
-//
-// No bounding box, for the same reason /overview has none — a box would let a
-// caller walk the country — and no arbitrary start or end. Both parameters name
-// a member of a closed list, so every distinct URL is one of a few dozen bodies
-// prepared at build time and shared by every reader, which is what keeps the
-// response publicly cacheable and the database out of the request path.
+// handleTimelapse serves one animation: a metric's grid over a published span.
+// No bounding box and no arbitrary start or end — both parameters name a member
+// of a closed list, so every URL is one of a few dozen prepared bodies.
 func (d Deps) handleTimelapse(w http.ResponseWriter, r *http.Request) {
 	snap := d.Snapshots.Load()
 	if snap == nil {
@@ -43,9 +38,7 @@ func (d Deps) handleTimelapse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A known metric and a known span with no body is a cycle that has not
-	// built one yet, which is the 503 case and not the 400 one: the caller
-	// asked a question we publish, and the answer is not ready.
+	// A published pair with no body is a cycle that has not built one: 503, not 400.
 	body, ok := snap.TimelapseBody(metric, span)
 	if !ok {
 		writeUnavailable(w)
