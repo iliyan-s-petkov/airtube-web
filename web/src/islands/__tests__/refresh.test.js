@@ -74,20 +74,19 @@ describe('freshness island', () => {
   it('carries the button only when the template asks for one', () => {
     const home = island({ ...attrs, button: 'false' })
     keep(mountFreshness(home))
-    expect(home.querySelector('button')).toBe(null)
+    expect(home.querySelector('.data-refresh__btn')).toBe(null)
 
     const area = island({ ...attrs, button: 'true' })
     keep(mountFreshness(area))
-    expect(area.querySelector('button.data-refresh__btn').textContent.trim()).toBe('Обнови')
+    expect(area.querySelector('.data-refresh__btn').getAttribute('aria-label')).toBe('Обнови')
   })
 
   it('writes the reader choice back to the store', () => {
     const el = island({ ...attrs, button: 'false' })
     keep(mountFreshness(el))
-    const box = el.querySelector('input[type="checkbox"]')
-    expect(box.checked).toBe(true)
-    box.checked = false
-    box.dispatchEvent(new Event('change', { bubbles: true }))
+    const sw = el.querySelector('.data-refresh__auto')
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+    sw.click()
     flushSync()
     expect(getFreshness().auto).toBe(false)
   })

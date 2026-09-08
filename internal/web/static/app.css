@@ -314,9 +314,19 @@ strong, b { font-weight: var(--weight-emphasis); }
 .map-freshness { position: absolute; z-index: 3; left: 12px; bottom: 12px; }
 .map-freshness .data-refresh {
   margin: 0; background: var(--overlay-bg); border-radius: var(--radius);
-  box-shadow: var(--elev-raised); padding: var(--space-1) var(--space-2);
-  gap: var(--space-2);
+  box-shadow: var(--elev-raised); padding: var(--space-1);
+  gap: var(--space-1);
 }
+/* Icon-sized: spelled out, this overlay was a 380px bar across the map. */
+.data-refresh__auto, .data-refresh__btn--icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  inline-size: 1.75rem; block-size: 1.75rem; padding: 0;
+  background: none; border: 0; border-radius: var(--radius-sm);
+  color: var(--fg-2); cursor: pointer;
+}
+.data-refresh__auto:hover, .data-refresh__btn--icon:hover { color: var(--fg); background: var(--surface-2); }
+/* Second signal only; the struck glyph carries the off state. */
+.data-refresh__auto[aria-checked="true"] { color: var(--accent); }
 
 /* Separate cards rather than the kit's hairline-divided strip, each one centred
    on its own figure so the four line up whatever their labels wrap to. */
