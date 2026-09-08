@@ -1,0 +1,120 @@
+{{/* The map alone, for an <iframe> on another site. It redefines "base"
+     rather than filling it in: a masthead, a language picker and a footer are
+     the host page's job, not this document's. What it keeps from base.gohtml
+     is the map partials — one set of layer labels for every page that draws
+     this map. */}}
+{{define "base"}}<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.T "site.title"}}</title>
+{{/* The canonical page is the map on the site, not this frame of it. */}}
+<link rel="canonical" href="{{.BaseURL}}{{.Path "/"}}">
+<meta name="robots" content="noindex">
+<link rel="icon" href="{{.Static "favicon.svg"}}" type="image/svg+xml">
+{{with .Assets.Style "theme"}}<link rel="stylesheet" href="{{.}}">
+{{else}}<link rel="stylesheet" href="{{.Static "theme.css"}}">
+{{end}}<link rel="stylesheet" href="{{.Static "app.css"}}">
+<script src="{{.Static "theme-init.js"}}"></script>
+{{with .Assets.Style "main"}}<link rel="stylesheet" href="{{.}}">
+{{end}}</head>
+<body class="embed">
+<div class="map-shell embed__shell">
+
+{{/* The metric switcher rides ON the map here. In the site's own pages it sits
+     in a toolbar above; a frame has no toolbar and every pixel of it is map. */}}
+<div class="embed__switcher" data-island="switcher"
+     data-metrics="{{.MetricsAttr}}"
+     data-metric-labels="{{.MetricLabelsAttr}}"
+     data-metric="{{.DefaultMetric}}"
+     data-t-legend="{{.T "metric.legend"}}"></div>
+
+<div id="map" data-island="map" class="data-frame map map--hero"
+     role="region" aria-label="{{.T "map.label"}}"
+     aria-describedby="map-alt"
+     data-zoom="{{.DefaultZoom}}" data-lon="{{.DefaultLon}}" data-lat="{{.DefaultLat}}"
+     data-metric="{{.DefaultMetric}}"
+     data-metrics="{{.MetricsAttr}}"
+     data-metric-labels="{{.MetricLabelsAttr}}"
+     data-metric-units="{{.MetricUnitsAttr}}"
+     data-basemap="{{.BasemapStyleURL}}"
+     data-lang-prefix="{{.LangPrefix}}"
+     data-no-data-colour="{{.NoDataColour}}"
+     data-unscaled-colour="{{.UnscaledColour}}"
+     data-marker-stroke-colour="{{.MarkerStrokeColour}}"
+     data-hex-opacity="{{.HexOpacity}}"
+     data-marker-label-colour="{{.MarkerLabelColour}}"
+     data-empty-basemap-colour="{{.EmptyBasemapColour}}"
+     data-zoom-city="{{.ZoomCity}}"
+     data-zoom-sensor="{{.ZoomSensor}}"
+     data-t-legend="{{.T "map.legend.title"}}"
+     data-t-legend-toggle="{{.T "map.legend.toggle"}}"
+     data-t-legend-no-data="{{.T "map.legend.no_data"}}"
+     data-t-tier-country="{{.T "map.legend.tier.country"}}"
+     data-t-tier-city="{{.T "map.legend.tier.city"}}"
+     data-t-tier-sensors="{{.T "map.legend.tier.sensors"}}"
+     data-t-fullscreen="{{.T "map.fullscreen"}}"
+     data-t-fullscreen-exit="{{.T "map.fullscreen.exit"}}"
+     data-t-zoom-in="{{.T "map.zoom.in"}}"
+     data-t-zoom-out="{{.T "map.zoom.out"}}"
+     data-t-zoom-reset="{{.T "map.zoom.reset"}}"
+     {{template "mapLayerLabels" .}}
+     data-t-hint="{{.T "map.hint.select_area"}}"
+     data-t-rate-limited="{{.T "map.error.rate_limited"}}"
+     data-t-unavailable="{{.T "map.error.unavailable"}}"
+     data-t-unscaled="{{.T "metric.unscaled"}}"
+     data-t-locate-button="{{.T "locate.button"}}"
+     data-t-locate-denied="{{.T "locate.denied"}}"
+     data-t-locate-failed="{{.T "locate.failed"}}"
+     data-t-wind-toggle="{{.T "wind.toggle"}}"
+     data-t-wind-about="{{.T "wind.about"}}"
+     data-t-wind-note="{{.T "wind.note"}}"
+     data-t-wind-attribution="{{.T "wind.attribution"}}"></div>
+
+{{/* The credit, and the only way out of the frame. target=_blank because a
+     plain link would load the whole site inside the host's iframe. */}}
+<a class="embed__credit" href="{{.BaseURL}}{{.Path "/"}}" target="_blank" rel="noopener">airbg<span class="tld">.org</span></a>
+</div>
+
+{{/* The chart for a clicked sensor, capped so it can never take the frame from
+     the map. Same island and same attributes as the site's own pages. */}}
+<div class="place-host embed__panel" data-island="panel"
+     data-metrics="{{.MetricsAttr}}"
+     data-metric-labels="{{.MetricLabelsAttr}}"
+     data-metric="{{.DefaultMetric}}"
+     data-period="{{.DefaultPeriod}}"
+     data-line-colour="{{.ChartLineColour}}"
+     data-compare-colour="{{.ChartCompareColour}}"
+     data-t-title="{{.T "panel.title"}}"
+     data-t-close="{{.T "panel.close"}}"
+     data-t-no-value="{{.T "panel.no_value"}}"
+     data-t-flag-out-of-range="{{.T "panel.flag.out_of_range"}}"
+     data-t-flag-stuck="{{.T "panel.flag.stuck"}}"
+     data-t-flag-spatial-outlier="{{.T "panel.flag.spatial_outlier"}}"
+     data-t-chart-title="{{.T "chart.title"}}"
+     data-t-chart-value="{{.T "chart.axis.value"}}"
+     data-t-chart-time="{{.T "chart.axis.time"}}"
+     data-t-chart-empty="{{.T "chart.empty"}}"
+     data-t-chart-unavailable="{{.T "map.error.unavailable"}}"
+     data-periods="{{.PeriodsAttr}}"
+     data-period-labels="{{.PeriodLabelsAttr}}"
+     data-t-chart-metric-legend="{{.T "metric.legend"}}"
+     data-t-chart-period-legend="{{.T "period.legend"}}"
+     data-t-chart-compare="{{.T "panel.compare"}}"
+     data-t-chart-compare-none="{{.T "panel.compare_none"}}"
+     data-t-details="{{.T "panel.details"}}"
+     data-t-detail-devices="{{.T "panel.detail.devices"}}"
+     data-t-detail-hardware="{{.T "panel.detail.hardware"}}"
+     data-t-detail-since="{{.T "panel.detail.since"}}"
+     data-t-detail-updated="{{.T "panel.detail.updated"}}"
+     data-t-detail-coords="{{.T "panel.detail.coords"}}"></div>
+
+{{/* Both the no-JavaScript fallback and the text alternative: a frame with no
+     bundle is an empty box otherwise. */}}
+<p class="embed__alt" id="map-alt">{{.T "map.text_alternative.areas"}}
+  <a class="link" href="{{.BaseURL}}{{.Path "/areas"}}" target="_blank" rel="noopener">{{.T "nav.areas"}}</a></p>
+
+{{with .Assets.Script "main"}}<script type="module" src="{{.}}"></script>
+{{end}}</body>
+</html>{{end}}

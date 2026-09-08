@@ -296,3 +296,54 @@ strong, b { font-weight: var(--weight-emphasis); }
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
   overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
 }
+
+/* The embed. A host page gives the frame a height and the map takes all of it:
+   the kit's 926:382 ratio decides a page's own layout, but inside an <iframe>
+   the height is already decided and honouring the ratio would letterbox the map
+   inside a box someone sized on purpose. See docs/embedding.md. */
+.embed { block-size: 100%; margin: 0; overflow: hidden; }
+html:has(> body.embed) { block-size: 100%; }
+.embed .map-shell { block-size: 100%; max-inline-size: none; }
+.embed .map {
+  aspect-ratio: auto; min-block-size: 0; block-size: 100%; inline-size: 100%;
+}
+/* The metric switcher moves onto the map. On the site it sits in a toolbar
+   above; a frame has no toolbar, and a control below the map would take height
+   from the only thing the host asked for. It joins the layers button's row —
+   same 12px top inset — and the note steps right past both. */
+.embed__switcher {
+  position: absolute; z-index: 3; top: 12px; left: calc(12px + 32px + var(--space-2));
+  background: var(--overlay-bg); border-radius: var(--radius); box-shadow: var(--elev-raised);
+  padding: var(--space-1) var(--space-2);
+}
+.embed .map-note { left: auto; right: calc(2rem + var(--space-2) + var(--space-2)); }
+/* Whose map this is, and the only way out of the frame. Bottom-left, above the
+   key's own corner content is not: the other three corners are the switcher
+   row, the zoom stack and the attribution. */
+.embed__credit {
+  position: absolute; z-index: 4; bottom: var(--space-2); left: var(--space-2);
+  background: var(--overlay-bg); border-radius: 999px; box-shadow: var(--elev-raised);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-compact); letter-spacing: var(--track-compact);
+  color: var(--fg); text-decoration: none; font-weight: var(--weight-emphasis);
+}
+.embed__credit:hover { text-decoration: underline; }
+.embed__credit:focus-visible { box-shadow: var(--focus-ring); }
+.embed .scale--onmap { inset-block-end: 3.5rem; }
+/* Geolocation is denied by Permissions-Policy and a cross-origin frame needs
+   its own allow= besides, so the button could only ever fail here. */
+.embed .map-locate { display: none; }
+.embed .maplibregl-ctrl-bottom-right { margin-inline-end: 0; }
+/* The panel opens over the map rather than under it: in a frame there is no
+   "under". Capped so the map it describes stays the larger half. */
+.embed__panel {
+  position: absolute; z-index: 5; inset-block-end: 0; inset-inline: 0;
+  max-block-size: 55%; overflow-y: auto;
+}
+.embed__panel:empty { display: none; }
+/* The text alternative, off-screen: a frame is sized for a map, and the sighted
+   reader has one. It stays in the accessibility tree and in the served HTML. */
+.embed__alt {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}

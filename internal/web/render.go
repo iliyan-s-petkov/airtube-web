@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"airbg.org/internal/config"
+	"airbg.org/internal/httpx"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/upstream"
@@ -51,6 +52,10 @@ type Renderer struct {
 	periodNames []string
 	assets      Assets
 	static      StaticAssets
+
+	// The policy the embed route sends instead of the process one, which
+	// refuses all framing. See httpx.EmbedCSP.
+	embedCSP string
 
 	// One parsed template set per page, each cloned from the base. A single
 	// set would not work: every page defines "main", and the last parse would
@@ -98,7 +103,11 @@ func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, cfg config.Config
 	rr.assets, _ = LoadAssets()
 	rr.static = LoadStaticAssets()
 
-	for _, page := range []string{"index", "area", "about", "error"} {
+	rr.embedCSP = httpx.EmbedCSP(cfg.Listen.CSP)
+
+	// "embed" is parsed with base.gohtml like the rest, and then redefines
+	// "base" itself: it needs base's map partials but none of its chrome.
+	for _, page := range []string{"index", "area", "about", "error", "embed"} {
 		t, err := template.New("base.gohtml").ParseFS(templateFS,
 			"templates/base.gohtml", "templates/"+page+".gohtml")
 		if err != nil {

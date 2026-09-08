@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,6 +66,7 @@ func (rr *Renderer) Routes() *http.ServeMux {
 		mux.HandleFunc("GET "+prefix+"/areas", rr.handleIndex)
 		mux.HandleFunc("GET "+prefix+"/area/{slug}", rr.handleArea)
 		mux.HandleFunc("GET "+prefix+"/about-the-data", rr.handleAbout)
+		mux.HandleFunc("GET "+prefix+"/embed", rr.handleEmbed)
 	}
 
 	// Content-hashed bundles: cacheable forever, because the name changes when
@@ -144,6 +146,49 @@ func (rr *Renderer) handleAbout(w http.ResponseWriter, r *http.Request) {
 
 	lang, path := rr.cat.LangFromPath(r.URL.Path)
 	rr.render(w, r, http.StatusOK, "about", rr.newPageData(lang, path, generatedAt))
+}
+
+// handleEmbed serves the map on its own, for an <iframe> on someone else's
+// site. Two things make it different from every other route here, and both are
+// stated in the response rather than left to a proxy: it lifts frame-ancestors
+// (see httpx.EmbedCSP) and it asks not to be indexed, because the page it
+// mirrors is /.
+//
+// Like /about-the-data it renders with no snapshot: the map island fetches its
+// own data, so a snapshot gap is a map that fills in a moment later rather than
+// a 503 inside a partner's page.
+//
+// Both query parameters are validated against what the server already knows —
+// the metric list and the snapshot's slugs — so nothing a host page writes
+// reaches a template or a query as a value of its own.
+func (rr *Renderer) handleEmbed(w http.ResponseWriter, r *http.Request) {
+	var generatedAt time.Time
+	snap := rr.holder.Load()
+	if snap != nil {
+		generatedAt = snap.GeneratedAt
+	}
+
+	lang, path := rr.cat.LangFromPath(r.URL.Path)
+	data := rr.newPageData(lang, path, generatedAt)
+
+	query := r.URL.Query()
+	if metric := query.Get("metric"); slices.Contains(data.Metrics, metric) {
+		data.DefaultMetric = metric
+	}
+	if slug := query.Get("area"); slug != "" && snap != nil {
+		if meta, ok := snap.KnownSlugs[slug]; ok {
+			data.DefaultLon, data.DefaultLat = meta.CentroidLon, meta.CentroidLat
+			data.DefaultZoom = meta.DefaultZoom
+		}
+	}
+
+	h := w.Header()
+	h.Set("Content-Security-Policy", rr.embedCSP)
+	// Set by SecurityHeaders before this handler runs, and it has no allowlist
+	// form — for a framed route the CSP directive above is the whole policy.
+	h.Del("X-Frame-Options")
+	h.Set("X-Robots-Tag", "noindex")
+	rr.render(w, r, http.StatusOK, "embed", data)
 }
 
 func (rr *Renderer) areaRows(snap *snapshot.Snapshot, lang, kind string) []AreaRow {
