@@ -117,8 +117,14 @@ export function chooseWindow(state, name) {
  *
  * The button carries the chosen window's own text, so the map says which
  * question it is answering without the reader having to open anything.
+ *
+ * `host` is where the control is appended — the freshness pill's own box, so
+ * the two are laid out as one flex row and the gap between them is a gap rather
+ * than a guess at how wide the pill is. It defaults to the frame, which is what
+ * a map rendered without the freshness line gets. The panel's id still comes
+ * from the FRAME: it is the element the templates give an id to.
  */
-export function mountWindow(frame, { label, options, value }, doc = document) {
+export function mountWindow(frame, { label, options, value, host = frame }, doc = document) {
   const root = doc.createElement('div')
   root.className = 'colmenu map-window'
 
@@ -193,6 +199,6 @@ export function mountWindow(frame, { label, options, value }, doc = document) {
 
   root.appendChild(button)
   root.appendChild(panel)
-  frame.appendChild(root)
+  host.appendChild(root)
   return { root, button, panel, open, onpick: (fn) => listeners.push(fn) }
 }

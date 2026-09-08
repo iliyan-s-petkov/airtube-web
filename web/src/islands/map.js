@@ -1820,6 +1820,10 @@ export function mountChrome(el, cfg) {
     label: cfg.t.windowLabel,
     options: windowOptions(cfg.windowLabels),
     value: readWindow(),
+    // Into the freshness pill's own box, so the two are one flex row: an
+    // absolute offset here would be this file's guess at how wide that pill is,
+    // and it is one icon wide on some pages and two on others.
+    host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
   })
 
   // Two toggles about the SCREEN rather than about the basemap, listed above

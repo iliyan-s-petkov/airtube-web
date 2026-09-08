@@ -236,6 +236,20 @@ describe('mountWindow', () => {
 
   // No el.style anywhere: the CSP carries no style-src 'unsafe-inline', so a
   // control positioned from JS would simply not be placed.
+  // The control lives in the freshness pill's box so the two lay out as one
+  // flex row. The PANEL's id still comes from the frame — that is the element
+  // the templates name, and two maps on a page must not collide.
+  it('is appended into the host, keeping the frame for the panel id', () => {
+    const frame = document.createElement('div')
+    frame.id = 'map'
+    const host = document.createElement('div')
+    document.body.append(frame, host)
+    const ui = mountWindow(frame, { label: 'Window', options: windowOptions(['Now', '24h', '48h', '7d']), value: 'live', host })
+    expect(ui.root.parentElement).toBe(host)
+    expect(frame.contains(ui.root)).toBe(false)
+    expect(ui.panel.id).toBe('map-window-panel')
+  })
+
   it('writes no inline style', () => {
     const { ui } = mount()
     expect(ui.root.getAttribute('style')).toBe(null)

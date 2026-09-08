@@ -131,10 +131,10 @@ strong, b { font-weight: var(--weight-emphasis); }
    the map: the top centre is where the reader is looking at the MAP, and a
    control parked there is furniture over the thing it describes.
 
-   The offset is .map-freshness's own width — two 1.75rem icons and the pill's
-   padding either side of them — plus a gutter, so the two sit in one row and
-   read as one cluster. */
-.map-window { position: absolute; z-index: 3; bottom: 12px; left: calc(12px + 4.25rem + var(--space-2)); }
+   It is appended INTO the freshness box and laid out as one flex row with it
+   (see mountWindow's host), rather than offset by a number here: that pill is
+   one icon wide on a page with no refresh button and two on a page with one. */
+.map-window { position: relative; }
 .map-window__btn {
   block-size: calc(1.75rem + 2 * var(--space-1));
   min-height: 0; padding: 0 var(--space-2);
@@ -342,7 +342,10 @@ strong, b { font-weight: var(--weight-emphasis); }
 /* On the map rather than under it. The overlay sits inside .map-shell, which is
    the positioned ancestor; the kit's margins are the standalone line's and would
    push it off the corner here. */
-.map-freshness { position: absolute; z-index: 3; left: 12px; bottom: 12px; }
+.map-freshness {
+  position: absolute; z-index: 3; left: 12px; bottom: 12px;
+  display: flex; align-items: center; gap: var(--space-2);
+}
 .map-freshness .data-refresh {
   margin: 0; background: var(--overlay-bg); border-radius: var(--radius);
   box-shadow: var(--elev-raised); padding: var(--space-1);
