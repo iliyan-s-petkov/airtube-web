@@ -1,8 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 5 3" width="20" height="12" role="img" aria-label="Flag of England">
-  <!-- Flag of England (St George's Cross). Official construction: ratio 3:5,
-       cross one fifth of the height. Colours per the flag institute:
-       white #FFFFFF, red #CE1124. -->
-  <rect width="5" height="3" fill="#FFFFFF"/>
-  <rect x="2.2" width="0.6" height="3" fill="#CE1124"/>
-  <rect y="1.2" width="5" height="0.6" fill="#CE1124"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 30" width="20" height="12" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Flag of the United Kingdom">
+  <!-- Union Flag. Official construction: ratio 1:2, the saltires counterchanged
+       about the diagonal. Colours: blue #012169, red #C8102E, white #FFFFFF. -->
+  <clipPath id="counterchange">
+    <path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/>
+  </clipPath>
+  <rect width="60" height="30" fill="#012169"/>
+  <path d="M0,0 L60,30 M60,0 L0,30" stroke="#FFFFFF" stroke-width="6"/>
+  <path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#counterchange)" stroke="#C8102E" stroke-width="4"/>
+  <path d="M30,0 v30 M0,15 h60" stroke="#FFFFFF" stroke-width="10"/>
+  <path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/>
 </svg>
