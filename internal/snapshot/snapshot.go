@@ -157,6 +157,16 @@ type Snapshot struct {
 	// windowed snapshot itself — see Window.
 	Windows map[string]*Snapshot
 
+	// Timelapse holds the animation bodies, keyed by metric and span. Prepared
+	// per cycle like every other body here, so playing an animation costs the
+	// database nothing.
+	Timelapse map[string]Body
+
+	// frames is the reduced history the animations are cut from, carried
+	// forward between cycles: a past hour's rollup does not change, so it is
+	// read once and kept rather than re-read every five minutes.
+	frames map[string]*frameRing
+
 	// SensorLocations resolves one sensor id to a position and an area, for a
 	// deep link that carries nothing else. Keyed by id and answered from
 	// memory: the lookup must not become a way to make the database walk the

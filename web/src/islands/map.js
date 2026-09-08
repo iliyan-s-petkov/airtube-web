@@ -25,6 +25,9 @@ import { nearestArea, nearestSensor } from '../lib/nearest.js'
 import {
   chooseWindow, mountWindow, readWindow, windowOptions, withWindow,
 } from '../lib/mapwindow.js'
+import {
+  FRAME_MS, cursor, frameBody, frameCount, frameTime, mountPlayer, seek, step, timelapseURL,
+} from '../lib/timelapse.js'
 import { setMapAreas, provideAreaSelect } from '../lib/mapareas.svelte.js'
 import { stationsOf, readingAt } from '../lib/stations.js'
 import {
@@ -422,8 +425,14 @@ export function mount(el) {
     // sources exist. The grid comes along because it is the same readings under
     // the same markers, and a map where half the picture averaged a week and
     // the other half did not would be two answers to one question.
+    // Wired here for the same reason, and kept on state so a metric switch —
+    // which arrives through a callback that holds no chrome of its own — can
+    // drop the history it no longer describes.
+    state.timelapse = installTimelapse(map, state, cfg, chrome)
+
     chrome.windowMenu.onpick(async (name) => {
       if (!chooseWindow(state, name)) return
+      await state.timelapse?.reset()
       await refresh(map, state, cfg, chrome, true)
       await refreshHexes(map, state, cfg)
     })
@@ -799,6 +808,10 @@ export function paintWind(map, state) {
 // this a silent no-op.
 function onMetricChange(map, state, cfg, chrome, metric) {
   applyMetricColours(map, state, cfg, chrome, metric)
+  // The animation is one metric's numbers, not a payload with a column per
+  // metric: it cannot be recoloured the way the markers below can, so it is
+  // dropped and refetched on the next press.
+  state.timelapse?.reset()
   refresh(map, state, cfg, chrome, true)
   // On every call the URL is unchanged, so refreshHexes recolours the body it
   // holds rather than refetching.
@@ -1042,6 +1055,115 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
     type: 'FeatureCollection',
     features: filterByStatus(features, getSensorStatus()),
   })
+}
+
+// installTimelapse wires the play button to the grid the map already draws.
+//
+// An animation is the same hex layer with a past hour's numbers in it, so this
+// swaps the source's data and changes nothing else: the ramp, the legend and
+// the reader's filter all keep meaning what they meant. Stopping hands the
+// layer back to refreshHexes, which is the only thing that puts live readings
+// on screen — nothing here writes to state.hexBody, so the live grid survives
+// an animation untouched.
+//
+// The body is fetched on the first press rather than at mount: most visitors
+// never press play, and a hundred-odd kilobytes of history on every page load
+// would be paid for by all of them.
+export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
+  const ui = chrome.player
+  if (!ui) return null
+
+  const head = cursor(0)
+  let body = null
+  let loaded = ''
+  let timer = null
+
+  const clock = new Intl.DateTimeFormat(cfg.lang || 'bg', {
+    weekday: 'short', hour: '2-digit', minute: '2-digit',
+  })
+
+  const paint = (i) => {
+    const bands = bandsFor(state.scales, cfg.metric)
+    const features = hexFeatures(
+      frameBody(body, i), cfg.metric, bands, cfg.noDataColour, rampColour,
+      resolutionForZoom(Math.round(map.getZoom())),
+    )
+    map.getSource(HEX_SOURCE_ID)?.setData({
+      type: 'FeatureCollection',
+      features: filterByStatus(features, getSensorStatus()),
+    })
+    const t = frameTime(body, i)
+    ui.at(i, t ? clock.format(t) : '')
+  }
+
+  const stop = async (restore = true) => {
+    if (timer) clearInterval(timer)
+    timer = null
+    head.playing = false
+    ui.playing(false)
+    // The grid on screen is a past hour's, so the live one has to be put back.
+    // No refetch is needed for that and none happens: refreshHexes' dedup skips
+    // the request for a URL it already holds but repaints from the body it kept,
+    // which is the live grid this never wrote over.
+    if (restore) await refreshHexes(map, state, cfg, fetchJSON)
+  }
+
+  const load = async () => {
+    const url = timelapseURL(cfg.metric, state.window)
+    if (url === loaded && body) return true
+    try {
+      body = await fetchJSON(url)
+    } catch (err) {
+      // Quiet, like refreshHexes': the map underneath is working, and a hint
+      // saying the data is unavailable would misdescribe it. The button simply
+      // does not start.
+      console.error('timelapse:', err)
+      return false
+    }
+    loaded = url
+    head.count = frameCount(body)
+    head.i = 0
+    ui.show(head.count)
+    return head.count > 0
+  }
+
+  ui.ontoggle(async () => {
+    if (timer) {
+      await stop()
+      return
+    }
+    if (!await load()) return
+    head.playing = true
+    ui.playing(true)
+    paint(head.i)
+    timer = setInterval(() => paint(step(head)), FRAME_MS)
+  })
+
+  // A drag is a request to look at one hour, which is the opposite of running:
+  // leaving the timer going would yank the map off the frame under the reader's
+  // finger a third of a second later.
+  ui.onscrub((i) => {
+    if (timer) {
+      clearInterval(timer)
+      timer = null
+      head.playing = false
+      ui.playing(false)
+    }
+    if (head.count > 0) paint(seek(head, i))
+  })
+
+  // A different window is a different animation, and a different metric is
+  // different numbers for the same hours. Either way what is held is stale, so
+  // it is dropped and the live grid comes back.
+  return {
+    async reset() {
+      body = null
+      loaded = ''
+      head.count = 0
+      ui.show(0)
+      await stop(false)
+    },
+  }
 }
 
 // locateVisitor asks the server where the visitor is and, only for a genuine
@@ -1403,6 +1525,9 @@ export function readConfig(el) {
       zoomOut: d.tZoomOut || '',
       zoomReset: d.tZoomReset || '',
       windowLabel: d.tWindowLabel || '',
+      playLabel: d.tPlayLabel || '',
+      pauseLabel: d.tPauseLabel || '',
+      timeLabel: d.tTimeLabel || '',
       layersButton: d.tLayersButton || '',
       layersCaption: d.tLayersCaption || '',
       viewLegend: d.tViewLegend || '',
@@ -1826,6 +1951,16 @@ export function mountChrome(el, cfg) {
     host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
   })
 
+  // Third in the bottom-left cluster, in the same box: refresh, then which
+  // window, then play. The order is the order a reader arrives at them — what
+  // is on screen, over what period, and then set it moving.
+  const player = mountPlayer(el, {
+    label: cfg.t.timeLabel,
+    playLabel: cfg.t.playLabel,
+    pauseLabel: cfg.t.pauseLabel,
+    host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
+  })
+
   // Two toggles about the SCREEN rather than about the basemap, listed above
   // the categories rather than smuggled in beside "Shops" as if they were one
   // more kind of place.
@@ -1962,6 +2097,7 @@ export function mountChrome(el, cfg) {
     showLegend,
     zoomButtons: zoom.buttons,
     windowMenu,
+    player,
     layersUI: layers,
     layerViews,
     locateButton,

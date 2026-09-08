@@ -248,6 +248,13 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 		snap.AreaSeries[slug] = seriesBody
 	}
 
+	// The animation history extends the snapshot currently being served, which
+	// is what h holds until this build replaces it. On the first build after a
+	// restart there is none, and the whole ring is read.
+	if err := buildTimelapse(ctx, s, h.Load(), snap, now); err != nil {
+		return nil, err
+	}
+
 	// Last, because a window is the live snapshot with some bodies replaced and
 	// therefore needs the live one finished first.
 	if err := buildWindows(ctx, s, snap, now); err != nil {

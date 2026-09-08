@@ -152,6 +152,33 @@ strong, b { font-weight: var(--weight-emphasis); }
   inset-inline-end: auto; inset-inline-start: 0;
   min-inline-size: 12rem; padding: var(--space-3);
 }
+/* The animation control, in the same row and on the same card as the window
+   button beside it. It grows when an animation is loaded — the scrubber and the
+   clock are hidden until then — so it is laid out as a row rather than sized. */
+.map-play {
+  display: flex; align-items: center; gap: var(--space-2);
+  background: var(--overlay-bg); border-radius: var(--radius); box-shadow: var(--elev-raised);
+  padding: 0 var(--space-2);
+  block-size: calc(1.75rem + 2 * var(--space-1));
+}
+.map-play__btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  inline-size: 1.75rem; block-size: 1.75rem; min-height: 0; padding: 0;
+  background: none; border: 0; border-radius: var(--radius-sm);
+  color: var(--fg); cursor: pointer;
+}
+.map-play__btn:hover { background: var(--surface-2); }
+.map-play__btn:focus-visible { box-shadow: var(--focus-ring); }
+/* Narrow on purpose: this sits over the map, and a scrubber wide enough to
+   pick an individual hour on a week would cover the country it describes. */
+.map-play__scrub { inline-size: 7rem; accent-color: var(--accent); }
+/* tabular-nums for the reason the refresh clock has it — the row must not
+   re-wrap as the playhead moves. */
+.map-play__clock {
+  font-size: var(--text-caption); letter-spacing: var(--track-caption);
+  color: var(--meta); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
 /* The no-data swatch carries a server-defined colour as an SVG fill attribute,
    so it needs a size here and nothing else — see renderLegend on why a styled
    span cannot work under the CSP. The BAND swatches need nothing: the kit sizes

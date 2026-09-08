@@ -161,16 +161,38 @@ func (d Deps) handleBoundaries(w http.ResponseWriter, r *http.Request) {
 }
 
 type metaBody struct {
-	GeneratedAt         time.Time `json:"generated_at"`
-	CoverageThreshold   int       `json:"coverage_threshold"`
-	Metrics             []string  `json:"metrics"`
-	AreaCount           int       `json:"area_count"`
-	CoveredAreaCount    int       `json:"covered_area_count"`
-	CellStatistic       string    `json:"cell_statistic"`
-	CellStatChangedAt   time.Time `json:"cell_statistic_changed_at"`
-	Attribution         string    `json:"attribution"`
-	BoundaryAttribution string    `json:"boundary_attribution"`
-	Disclaimer          string    `json:"disclaimer"`
+	GeneratedAt         time.Time  `json:"generated_at"`
+	CoverageThreshold   int        `json:"coverage_threshold"`
+	Metrics             []string   `json:"metrics"`
+	AreaCount           int        `json:"area_count"`
+	CoveredAreaCount    int        `json:"covered_area_count"`
+	CellStatistic       string     `json:"cell_statistic"`
+	CellStatChangedAt   time.Time  `json:"cell_statistic_changed_at"`
+	TimelapseSpans      []spanMeta `json:"timelapse_spans"`
+	Attribution         string     `json:"attribution"`
+	BoundaryAttribution string     `json:"boundary_attribution"`
+	Disclaimer          string     `json:"disclaimer"`
+}
+
+// spanMeta publishes what a timelapse span is worth: the wire name and how much
+// ground one frame covers, so the player can label its scrubber from the server's
+// vocabulary rather than keeping a second copy of these durations.
+type spanMeta struct {
+	Span        string `json:"span"`
+	StepSeconds int    `json:"step_seconds"`
+	Frames      int    `json:"frames"`
+}
+
+func timelapseSpans() []spanMeta {
+	out := make([]spanMeta, 0, len(snapshot.FrameSpecs))
+	for _, s := range snapshot.FrameSpecs {
+		out = append(out, spanMeta{
+			Span:        s.Name,
+			StepSeconds: int(s.Step / time.Second),
+			Frames:      int(s.Dur / s.Step),
+		})
+	}
+	return out
 }
 
 // handleMeta tells a client how to interpret everything else: when the data was
@@ -201,6 +223,7 @@ func (d Deps) handleMeta(w http.ResponseWriter, r *http.Request) {
 		CoveredAreaCount:    covered,
 		CellStatistic:       "median",
 		CellStatChangedAt:   snapshot.CellStatChangedAt,
+		TimelapseSpans:      timelapseSpans(),
 		Attribution:         DataAttribution,
 		BoundaryAttribution: BoundaryAttribution,
 		Disclaimer: "Low-cost sensor readings are indicative and are not " +

@@ -6,10 +6,11 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
+import { mountPlayer } from '../../lib/timelapse.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
 import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
@@ -318,6 +319,8 @@ describe('readConfig', () => {
         tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
         tLocateFailed: 'We could not determine your location.',
         tWindowLabel: 'Averaging period',
+        tPlayLabel: 'Play the animation', tPauseLabel: 'Pause the animation',
+        tTimeLabel: 'Hour shown',
         tWindToggle: 'Wind',
         tWindAbout: 'About the wind layer',
         tWindNote: 'Arrows show where the wind blows.',
@@ -338,6 +341,8 @@ describe('readConfig', () => {
       fullscreen: 'Full screen', fullscreenExit: 'Exit full screen',
       zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomReset: 'Reset view',
       layersButton: 'Layers', layersCaption: 'Show on the map',
+      playLabel: 'Play the animation', pauseLabel: 'Pause the animation',
+      timeLabel: 'Hour shown',
       viewLegend: 'Scale', viewBasemap: 'OpenStreetMap basemap',
       viewCellValues: 'Cell values',
       viewInactiveSensors: 'Inactive sensors',
@@ -749,6 +754,103 @@ describe('refreshHexes under a window', () => {
     state.window = '24h'
     await refreshHexes(map, state, cfg, fetchJSON)
     expect(asked).toHaveLength(2)
+  })
+})
+
+// The animation is the hex layer with a past hour's numbers in it. These fix
+// what that must NOT disturb: the live grid the map goes back to, and the
+// nothing it costs a reader who never presses play.
+describe('installTimelapse', () => {
+  const cfg = { metric: 'P2', noDataColour: '#9ca3af', lang: 'en' }
+  const BODY = {
+    metric: 'P2', resolution_km: 15, cells: [[23, 42]],
+    frames: [{ t: '2026-09-08T06:00:00Z', v: [10] }, { t: '2026-09-08T07:00:00Z', v: [20] }],
+  }
+
+  function harness(fetchJSON) {
+    const painted = []
+    const map = {
+      getZoom: () => 12,
+      getBounds: () => ({ getWest: () => 23, getSouth: () => 42, getEast: () => 24, getNorth: () => 43 }),
+      getSource: () => ({ setData: (d) => painted.push(d) }),
+    }
+    const ui = mountPlayer(document.createElement('div'), { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause' })
+    const state = { scales: null, hexUrl: null, window: '24h' }
+    const ctl = installTimelapse(map, state, cfg, { player: ui }, fetchJSON)
+    return { painted, ui, state, ctl, map }
+  }
+
+  // A visitor who never presses play must not pay for the history.
+  it('fetches nothing until the button is pressed', async () => {
+    const asked = []
+    const { ui } = harness(async (url) => { asked.push(url); return BODY })
+    expect(asked).toEqual([])
+
+    ui.button.click()
+    await vi.waitFor(() => expect(asked).toHaveLength(1))
+    expect(asked[0]).toContain('/api/v1/timelapse')
+    ui.button.click()
+  })
+
+  it('paints the frame it is on, and says which hour that is', async () => {
+    const { painted, ui } = harness(async () => BODY)
+
+    ui.button.click()
+    await vi.waitFor(() => expect(painted).toHaveLength(1))
+    expect(painted[0].features).toHaveLength(1)
+    expect(painted[0].features[0].properties.value).toBe(10)
+    expect(ui.clock.textContent).not.toBe('')
+    ui.button.click()
+  })
+
+  // The frame on screen is a past hour's. Pressing stop must put the live grid
+  // back, which only happens if the dedup key refreshHexes holds is cleared.
+  it('goes back to the live grid when stopped', async () => {
+    const LIVE = { resolution_km: 15, hexes: [{ lon: 23, lat: 42, values: { P2: 99 } }] }
+    const fetchJSON = async (url) => (url.includes('timelapse') ? BODY : LIVE)
+    const { ui, painted, state, map } = harness(fetchJSON)
+
+    // The live grid FIRST, so refreshHexes is holding a dedup key by the time
+    // the animation runs. Without that key being cleared on stop, the second
+    // call sees the URL it already fetched and repaints nothing — leaving a
+    // past hour on screen under a map that says it is showing now.
+    await refreshHexes(map, state, cfg, fetchJSON)
+    ui.button.click()
+    await vi.waitFor(() => expect(painted.at(-1).features[0].properties.value).toBe(10))
+
+    ui.button.click()
+    await vi.waitFor(() => expect(painted.at(-1).features[0].properties.value).toBe(99))
+    expect(ui.button.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  // Dragging is a request to look at one hour; leaving the timer running would
+  // move the map off it a third of a second later.
+  it('stops playing when the reader scrubs', async () => {
+    const { ui, painted } = harness(async () => BODY)
+
+    ui.button.click()
+    await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+    ui.slider.value = '1'
+    ui.slider.dispatchEvent(new Event('input'))
+
+    expect(ui.button.getAttribute('aria-pressed')).toBe('false')
+    expect(painted.at(-1).features[0].properties.value).toBe(20)
+  })
+
+  // A different window is a different animation: keeping the old body would
+  // replay the day while the map claimed to be showing the week.
+  it('drops what it holds on a reset, and refetches after', async () => {
+    const asked = []
+    const { ui, ctl } = harness(async (url) => { asked.push(url); return BODY })
+
+    ui.button.click()
+    await vi.waitFor(() => expect(ui.button.getAttribute('aria-pressed')).toBe('true'))
+    await ctl.reset()
+    expect(ui.slider.hidden).toBe(true)
+
+    ui.button.click()
+    await vi.waitFor(() => expect(asked.filter((u) => u.includes('timelapse'))).toHaveLength(2))
+    ui.button.click()
   })
 })
 
