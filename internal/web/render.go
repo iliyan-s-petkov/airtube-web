@@ -374,9 +374,9 @@ type alternate struct {
 // written IN that language ("Български", not "Bulgarian"): a reader who cannot
 // read the current page's language is exactly the reader the switcher is for.
 //
-// Flag is a path or "". A flag names a nation, and not every language has one —
-// English has several and belongs to none of them — so the picker falls back to
-// Code, the language's own two letters. Presence is decided by whether
+// Flag is a path or "". A flag names a nation and not every language has one, so
+// the picker falls back to Code, the language's own two letters. Presence is
+// decided by whether
 // static/flags/<lang>.svg exists, which keeps adding a language a matter of
 // dropping in files rather than editing this type.
 type langLink struct {

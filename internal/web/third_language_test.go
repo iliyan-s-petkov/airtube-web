@@ -141,6 +141,24 @@ func TestSwitcherListsEveryLoadedLanguage(t *testing.T) {
 	}
 }
 
+// A flag is shipped per language, and only the shipped ones show one.
+func TestSwitcherFlagsTheLanguagesThatShipOne(t *testing.T) {
+	rr := trilingualRenderer(t, fixture(t), nil)
+	body := fetch(t, rr, "/area/sofia").Body.String()
+
+	for _, want := range []string{
+		`<img src="/static/flags/bg.svg"`,
+		`<img src="/static/flags/en.svg"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the switcher is missing %s", want)
+		}
+	}
+	if !strings.Contains(body, `<span class="langpick__mark langpick__mark--code">de:lang.code</span>`) {
+		t.Error("a language with no flag file does not fall back to its code")
+	}
+}
+
 // Area names are the part that would otherwise demand a name_de column. Two
 // rules, both exercised here: the Latin-script stored name is the day-one
 // default for any non-Bulgarian language, and a catalogue key overrides it.
