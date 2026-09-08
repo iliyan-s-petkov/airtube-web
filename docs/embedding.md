@@ -31,7 +31,7 @@ Permissions-Policy, and a cross-origin frame would need its own `allow=` besides
 | Parameter | Values | Effect |
 |---|---|---|
 | `metric` | `P1`, `P2`, `temperature`, `humidity`, `pressure`, `noise_LAeq`, `noise_LA_max` | the metric the map paints on load |
-| `area` | a province slug, e.g. `sofia` | centres and zooms the map on that province |
+| `area` | a province slug, e.g. `sofiya-grad-oblast` (the slug in its /area/ URL) | centres and zooms the map on that province |
 
 Both are checked against what the server already knows — the configured metric
 list and the snapshot's own slugs. Anything else is ignored, and the frame
@@ -40,7 +40,7 @@ bounding-box, coordinate or list parameter: the embed reads through the same
 tiered public API as the site, under the same rate limits.
 
 ```html
-<iframe src="https://airbg.org/embed?area=plovdiv&metric=P1" …></iframe>
+<iframe src="https://airbg.org/embed?area=plovdiv-oblast&metric=P1" …></iframe>
 ```
 
 ## Language
