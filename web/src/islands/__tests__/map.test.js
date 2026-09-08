@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, locateMe, showArea, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -1304,6 +1304,105 @@ describe('locateVisitor', () => {
     await expect(locateVisitor(map, state, cfg, chrome, fetchJSON)).resolves.toBeUndefined()
     expect(map.jumpTo).not.toHaveBeenCalled()
     expect(state.slug).toBeNull()
+  })
+})
+
+// A cold load used to draw the country, then draw it again for the metric it
+// was already showing, then jump to the visitor's city and draw a third time,
+// then draw a fourth on the moveend that jump fired — visible as the map
+// redrawing itself from the centre outwards for a second or two after every
+// refresh. The camera is settled BEFORE the first paint now, and these are the
+// seams that hold that order.
+describe('the opening render', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests() })
+  afterEach(() => { resetViewStateForTests() })
+
+  const cfg = {
+    lon: 25.4858, lat: 42.7339, zoom: 7,
+    zoomCity: 9, zoomSensor: 11, metric: 'P2', noDataColour: '#9ca3af',
+    t: { hint: 'h', unavailable: 'u' },
+  }
+
+  function paintingMap(zoom = 7) {
+    const painted = []
+    return {
+      painted,
+      jumpTo: vi.fn(),
+      getZoom: () => zoom,
+      getSource: (id) => (id === 'airbg-data' ? { setData: (d) => painted.push(d) } : undefined),
+    }
+  }
+
+  const chrome = () => ({ showHint: vi.fn(), showError: vi.fn(), showNote: vi.fn(), showLegend: vi.fn() })
+
+  const areaFetch = () => vi.fn(async () => ({
+    ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }),
+  }))
+
+  const GEOIP = { source: 'geoip', slug: 'sofia', lon: 23.32, lat: 42.7, zoom: 11 }
+
+  // The whole point of the seam: it moves the camera and adopts the slug, and
+  // draws nothing. A paint here would be the paint the first refresh is about
+  // to do anyway, at a camera position that is one line older.
+  it('places the visitor without painting', async () => {
+    vi.stubGlobal('fetch', areaFetch())
+    const map = paintingMap()
+    const state = { slug: null, tier: null, scales: null }
+
+    expect(await placeVisitor(map, state, cfg, vi.fn().mockResolvedValue(GEOIP))).toBe(true)
+    expect(map.jumpTo).toHaveBeenCalledWith({ center: [23.32, 42.7], zoom: 11 })
+    expect(state.slug).toBe('sofia')
+    expect(map.painted).toHaveLength(0)
+  })
+
+  // A slow lookup must not hold the map back — an empty frame while a geoip
+  // call hangs is worse than the national view the server already rendered for.
+  it('gives up on a lookup that outruns the timeout, leaving the camera alone', async () => {
+    vi.stubGlobal('fetch', areaFetch())
+    const map = paintingMap()
+    const state = { slug: null, tier: null, scales: null }
+    const slow = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve(GEOIP), 50)))
+
+    expect(await placeVisitor(map, state, cfg, slow, { timeoutMs: 5 })).toBe(false)
+    expect(map.jumpTo).not.toHaveBeenCalled()
+    expect(state.slug).toBeNull()
+  })
+
+  // The camera step runs between the scales and the first refresh, so that
+  // refresh is the first and only paint — and it is the tier the settled camera
+  // asks for, not the one the default view would have.
+  it('paints once, after the camera has been placed', async () => {
+    vi.stubGlobal('fetch', areaFetch())
+    const map = paintingMap()
+    const state = { slug: null, tier: null, scales: null }
+    const order = []
+    map.jumpTo = vi.fn(() => order.push('jump'))
+    const painting = { getSource: map.getSource }
+    map.getSource = (id) => {
+      const src = painting.getSource(id)
+      return src && { setData: (d) => { order.push('paint'); src.setData(d) } }
+    }
+
+    await initData(map, state, cfg, chrome(), () => placeVisitor(map, state, cfg, vi.fn().mockResolvedValue(GEOIP)))
+
+    expect(order).toEqual(['jump', 'paint'])
+  })
+
+  // The moveend the placement's own jumpTo queues would repaint everything a
+  // quarter-second after the map settled — the last of the redraws, and the one
+  // that arrives late enough to look like a glitch rather than a load.
+  it('cancels a pending debounced call', async () => {
+    vi.useFakeTimers()
+    try {
+      const fn = vi.fn()
+      const debounced = debounce(fn, 250)
+      debounced()
+      debounced.cancel()
+      vi.advanceTimersByTime(1000)
+      expect(fn).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

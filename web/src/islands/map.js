@@ -194,6 +194,16 @@ export function mount(el) {
   // this map is what moves. Registered here, where the camera is.
   const unselect = provideAreaSelect((area) => showArea(map, state, cfg, chrome, area))
 
+  // Declared before the 'load' handler that cancels it: a jumpTo taken during
+  // the opening placement queues a moveend the handler has already answered.
+  const onMoveEnd = debounce(() => {
+    refresh(map, state, cfg, chrome)
+    refreshHexes(map, state, cfg)
+    // Only while the layer is on: the arrow lattice is sized to the viewport,
+    // so a move that changes the zoom changes which arrows exist.
+    if (windState.on) paintWind(map, windState)
+  }, MOVE_DEBOUNCE_MS)
+
   map.on('load', async () => {
     // Not awaited: mount()'s metric subscription must be registered before this
     // handler's first await (see below), and the ground is detail the map does
@@ -464,35 +474,47 @@ export function mount(el) {
       await refreshWind(map, cfg, chrome, windState)
     })
 
-    await initData(map, state, cfg, chrome)
+    // The opening camera is settled BEFORE the first paint, inside initData's
+    // `place` step — after the scales, because the colours come from them, and
+    // before the refresh, because that refresh is meant to be the only one.
+    // The map used to draw the national view, then the metric it was already
+    // showing, then the visitor's city, then the moveend its own jump had
+    // queued: four draws of one screen, seen as the map redrawing itself
+    // outwards from the centre for a second or two after every reload.
+    //
+    // The cost is that the map holds off its readings until the placement
+    // answers — capped at LOCATE_TIMEOUT_MS, past which the national view is
+    // drawn and a late answer moves it the old way.
+    let placed = false
+    await initData(map, state, cfg, chrome, async () => {
+      applyMetricColours(map, state, cfg, chrome, vs.metric)
 
-    // Explicit first call for the metric the page opened on: the STORE
-    // method registered above only notifies on a CHANGE, and this is
-    // deliberately AFTER initData so the FIRST real paint has state.scales to
-    // work with, rather than racing it.
-    onMetricChange(map, state, cfg, chrome, vs.metric)
+      // A #sensor= in the URL is the most specific thing anyone can say about
+      // where this map should open, so it is asked first and, when it answers,
+      // the geoip placement below is skipped: a link to a sensor in Plovdiv
+      // sent to a reader in Sofia must land on the sensor.
+      placed = await openDeepLinkedSensor(map, state, cfg, chrome, vs, getJSON, { paint: false })
 
-    // A #sensor= in the URL is the most specific thing anyone can say about
-    // where this map should open, so it is asked first and, when it answers,
-    // the geoip placement below is skipped: a link to a sensor in Plovdiv sent
-    // to a reader in Sofia must land on the sensor.
-    const deepLinked = await openDeepLinkedSensor(map, state, cfg, chrome, vs)
+      // Home page only: an area page's map island carries a fixed data-slug
+      // (cfg.slug is non-null there), so its opening view is already the area's
+      // own centre and there is nothing for /api/v1/locate to improve.
+      if (!placed && !cfg.slug) {
+        placed = await placeVisitor(map, state, cfg, getJSON, { timeoutMs: LOCATE_TIMEOUT_MS })
+      }
+    })
+    await refreshHexes(map, state, cfg)
 
-    // Home page only: an area page's map island carries a fixed data-slug
-    // (cfg.slug is non-null there), so its opening view is already the
-    // area's own centre and there is nothing for /api/v1/locate to improve.
-    // Fired after the first paint above, not before it, so a slow or failed
-    // lookup never delays the map the visitor already sees.
-    if (!deepLinked && !cfg.slug) await locateVisitor(map, state, cfg, chrome)
+    // Every jumpTo above queued a moveend of its own, and the paint it would
+    // debounce into has just happened at that exact camera position.
+    onMoveEnd.cancel()
+
+    // The slow lookup only: the body is in getJSON's cache by now if it ever
+    // arrived, so this costs a request only when the race above lost. Not
+    // awaited — the map is already on screen and complete without it.
+    if (!placed && !cfg.slug) locateVisitor(map, state, cfg, chrome)
   })
 
-  map.on('moveend', debounce(() => {
-    refresh(map, state, cfg, chrome)
-    refreshHexes(map, state, cfg)
-    // Only while the layer is on: the arrow lattice is sized to the viewport,
-    // so a move that changes the zoom changes which arrows exist.
-    if (windState.on) paintWind(map, windState)
-  }, MOVE_DEBOUNCE_MS))
+  map.on('moveend', onMoveEnd)
 
   // One layer, two kinds of feature (see sensorFeatures/areaFeatures): an
   // aggregate marker carries `slug` and clicking it is what selects an area
@@ -776,21 +798,27 @@ export function paintWind(map, state) {
 // which does not change when just the metric does and would otherwise make
 // this a silent no-op.
 function onMetricChange(map, state, cfg, chrome, metric) {
+  applyMetricColours(map, state, cfg, chrome, metric)
+  refresh(map, state, cfg, chrome, true)
+  // On every call the URL is unchanged, so refreshHexes recolours the body it
+  // holds rather than refetching.
+  refreshHexes(map, state, cfg)
+}
+
+// The colour half of a metric change: which band table the markers are painted
+// from, and the note about a metric that has none. Split out because the map's
+// FIRST paint needs the colours without the two refreshes around them — at load
+// the data is about to be fetched anyway, and calling the whole of
+// onMetricChange for a metric nobody had changed yet was one of the redraws
+// that made a reload flicker.
+function applyMetricColours(map, state, cfg, chrome, metric) {
   cfg.metric = metric
-  const scaled = hasScale(state.scales, metric)
   map.setPaintProperty(LAYER_ID, 'circle-color', markerPaint(bandsFor(state.scales, metric), {
     noDataColour: cfg.noDataColour,
     unscaledColour: cfg.unscaledColour,
-    scaled,
+    scaled: hasScale(state.scales, metric),
   }))
   chrome.showNote(metricNote(state.scales, metric, cfg.t.unscaled))
-  refresh(map, state, cfg, chrome, true)
-  // Also the grid's FIRST paint: mount() invokes this callback once at load for
-  // the metric the page opened on, so initData does not call refreshHexes as
-  // well — that would only be a second request for the same URL. On every later
-  // call the URL is unchanged, and refreshHexes recolours the body it holds
-  // rather than refetching.
-  refreshHexes(map, state, cfg)
 }
 
 // initData is the whole body of the MapLibre 'load' handler after the source and
@@ -802,12 +830,17 @@ function onMetricChange(map, state, cfg, chrome, metric) {
 // production: refresh calls showHint('') on the ordinary path, which used to
 // erase the scales-failure explanation set moments earlier. The bug lived
 // between the two functions, so the test has to span both.
-export async function initData(map, state, cfg, chrome) {
+// `place`, when given, runs between the scales and the first paint: it is
+// where the opening camera is decided. Before it existed the map painted the
+// server's default view, then the visitor's city, then whatever the moveend
+// from that jump asked for — three draws of the same first screen.
+export async function initData(map, state, cfg, chrome, place = null) {
   state.scales = await loadScales(chrome, cfg)
   // Published into the registry the moment it resolves (null included, on a
   // failed fetch) — see lib/sensors.svelte.js's own comment on why the panel
   // reads scales from there rather than calling loadScales a second time.
   setScales(state.scales)
+  if (place) await place()
   await refresh(map, state, cfg, chrome)
 }
 
@@ -1024,12 +1057,40 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
 // that does not exist in a given environment) lands in applyLocate's own
 // "stay put" branch rather than throwing out of this async 'load' handler.
 export async function locateVisitor(map, state, cfg, chrome, fetchJSON = getJSON) {
-  const body = await fetchJSON('/api/v1/locate').catch(() => null)
-  const located = applyLocate(body, { defaultView: { lon: cfg.lon, lat: cfg.lat, zoom: cfg.zoom } })
-  if (!located.move) return
+  if (!await placeVisitor(map, state, cfg, fetchJSON)) return
+  await refresh(map, state, cfg, chrome, true)
+}
+
+// How long the opening camera will wait for /api/v1/locate.
+//
+// The lookup runs BEFORE the first data paint (see mount), so every millisecond
+// here is a millisecond of map with no readings on it. A geoip lookup that has
+// not answered in this long is not worth an emptier page than the one the
+// server already rendered for: past it the map draws the national view, and the
+// answer — when it lands — moves it in the old way, one extra draw on a slow
+// connection only.
+export const LOCATE_TIMEOUT_MS = 400
+
+// placeVisitor is locateVisitor's camera half: it decides where the map opens
+// and adopts the slug that unlocks the per-area sensor tier, and paints
+// nothing. Separate because the paint is the caller's to schedule — the whole
+// reason the placement moved ahead of the first refresh is so there is only one
+// paint, at the position the map is going to stay at.
+//
+// Returns whether it moved, so the caller knows whether a national-view paint
+// still needs correcting later.
+export async function placeVisitor(map, state, cfg, fetchJSON = getJSON, { timeoutMs = null } = {}) {
+  const lookup = fetchJSON('/api/v1/locate').catch(() => null)
+  const body = timeoutMs === null ? await lookup : await Promise.race([lookup, sleep(timeoutMs)])
+  const located = applyLocate(body ?? null, { defaultView: { lon: cfg.lon, lat: cfg.lat, zoom: cfg.zoom } })
+  if (!located.move) return false
   map.jumpTo({ center: located.centre, zoom: located.zoom })
   state.slug = located.slug
-  await refresh(map, state, cfg, chrome, true)
+  return true
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(() => resolve(null), ms))
 }
 
 // The zoom a #sensor= link opens at.
@@ -1056,7 +1117,7 @@ export const DEEP_LINK_ZOOM = POINT_TIER_MIN_ZOOM + 2
 // failure — a refusal by the enumeration limiter, a sensor the snapshot does
 // not know — returns false and leaves the map exactly where it was.
 // `move: false`: the cell-click path is already looking at the sensor.
-export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSON = getJSON, { move = true } = {}) {
+export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSON = getJSON, { move = true, paint = true } = {}) {
   const id = vs.sensorId
   if (id === null || id === undefined || findSensor(id)) return false
 
@@ -1067,10 +1128,14 @@ export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSO
   // Only a real slug: a sensor outside every area still deserves the flight,
   // and adopting '' would make refresh() ask for an area page that cannot exist.
   if (body.slug) state.slug = body.slug
-  await refresh(map, state, cfg, chrome, true)
-  // The cells too, and not left to the moveend jumpTo will fire: that pass is
-  // debounced, and the sensor the link named is drawn by this layer.
-  await refreshHexes(map, state, cfg)
+  // paint: false on the opening path only, where the caller paints once after
+  // the camera has settled. Everywhere else this IS the paint.
+  if (paint) {
+    await refresh(map, state, cfg, chrome, true)
+    // The cells too, and not left to the moveend jumpTo will fire: that pass is
+    // debounced, and the sensor the link named is drawn by this layer.
+    await refreshHexes(map, state, cfg)
+  }
   return true
 }
 
@@ -1645,10 +1710,15 @@ export function hintController(render) {
 
 export function debounce(fn, ms) {
   let timer
-  return (...args) => {
+  const debounced = (...args) => {
     clearTimeout(timer)
     timer = setTimeout(() => fn(...args), ms)
   }
+  // For a move the caller made itself and has already answered: the opening
+  // jumpTo queues a moveend like any other, and letting it through would
+  // repaint the whole map a quarter-second after it settled.
+  debounced.cancel = () => clearTimeout(timer)
+  return debounced
 }
 
 // mountChrome builds the legend and the hint banner as plain DOM, appended
