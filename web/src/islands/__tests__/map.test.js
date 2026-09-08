@@ -1598,6 +1598,22 @@ describe('openDeepLinkedSensor', () => {
     expect(moved).toBe(true)
   })
 
+  // /locate answers with the finest area holding the sensor, which the loaded
+  // tier need not list. Taking it would rank the sensor against a set a click
+  // on the same sensor never uses, and one the loaded tier cannot name.
+  it('adopts the loaded tier’s area over a finer one the locate call names', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const state = {
+      slug: null, tier: null, scales: null,
+      areas: [{ slug: 'sofia-grad', lon: 23.32, lat: 42.7 }, { slug: 'plovdiv', lon: 24.75, lat: 42.14 }],
+    }
+    const fetchJSON = vi.fn().mockResolvedValue({ id: 11338, lon: 23.252, lat: 42.684, slug: 'ovcha-kupel' })
+
+    await openDeepLinkedSensor(fakeMap(), state, cfg, chrome(), viewState(11338), fetchJSON, { move: false })
+
+    expect(state.slug).toBe('sofia-grad')
+  })
+
   // A sensor the snapshot knows but no area page owns: the position is still
   // worth flying to, and adopting a slug no endpoint serves would be worse.
   it('flies to a sensor with no area without adopting an empty slug', async () => {

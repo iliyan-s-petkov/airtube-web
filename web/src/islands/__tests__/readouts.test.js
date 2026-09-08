@@ -44,7 +44,7 @@ afterEach(() => {
 })
 
 // The server's own strip, exactly as base.gohtml writes it. The island must
-// leave it in the DOM: closing the sensor has to restore it, not rebuild it.
+// leave it showing: the sensor's row is added above it, never in place of it.
 function island() {
   const el = document.createElement('div')
   Object.assign(el.dataset, ATTRS)
@@ -65,7 +65,9 @@ describe('readouts island', () => {
     expect(shown(el)[0].textContent).toContain('national')
   })
 
-  it('swaps in the area figures around the open sensor', () => {
+  // Two rows, the sensor's first: the area figures answer "compared to what",
+  // which is a question about the row below them.
+  it('adds the area figures above the server strip when a sensor opens', () => {
     setSensors(BODY, 'ovcha-kupel')
     setScales(SCALES)
     setMapAreas([{ slug: 'ovcha-kupel', name_bg: 'Овча купел', name_en: 'Ovcha Kupel' }])
@@ -75,21 +77,20 @@ describe('readouts island', () => {
     flushSync()
 
     const strip = shown(el)
-    expect(strip).toHaveLength(1)
-    expect(strip[0].textContent).not.toContain('national')
+    expect(strip).toHaveLength(2)
     expect(strip[0].textContent).toContain('Максимум · ФПЧ2.5')
     expect(strip[0].textContent).toContain('Овча купел · 3 сензора')
+    expect(strip[1].textContent).toContain('national')
   })
 
-  // The whole reason the national cells are hidden rather than replaced.
-  it('brings the national cells back when the sensor is closed', () => {
+  it('drops the sensor row when the sensor is closed', () => {
     setSensors(BODY, 'ovcha-kupel')
     setScales(SCALES)
     const el = island()
 
     getViewState().openSensor(1)
     flushSync()
-    expect(shown(el)[0].textContent).not.toContain('national')
+    expect(shown(el)).toHaveLength(2)
 
     getViewState().closeSensor()
     flushSync()
@@ -111,12 +112,13 @@ describe('readouts island', () => {
   })
 
   // One reporting station gives a highest, a lowest and a median that are three
-  // names for one number. The national figures are the better answer.
-  it('keeps the national cells where the area cannot be compared', () => {
+  // names for one number. No row at all is the honest answer.
+  it('adds no row where the area cannot be compared', () => {
     setSensors({ sensors: { id: [1], station: [1], P2: [4] } }, 'ovcha-kupel')
     const el = island()
     getViewState().openSensor(1)
     flushSync()
+    expect(shown(el)).toHaveLength(1)
     expect(shown(el)[0].textContent).toContain('national')
   })
 })

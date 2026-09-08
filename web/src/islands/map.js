@@ -1228,9 +1228,15 @@ export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSO
   if (typeof body?.lon !== 'number' || typeof body?.lat !== 'number') return false
 
   if (move) map.jumpTo({ center: [body.lon, body.lat], zoom: DEEP_LINK_ZOOM })
+  // The area list first, the locate slug only as the fallback. /locate answers
+  // with the finest area holding the sensor, which can be a quarter the map's
+  // current tier does not list — adopting it would rank the sensor against a
+  // different set than a click on the same sensor does, and leave that set
+  // unnamed. nearestArea is the rule every other selection path uses.
+  const slug = nearestArea([body.lon, body.lat], state.areas ?? [])?.slug ?? body.slug
   // Only a real slug: a sensor outside every area still deserves the flight,
   // and adopting '' would make refresh() ask for an area page that cannot exist.
-  if (body.slug) state.slug = body.slug
+  if (slug) state.slug = slug
   // paint: false on the opening path only, where the caller paints once after
   // the camera has settled. Everywhere else this IS the paint.
   if (paint) {

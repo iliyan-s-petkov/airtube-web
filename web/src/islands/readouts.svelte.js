@@ -1,10 +1,10 @@
 // The readout strip, while a sensor is open.
 //
-// The server's four national cards stay in the DOM untouched; this island
-// mounts a second strip beside them and hides one or the other. Rebuilding the
-// national figures in JS would mean a second implementation of numbers the page
-// already carries, free to drift from them — and closing the panel has to put
-// back exactly what was there, not a recomputation of it.
+// Two rows: this island's cards for the open sensor's own area on top, the
+// server's cards below them, always. The lower row is never rebuilt in JS —
+// that would be a second implementation of numbers the page already carries,
+// free to drift from them — and closing the panel only has to drop the row
+// above it.
 import { mount as mountComponent, unmount } from 'svelte'
 import Readouts from '../components/Readouts.svelte'
 import { areaStats } from '../lib/areastats.js'
@@ -37,8 +37,10 @@ export function mount(el, doc = document) {
     areaSensors: d.tAreaSensors || '', sensorsOnly: d.tSensorsOnly || '',
   }
 
+  // The server's strip is the first child; the sensor row goes above it.
+  const served = el.querySelector('.readouts')
   const host = doc.createElement('div')
-  el.appendChild(host)
+  el.insertBefore(host, served)
 
   function cards() {
     if (vs.sensorId == null) return []
@@ -54,18 +56,10 @@ export function mount(el, doc = document) {
     })
   }
 
-  // The national strip is the server's first child; it goes away only while
-  // there is a full replacement to show. A sensor with no comparable
-  // neighbours leaves it standing rather than blanking the strip.
-  // .svelte.js, for this one $effect: the swap is a side effect on a node the
-  // server rendered, which no getter prop can express.
-  const served = el.querySelector('.readouts')
+  // .svelte.js, for this one $effect: hiding an empty row is a side effect on
+  // a node outside the component, which no getter prop can express.
   const stop = $effect.root(() => {
-    $effect(() => {
-      const shown = cards().length > 0
-      host.hidden = !shown
-      if (served) served.hidden = shown
-    })
+    $effect(() => { host.hidden = cards().length === 0 })
   })
 
   const component = mountComponent(Readouts, { target: host, props: { get cards() { return cards() } } })
