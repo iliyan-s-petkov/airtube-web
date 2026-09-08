@@ -17,9 +17,12 @@
   // unit is what that axis's numbers are counted in — without it a plot of two
   // metrics shows two columns of bare numbers and leaves the reader to guess
   // which quantity each one belongs to.
+  //
+  // resizable gives the plot a drag handle: analysing a day of four metrics
+  // wants more than the 240px a summary chart needs.
   let {
     url, lineColour, valueLabel, valueUnit = '', sources = null,
-    title, timeLabel, empty, unavailable,
+    title, timeLabel, empty, unavailable, resizable = false,
   } = $props()
 
   const defs = $derived(sources ?? [{ url, label: valueLabel, colour: lineColour, scale: 'y', unit: valueUnit }])
@@ -29,6 +32,17 @@
   // this component is already on screen with the current values.
   let status = $state('loading')
   let host
+  let frame
+
+  // The plot's own height. A resized frame carries an inline height the reader
+  // dragged, and uPlot's legend sits inside it, so its strip comes off the plot
+  // rather than overflowing the box.
+  const BASE_HEIGHT = 240
+  const LEGEND_STRIP = 34
+  function plotSize() {
+    const dragged = resizable && frame?.clientHeight ? frame.clientHeight - LEGEND_STRIP : BASE_HEIGHT
+    return { width: host.clientWidth || 600, height: Math.max(160, dragged) }
+  }
 
   $effect(() => {
     let chart
@@ -69,10 +83,11 @@
       // share the plot without either being squashed into the other's range.
       const scales = [...new Set(lines.map((s) => s.scale ?? 'y'))]
 
+      const size = plotSize()
       chart = new uPlot({
         title,
-        width: host.clientWidth || 600,
-        height: 240,
+        width: size.width,
+        height: size.height,
         // Epoch SECONDS — see lib/series.js. uPlot's x scale is time by
         // default, so milliseconds would plot every point in 1970 silently.
         //
@@ -129,17 +144,19 @@
       // The container is fluid; a chart left at its first-paint width is
       // visibly wrong after a phone rotates. setSize does not re-fetch.
       observer = new ResizeObserver(() => {
-        const width = host.clientWidth
-        if (width > 0) chart.setSize({ width, height: 240 })
+        const next = plotSize()
+        if (next.width > 0) chart.setSize(next)
       })
-      observer.observe(host)
+      observer.observe(resizable ? frame : host)
     })()
 
     return () => { cancelled = true; observer?.disconnect(); chart?.destroy?.() }
   })
 </script>
 
-<div bind:this={host} class="chart-host"></div>
+<div bind:this={frame} class="chart-frame" class:chart-frame--resizable={resizable}>
+  <div bind:this={host} class="chart-host"></div>
+</div>
 {#if status === 'unavailable'}<p class="chart-message">{unavailable}</p>{/if}
 {#if status === 'empty'}<p class="chart-message">{empty}</p>{/if}
 

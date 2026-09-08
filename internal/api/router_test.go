@@ -52,6 +52,17 @@ type stubSource struct {
 	// assert on this directly: a request refused by the admission semaphore
 	// must never have reached the database.
 	areaAtPointCalls int
+
+	// The window the last series call was given: a dropped upper bound is a 200
+	// over the wrong window, invisible in the response body.
+	lastSince  time.Time
+	lastUntil  *time.Time
+	lastHourly bool
+	lastBucket time.Duration
+}
+
+func (s *stubSource) recordWindow(since time.Time, until *time.Time, hourly bool, bucket time.Duration) {
+	s.lastSince, s.lastUntil, s.lastHourly, s.lastBucket = since, until, hourly, bucket
 }
 
 func (s *stubSource) AreaAtPoint(_ context.Context, _, _ float64) (string, error) {
@@ -59,12 +70,14 @@ func (s *stubSource) AreaAtPoint(_ context.Context, _, _ float64) (string, error
 	return s.slug, s.err
 }
 
-func (s *stubSource) SensorSeries(_ context.Context, _ int64, _ string, _ time.Time, _ bool, _ time.Duration) ([]store.Point, error) {
+func (s *stubSource) SensorSeries(_ context.Context, _ int64, _ string, since time.Time, until *time.Time, hourly bool, bucket time.Duration) ([]store.Point, error) {
+	s.recordWindow(since, until, hourly, bucket)
 	return s.points, s.err
 }
 
-func (s *stubSource) AreaSeries(_ context.Context, _, _ string, _ time.Time, _ bool, _ time.Duration) ([]store.Point, error) {
+func (s *stubSource) AreaSeries(_ context.Context, _, _ string, since time.Time, until *time.Time, hourly bool, bucket time.Duration) ([]store.Point, error) {
 	s.areaSeriesCalls++
+	s.recordWindow(since, until, hourly, bucket)
 	return s.points, s.err
 }
 

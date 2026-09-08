@@ -27,6 +27,11 @@ const props = {
   metricLabel: 'PM2.5',
   tier: 'province average',
   periodLegend: 'Period',
+  customLabel: 'Custom range',
+  fromLabel: 'From',
+  toLabel: 'To',
+  resetLabel: 'Reset view',
+  rangeInvalid: 'Choose a start and an end.',
   lineColour: '#2563eb',
   valueLabel: 'µg/m³',
   timeLabel: 'Time',
@@ -55,6 +60,13 @@ function render(extra) {
   return target
 }
 
+function setValue(el, value) {
+  el.value = value
+  el.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+const periodSelect = (target) => target.querySelector('#area-period-select')
+
 describe('ChartPanel.svelte', () => {
   // The kit's heading is metric · period · tier. Three separate parts, because
   // the middle one is rewritten when the reader picks another window.
@@ -64,21 +76,21 @@ describe('ChartPanel.svelte', () => {
     expect(h2.textContent).toBe('PM2.5 · 24 hours · province average')
   })
 
-  // A radio set, not a row of buttons: the periods are mutually exclusive, and
-  // the one in force must be announced as selected rather than merely painted.
-  it('offers one radio per configured period, with the current one checked', () => {
+  // A select, not a row of segments: the list now carries a custom range too,
+  // and the option in force is the one the server opened the page on.
+  it('offers one option per configured period, plus the custom range', () => {
     const target = render()
-    const inputs = [...target.querySelectorAll('.chart-controls input[type=radio]')]
-    expect(inputs.map((i) => i.value)).toEqual(['24h', '7d', '30d', '1y'])
-    expect(inputs.map((i) => i.nextElementSibling.textContent))
-      .toEqual(['24 hours', '7 days', '30 days', '1 year'])
-    expect(inputs.filter((i) => i.checked).map((i) => i.value)).toEqual(['24h'])
+    const options = [...target.querySelectorAll('#area-period-select option')]
+    expect(options.map((o) => o.value)).toEqual(['24h', '7d', '30d', '1y', 'custom'])
+    expect(options.map((o) => o.textContent))
+      .toEqual(['24 hours', '7 days', '30 days', '1 year', 'Custom range'])
+    expect(periodSelect(target).value).toBe('24h')
   })
 
-  // The legend is what tells a screen reader what the group of radios is for.
+  // The label is what tells a screen reader what the select is for.
   it('labels the switcher with the server-supplied legend', () => {
     const target = render()
-    expect(target.querySelector('.chart-controls legend').textContent).toBe('Period')
+    expect(target.querySelector('label[for="area-period-select"]').textContent).toBe('Period')
   })
 
   // The point of the control: a new period must reach the API, and the heading
@@ -88,9 +100,7 @@ describe('ChartPanel.svelte', () => {
     await vi.waitFor(() => expect(urls).toHaveLength(1))
     expect(urls[0]).toContain('period=24h')
 
-    const weekly = target.querySelector('input[value="7d"]')
-    weekly.checked = true
-    weekly.dispatchEvent(new Event('change', { bubbles: true }))
+    setValue(periodSelect(target), '7d')
 
     await vi.waitFor(() => expect(urls).toHaveLength(2))
     expect(urls[1]).toContain('/api/v1/area/sofia/series')
@@ -111,20 +121,49 @@ describe('ChartPanel.svelte', () => {
     // A request that never settles: what is on screen in the meantime is
     // exactly what this case is about.
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {}))
-    const monthly = target.querySelector('input[value="30d"]')
-    monthly.checked = true
-    monthly.dispatchEvent(new Event('change', { bubbles: true }))
+    setValue(periodSelect(target), '30d')
 
     await vi.waitFor(() => expect(target.textContent).not.toContain(props.empty))
   })
 
-  // The switcher's name groups the radios. Two groups sharing a name on one
-  // page silently become one, so this pins the chart's own.
-  it('keeps the chart switcher in its own radio group', () => {
+  // The panel and the area chart both mount a PeriodPicker on the same page.
+  // Distinct ids are what keep each label pointing at its own select.
+  it('gives the area switcher its own id', () => {
     const target = render()
-    const input = target.querySelector('.chart-controls input[type=radio]')
-    expect(input.name).toBe('chart-window')
-    expect(input.name).not.toBe('metric')
+    expect(periodSelect(target)).not.toBeNull()
+    expect(target.querySelector('#panel-period-select')).toBeNull()
+  })
+
+  it('asks for the custom window only once both ends are set, earliest first', async () => {
+    const target = render()
+    await vi.waitFor(() => expect(urls).toHaveLength(1))
+
+    setValue(periodSelect(target), 'custom')
+    await vi.waitFor(() => expect(target.querySelector('#area-period-from')).not.toBeNull())
+    setValue(target.querySelector('#area-period-from'), '2026-08-15T00:00')
+    setValue(target.querySelector('#area-period-to'), '2026-08-14T00:00')
+    await Promise.resolve()
+    expect(urls).toHaveLength(1)
+    expect(target.querySelector('.chart-message').textContent).toContain(props.rangeInvalid)
+
+    setValue(target.querySelector('#area-period-to'), '2026-08-16T00:00')
+    await vi.waitFor(() => expect(urls).toHaveLength(2))
+    expect(urls[1]).toContain('period=custom')
+    expect(urls[1]).toContain('from=')
+    expect(urls[1]).toContain('to=')
+  })
+
+  it('reset returns the window to the one the page opened on', async () => {
+    const target = render()
+    await vi.waitFor(() => expect(urls).toHaveLength(1))
+
+    setValue(periodSelect(target), '7d')
+    await vi.waitFor(() => expect(urls).toHaveLength(2))
+
+    target.querySelector('.chart-controls button.btn--secondary').click()
+    await vi.waitFor(() => expect(periodSelect(target).value).toBe('24h'))
+    expect(target.querySelector('.chart-head .t-section').textContent)
+      .toBe('PM2.5 · 24 hours · province average')
   })
 
   // The heading is an <h2>, not a styled <div>: it is the section's place in

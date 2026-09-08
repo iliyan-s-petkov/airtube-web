@@ -411,6 +411,14 @@ func (c Config) validateFrontend(p *problems) {
 			p.addf("%s = %q, must be a six-digit hex colour such as #9ca3af", path, colour)
 		}
 	}
+	// Entry by entry: an invalid colour reaching a canvas stroke is not an error
+	// but a line the browser silently declines to draw.
+	for i, colour := range strings.Split(c.Frontend.ChartSeriesColours, ",") {
+		colour = strings.TrimSpace(colour)
+		if !colourPattern.MatchString(colour) {
+			p.addf("frontend.chart_series_colours[%d] = %q, must be a six-digit hex colour such as #9ca3af", i, colour)
+		}
+	}
 	for path, zoom := range map[string]int{
 		"frontend.zoom_city":    c.Frontend.ZoomCity,
 		"frontend.zoom_sensor":  c.Frontend.ZoomSensor,

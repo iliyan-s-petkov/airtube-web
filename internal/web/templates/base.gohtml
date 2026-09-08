@@ -128,9 +128,25 @@
      this markup is how the two start rendering differently. Each cell keeps its
      tier line: no bare numbers (DESIGN.md §9.1). */}}
 {{define "readouts"}}<div class="readouts">
-{{range .}}  <div class="readout">
+{{range .}}  <div class="readout card">
     <span class="readout__label">{{.Label}}</span>
-    <span class="readout__value">{{.Value}}{{with .Unit}} <span class="readout__unit">{{.}}</span>{{end}}</span>
-    <span class="readout__tier">{{.Tier}}</span>
+{{if .Gauge}}    {{/* SVG presentation attributes, not an inline style: style-src is
+         'self' with no 'unsafe-inline', so a style attribute would be dropped
+         and the arc would never paint. pathLength=100 makes the dash array the
+         percentage directly. aria-hidden because the figure inside says it. */}}
+    <span class="gauge">
+      <svg class="gauge__dial" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+        <circle class="gauge__track" cx="18" cy="18" r="15.9155" fill="none" pathLength="100"></circle>
+        <circle class="gauge__arc" cx="18" cy="18" r="15.9155" fill="none" pathLength="100"
+                stroke="{{.Colour}}" stroke-dasharray="{{.Percent}} 100"
+                transform="rotate(-90 18 18)"></circle>
+      </svg>
+      <span class="gauge__figure">
+        <span class="readout__value">{{.Value}}</span>
+        <span class="readout__unit">{{.Unit}}</span>
+      </span>
+    </span>
+{{else}}    <span class="readout__value">{{.Value}}{{with .Unit}} <span class="readout__unit">{{.}}</span>{{end}}</span>
+{{end}}    <span class="readout__tier">{{.Tier}}</span>
   </div>
 {{end}}</div>{{end}}

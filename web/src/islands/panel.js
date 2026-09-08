@@ -155,12 +155,15 @@ function buildChartSnippet(sensor, options, d) {
           initialMetric: d.metric,
           metricLegend: d.tChartMetricLegend || '',
           periodLegend: d.tChartPeriodLegend || '',
-          compareLabel: d.tChartCompare || '',
-          compareNone: d.tChartCompareNone || '',
+          customLabel: d.tPeriodCustom || '',
+          fromLabel: d.tPeriodFrom || '',
+          toLabel: d.tPeriodTo || '',
+          resetLabel: d.tChartReset || '',
+          rangeInvalid: d.tChartRangeInvalid || '',
           // Config (frontend.chart_*_colour), not CSS: a canvas inherits no
-          // custom property.
-          primaryColour: d.lineColour,
-          compareColour: d.compareColour,
+          // custom property. The panel draws as many lines as the reader ticks,
+          // so the palette runs on past the two named colours.
+          colours: [d.lineColour, d.compareColour, ...parseMetricList(d.seriesColours)],
           timeLabel: d.tChartTime || '',
           empty: d.tChartEmpty || '',
           unavailable: d.tChartUnavailable || '',

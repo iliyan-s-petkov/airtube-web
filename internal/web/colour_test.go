@@ -3,6 +3,7 @@ package web
 import (
 	"testing"
 
+	"airbg.org/internal/api"
 	"airbg.org/internal/upstream"
 )
 
@@ -69,5 +70,65 @@ func TestBandColourUsesTheSameTableTheMapDoes(t *testing.T) {
 	// the table the map uses.
 	if got, want := bandColour("P2", 20), "#f0e641"; got != want {
 		t.Errorf("bandColour(P2, 20) = %q, want the EAQI band %q", got, want)
+	}
+}
+
+// The gauge's ceiling is the highest FINITE band bound: the top band is open,
+// so it cannot be the denominator. Only µg/m³ is gauged — a pressure or a
+// temperature is not a fraction of its axis.
+func TestGaugePercentScalesAgainstTheHighestFiniteBand(t *testing.T) {
+	cases := []struct {
+		name   string
+		metric string
+		value  float64
+		want   int
+		wantOK bool
+	}{
+		{"nothing", "P2", 0, 0, true},
+		{"the ceiling itself", "P2", ceilingOf(t, "P2"), 100, true},
+		{"half the ceiling", "P2", ceilingOf(t, "P2") / 2, 50, true},
+		{"past the open top band", "P2", ceilingOf(t, "P2") * 3, 100, true},
+		{"a negative reading", "P2", -5, 0, true},
+		{"a metric counted in another unit", "pressure", 1013, 0, false},
+		{"a metric with no scale at all", "not_a_metric", 5, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := gaugePercent(c.metric, c.value)
+			if ok != c.wantOK || got != c.want {
+				t.Errorf("gaugePercent(%q, %v) = %d, %v; want %d, %v", c.metric, c.value, got, ok, c.want, c.wantOK)
+			}
+		})
+	}
+}
+
+func ceilingOf(t *testing.T, metric string) float64 {
+	t.Helper()
+	top := 0.0
+	for _, scale := range api.Scales() {
+		if scale.Metric != metric {
+			continue
+		}
+		for _, band := range scale.Bands {
+			if band.Upper != nil && *band.Upper > top {
+				top = *band.Upper
+			}
+		}
+	}
+	if top <= 0 {
+		t.Fatalf("%s has no finite band bound to scale against", metric)
+	}
+	return top
+}
+
+func TestFiniteCeilingTakesTheHighestBoundWhateverTheOrder(t *testing.T) {
+	up := func(v float64) *float64 { return &v }
+	bands := []api.Band{{Upper: up(50)}, {Upper: up(120)}, {Upper: up(80)}, {Upper: nil}}
+
+	if got, ok := finiteCeiling(bands); !ok || got != 120 {
+		t.Errorf("finiteCeiling = %v, %v; want 120, true — the highest bound, not the last", got, ok)
+	}
+	if _, ok := finiteCeiling([]api.Band{{Upper: nil}}); ok {
+		t.Error("an open-ended band alone is no ceiling: a fraction of infinity means nothing")
 	}
 }

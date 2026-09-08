@@ -21,9 +21,9 @@ func TestSensorPanelCarriesThePlaceHostClass(t *testing.T) {
 }
 
 // Order is the fix, not decoration: a card that describes the marker the reader
-// just clicked has to come after the map in the reading order, and before the
-// freshness line that closes the page.
-func TestSensorPanelSitsBetweenTheMapAndTheFreshnessLine(t *testing.T) {
+// just clicked has to come after the map, and after the freshness line, which
+// is now an overlay inside the map shell and says how old the map itself is.
+func TestSensorPanelComesAfterTheMapAndItsFreshnessOverlay(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
 	body := fetch(t, rr, "/en/area/high").Body.String()
 
@@ -34,8 +34,8 @@ func TestSensorPanelSitsBetweenTheMapAndTheFreshnessLine(t *testing.T) {
 	if mapAt < 0 || panelAt < 0 || freshAt < 0 {
 		t.Fatalf("the area page is missing one of its parts: map=%d panel=%d freshness=%d", mapAt, panelAt, freshAt)
 	}
-	if !(mapAt < panelAt && panelAt < freshAt) {
-		t.Errorf("the sensor panel is not between the map and the freshness line: map=%d panel=%d freshness=%d", mapAt, panelAt, freshAt)
+	if !(mapAt < freshAt && freshAt < panelAt) {
+		t.Errorf("the freshness overlay is not on the map above the panel: map=%d freshness=%d panel=%d", mapAt, freshAt, panelAt)
 	}
 }
 

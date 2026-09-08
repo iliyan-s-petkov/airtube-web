@@ -361,7 +361,7 @@ func TestSensorSeriesUsesRawBelowThirtyDays(t *testing.T) {
 		t.Fatalf("seed hourly: %v", err)
 	}
 
-	pts, err := s.SensorSeries(ctx, 20, "P2", now.Add(-24*time.Hour), false, time.Second)
+	pts, err := s.SensorSeries(ctx, 20, "P2", now.Add(-24*time.Hour), nil, false, time.Second)
 	if err != nil {
 		t.Fatalf("SensorSeries: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestSensorSeriesUsesHourlyAboveThirtyDays(t *testing.T) {
 		t.Fatalf("seed hourly: %v", err)
 	}
 
-	pts, err := s.SensorSeries(ctx, 21, "P2", bucket.Add(-time.Hour), true, time.Hour)
+	pts, err := s.SensorSeries(ctx, 21, "P2", bucket.Add(-time.Hour), nil, true, time.Hour)
 	if err != nil {
 		t.Fatalf("SensorSeries: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestAreaSeriesAveragesAcrossSensors(t *testing.T) {
 	}
 	assignAreas(t, ctx, pool)
 
-	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false, time.Second)
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), nil, false, time.Second)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}
@@ -519,7 +519,7 @@ func TestAreaSeriesBucketsAsynchronousReports(t *testing.T) {
 	seedSensorReading(t, ctx, pool, 711, 23.3229, 42.6977, "P2", 30, "ok", base.Add(time.Second))
 	assignAreas(t, ctx, pool)
 
-	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false, 5*time.Minute)
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), nil, false, 5*time.Minute)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}
@@ -544,7 +544,7 @@ func TestAreaSeriesSeparatesDistinctBuckets(t *testing.T) {
 	seedSensorReading(t, ctx, pool, 721, 23.3229, 42.6977, "P2", 30, "ok", base.Add(20*time.Minute))
 	assignAreas(t, ctx, pool)
 
-	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false, 5*time.Minute)
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), nil, false, 5*time.Minute)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}
@@ -568,7 +568,7 @@ func TestAreaSeriesExcludesFlaggedReadings(t *testing.T) {
 	seedSensorReading(t, ctx, pool, 801, 23.3229, 42.6977, "P2", 1000, "stuck", base)
 	assignAreas(t, ctx, pool)
 
-	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), false, time.Second)
+	points, err := s.AreaSeries(ctx, "sofia", "P2", base.Add(-time.Hour), nil, false, time.Second)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}
@@ -643,7 +643,7 @@ func TestAllAreaSeriesMatchesThePerAreaQuery(t *testing.T) {
 	}
 
 	for slug, batched := range all {
-		single, err := s.AreaSeries(ctx, slug, "P2", since, false, 5*time.Minute)
+		single, err := s.AreaSeries(ctx, slug, "P2", since, nil, false, 5*time.Minute)
 		if err != nil {
 			t.Fatalf("AreaSeries(%q): %v", slug, err)
 		}
@@ -702,7 +702,7 @@ func TestAreaSeriesExcludesOutOfRangeNaN(t *testing.T) {
 	seedSensorReading(t, ctx, pool, 901, 23.501, 42.5, "P2", math.NaN(), "out_of_range", base)
 	assignAreas(t, ctx, pool)
 
-	points, err := s.AreaSeries(ctx, "nan-area", "P2", base.Add(-time.Hour), false, time.Second)
+	points, err := s.AreaSeries(ctx, "nan-area", "P2", base.Add(-time.Hour), nil, false, time.Second)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}
@@ -751,7 +751,7 @@ func TestAreaSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, err = s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false, time.Second)
+	_, err = s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), nil, false, time.Second)
 	elapsed := time.Since(start)
 
 	var pgErr *pgconn.PgError
@@ -788,7 +788,7 @@ func TestSensorSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, err = s.SensorSeries(ctx, 950, "P2", now.Add(-time.Hour), false, time.Second)
+	_, err = s.SensorSeries(ctx, 950, "P2", now.Add(-time.Hour), nil, false, time.Second)
 	elapsed := time.Since(start)
 
 	var pgErr *pgconn.PgError
@@ -810,7 +810,7 @@ func TestAreaSeriesStillReturnsDataInsideItsTransaction(t *testing.T) {
 
 	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20)
 
-	points, err := s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), false, time.Second)
+	points, err := s.AreaSeries(ctx, slug, "P2", at.Add(-time.Hour), nil, false, time.Second)
 	if err != nil {
 		t.Fatalf("AreaSeries: %v", err)
 	}

@@ -24,6 +24,11 @@ export function mount(el) {
       metricLabel: d.tMetric || '',
       tier: d.tTier || '',
       periodLegend: d.tPeriodLegend || '',
+      customLabel: d.tPeriodCustom || '',
+      fromLabel: d.tPeriodFrom || '',
+      toLabel: d.tPeriodTo || '',
+      resetLabel: d.tReset || '',
+      rangeInvalid: d.tRangeInvalid || '',
       lineColour: d.lineColour,
       valueLabel: d.tValue || '',
       // The y axis unit; server-rendered from unit.<metric>.

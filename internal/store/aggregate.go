@@ -291,12 +291,14 @@ var (
 SELECT ` + bucketed("time", 5) + ` AS b, avg(value) FROM reading
  WHERE sensor_id = $1 AND metric = $2 AND time >= $3
    AND quality = ANY($4::quality_flag[])
+   AND ($6::timestamptz IS NULL OR time < $6)
  GROUP BY b
  ORDER BY b`
 
 	hourlySeriesSQL = `
 SELECT ` + bucketed("bucket", 4) + ` AS b, avg(avg_value) FROM reading_hourly
  WHERE sensor_id = $1 AND metric = $2 AND bucket >= $3
+   AND ($5::timestamptz IS NULL OR bucket < $5)
  GROUP BY b
  ORDER BY b`
 )
@@ -310,7 +312,10 @@ SELECT ` + bucketed("bucket", 4) + ` AS b, avg(avg_value) FROM reading_hourly
 // reading_hourly or it silently returns a truncated series that looks complete.
 // bucket is the resolution, a separate decision from hourly: hourly picks the
 // table, bucket picks how many points come back.
-func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, hourly bool, bucket time.Duration) ([]Point, error) {
+//
+// until is the exclusive upper bound, nil for "up to the newest reading" — a
+// pointer because pgx sends nil as NULL, while a zero time.Time is the year 1.
+func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, until *time.Time, hourly bool, bucket time.Duration) ([]Point, error) {
 	// A transaction only so statement_timeout can be scoped: set_config's local
 	// flag is transaction-scoped, and this read must not inherit the pool-wide
 	// 15s. Rolled back rather than committed — nothing is written, and a rollback
@@ -327,9 +332,9 @@ func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string,
 
 	var rows pgx.Rows
 	if hourly {
-		rows, err = tx.Query(ctx, hourlySeriesSQL, sensorID, metric, since, bucket.Seconds())
+		rows, err = tx.Query(ctx, hourlySeriesSQL, sensorID, metric, since, bucket.Seconds(), until)
 	} else {
-		rows, err = tx.Query(ctx, rawSeriesSQL, sensorID, metric, since, usableQuality, bucket.Seconds())
+		rows, err = tx.Query(ctx, rawSeriesSQL, sensorID, metric, since, usableQuality, bucket.Seconds(), until)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: sensor series: %w", err)
@@ -370,6 +375,7 @@ SELECT ` + bucketed("r.time", 5) + ` AS b, avg(r.value)
    AND r.metric = $2
    AND r.time  >= $3
    AND r.quality = ANY($4::quality_flag[])
+   AND ($6::timestamptz IS NULL OR r.time < $6)
  GROUP BY b
  ORDER BY b`
 
@@ -384,6 +390,7 @@ SELECT ` + bucketed("h.bucket", 4) + ` AS b, avg(h.avg_value)
  WHERE a.slug   = $1
    AND h.metric = $2
    AND h.bucket >= $3
+   AND ($5::timestamptz IS NULL OR h.bucket < $5)
  GROUP BY b
  ORDER BY b`
 
@@ -469,7 +476,9 @@ func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Tim
 // the requested window — and raw readings are retained for 30 days, so a longer
 // window queried against `reading` returns a silently truncated series rather
 // than an error.
-func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.Time, hourly bool, bucket time.Duration) ([]Point, error) {
+//
+// until is the exclusive upper bound, nil for unbounded — as in SensorSeries.
+func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.Time, until *time.Time, hourly bool, bucket time.Duration) ([]Point, error) {
 	// A transaction only so statement_timeout can be scoped: set_config's local
 	// flag is transaction-scoped, and this read must not inherit the pool-wide
 	// 15s. Rolled back rather than committed — nothing is written, and a rollback
@@ -486,9 +495,9 @@ func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.
 
 	var rows pgx.Rows
 	if hourly {
-		rows, err = tx.Query(ctx, areaHourlySeriesSQL, slug, metric, since, bucket.Seconds())
+		rows, err = tx.Query(ctx, areaHourlySeriesSQL, slug, metric, since, bucket.Seconds(), until)
 	} else {
-		rows, err = tx.Query(ctx, areaRawSeriesSQL, slug, metric, since, usableQuality, bucket.Seconds())
+		rows, err = tx.Query(ctx, areaRawSeriesSQL, slug, metric, since, usableQuality, bucket.Seconds(), until)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: area series for %q: %w", slug, err)

@@ -48,8 +48,8 @@ func TestAreaReadoutsGiveOneCellPerMeasuredMetric(t *testing.T) {
 	if got[2].Unit != "°C" {
 		t.Errorf("temperature unit = %q, want °C — each metric carries its own", got[2].Unit)
 	}
-	if got[3].Value != "111" || got[3].Unit != "" {
-		t.Errorf("sensor cell = %q %q, want a bare 111", got[3].Value, got[3].Unit)
+	if got[3].Value != "111" || got[3].Unit != "сензора" {
+		t.Errorf("sensor cell = %q %q, want 111 сензора — a count is a unit too", got[3].Value, got[3].Unit)
 	}
 }
 

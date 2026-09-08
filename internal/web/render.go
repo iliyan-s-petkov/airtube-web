@@ -159,6 +159,7 @@ type PageData struct {
 	HexOpacity         float64
 	ChartLineColour    string
 	ChartCompareColour string
+	ChartSeriesColours string
 	ZoomCity           int
 	ZoomSensor         int
 	DefaultMetric      string
@@ -241,6 +242,22 @@ type Readout struct {
 	Value string
 	Unit  string
 	Tier  string
+	// Gauge draws the figure inside an arc of Percent, filled in Colour — the
+	// two µg/m³ cells, where a number alone says nothing about how bad it is.
+	// A count has no scale to be a fraction of, so it stays a plain figure.
+	Gauge   bool
+	Percent int
+	Colour  string
+}
+
+// gauge turns the cell into an arc, or leaves it a plain figure when the metric
+// publishes no scale to be a fraction of.
+func (r *Readout) gauge(metric string, value float64) {
+	pct, ok := gaugePercent(metric, value)
+	if !ok {
+		return
+	}
+	r.Gauge, r.Percent, r.Colour = true, pct, bandColour(metric, value)
 }
 
 // Readouts summarises the province list the page already renders rather than
@@ -284,17 +301,22 @@ func (p PageData) Readouts() []Readout {
 	highest := Readout{Label: p.T("read.highest"), Value: none, Tier: p.T("home.tier_silent")}
 	median := Readout{Label: p.T("read.median"), Value: none}
 	if len(values) > 0 {
+		medianValue := medianOf(values)
 		highest.Value, highest.Unit = formatValue(topValue, p.Lang), unit
 		highest.Tier = top + " · " + p.T("areas.tier")
-		median.Value, median.Unit = formatValue(medianOf(values), p.Lang), unit
+		median.Value, median.Unit = formatValue(medianValue, p.Lang), unit
+		highest.gauge(p.DefaultMetric, topValue)
+		median.gauge(p.DefaultMetric, medianValue)
 	}
 	median.Tier = strconv.Itoa(len(values)) + " " + p.T("home.tier_covered")
 
+	// The counts carry a unit too. Without one the strip reads "609" beside
+	// "94.3 µg/m³" and leaves the reader to work out what was counted.
 	return []Readout{
 		highest,
 		median,
-		{Label: p.T("read.sensors"), Value: strconv.Itoa(sensors), Tier: p.T("home.tier_sensors")},
-		{Label: p.T("read.no_data"), Value: strconv.Itoa(silent), Tier: p.T("home.tier_silent")},
+		{Label: p.T("read.sensors"), Value: strconv.Itoa(sensors), Unit: p.T("read.unit_sensors"), Tier: p.T("home.tier_sensors")},
+		{Label: p.T("read.no_data"), Value: strconv.Itoa(silent), Unit: p.T("read.unit_provinces"), Tier: p.T("home.tier_silent")},
 	}
 }
 
@@ -328,12 +350,14 @@ func (p PageData) AreaReadouts() []Readout {
 		if !ok {
 			return
 		}
-		out = append(out, Readout{
+		c := Readout{
 			Label: p.T("metric." + m),
 			Value: formatValue(v, p.Lang),
 			Unit:  p.T("unit." + m),
 			Tier:  tier,
-		})
+		}
+		c.gauge(m, v)
+		out = append(out, c)
 	}
 
 	// The default metric leads, then the rest in canonical order. Canonical
@@ -358,6 +382,7 @@ func (p PageData) AreaReadouts() []Readout {
 	return append(out, Readout{
 		Label: p.T("table.col.sensors"),
 		Value: strconv.Itoa(p.Area.SensorCount),
+		Unit:  p.T("read.unit_sensors"),
 		Tier:  p.T("area.tier_sensors"),
 	})
 }
@@ -562,6 +587,7 @@ func (rr *Renderer) newPageData(lang, path string, generatedAt time.Time) PageDa
 		HexOpacity:         rr.frontend.HexOpacity,
 		ChartLineColour:    rr.frontend.ChartLineColour,
 		ChartCompareColour: rr.frontend.ChartCompareColour,
+		ChartSeriesColours: rr.frontend.ChartSeriesColours,
 		ZoomCity:           rr.frontend.ZoomCity,
 		ZoomSensor:         rr.frontend.ZoomSensor,
 		DefaultMetric:      rr.defaultMetric,

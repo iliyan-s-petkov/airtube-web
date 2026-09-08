@@ -19,6 +19,58 @@ import "airbg.org/internal/api"
 // no value: five of the seven metrics have no bands at all, and a swatch that
 // is a colour anyway would assert a class the scale does not claim. The caller
 // renders the chip without a swatch instead.
+// gaugeUnit is the only unit an arc is drawn for. A particulate reading starts
+// at zero and gets worse, so the share of the scale it has used up is a fact
+// about the air. Pressure, temperature and noise do not work that way — 1013
+// hPa is an ordinary day, not 97% of a danger — and an arc there would invent
+// an alarm out of a scale that only ever meant to bound an axis.
+const gaugeUnit = "µg/m³"
+
+// gaugePercent places a reading on its metric's published scale, 0-100, for the
+// arc a readout card draws. The ceiling is the highest FINITE band bound: the
+// top band is open-ended, so a fraction of it has no meaning and a value above
+// the ceiling is a full arc rather than an overflowing one.
+//
+// ok is false for a metric counted in anything but gaugeUnit, and for one with
+// no bands at all, so the card renders a plain figure instead.
+func gaugePercent(metric string, value float64) (int, bool) {
+	ceiling, found := 0.0, false
+	for _, scale := range api.Scales() {
+		if scale.Metric != metric {
+			continue
+		}
+		if scale.Unit != gaugeUnit {
+			return 0, false
+		}
+		ceiling, found = finiteCeiling(scale.Bands)
+		break
+	}
+	if !found || ceiling <= 0 {
+		return 0, false
+	}
+	pct := int(value / ceiling * 100)
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	return pct, true
+}
+
+// finiteCeiling is the highest bound in the table, not the last one: nothing
+// requires a published scale to arrive in ascending order, and taking the last
+// would put the arc against whichever bound happened to be written at the end.
+func finiteCeiling(bands []api.Band) (float64, bool) {
+	top, found := 0.0, false
+	for _, band := range bands {
+		if band.Upper != nil && *band.Upper > top {
+			top, found = *band.Upper, true
+		}
+	}
+	return top, found
+}
+
 func bandColour(metric string, value float64) string {
 	for _, scale := range api.Scales() {
 		if scale.Metric != metric {

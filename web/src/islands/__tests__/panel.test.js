@@ -63,8 +63,12 @@ const PANEL_ATTR_FIXTURES = {
   periodLabels: '24 hours,7 days',
   tChartMetricLegend: 'Metric',
   tChartPeriodLegend: 'Period',
-  tChartCompare: 'Compare with',
-  tChartCompareNone: 'nothing',
+  seriesColours: '#0f9d58,#d97706,#dc2626',
+  tChartReset: 'Reset view',
+  tChartRangeInvalid: 'Choose a start and an end.',
+  tPeriodCustom: 'Custom range',
+  tPeriodFrom: 'From',
+  tPeriodTo: 'To',
   tDetails: 'About this station',
   tDetailDevices: 'Devices',
   tDetailHardware: 'Hardware',
@@ -498,7 +502,7 @@ describe('the island hands the chart both line colours', () => {
     vi.restoreAllMocks()
   })
 
-  it('strokes the primary line, then the compared one, in the configured colours', async () => {
+  it('strokes the first line, then the second, in the configured colours', async () => {
     history.replaceState(null, '', '/#sensor=42')
     const el = fillFixtures(islandFrom('area.gohtml', 'panel'))
     document.body.append(el)
@@ -508,9 +512,9 @@ describe('the island hands the chart both line colours', () => {
     await vi.waitFor(() => expect(uplotCalls.length).toBeGreaterThan(0))
     expect(uplotCalls.at(-1).opts.series[1].stroke).toBe(PANEL_ATTR_FIXTURES.lineColour)
 
-    const select = el.querySelector('.panel-chart__compare select')
-    select.value = 'P1'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    const box = el.querySelector('input[name="panel-metric"][value="P1"]')
+    box.checked = true
+    box.dispatchEvent(new Event('change', { bubbles: true }))
 
     await vi.waitFor(() => expect(uplotCalls.at(-1).opts.series).toHaveLength(3))
     expect(uplotCalls.at(-1).opts.series[2].stroke).toBe(PANEL_ATTR_FIXTURES.compareColour)

@@ -121,9 +121,22 @@ func ParsePeriodForTesting(cfg config.Series, v string) (time.Duration, bool, bo
 	return p.Window, p.Hourly, ok
 }
 
-// seriesRequest validates everything a series endpoint takes from the caller.
-// Returning ok=false means a response has already been written.
-func seriesRequest(w http.ResponseWriter, r *http.Request, cfg config.Series) (metric, period string, since time.Time, pd config.Period, ok bool) {
+// maxAgeFor a period already resolved: a custom window has no name to look up.
+func periodMaxAge(cfg config.Config, pd config.Period) int {
+	if pd.MaxAge > 0 {
+		return int(pd.MaxAge.Seconds())
+	}
+	return int(cfg.Cache.DataMaxAge.Seconds())
+}
+
+// What ?period= accepts, from the same table the validator consults.
+func periodList(cfg config.Series) string {
+	return joinComma(append(append([]string{}, cfg.PeriodNames...), CustomPeriod))
+}
+
+// Validates everything a series endpoint takes from the caller; ok=false means a
+// response has already been written. until is nil for every named period.
+func seriesRequest(w http.ResponseWriter, r *http.Request, cfg config.Series) (metric, period string, since time.Time, until *time.Time, pd config.Period, ok bool) {
 	metric = r.URL.Query().Get("metric")
 	// Validated against the canonical set. The value reaches a WHERE clause, so
 	// this is also what guarantees no caller string is ever interpolated —
@@ -135,18 +148,27 @@ func seriesRequest(w http.ResponseWriter, r *http.Request, cfg config.Series) (m
 	if !upstream.IsCanonicalMetric(metric) {
 		writeError(w, http.StatusBadRequest, "bad_request",
 			"Unknown metric. Valid metrics are: "+joinComma(upstream.CanonicalMetrics())+".")
-		return "", "", time.Time{}, config.Period{}, false
+		return "", "", time.Time{}, nil, config.Period{}, false
 	}
 
 	period = r.URL.Query().Get("period")
+	if period == CustomPeriod {
+		from, to, pd, msg := customWindow(cfg, r.URL.Query(), time.Now().UTC())
+		if msg != "" {
+			writeError(w, http.StatusBadRequest, "bad_request", msg)
+			return "", "", time.Time{}, nil, config.Period{}, false
+		}
+		return metric, period, from, &to, pd, true
+	}
+
 	pd, valid := parsePeriod(cfg, period)
 	if !valid {
 		writeError(w, http.StatusBadRequest, "bad_request",
-			`The "period" parameter must be one of: 24h, 7d, 30d, 1y.`)
-		return "", "", time.Time{}, config.Period{}, false
+			`The "period" parameter must be one of: `+periodList(cfg)+".")
+		return "", "", time.Time{}, nil, config.Period{}, false
 	}
 
-	return metric, period, time.Now().UTC().Add(-pd.Window), pd, true
+	return metric, period, time.Now().UTC().Add(-pd.Window), nil, pd, true
 }
 
 func joinComma(items []string) string {
@@ -282,7 +304,7 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metric, period, since, pd, ok := seriesRequest(w, r, d.Config.Series)
+	metric, period, since, until, pd, ok := seriesRequest(w, r, d.Config.Series)
 	if !ok {
 		return
 	}
@@ -303,7 +325,7 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	points, err := d.Store.SensorSeries(r.Context(), id, metric, since, pd.Hourly, pd.Bucket)
+	points, err := d.Store.SensorSeries(r.Context(), id, metric, since, until, pd.Hourly, pd.Bucket)
 	release()
 	if err != nil {
 		// Logged with the detail, answered without it. A pgx error carries the
@@ -313,9 +335,9 @@ func (d Deps) handleSensorSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSeries(w, d.Config, snapshot.SeriesPayload{
+	writeSeries(w, snapshot.SeriesPayload{
 		SensorID: &id, Metric: metric, Period: period, Hourly: pd.Hourly,
-	}, points)
+	}, points, periodMaxAge(d.Config, pd))
 }
 
 func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
@@ -331,7 +353,7 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metric, period, since, pd, ok := seriesRequest(w, r, d.Config.Series)
+	metric, period, since, until, pd, ok := seriesRequest(w, r, d.Config.Series)
 	if !ok {
 		return
 	}
@@ -370,7 +392,7 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	points, err := d.Store.AreaSeries(r.Context(), slug, metric, since, pd.Hourly, pd.Bucket)
+	points, err := d.Store.AreaSeries(r.Context(), slug, metric, since, until, pd.Hourly, pd.Bucket)
 	release()
 	if err != nil {
 		slog.Error("area series query failed", "slug", slug, "metric", metric, "error", err)
@@ -378,10 +400,13 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSeries(w, d.Config, snapshot.SeriesPayload{Slug: slug, Metric: metric, Period: period, Hourly: pd.Hourly}, points)
+	writeSeries(w, snapshot.SeriesPayload{Slug: slug, Metric: metric, Period: period, Hourly: pd.Hourly}, points, periodMaxAge(d.Config, pd))
 }
 
-func writeSeries(w http.ResponseWriter, cfg config.Config, body snapshot.SeriesPayload, points []store.Point) {
+// maxAge is passed in rather than derived from body.Period, because a custom
+// window has no name in the period table: its lifetime is the lifetime of the
+// period it is DRAWN at, which only the caller still knows.
+func writeSeries(w http.ResponseWriter, body snapshot.SeriesPayload, points []store.Point, maxAge int) {
 	// Allocated with make, not left nil: a nil slice marshals to `null`, and a
 	// charting library handed null throws instead of drawing an empty axis.
 	body.Times = make([]time.Time, 0, len(points))
@@ -406,7 +431,7 @@ func writeSeries(w http.ResponseWriter, cfg config.Config, body snapshot.SeriesP
 	// cachePrivate, not public: a series response is keyed by sensor ID or slug,
 	// so it is enumerable and must never be servable from a shared cache that
 	// the breadth counter cannot see. See router.go's cachePublic/cachePrivate.
-	setCacheControl(w.Header(), cachePrivate, maxAgeFor(cfg, body.Period))
+	setCacheControl(w.Header(), cachePrivate, maxAge)
 	_, _ = w.Write(encoded)
 }
 

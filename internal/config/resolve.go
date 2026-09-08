@@ -213,6 +213,9 @@ type Frontend struct {
 	HexOpacity         float64
 	ChartLineColour    string
 	ChartCompareColour string
+	// The third line onwards, comma-separated: the panel draws as many metrics
+	// as the reader ticks, and the two above only name two of them.
+	ChartSeriesColours string
 	ZoomCity           int
 	ZoomSensor         int
 	// The national fallback view: roughly Bulgaria's centre, at a zoom that
@@ -431,6 +434,7 @@ func resolve(r *raw) Config {
 			HexOpacity:         *r.Frontend.HexOpacity,
 			ChartLineColour:    *r.Frontend.ChartLineColour,
 			ChartCompareColour: *r.Frontend.ChartCompareColour,
+			ChartSeriesColours: *r.Frontend.ChartSeriesColours,
 			ZoomCity:           *r.Frontend.ZoomCity,
 			ZoomSensor:         *r.Frontend.ZoomSensor,
 			DefaultZoom:        *r.Frontend.DefaultZoom,

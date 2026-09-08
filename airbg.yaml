@@ -348,6 +348,8 @@ frontend:
   chart_line_colour: "#2563eb"
   # The compared second line in the sensor panel; a violet, not another blue.
   chart_compare_colour: "#8a3ffc"
+  # The third line onwards; the panel's palette is the two above then these.
+  chart_series_colours: "#0f9d58,#d97706,#dc2626,#0891b2,#a16207"
   # How solidly the hex density grid paints over the basemap. The reading is
   # what the page is for, so the cell has to win against a busy street map; the
   # streets stay legible around it and through it. See docs/map-rendering.md.

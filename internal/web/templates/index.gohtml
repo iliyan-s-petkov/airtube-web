@@ -111,6 +111,9 @@
      data-t-wind-about="{{.T "wind.about"}}"
      data-t-wind-note="{{.T "wind.note"}}"
      data-t-wind-attribution="{{.T "wind.attribution"}}"></div>
+{{/* On the map, not under it: the line says how old what you are looking at is,
+     and the auto-refresh toggle governs the same thing. */}}
+<div class="map-freshness">{{template "dataFreshness" .}}</div>
 </div>
 {{end}}
 
@@ -155,19 +158,18 @@
      data-period-labels="{{.PeriodLabelsAttr}}"
      data-t-chart-metric-legend="{{.T "metric.legend"}}"
      data-t-chart-period-legend="{{.T "period.legend"}}"
-     data-t-chart-compare="{{.T "panel.compare"}}"
-     data-t-chart-compare-none="{{.T "panel.compare_none"}}"
+     data-series-colours="{{.ChartSeriesColours}}"
+     data-t-chart-reset="{{.T "chart.reset"}}"
+     data-t-period-custom="{{.T "period.custom"}}"
+     data-t-period-from="{{.T "period.from"}}"
+     data-t-period-to="{{.T "period.to"}}"
+     data-t-chart-range-invalid="{{.T "chart.range_invalid"}}"
      data-t-details="{{.T "panel.details"}}"
      data-t-detail-devices="{{.T "panel.detail.devices"}}"
      data-t-detail-hardware="{{.T "panel.detail.hardware"}}"
      data-t-detail-since="{{.T "panel.detail.since"}}"
      data-t-detail-updated="{{.T "panel.detail.updated"}}"
      data-t-detail-coords="{{.T "panel.detail.coords"}}"></div>
-
-{{/* Under the key, not above the data: the legend explains what the values
-     mean and this line says how old they are — two captions on the same thing,
-     so they sit together rather than at opposite ends of the screen. */}}
-{{template "dataFreshness" .}}
 
 
 {{/* Four figures the map cannot state: it shows where, not how much overall.

@@ -265,8 +265,29 @@ strong, b { font-weight: var(--weight-emphasis); }
 .panel-details dd { color: var(--fg-2); }
 .panel-chart { margin-top: var(--space-4); }
 .panel-chart__controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3) var(--space-4); margin-bottom: var(--space-3); }
-.panel-chart__compare { display: flex; flex-direction: column; gap: var(--space-1); color: var(--fg-2); }
-.panel-chart__compare select { min-height: var(--space-8); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--fg); padding: 0 var(--space-2); }
+
+/* A chart control: its label above its input, so the metric menu, the period
+   select and the reset button share one baseline. */
+.chart-field { display: flex; flex-direction: column; gap: var(--space-1); color: var(--fg-2); }
+.chart-field__label { font-size: var(--text-compact); letter-spacing: var(--track-compact); }
+.chart-field select,
+.chart-range input {
+  min-height: var(--space-8); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--fg); padding: 0 var(--space-2);
+}
+.chart-range { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.chart-message { color: var(--fg-2); margin: var(--space-4) 0; }
+
+/* The drag handle. overflow:hidden keeps the frame's own height independent of
+   the plot inside it, so recomputing the plot from clientHeight cannot make the
+   frame grow on every ResizeObserver pass. */
+.chart-frame { inline-size: 100%; }
+.chart-frame--resizable {
+  resize: vertical; overflow: hidden;
+  block-size: 274px; min-block-size: 194px;
+  border: 1px solid var(--border-faint); border-radius: var(--radius-sm);
+}
+.chart-frame--resizable .chart-host { block-size: 100%; }
 /* Honour the reduced-motion preference before Phase 3 adds any transitions. */
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
@@ -286,6 +307,34 @@ strong, b { font-weight: var(--weight-emphasis); }
    quieter colour so the status reads as the button's result, not a second
    control beside it. */
 .data-refresh__status { color: var(--meta); font-variant-numeric: tabular-nums; }
+
+/* On the map rather than under it. The overlay sits inside .map-shell, which is
+   the positioned ancestor; the kit's margins are the standalone line's and would
+   push it off the corner here. */
+.map-freshness { position: absolute; z-index: 3; left: 12px; bottom: 12px; }
+.map-freshness .data-refresh {
+  margin: 0; background: var(--overlay-bg); border-radius: var(--radius);
+  box-shadow: var(--elev-raised); padding: var(--space-1) var(--space-2);
+  gap: var(--space-2);
+}
+
+/* Separate cards rather than the kit's hairline-divided strip, each one centred
+   on its own figure so the four line up whatever their labels wrap to. */
+.readouts { gap: var(--space-3); background: none; border-radius: 0; overflow: visible; box-shadow: none; }
+.readout.card {
+  display: grid; grid-template-rows: auto 1fr auto; justify-items: center; text-align: center;
+  gap: var(--space-2); padding: var(--space-4); align-content: start;
+}
+.readout.card .readout__value { display: inline-flex; align-items: baseline; gap: var(--space-1); }
+
+/* The arc is drawn with SVG presentation attributes (see base.gohtml): style-src
+   forbids the inline custom properties this would otherwise use. */
+.gauge { position: relative; display: grid; place-items: center; inline-size: 108px; block-size: 108px; }
+.gauge__dial { inline-size: 100%; block-size: 100%; }
+.gauge__track { stroke: var(--border-faint); stroke-width: 3; }
+.gauge__arc { stroke-width: 3; stroke-linecap: round; }
+.gauge__figure { position: absolute; display: grid; justify-items: center; gap: 0; }
+.gauge__figure .readout__value { line-height: 1; }
 
 /* Available to a screen reader, absent from the screen. Used for the map's
    text alternative, which aria-describedby points at: the sighted reader
