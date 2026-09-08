@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -298,8 +299,12 @@ func (p PageData) Readouts() []Readout {
 	// The tier line is not optional. With nothing reporting, "highest" still
 	// has to say WHY there is no figure — an empty third line reads as a cell
 	// that failed to render rather than a country that is quiet tonight.
-	highest := Readout{Label: p.T("read.highest"), Value: none, Tier: p.T("home.tier_silent")}
-	median := Readout{Label: p.T("read.median"), Value: none}
+	// Both figures are of ONE metric — the map's default — and the card used to
+	// name only the unit, so "113,5 µg/m³" left the reader to guess whether it
+	// was PM2.5 or PM10.
+	metric := p.T("metric." + p.DefaultMetric)
+	highest := Readout{Label: metric + " · " + p.T("read.highest"), Value: none, Tier: p.T("home.tier_silent")}
+	median := Readout{Label: metric + " · " + p.T("read.median"), Value: none}
 	if len(values) > 0 {
 		medianValue := medianOf(values)
 		highest.Value, highest.Unit = formatValue(topValue, p.Lang), unit
@@ -310,13 +315,13 @@ func (p PageData) Readouts() []Readout {
 	}
 	median.Tier = strconv.Itoa(len(values)) + " " + p.T("home.tier_covered")
 
-	// The counts carry a unit too. Without one the strip reads "609" beside
-	// "94.3 µg/m³" and leaves the reader to work out what was counted.
+	// The counts carry no unit: their labels already say what was counted, and
+	// "608 сензора" under "Сензори в мрежата" prints the word twice.
 	return []Readout{
 		highest,
 		median,
-		{Label: p.T("read.sensors"), Value: strconv.Itoa(sensors), Unit: p.T("read.unit_sensors"), Tier: p.T("home.tier_sensors")},
-		{Label: p.T("read.no_data"), Value: strconv.Itoa(silent), Unit: p.T("read.unit_provinces"), Tier: p.T("home.tier_silent")},
+		{Label: p.T("read.sensors"), Value: strconv.Itoa(sensors), Tier: p.T("home.tier_sensors")},
+		silentReadout(p.T("read.no_data"), silent, len(p.Areas), p.NoDataColour, p.T("home.tier_silent")),
 	}
 }
 
@@ -382,9 +387,22 @@ func (p PageData) AreaReadouts() []Readout {
 	return append(out, Readout{
 		Label: p.T("table.col.sensors"),
 		Value: strconv.Itoa(p.Area.SensorCount),
-		Unit:  p.T("read.unit_sensors"),
 		Tier:  p.T("area.tier_sensors"),
 	})
+}
+
+// silentReadout draws the silent count as a share of every province there is —
+// a count with a known total is a fraction, and 9 of 28 says something 9 alone
+// does not. Painted in the map's own no-data colour so the ring and the grey
+// provinces under it are visibly the same statement.
+func silentReadout(label string, silent, total int, colour, tier string) Readout {
+	r := Readout{Label: label, Value: strconv.Itoa(silent), Tier: tier}
+	if total <= 0 || colour == "" {
+		return r
+	}
+	pct := int(math.Round(float64(silent) / float64(total) * 100))
+	r.Gauge, r.Percent, r.Colour = true, pct, colour
+	return r
 }
 
 // medianOf takes ownership of values and sorts it in place. The median rather

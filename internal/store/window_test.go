@@ -184,3 +184,31 @@ func TestWindowedAreaAggregatesMatchesLiveShape(t *testing.T) {
 		t.Errorf("covered P2 = %v, want 5 (the window), not 50 (now)", got)
 	}
 }
+
+// The windowed area figure is a median too, for the same reason the live one is:
+// a device stuck high for a week would otherwise carry the whole province's
+// 24-hour and 7-day numbers.
+func TestWindowedAreaAggregatesResistOneWildSensor(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "smolyan", "oblast", 24.7, 41.57)
+	now := time.Now().UTC().Truncate(time.Minute)
+	for i, v := range []float64{10, 11, 12, 13, 900} {
+		id := int64(970 + i)
+		seedSensorReading(t, ctx, pool, id, 24.7+float64(i)*0.001, 41.57, "P2", v, "ok", now)
+		seedHourly(t, ctx, pool, id, "P2", now.Add(-time.Hour), v, 60)
+	}
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.WindowedAreaAggregates(ctx, []string{"oblast"}, now.Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("WindowedAreaAggregates: %v", err)
+	}
+	if len(aggs) != 1 {
+		t.Fatalf("areas = %d, want 1", len(aggs))
+	}
+	if got := aggs[0].Values["P2"]; got != 12 {
+		t.Errorf("P2 = %v, want 12 — the median of the five devices' window means", got)
+	}
+}

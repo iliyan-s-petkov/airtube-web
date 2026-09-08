@@ -50,7 +50,7 @@ func TestChartIslandCarriesTheHeadingParts(t *testing.T) {
 
 	for _, want := range []string{
 		`data-t-metric="PM2.5"`,
-		`data-t-tier="province average"`,
+		`data-t-tier="province median"`,
 		`data-t-period-legend="Period"`,
 	} {
 		if !strings.Contains(body, want) {

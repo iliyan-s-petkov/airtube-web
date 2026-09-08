@@ -27,9 +27,12 @@ import "airbg.org/internal/api"
 const gaugeUnit = "µg/m³"
 
 // gaugePercent places a reading on its metric's published scale, 0-100, for the
-// arc a readout card draws. The ceiling is the highest FINITE band bound: the
-// top band is open-ended, so a fraction of it has no meaning and a value above
-// the ceiling is a full arc rather than an overflowing one.
+// arc a readout card draws. The ceiling is the scale's DRAWN ceiling — the same
+// top the map ramp and the legend stop at — so a full ring means the top of the
+// key, not merely past the last guideline band. Scaled to the top band bound
+// instead, every Bulgarian winter inversion drew an identical full ring: 51 and
+// 500 looked the same. Falls back to the highest finite band for a scale that
+// states no ceiling.
 //
 // ok is false for a metric counted in anything but gaugeUnit, and for one with
 // no bands at all, so the card renders a plain figure instead.
@@ -42,7 +45,11 @@ func gaugePercent(metric string, value float64) (int, bool) {
 		if scale.Unit != gaugeUnit {
 			return 0, false
 		}
-		ceiling, found = finiteCeiling(scale.Bands)
+		if scale.Ceiling != nil && *scale.Ceiling > 0 {
+			ceiling, found = *scale.Ceiling, true
+		} else {
+			ceiling, found = finiteCeiling(scale.Bands)
+		}
 		break
 	}
 	if !found || ceiling <= 0 {

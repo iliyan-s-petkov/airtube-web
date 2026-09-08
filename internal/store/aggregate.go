@@ -42,8 +42,8 @@ type AreaAggregate struct {
 
 // The CTEs are named fragments rather than one string because the same area
 // aggregate is asked two questions: what is the reading NOW, and what was the
-// average over the last day or week (see window.go). Only the per-area
-// averaging changes between them — the freshness rule, the coverage rule and
+// figure over the last day or week (see window.go). Only the per-area
+// summary changes between them — the freshness rule, the coverage rule and
 // the projection must not, or the two answers would disagree about which areas
 // exist and how many stations they have.
 const latestCTE = `
@@ -58,7 +58,11 @@ latest AS (
 
 const perAreaCTE = `
 per_area AS (
-    SELECT a.slug, l.metric, avg(l.value) AS avg_value
+    -- The median across the area's sensors, not the mean: one failed device
+    -- reading 900 µg/m³ beside four neighbours in the teens moved a whole
+    -- province to 189, a figure nobody in it was breathing. Two sensors behave
+    -- exactly as before, the median of a pair being their mean.
+    SELECT a.slug, l.metric, percentile_cont(0.5) WITHIN GROUP (ORDER BY l.value) AS avg_value
       FROM area a
       JOIN area_sensor asx ON asx.area_slug = a.slug
       JOIN latest l        ON l.sensor_id = asx.sensor_id
@@ -355,27 +359,34 @@ func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string,
 	return out, nil
 }
 
-// areaRawSeriesSQL averages across the area's sensors within each time bucket.
+// areaRawSeriesSQL takes the median across the area's sensors within each time
+// bucket. Each sensor is averaged to one value inside the bucket first, so a
+// device reporting six times a minute gets one vote and not six.
+//
+// The median rather than the mean because one failed device reading in the
+// hundreds is a spike the reader would take for weather. See perAreaCTE.
 //
 // The bucket is what makes this an aggregate. Grouping on the raw timestamp
 // instead collapses nothing: sensors report asynchronously at second
-// resolution, so equality on r.time almost never matches two rows and every
-// avg() averages a single sensor. The result is one point per sensor per
-// report, in timestamp order, which renders as a sawtooth a reader interprets
-// as rapid air-quality swings rather than as sensors disagreeing.
+// resolution, so equality on r.time almost never matches two rows. The result
+// is one point per sensor per report, in timestamp order, which renders as a
+// sawtooth a reader interprets as rapid air-quality swings rather than as
+// sensors disagreeing.
 //
 // area_sensor carries area_slug directly (migration 00004) — there is no
 // numeric area.id to join through.
 var areaRawSeriesSQL = `
-SELECT ` + bucketed("r.time", 5) + ` AS b, avg(r.value)
-  FROM reading r
-  JOIN area_sensor asx ON asx.sensor_id = r.sensor_id
-  JOIN area a          ON a.slug = asx.area_slug
- WHERE a.slug   = $1
-   AND r.metric = $2
-   AND r.time  >= $3
-   AND r.quality = ANY($4::quality_flag[])
-   AND ($6::timestamptz IS NULL OR r.time < $6)
+SELECT b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
+  FROM (SELECT ` + bucketed("r.time", 5) + ` AS b, r.sensor_id, avg(r.value) AS v
+          FROM reading r
+          JOIN area_sensor asx ON asx.sensor_id = r.sensor_id
+          JOIN area a          ON a.slug = asx.area_slug
+         WHERE a.slug   = $1
+           AND r.metric = $2
+           AND r.time  >= $3
+           AND r.quality = ANY($4::quality_flag[])
+           AND ($6::timestamptz IS NULL OR r.time < $6)
+         GROUP BY b, r.sensor_id) per_sensor
  GROUP BY b
  ORDER BY b`
 
@@ -383,14 +394,16 @@ SELECT ` + bucketed("r.time", 5) + ` AS b, avg(r.value)
 // quality column — the rollup is built from readings that already passed the
 // filter, so re-filtering here would be impossible AND unnecessary.
 var areaHourlySeriesSQL = `
-SELECT ` + bucketed("h.bucket", 4) + ` AS b, avg(h.avg_value)
-  FROM reading_hourly h
-  JOIN area_sensor asx ON asx.sensor_id = h.sensor_id
-  JOIN area a          ON a.slug = asx.area_slug
- WHERE a.slug   = $1
-   AND h.metric = $2
-   AND h.bucket >= $3
-   AND ($5::timestamptz IS NULL OR h.bucket < $5)
+SELECT b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
+  FROM (SELECT ` + bucketed("h.bucket", 4) + ` AS b, h.sensor_id, avg(h.avg_value) AS v
+          FROM reading_hourly h
+          JOIN area_sensor asx ON asx.sensor_id = h.sensor_id
+          JOIN area a          ON a.slug = asx.area_slug
+         WHERE a.slug   = $1
+           AND h.metric = $2
+           AND h.bucket >= $3
+           AND ($5::timestamptz IS NULL OR h.bucket < $5)
+         GROUP BY b, h.sensor_id) per_sensor
  GROUP BY b
  ORDER BY b`
 
@@ -403,7 +416,7 @@ SELECT ` + bucketed("h.bucket", 4) + ` AS b, avg(h.avg_value)
 // the collector pool's four connections.
 //
 // Grouped by (slug, bucket), so a sensor belonging to two areas contributes to
-// both means, and sensors reporting within one bucket produce one point.
+// both medians, and sensors reporting within one bucket produce one point.
 // Ordered by slug then bucket, so the scan below can rely on time order within
 // each slug without sorting afterwards.
 //
@@ -411,28 +424,32 @@ SELECT ` + bucketed("h.bucket", 4) + ` AS b, avg(h.avg_value)
 // from this query and the fall-through is served by that one; if they disagree
 // the same chart changes shape depending on whether the cache was warm.
 var allAreaRawSeriesSQL = `
-SELECT a.slug, ` + bucketed("r.time", 4) + ` AS b, avg(r.value)
-  FROM reading r
-  JOIN area_sensor asx ON asx.sensor_id = r.sensor_id
-  JOIN area a          ON a.slug = asx.area_slug
- WHERE r.metric = $1
-   AND r.time  >= $2
-   AND r.quality = ANY($3::quality_flag[])
- GROUP BY a.slug, b
- ORDER BY a.slug, b`
+SELECT slug, b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
+  FROM (SELECT a.slug, ` + bucketed("r.time", 4) + ` AS b, r.sensor_id, avg(r.value) AS v
+          FROM reading r
+          JOIN area_sensor asx ON asx.sensor_id = r.sensor_id
+          JOIN area a          ON a.slug = asx.area_slug
+         WHERE r.metric = $1
+           AND r.time  >= $2
+           AND r.quality = ANY($3::quality_flag[])
+         GROUP BY a.slug, b, r.sensor_id) per_sensor
+ GROUP BY slug, b
+ ORDER BY slug, b`
 
 // allAreaHourlySeriesSQL is the same over the rollup. reading_hourly carries no
 // quality column: the rollup is built from readings that already passed the
 // filter.
 var allAreaHourlySeriesSQL = `
-SELECT a.slug, ` + bucketed("h.bucket", 3) + ` AS b, avg(h.avg_value)
-  FROM reading_hourly h
-  JOIN area_sensor asx ON asx.sensor_id = h.sensor_id
-  JOIN area a          ON a.slug = asx.area_slug
- WHERE h.metric = $1
-   AND h.bucket >= $2
- GROUP BY a.slug, b
- ORDER BY a.slug, b`
+SELECT slug, b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
+  FROM (SELECT a.slug, ` + bucketed("h.bucket", 3) + ` AS b, h.sensor_id, avg(h.avg_value) AS v
+          FROM reading_hourly h
+          JOIN area_sensor asx ON asx.sensor_id = h.sensor_id
+          JOIN area a          ON a.slug = asx.area_slug
+         WHERE h.metric = $1
+           AND h.bucket >= $2
+         GROUP BY a.slug, b, h.sensor_id) per_sensor
+ GROUP BY slug, b
+ ORDER BY slug, b`
 
 // AllAreaSeries returns the area-mean series for one metric, for every area
 // that has data in the window, keyed by slug.

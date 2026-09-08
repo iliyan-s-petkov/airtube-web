@@ -22,7 +22,7 @@ func readoutsFor(t *testing.T, lang string, rows []AreaRow) []Readout {
 	if err != nil {
 		t.Fatalf("i18n.Load: %v", err)
 	}
-	p := PageData{Lang: lang, Areas: rows, DefaultMetric: "P2", cat: cat}
+	p := PageData{Lang: lang, Areas: rows, DefaultMetric: "P2", NoDataColour: "#9ca3af", cat: cat}
 	return p.Readouts()
 }
 
@@ -231,5 +231,61 @@ func TestEveryReadoutIsLabelledAndTiered(t *testing.T) {
 				t.Errorf("%s: readout %d is incomplete: %+v", lang, i, r)
 			}
 		}
+	}
+}
+
+// The two measured cells are ONE metric — the map's default — and the strip
+// never said which. "113,5 µg/m³" is PM2.5 or PM10 depending on config, and the
+// unit does not decide between them.
+func TestMeasuredCellsNameTheMetric(t *testing.T) {
+	got := readoutsFor(t, "bg", []AreaRow{row("Смолян", 18.2, true, true, 4)})
+
+	for i, r := range got[:2] {
+		if !strings.HasPrefix(r.Label, "ПМ2.5 · ") {
+			t.Errorf("readout %d label = %q, want it to open with the metric", i, r.Label)
+		}
+	}
+}
+
+// A count's label already says what was counted: "608 сензора" under "Сензори
+// в мрежата" prints the word twice.
+func TestCountedCellsCarryNoUnit(t *testing.T) {
+	got := readoutsFor(t, "bg", []AreaRow{row("a", 5, true, true, 3)})
+
+	if got[2].Unit != "" || got[3].Unit != "" {
+		t.Errorf("counted units = %q/%q, want none — the labels say sensors and provinces", got[2].Unit, got[3].Unit)
+	}
+}
+
+// A count with a known total is a fraction: 1 silent province of 4 is a quarter
+// ring, in the same grey the map paints those provinces.
+func TestSilentProvincesDrawTheirShareOfTheCountry(t *testing.T) {
+	got := readoutsFor(t, "bg", []AreaRow{
+		row("a", 5, true, true, 3),
+		row("b", 0, false, true, 1),
+		row("c", 4, true, true, 2),
+		row("d", 3, true, true, 2),
+	})
+
+	silent := got[3]
+	if !silent.Gauge || silent.Percent != 25 {
+		t.Errorf("silent cell = gauge %v at %d%%, want an arc at 25%% — one province of four", silent.Gauge, silent.Percent)
+	}
+	if silent.Colour != "#9ca3af" {
+		t.Errorf("silent arc colour = %q, want the map's no-data colour", silent.Colour)
+	}
+}
+
+// Without a configured no-data colour the cell stays a plain figure rather than
+// painting an arc in the empty string, which renders as a black ring.
+func TestSilentShareNeedsAColourToDraw(t *testing.T) {
+	cat, err := i18n.Load()
+	if err != nil {
+		t.Fatalf("i18n.Load: %v", err)
+	}
+	p := PageData{Lang: "bg", DefaultMetric: "P2", cat: cat, Areas: []AreaRow{row("a", 0, false, true, 1)}}
+
+	if got := p.Readouts()[3]; got.Gauge {
+		t.Errorf("silent cell drew an arc with no colour configured: %+v", got)
 	}
 }

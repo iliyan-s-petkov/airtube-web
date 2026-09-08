@@ -48,8 +48,9 @@ func TestAreaReadoutsGiveOneCellPerMeasuredMetric(t *testing.T) {
 	if got[2].Unit != "°C" {
 		t.Errorf("temperature unit = %q, want °C — each metric carries its own", got[2].Unit)
 	}
-	if got[3].Value != "111" || got[3].Unit != "сензора" {
-		t.Errorf("sensor cell = %q %q, want 111 сензора — a count is a unit too", got[3].Value, got[3].Unit)
+	// No unit on the count: its label already says what was counted.
+	if got[3].Value != "111" || got[3].Unit != "" {
+		t.Errorf("sensor cell = %q %q, want a bare 111", got[3].Value, got[3].Unit)
 	}
 }
 
@@ -113,15 +114,15 @@ func TestAreaReadoutsTreatZeroAsAReading(t *testing.T) {
 }
 
 // The tier line is what stops a bare number claiming to be a place. A province
-// page averages a province; a city page averages a city, and saying "province
-// average" on Пловдив-град would be false.
-func TestAreaReadoutsNameTheTierTheyAverage(t *testing.T) {
+// page reports a province; a city page reports a city, and saying "province
+// median" on Пловдив-град would be false.
+func TestAreaReadoutsNameTheTierTheySummarise(t *testing.T) {
 	oblast := areaReadoutsFor(t, "en", area("oblast", 4, map[string]float64{"P2": 3.2}))
 	city := areaReadoutsFor(t, "en", area("city", 4, map[string]float64{"P2": 3.2}))
-	if oblast[0].Tier != "province average" {
+	if oblast[0].Tier != "province median" {
 		t.Errorf("oblast tier = %q, want the province wording", oblast[0].Tier)
 	}
-	if city[0].Tier != "city average" {
+	if city[0].Tier != "city median" {
 		t.Errorf("city tier = %q, want the city wording", city[0].Tier)
 	}
 	if oblast[1].Tier == "" || city[1].Tier == "" {

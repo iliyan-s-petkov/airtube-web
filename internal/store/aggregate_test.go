@@ -821,3 +821,89 @@ func TestAreaSeriesStillReturnsDataInsideItsTransaction(t *testing.T) {
 		t.Errorf("value = %v, want 15", points[0].Value)
 	}
 }
+
+// One faulty box reading 900 µg/m³ beside four neighbours in the teens used to
+// carry a whole province: a mean answers 189, which is a figure nowhere in the
+// province and paints every map cell in it the worst colour. A median answers
+// what the province is actually breathing.
+//
+// The wild sensor is seeded 'ok': the ingest spatial check cannot flag a sensor
+// that has too few neighbours to compare against, so the published aggregate is
+// the last place this can be caught.
+func TestAreaAggregatesResistOneWildSensor(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "smolyan", "oblast", 24.7, 41.57)
+	now := time.Now().UTC().Truncate(time.Minute)
+	for i, v := range []float64{10, 11, 12, 13, 900} {
+		seedSensorReading(t, ctx, pool, int64(900+i), 24.7+float64(i)*0.001, 41.57, "P2", v, "ok", now)
+	}
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.AreaAggregates(ctx, []string{"oblast"})
+	if err != nil {
+		t.Fatalf("AreaAggregates: %v", err)
+	}
+	if len(aggs) != 1 {
+		t.Fatalf("areas = %d, want 1", len(aggs))
+	}
+	if got := aggs[0].Values["P2"]; got != 12 {
+		t.Errorf("P2 = %v, want 12 — the median of 10, 11, 12, 13, 900 (the mean is 189)", got)
+	}
+}
+
+// The same rule on the chart the area page draws: a line that spikes because one
+// device failed tells the reader the air changed when it did not.
+func TestAreaSeriesResistsOneWildSensor(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "smolyan", "oblast", 24.7, 41.57)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	for i, v := range []float64{10, 12, 900} {
+		seedSensorReading(t, ctx, pool, int64(950+i), 24.7+float64(i)*0.001, 41.57, "P2", v, "ok", base.Add(time.Duration(i)*time.Second))
+	}
+	assignAreas(t, ctx, pool)
+
+	points, err := s.AreaSeries(ctx, "smolyan", "P2", base.Add(-time.Hour), nil, false, time.Minute)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("points = %d, want 1", len(points))
+	}
+	if points[0].Value != 12 {
+		t.Errorf("value = %v, want 12 — the median of 10, 12 and 900", points[0].Value)
+	}
+}
+
+// A sensor reporting twice inside one bucket must not get two votes in the
+// median: the point is the middle SENSOR, not the middle row, or a chatty
+// device decides the area's figure by reporting more often than its neighbours.
+func TestAreaSeriesTakesTheMiddleSensorNotTheMiddleRow(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "smolyan", "oblast", 24.7, 41.57)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	// Two quiet sensors, one chatty sensor reporting three times high.
+	seedSensorReading(t, ctx, pool, 960, 24.700, 41.57, "P2", 10, "ok", base)
+	seedSensorReading(t, ctx, pool, 961, 24.701, 41.57, "P2", 12, "ok", base.Add(time.Second))
+	for i, v := range []float64{900, 902, 904} {
+		seedSensorReading(t, ctx, pool, 962, 24.702, 41.57, "P2", v, "ok", base.Add(time.Duration(2+i)*time.Second))
+	}
+	assignAreas(t, ctx, pool)
+
+	points, err := s.AreaSeries(ctx, "smolyan", "P2", base.Add(-time.Hour), nil, false, time.Minute)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("points = %d, want 1", len(points))
+	}
+	if points[0].Value != 12 {
+		t.Errorf("value = %v, want 12 — three rows from one device are one vote", points[0].Value)
+	}
+}

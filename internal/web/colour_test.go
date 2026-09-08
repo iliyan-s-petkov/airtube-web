@@ -73,10 +73,11 @@ func TestBandColourUsesTheSameTableTheMapDoes(t *testing.T) {
 	}
 }
 
-// The gauge's ceiling is the highest FINITE band bound: the top band is open,
-// so it cannot be the denominator. Only µg/m³ is gauged — a pressure or a
-// temperature is not a fraction of its axis.
-func TestGaugePercentScalesAgainstTheHighestFiniteBand(t *testing.T) {
+// The gauge's ceiling is the scale's DRAWN ceiling, the same top the map ramp
+// and the legend stop at. Against the top guideline band instead, every reading
+// over 50 µg/m³ drew an identical full ring. Only µg/m³ is gauged — a pressure
+// or a temperature is not a fraction of its axis.
+func TestGaugePercentScalesAgainstTheDrawnCeiling(t *testing.T) {
 	cases := []struct {
 		name   string
 		metric string
@@ -102,23 +103,45 @@ func TestGaugePercentScalesAgainstTheHighestFiniteBand(t *testing.T) {
 	}
 }
 
+// ceilingOf reads the same first-matching table gaugePercent reads, so the
+// cases above state a ratio rather than a hardcoded 500 that a config change
+// would silently falsify.
 func ceilingOf(t *testing.T, metric string) float64 {
 	t.Helper()
-	top := 0.0
 	for _, scale := range api.Scales() {
 		if scale.Metric != metric {
 			continue
 		}
-		for _, band := range scale.Bands {
-			if band.Upper != nil && *band.Upper > top {
-				top = *band.Upper
-			}
+		if scale.Ceiling == nil || *scale.Ceiling <= 0 {
+			t.Fatalf("%s states no drawn ceiling", metric)
+		}
+		return *scale.Ceiling
+	}
+	t.Fatalf("%s has no scale at all", metric)
+	return 0
+}
+
+// A ceiling well above the top band is the whole point: the arc must be able to
+// say 51 and 500 differently, and the top EAQI band for PM2.5 opens at 50.
+func TestTheDrawnCeilingIsAboveTheTopBand(t *testing.T) {
+	band, ok := finiteCeiling(scaleFor(t, "P2").Bands)
+	if !ok {
+		t.Fatal("P2 has no finite band bound")
+	}
+	if ceiling := ceilingOf(t, "P2"); ceiling <= band {
+		t.Errorf("drawn ceiling %v is not above the top band %v — every bad reading gauges the same", ceiling, band)
+	}
+}
+
+func scaleFor(t *testing.T, metric string) api.Scale {
+	t.Helper()
+	for _, scale := range api.Scales() {
+		if scale.Metric == metric {
+			return scale
 		}
 	}
-	if top <= 0 {
-		t.Fatalf("%s has no finite band bound to scale against", metric)
-	}
-	return top
+	t.Fatalf("no scale for %s", metric)
+	return api.Scale{}
 }
 
 func TestFiniteCeilingTakesTheHighestBoundWhateverTheOrder(t *testing.T) {

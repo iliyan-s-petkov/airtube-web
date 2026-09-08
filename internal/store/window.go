@@ -29,14 +29,14 @@ windowed AS (
      GROUP BY h.sensor_id, h.metric
 )`
 
-// The windowed per-area mean joins the window's numbers onto the LIVE latest
+// The windowed per-area median joins the window's numbers onto the LIVE latest
 // CTE, and that join is the whole design. Identity, freshness and quality stay
 // the live answer, so switching the window changes the numbers and nothing else:
 // the same areas exist, with the same station counts, and an area that has gone
 // silent today does not reappear because it had readings on Tuesday.
 const windowedPerAreaCTE = `
 per_area AS (
-    SELECT a.slug, l.metric, avg(w.value) AS avg_value
+    SELECT a.slug, l.metric, percentile_cont(0.5) WITHIN GROUP (ORDER BY w.value) AS avg_value
       FROM area a
       JOIN area_sensor asx ON asx.area_slug = a.slug
       JOIN latest l        ON l.sensor_id = asx.sensor_id
@@ -51,7 +51,8 @@ var windowedAreaAggregateSQL = "WITH" + latestCTE +
 	"," + coverageCTE + areaAggregateSelect
 
 // WindowedAreaAggregates is AreaAggregates with the published value replaced by
-// the mean over [since, now). Every other column — coverage, station count,
+// the figure over [since, now) — each device's weighted mean over the window,
+// then the median across the area's devices. Every other column — coverage, station count,
 // which areas appear at all — is identical, by construction: both queries are
 // assembled from the same CTE and projection fragments.
 func (s *Store) WindowedAreaAggregates(ctx context.Context, kinds []string, since time.Time) ([]AreaAggregate, error) {
