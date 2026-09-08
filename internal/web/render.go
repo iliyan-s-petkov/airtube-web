@@ -321,7 +321,7 @@ func (p PageData) Readouts() []Readout {
 		highest,
 		median,
 		{Label: p.T("read.sensors"), Value: strconv.Itoa(sensors), Tier: p.T("home.tier_sensors")},
-		silentReadout(p.T("read.no_data"), silent, len(p.Areas), p.NoDataColour, p.T("home.tier_silent")),
+		silentReadout(p.T("read.no_data"), silent, len(p.Areas), p.NoDataColour, p.T("read.of_total")),
 	}
 }
 
@@ -400,6 +400,11 @@ func silentReadout(label string, silent, total int, colour, tier string) Readout
 	if total <= 0 || colour == "" {
 		return r
 	}
+	// With a total to state, the tier line states it. "No recent readings" only
+	// repeated the card's own label in other words; "of 28 provinces in all" is
+	// the denominator the ring is drawn against, which is the one thing the
+	// figure alone cannot say.
+	r.Tier = strings.ReplaceAll(tier, "{total}", strconv.Itoa(total))
 	pct := int(math.Round(float64(silent) / float64(total) * 100))
 	r.Gauge, r.Percent, r.Colour = true, pct, colour
 	return r

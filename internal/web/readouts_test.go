@@ -274,6 +274,12 @@ func TestSilentProvincesDrawTheirShareOfTheCountry(t *testing.T) {
 	if silent.Colour != "#9ca3af" {
 		t.Errorf("silent arc colour = %q, want the map's no-data colour", silent.Colour)
 	}
+	// The ring is a fraction, so the line under it names the denominator. It
+	// used to read "no recent readings", which is the card's own label said
+	// twice and never the number the arc is drawn against.
+	if !strings.Contains(silent.Tier, "4") || strings.Contains(silent.Tier, "{total}") {
+		t.Errorf("silent tier = %q, want the total of four provinces filled in", silent.Tier)
+	}
 }
 
 // Without a configured no-data colour the cell stays a plain figure rather than

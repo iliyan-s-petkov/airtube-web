@@ -26,6 +26,12 @@
      and leave the overlay transparent. */
   --overlay-bg: rgba(255, 255, 255, 0.9);
   --overlay-bg: color-mix(in srgb, var(--bg) 90%, transparent);
+  /* Behind a modal, derived from the foreground so it inverts with the theme
+     the way the kit's own surfaces do. Literal first, for the same reason as
+     the overlay above: without color-mix an unresolved value drops the
+     declaration and the backdrop disappears. */
+  --scrim: rgba(22, 22, 22, 0.45);
+  --scrim: color-mix(in srgb, var(--fg) 45%, transparent);
   --notice-bg: #fcf4d6;
   --notice-bg: color-mix(in srgb, var(--warn) 18%, var(--bg));
 

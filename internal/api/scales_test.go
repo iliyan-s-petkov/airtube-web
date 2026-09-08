@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"airbg.org/internal/api"
@@ -137,5 +138,25 @@ func TestEveryScaleForOneMetricAgreesOnItsUnit(t *testing.T) {
 			continue
 		}
 		first[s.Metric] = s.Unit
+	}
+}
+
+// A scale that cites an authority must link it: the legend's info dialog offers
+// the reader the guideline itself, and a table naming "Directive 2008/50/EC"
+// with nowhere to read it asks for the colours to be taken on trust.
+//
+// The meteo tables are the exception and say so by carrying no source — they
+// are an axis, not a health guideline.
+func TestGuidelineScalesLinkTheirSource(t *testing.T) {
+	for _, s := range api.Scales() {
+		if s.Name == "meteo" {
+			if s.Source != "" {
+				t.Errorf("%s/%s cites %q, but a weather axis has no guideline behind it", s.Name, s.Metric, s.Source)
+			}
+			continue
+		}
+		if !strings.HasPrefix(s.Source, "https://") {
+			t.Errorf("%s/%s source = %q, want an https link to the published guideline", s.Name, s.Metric, s.Source)
+		}
 	}
 }

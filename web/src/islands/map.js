@@ -8,6 +8,8 @@ import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { tierFor } from '../lib/tier.js'
 import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../lib/legend.js'
+import { createScaleDialog } from '../lib/scaledialog.js'
+import { scaleFor } from '../lib/scaleinfo.js'
 import { mountFullscreen, mountZoom, mountLocate, installZoom } from '../lib/mapcontrols.js'
 import { mountLayers, installLayers, LAYER_ORDER } from '../lib/maplayers.js'
 import { rampColour, rampValueStops } from '../lib/ramp.js'
@@ -864,6 +866,7 @@ async function refresh(map, state, cfg, chrome, force = false) {
     bands: bandsFor(state.scales, cfg.metric),
     tier: cellTier(map.getZoom(), effective),
     metric: cfg.metric,
+    scale: scaleFor(state.scales, cfg.metric),
   })
 
   // Before the dedup return, like the legend: the handover depends on what the
@@ -1313,6 +1316,13 @@ export function readConfig(el) {
       // icon-only control still has to be announced as something.
       legendToggle: d.tLegendToggle || '',
       legendNoData: d.tLegendNoData || '',
+      // The (i) beside the key and what its dialog says: the name of the
+      // button, the name of the outbound link, and the standing indicative-data
+      // disclaimer, which belongs anywhere the bands are explained.
+      legendAbout: d.tLegendAbout || '',
+      legendSource: d.tLegendSource || '',
+      disclaimer: d.tDisclaimer || '',
+      close: d.tClose || '',
       // Keyed by the tier names tierFor returns, so the lookup in showLegend is
       // a direct index rather than a branch that could drift from tier.js.
       tier: {
@@ -1679,6 +1689,20 @@ export function mountChrome(el, cfg) {
   legend.addEventListener('toggle', () => writeFlag(LEGEND_FOLD_KEY, legend.open))
   shell.appendChild(legend)
 
+  // The key says which colour is worse; it cannot say what 25 µg/m³ IS, whose
+  // rule that is, or where to read it. That belongs behind an (i), not on the
+  // map: it is a paragraph, and the map is the page.
+  //
+  // On the frame rather than the shell, because a modal in fullscreen must be
+  // inside the fullscreen element or the browser renders it nowhere.
+  const scaleDialog = createScaleDialog(el.ownerDocument, {
+    closeLabel: cfg.t.close,
+    sourceLabel: cfg.t.legendSource,
+    disclaimer: cfg.t.disclaimer,
+    lang: cfg.lang,
+  })
+  el.appendChild(scaleDialog.el)
+
   // What a dot aggregates at this zoom. Under the map as prose, not inside the
   // key: the key is an overlay with no panel behind it (the kit's §5.2d — a box
   // there would hide the map it explains), and a sentence of that length haloed
@@ -1826,7 +1850,7 @@ export function mountChrome(el, cfg) {
     hint.hidden = !text
   })
 
-  const showLegend = ({ bands, tier, metric }) => {
+  const showLegend = ({ bands, tier, metric, scale }) => {
     renderLegend(legend, {
       // Repainted with the bands, which is the only way it stays right: the
       // bands change with the metric, and so does the name of what they band.
@@ -1841,6 +1865,9 @@ export function mountChrome(el, cfg) {
         noDataLabel: cfg.t.legendNoData,
         lang: cfg.lang,
       }),
+      // No scale, no (i): before the tables load, and for a metric none of them
+      // claim, the dialog would open on nothing.
+      info: scale ? { label: cfg.t.legendAbout, onOpen: () => scaleDialog.show(scale) } : null,
     })
     const text = cfg.t.tier[tier] ?? ''
     tierLine.textContent = text
@@ -1850,7 +1877,7 @@ export function mountChrome(el, cfg) {
   // Drawn once at mount, before any scales have loaded, so the key is never an
   // empty overlay: with no bands that is the title and the no-data row, both of
   // which are true at that moment.
-  showLegend({ bands: [], tier: null, metric: cfg.metric })
+  showLegend({ bands: [], tier: null, metric: cfg.metric, scale: null })
 
   return {
     ...hintCtl,

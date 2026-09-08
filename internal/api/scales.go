@@ -49,6 +49,10 @@ type Scale struct {
 	Ceiling *float64 `json:"ceiling"`
 	Notes   string   `json:"notes"`
 	NotesBG string   `json:"notes_bg"`
+	// Source is the published guideline the bands come from, so a reader can
+	// check the claim instead of taking the colours on trust. Empty for a table
+	// that is only an axis: the meteo bands orient a reader and cite nobody.
+	Source string `json:"source"`
 }
 
 func upper(v float64) *float64 { return &v }
@@ -88,38 +92,44 @@ func Scales() []Scale {
 	particulate := []Scale{
 		{Name: "eaqi", Metric: "P2", Unit: "µg/m³", Bands: eaqiPM25,
 			Notes:   "European Air Quality Index bands for PM2.5. " + indicative,
-			NotesBG: "Класове на Европейския индекс за качество на въздуха за ПМ2.5. " + indicativeBG},
+			NotesBG: "Класове на Европейския индекс за качество на въздуха за ПМ2.5. " + indicativeBG,
+			Source:  "https://airindex.eea.europa.eu/"},
 		{Name: "eaqi", Metric: "P1", Unit: "µg/m³", Bands: eaqiPM10,
 			Notes:   "European Air Quality Index bands for PM10. " + indicative,
-			NotesBG: "Класове на Европейския индекс за качество на въздуха за ПМ10. " + indicativeBG},
+			NotesBG: "Класове на Европейския индекс за качество на въздуха за ПМ10. " + indicativeBG,
+			Source:  "https://airindex.eea.europa.eu/"},
 		{Name: "eu_limit", Metric: "P1", Unit: "µg/m³",
 			Bands: []Band{
 				{Label: "Within the EU daily limit", LabelBG: "В рамките на дневната норма на ЕС", Upper: upper(50), Colour: "#50ccaa"},
 				{Label: "Above the EU daily limit", LabelBG: "Над дневната норма на ЕС", Upper: nil, Colour: "#ff5050"},
 			},
 			Notes:   "Directive 2008/50/EC: PM10 daily limit 50 µg/m³. " + indicative,
-			NotesBG: "Директива 2008/50/ЕО: дневна норма за ПМ10 50 µg/m³. " + indicativeBG},
+			NotesBG: "Директива 2008/50/ЕО: дневна норма за ПМ10 50 µg/m³. " + indicativeBG,
+			Source:  "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32008L0050"},
 		{Name: "eu_limit", Metric: "P2", Unit: "µg/m³",
 			Bands: []Band{
 				{Label: "Within the EU annual limit", LabelBG: "В рамките на годишната норма на ЕС", Upper: upper(25), Colour: "#50ccaa"},
 				{Label: "Above the EU annual limit", LabelBG: "Над годишната норма на ЕС", Upper: nil, Colour: "#ff5050"},
 			},
 			Notes:   "Directive 2008/50/EC: PM2.5 annual limit 25 µg/m³. " + indicative,
-			NotesBG: "Директива 2008/50/ЕО: годишна норма за ПМ2.5 25 µg/m³. " + indicativeBG},
+			NotesBG: "Директива 2008/50/ЕО: годишна норма за ПМ2.5 25 µg/m³. " + indicativeBG,
+			Source:  "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32008L0050"},
 		{Name: "who", Metric: "P1", Unit: "µg/m³",
 			Bands: []Band{
 				{Label: "Within the WHO 24-hour guideline", LabelBG: "В рамките на 24-часовата насока на СЗО", Upper: upper(45), Colour: "#50ccaa"},
 				{Label: "Above the WHO 24-hour guideline", LabelBG: "Над 24-часовата насока на СЗО", Upper: nil, Colour: "#ff5050"},
 			},
 			Notes:   "WHO 2021 guidelines: PM10 24-hour 45 µg/m³. " + indicative,
-			NotesBG: "Насоки на СЗО 2021: ПМ10 за 24 часа 45 µg/m³. " + indicativeBG},
+			NotesBG: "Насоки на СЗО 2021: ПМ10 за 24 часа 45 µg/m³. " + indicativeBG,
+			Source:  "https://www.who.int/publications/i/item/9789240034228"},
 		{Name: "who", Metric: "P2", Unit: "µg/m³",
 			Bands: []Band{
 				{Label: "Within the WHO 24-hour guideline", LabelBG: "В рамките на 24-часовата насока на СЗО", Upper: upper(15), Colour: "#50ccaa"},
 				{Label: "Above the WHO 24-hour guideline", LabelBG: "Над 24-часовата насока на СЗО", Upper: nil, Colour: "#ff5050"},
 			},
 			Notes:   "WHO 2021 guidelines: PM2.5 24-hour 15 µg/m³. " + indicative,
-			NotesBG: "Насоки на СЗО 2021: ПМ2.5 за 24 часа 15 µg/m³. " + indicativeBG},
+			NotesBG: "Насоки на СЗО 2021: ПМ2.5 за 24 часа 15 µg/m³. " + indicativeBG,
+			Source:  "https://www.who.int/publications/i/item/9789240034228"},
 	}
 
 	// Every table above is particulate matter in µg/m³, so they all draw to the
@@ -194,7 +204,8 @@ func weather() []Scale {
 				{Label: "Extremely noisy", LabelBG: "Изключително шумно", Upper: nil, Colour: "#960032"},
 			},
 			Notes:   "WHO 2018 environmental noise guidelines: road traffic Lden 53 dB, night 45 dB. " + noiseIndicative,
-			NotesBG: "Насоки на СЗО 2018 за шума в околната среда: пътен шум Lden 53 dB, нощем 45 dB. " + noiseIndicativeBG},
+			NotesBG: "Насоки на СЗО 2018 за шума в околната среда: пътен шум Lden 53 dB, нощем 45 dB. " + noiseIndicativeBG,
+			Source:  "https://www.who.int/europe/publications/i/item/9789289053563"},
 		{Name: "peak", Metric: "noise_LA_max", Unit: "dB(A)", Ceiling: upper(120),
 			Bands: []Band{
 				{Label: "Low", LabelBG: "Ниско", Upper: upper(55), Colour: "#50f0e6"},
@@ -204,6 +215,7 @@ func weather() []Scale {
 				{Label: "Extreme", LabelBG: "Екстремно", Upper: nil, Colour: "#7d2181"},
 			},
 			Notes:   "Loudest sound level in the interval. 85 dB(A) is the EU upper exposure action value (Directive 2003/10/EC). " + noiseIndicative,
-			NotesBG: "Най-силното ниво на звука в интервала. 85 dB(A) е горната стойност на експозиция за предприемане на действие в ЕС (Директива 2003/10/ЕО). " + noiseIndicativeBG},
+			NotesBG: "Най-силното ниво на звука в интервала. 85 dB(A) е горната стойност на експозиция за предприемане на действие в ЕС (Директива 2003/10/ЕО). " + noiseIndicativeBG,
+			Source:  "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32003L0010"},
 	}
 }

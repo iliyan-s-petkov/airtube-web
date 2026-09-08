@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { LEGEND_CLASSES, legendRows, legendTitle, rampGradient, renderLegend } from '../legend.js'
 
 // Shaped like /api/v1/scales: ascending, upper INCLUSIVE, the top band open
@@ -70,6 +70,7 @@ describe('renderLegend', () => {
       title: 'Качество на въздуха',
       toggleLabel: 'Легенда',
       ...legendRows(BANDS, OPTS),
+      info: { label: 'Какво означават цветовете', onOpen: () => {} },
       ...over,
     })
     return el
@@ -154,8 +155,12 @@ describe('renderLegend', () => {
     // see panel.test.js: Vite turns the latter into an asset import and then
     // rejects the path for being outside the project root.
     const here = dirname(fileURLToPath(import.meta.url))
+    // The kit plus the app's own sheet: the (i) is not a kit control — the kit
+    // has no notion of a scale citing an authority — and app.css is where the
+    // app's own BEM classes live (.gauge__dial and the rest).
     const css = readFileSync(
       join(here, '..', '..', '..', '..', 'design-kit', 'components.css'), 'utf8')
+      + readFileSync(join(here, '..', '..', '..', '..', 'internal', 'web', 'static', 'app.css'), 'utf8')
     const emitted = new Set(LEGEND_CLASSES.split(' '))
     const el = draw()
     // The container's own classes too: renderLegend adds one to it, and a
@@ -170,8 +175,8 @@ describe('renderLegend', () => {
       'legend__label', 'legend__row',
       'scale', 'scale--named', 'scale--onmap', 'scale--progressive', 'scale--vertical',
       'scale__band', 'scale__band-edge', 'scale__band-name', 'scale__band-swatch',
-      'scale__bands', 'scale__bands--vertical', 'scale__bar', 'scale__label',
-      'scale__none', 'scale__toggle',
+      'scale__bands', 'scale__bands--vertical', 'scale__bar', 'scale__info',
+      'scale__label', 'scale__none', 'scale__toggle',
     ])
     for (const c of emitted) {
       expect(css, `components.css defines no .${c}`).toMatch(new RegExp(`\\.${c}\\b`))
@@ -258,3 +263,29 @@ describe('legendTitle', () => {
     expect(legendTitle({ label: ' PM2.5 ', unit: ' µg/m³ ' })).toBe('PM2.5, µg/m³')
   })
 })
+
+// The (i) is the only route to the guideline behind the colours, so it has to
+// survive a repaint — and it must not appear before a scale has loaded, when it
+// would open a dialog with nothing in it.
+describe('the scale info button', () => {
+  const drawWith = (info) => {
+    const el = document.createElement('details')
+    renderLegend(el, { title: 't', toggleLabel: 'l', ...legendRows(BANDS, OPTS), info })
+    return el
+  }
+
+  it('is named, icon-only, and calls back on click', () => {
+    const onOpen = vi.fn()
+    const button = drawWith({ label: 'Какво означават цветовете', onOpen }).querySelector('.scale__info')
+    expect(button.textContent).toBe('')
+    expect(button.getAttribute('aria-label')).toBe('Какво означават цветовете')
+    expect(button.type).toBe('button')
+    button.click()
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('is absent while there is no scale to describe', () => {
+    expect(drawWith(null).querySelector('.scale__info')).toBeNull()
+  })
+})
+

@@ -306,6 +306,10 @@ describe('readConfig', () => {
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
         tLayerBase: 'Terrain and parks', tLayerStreetNames: 'Street names',
+        tLegendAbout: 'What the colours mean',
+        tLegendSource: 'Read the official guideline',
+        tDisclaimer: 'Indicative data.',
+        tClose: 'Close',
         tTierCountry: 'Each dot is an oblast average',
         tTierCity: 'Each dot is a city average',
         tTierSensors: 'Each dot is a single sensor',
@@ -328,6 +332,9 @@ describe('readConfig', () => {
     expect(cfg.t).toEqual({
       legend: 'Air quality', hint: 'Select an area',
       legendToggle: 'Legend', legendNoData: 'Not enough data',
+      legendAbout: 'What the colours mean',
+      legendSource: 'Read the official guideline',
+      disclaimer: 'Indicative data.', close: 'Close',
       fullscreen: 'Full screen', fullscreenExit: 'Exit full screen',
       zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomReset: 'Reset view',
       layersButton: 'Layers', layersCaption: 'Show on the map',

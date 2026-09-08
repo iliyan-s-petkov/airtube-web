@@ -88,7 +88,10 @@ export function legendRows(bands, { noDataColour, noDataLabel, lang }) {
 // whose bands are served and differ — temperature's scale is not PM2.5's.
 // rampGradient below builds it from the same band table the hexes are painted
 // from, so the key cannot show a colour the map does not use.
-export function renderLegend(el, { title, toggleLabel, bands, noData }) {
+// `info`, when given, adds the (i) that opens the scale dialog. Optional
+// because the key is drawn once before any scale has loaded, and an (i) that
+// opens an empty dialog is worse than no (i) at all.
+export function renderLegend(el, { title, toggleLabel, bands, noData, info }) {
   el.replaceChildren()
 
   // The progressive bar replaces the stacked blocks, which is what makes the
@@ -171,6 +174,19 @@ export function renderLegend(el, { title, toggleLabel, bands, noData }) {
   row.appendChild(noneLabel)
   none.appendChild(row)
   el.appendChild(none)
+
+  // Last, and inside the fold: the reader who wants the guideline behind the
+  // colours has already found the key and opened it. Icon-only for the same
+  // reason the toggle is — the key sits ON the map and a word here would widen
+  // it — so the name goes to aria-label.
+  if (info) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'scale__info'
+    button.setAttribute('aria-label', info.label)
+    button.addEventListener('click', info.onOpen)
+    el.appendChild(button)
+  }
 }
 
 // The bar's gradient, and the map's colours, are now one function in ramp.js —

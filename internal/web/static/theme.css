@@ -36,6 +36,9 @@
   /* Map chrome */
   --map-placeholder-bg: #f4f4f4;
   --overlay-bg: rgba(255, 255, 255, .9);
+  /* Behind a modal: dark in both themes, because the job is to push the map
+     back, not to match the page. */
+  --scrim: rgba(22, 22, 22, .45);
 
   /* Type. Self-hosted: the CSP has no third-party allowance, and a font CDN is
      a third party watching our readers. Weight 700 does not exist here. */
