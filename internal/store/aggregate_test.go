@@ -907,3 +907,70 @@ func TestAreaSeriesTakesTheMiddleSensorNotTheMiddleRow(t *testing.T) {
 		t.Errorf("value = %v, want 12 — three rows from one device are one vote", points[0].Value)
 	}
 }
+
+// The band's median must be the same number AreaSeries reports for the bucket,
+// and its extremes must be sensors: a chatty device's individual readings must
+// not become the low and the high of a bucket it is the only member of.
+func TestAreaSeriesBandTakesTheExtremeSensorsNotTheExtremeRows(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "smolyan", "oblast", 24.7, 41.57)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	seedSensorReading(t, ctx, pool, 970, 24.700, 41.57, "P2", 10, "ok", base)
+	seedSensorReading(t, ctx, pool, 971, 24.701, 41.57, "P2", 12, "ok", base.Add(time.Second))
+	// One device swinging between 20 and 40 averages to 30 — so 40 is never the
+	// bucket's high, and 20 is never its low.
+	for i, v := range []float64{20, 40} {
+		seedSensorReading(t, ctx, pool, 972, 24.702, 41.57, "P2", v, "ok", base.Add(time.Duration(2+i)*time.Second))
+	}
+	assignAreas(t, ctx, pool)
+
+	bands, err := s.AreaSeriesBand(ctx, "smolyan", "P2", base.Add(-time.Hour), nil, false, time.Minute)
+	if err != nil {
+		t.Fatalf("AreaSeriesBand: %v", err)
+	}
+	if len(bands) != 1 {
+		t.Fatalf("bands = %d, want 1", len(bands))
+	}
+	if bands[0].Low != 10 || bands[0].Median != 12 || bands[0].High != 30 {
+		t.Errorf("band = low %v, median %v, high %v; want 10, 12, 30",
+			bands[0].Low, bands[0].Median, bands[0].High)
+	}
+
+	points, err := s.AreaSeries(ctx, "smolyan", "P2", base.Add(-time.Hour), nil, false, time.Minute)
+	if err != nil {
+		t.Fatalf("AreaSeries: %v", err)
+	}
+	if len(points) != 1 || points[0].Value != bands[0].Median {
+		t.Errorf("the band's median (%v) is not the series' value (%v)", bands[0].Median, points)
+	}
+}
+
+// The band inherits the quality filter from the same subquery the median uses.
+// A flagged reading counted here would put a rejected value on the chart as the
+// area's worst sensor — the one line a reader looks at first.
+func TestAreaSeriesBandExcludesFlaggedReadings(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "smolyan", "oblast", 24.7, 41.57)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	seedSensorReading(t, ctx, pool, 980, 24.700, 41.57, "P2", 10, "ok", base)
+	seedSensorReading(t, ctx, pool, 981, 24.701, 41.57, "P2", 14, "ok", base.Add(time.Second))
+	seedSensorReading(t, ctx, pool, 982, 24.702, 41.57, "P2", 900, "out_of_range", base.Add(2*time.Second))
+	assignAreas(t, ctx, pool)
+
+	bands, err := s.AreaSeriesBand(ctx, "smolyan", "P2", base.Add(-time.Hour), nil, false, time.Minute)
+	if err != nil {
+		t.Fatalf("AreaSeriesBand: %v", err)
+	}
+	if len(bands) != 1 {
+		t.Fatalf("bands = %d, want 1", len(bands))
+	}
+	if bands[0].High != 14 {
+		t.Errorf("high = %v, want 14 — the flagged 900 reading is not a sensor", bands[0].High)
+	}
+}

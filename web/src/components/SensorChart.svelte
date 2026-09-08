@@ -2,9 +2,11 @@
   import { untrack } from 'svelte'
   import Chart from './Chart.svelte'
   import MetricPicker from './MetricPicker.svelte'
+  import NearbyPicker from './NearbyPicker.svelte'
   import PeriodPicker from './PeriodPicker.svelte'
   import { unitFor } from '../lib/metrics.js'
-  import { getScales } from '../lib/sensors.svelte.js'
+  import { getScales, getSensorArea } from '../lib/sensors.svelte.js'
+  import { nearbyOptions, nearbySources } from '../lib/nearby.js'
   import { CUSTOM, periodQuery } from '../lib/period.js'
 
   // The panel's chart and its controls: which metrics (several at once), which
@@ -22,6 +24,7 @@
     periods, periodLabels, initialPeriod, initialMetric,
     metricLegend, periodLegend, customLabel, fromLabel, toLabel,
     resetLabel, rangeInvalid,
+    nearbyLegend = '', nearbyOff = '', nearbySingleOnly = '', nearbyLabels = {},
     colours = [],
     timeLabel, empty, unavailable,
   } = $props()
@@ -39,6 +42,9 @@
   // Bumped by Reset, and only by Reset: remounting the chart is also what
   // discards the height the reader dragged the frame to.
   let resetToken = $state(0)
+  // Which of the area's three lines the reader asked for. Empty is the default
+  // and means "just this sensor" — the chart the panel has always drawn.
+  let nearby = $state([])
 
   const labelOf = (m) => options.find((o) => o.metric === m)?.label ?? m
   const unitOf = (m) => unitFor(getScales(), m)
@@ -65,20 +71,41 @@
     })
   }
 
+  // The area this sensor stands in, from the body the map already loaded. Absent
+  // when the reader zoomed past the tier that carries it, and the control then
+  // has no area to ask about.
+  const areaSlug = $derived(getSensorArea())
+  const bandable = $derived(metrics.length === 1 && !!areaSlug)
+
   const chartSources = $derived.by(() => {
     if (!query) return []
     const scales = scaleNames(metrics)
-    return metrics.map((m, i) => ({
+    const own = metrics.map((m, i) => ({
       url: urlFor(m),
       label: labelOf(m),
       colour: colours[i % colours.length],
       scale: scales[i],
       unit: unitOf(m),
     }))
+    if (!bandable) return own
+
+    // colours[1] is the compare colour, free here: the overlay only appears
+    // while ONE metric is drawn, so nothing else is using it.
+    return [...own, ...nearbySources({
+      slug: areaSlug,
+      metric: metrics[0],
+      query,
+      keys: nearby,
+      colour: colours[1 % colours.length],
+      scale: scales[0],
+      unit: unitOf(metrics[0]),
+      labels: nearbyLabels,
+    })]
   })
 
   function reset() {
     metrics = seedMetric ? [seedMetric] : []
+    nearby = []
     period = initialPeriod
     from = ''
     to = ''
@@ -94,6 +121,17 @@
       onchange={(next) => { metrics = next }}
       legend={metricLegend}
     />
+    {#if areaSlug}
+      <NearbyPicker
+        options={nearbyOptions(nearbyLabels)}
+        selected={nearby}
+        onchange={(next) => { nearby = next }}
+        legend={nearbyLegend}
+        offLabel={nearbyOff}
+        disabled={!bandable}
+        disabledHint={nearbySingleOnly}
+      />
+    {/if}
     <PeriodPicker
       {periods}
       {periodLabels}

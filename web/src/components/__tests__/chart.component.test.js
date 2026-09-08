@@ -247,4 +247,35 @@ describe('Chart.svelte', () => {
     setCursor({ cursor: { idx: null } })
     expect(el.classList.contains('chart-live')).toBe(false)
   })
+  // Three lines off one banded body must cost ONE request. The band is served
+  // from the database (the snapshot's precomputed body has no spread in it), so
+  // asking three times is three area queries for one chart.
+  it('fetches a url once however many lines read from it', async () => {
+    const fetched = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      fetched.push(String(url))
+      return Promise.resolve(new Response(JSON.stringify({
+        t: ['2026-08-14T00:00:00Z'], v: [12.3], lo: [4], hi: [40],
+      }), { status: 200 }))
+    })
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+
+    const band = '/api/v1/area/sofia/series?metric=P2&period=24h&band=1'
+    render({ sources: [
+      { url: band, label: 'low', colour: '#111', scale: 'y', unit: 'x', column: 'lo', dash: [2, 4] },
+      { url: band, label: 'median', colour: '#111', scale: 'y', unit: 'x' },
+      { url: band, label: 'high', colour: '#111', scale: 'y', unit: 'x', column: 'hi' },
+    ] })
+
+    await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
+    expect(fetched).toEqual([band])
+
+    // Each line reads its own column: all three reading "v" would draw the
+    // median three times and label two of them the extremes.
+    const { opts, data } = uplotCalls[0]
+    expect([data[1][0], data[2][0], data[3][0]]).toEqual([4, 12.3, 40])
+    // The dash is how the reader tells them apart; the median keeps none.
+    expect(opts.series[1].dash).toEqual([2, 4])
+    expect(opts.series[2].dash).toBeUndefined()
+  })
 })

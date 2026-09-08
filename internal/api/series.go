@@ -358,6 +358,11 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	band, ok := bandRequested(w, r)
+	if !ok {
+		return
+	}
+
 	if !d.Breadth.ObserveArea(httpx.BucketKeyFrom(r.Context()), slug) {
 		enumerationTrips.With("area").Inc()
 		writeTooManyAreas(w, d.Config.RateLimit.Enumerate)
@@ -374,7 +379,11 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 	//     series bucket exists to protect Postgres, and spending its tokens on
 	//     requests that never reach Postgres would starve the path it is
 	//     actually guarding.
-	if metric == d.Snapshots.DefaultMetric() && period == snapshot.DefaultSeriesPeriod {
+	//
+	// A banded request skips it outright: the precomputed body carries the
+	// median alone, and serving it would answer a question about the spread
+	// with a body that has no spread in it.
+	if !band && metric == d.Snapshots.DefaultMetric() && period == snapshot.DefaultSeriesPeriod {
 		if body, ok := snap.AreaSeries[slug]; ok {
 			serveBody(w, r, body, cachePrivate, maxAgeFor(d.Config, period))
 			return
@@ -392,6 +401,21 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
+	body := snapshot.SeriesPayload{Slug: slug, Metric: metric, Period: period, Hourly: pd.Hourly}
+
+	if band {
+		bands, err := d.Store.AreaSeriesBand(r.Context(), slug, metric, since, until, pd.Hourly, pd.Bucket)
+		release()
+		if err != nil {
+			slog.Error("area band query failed", "slug", slug, "metric", metric, "error", err)
+			writeError(w, http.StatusInternalServerError, "internal", "Internal server error.")
+			return
+		}
+		writeBand(w, body, bands, periodMaxAge(d.Config, pd))
+		return
+	}
+
 	points, err := d.Store.AreaSeries(r.Context(), slug, metric, since, until, pd.Hourly, pd.Bucket)
 	release()
 	if err != nil {
@@ -400,7 +424,21 @@ func (d Deps) handleAreaSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSeries(w, snapshot.SeriesPayload{Slug: slug, Metric: metric, Period: period, Hourly: pd.Hourly}, points, periodMaxAge(d.Config, pd))
+	writeSeries(w, body, points, periodMaxAge(d.Config, pd))
+}
+
+// bandRequested reads ?band=. Absent or "0" is off, "1" is on, and anything else
+// is a mistake worth naming rather than silently reading as off — a caller who
+// typed band=true would otherwise get a plain series and no hint why.
+func bandRequested(w http.ResponseWriter, r *http.Request) (band, ok bool) {
+	switch r.URL.Query().Get("band") {
+	case "", "0":
+		return false, true
+	case "1":
+		return true, true
+	}
+	writeError(w, http.StatusBadRequest, "bad_request", `The "band" parameter must be 0 or 1.`)
+	return false, false
 }
 
 // maxAge is passed in rather than derived from body.Period, because a custom
@@ -416,6 +454,26 @@ func writeSeries(w http.ResponseWriter, body snapshot.SeriesPayload, points []st
 		body.Values = append(body.Values, p.Value)
 	}
 
+	writeEncoded(w, body, maxAge)
+}
+
+// writeBand is writeSeries for a banded area response: the same median column
+// under "v", plus the bucket's lowest and highest sensor.
+func writeBand(w http.ResponseWriter, body snapshot.SeriesPayload, bands []store.AreaBand, maxAge int) {
+	body.Times = make([]time.Time, 0, len(bands))
+	body.Values = make([]float64, 0, len(bands))
+	body.Low = make([]float64, 0, len(bands))
+	body.High = make([]float64, 0, len(bands))
+	for _, b := range bands {
+		body.Times = append(body.Times, b.Time)
+		body.Values = append(body.Values, b.Median)
+		body.Low = append(body.Low, b.Low)
+		body.High = append(body.High, b.High)
+	}
+	writeEncoded(w, body, maxAge)
+}
+
+func writeEncoded(w http.ResponseWriter, body snapshot.SeriesPayload, maxAge int) {
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		// json.Marshal fails on a NaN or Inf float64 ("unsupported value").

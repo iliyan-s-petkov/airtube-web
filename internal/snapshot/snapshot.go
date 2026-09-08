@@ -60,6 +60,14 @@ type SeriesPayload struct {
 	Hourly   bool        `json:"hourly"`
 	Times    []time.Time `json:"t"`
 	Values   []float64   `json:"v"`
+
+	// Low and High are the quietest and dirtiest sensor in each bucket, present
+	// only on an area response the caller asked to band (?band=1). Omitted
+	// otherwise, so the plain series stays the bytes it has always been — the
+	// snapshot's precomputed body has no band, and a reader who did not ask for
+	// one must not be charged for the two extra columns.
+	Low  []float64 `json:"lo,omitempty"`
+	High []float64 `json:"hi,omitempty"`
 }
 
 // AreaMeta is the non-payload metadata a handler needs about an area: enough to

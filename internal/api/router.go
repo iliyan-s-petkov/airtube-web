@@ -20,7 +20,7 @@ import (
 	"airbg.org/internal/store"
 )
 
-// DataSource is the whole database surface this package uses. Narrowed to three
+// DataSource is the whole database surface this package uses. Narrowed to four
 // methods so the handlers can be tested against a stub instead of a container —
 // and so it is obvious at a glance which endpoints touch the database at all
 // (only /locate and the two series endpoints; everything else is served from
@@ -29,6 +29,7 @@ type DataSource interface {
 	AreaAtPoint(ctx context.Context, lon, lat float64) (string, error)
 	SensorSeries(ctx context.Context, sensorID int64, metric string, since time.Time, until *time.Time, hourly bool, bucket time.Duration) ([]store.Point, error)
 	AreaSeries(ctx context.Context, slug, metric string, since time.Time, until *time.Time, hourly bool, bucket time.Duration) ([]store.Point, error)
+	AreaSeriesBand(ctx context.Context, slug, metric string, since time.Time, until *time.Time, hourly bool, bucket time.Duration) ([]store.AreaBand, error)
 }
 
 type Deps struct {

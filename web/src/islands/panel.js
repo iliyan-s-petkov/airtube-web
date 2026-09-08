@@ -160,6 +160,14 @@ function buildChartSnippet(sensor, options, d) {
           toLabel: d.tPeriodTo || '',
           resetLabel: d.tChartReset || '',
           rangeInvalid: d.tChartRangeInvalid || '',
+          nearbyLegend: d.tNearbyLegend || '',
+          nearbyOff: d.tNearbyOff || '',
+          nearbySingleOnly: d.tNearbySingleOnly || '',
+          nearbyLabels: {
+            low: d.tNearbyLow || '',
+            median: d.tNearbyMedian || '',
+            high: d.tNearbyHigh || '',
+          },
           // Config (frontend.chart_*_colour), not CSS: a canvas inherits no
           // custom property. The panel draws as many lines as the reader ticks,
           // so the palette runs on past the two named colours.

@@ -8,9 +8,13 @@
 // holds because every series query this consumes ends `ORDER BY time` or
 // `ORDER BY bucket`, ascending (internal/store/aggregate.go: AreaSeries,
 // AllAreaSeries) — the server is the source of that guarantee, not this file.
-export function toUplotData(body) {
+// column names which of the payload's value arrays to plot: "v" is the series
+// itself, "lo" and "hi" the band an area response carries when it was asked for
+// one. Defaulted, so every caller that only ever wants the series reads the same
+// as before.
+export function toUplotData(body, column = 'v') {
   const times = body?.t ?? []
-  const values = body?.v ?? []
+  const values = body?.[column] ?? []
   // Truncated to the shorter of the two rather than padded. A payload with
   // mismatched column lengths is a server bug; plotting a value against a
   // missing timestamp would invent a data point.
@@ -34,17 +38,20 @@ export function toUplotData(body) {
 // point of one series against the other and draw a plausible, wrong chart. So
 // the x axis is the UNION of the timestamps, sorted ascending, and a series
 // with nothing at an instant gets null there — the gap uPlot draws as a gap.
-export function mergeSeries(bodies) {
-  const columns = bodies.map((body) => {
-    const [xs, ys] = toUplotData(body)
+// columns[i] is the value array to read from bodies[i], defaulting to "v".
+// Passing the SAME body more than once with different columns is the point: a
+// banded response carries three lines, and they must not cost three fetches.
+export function mergeSeries(bodies, columns = []) {
+  const cols = bodies.map((body, i) => {
+    const [xs, ys] = toUplotData(body, columns[i] ?? 'v')
     const at = new Map()
     for (let i = 0; i < xs.length; i++) at.set(xs[i], ys[i])
     return at
   })
 
   const stamps = new Set()
-  for (const at of columns) for (const x of at.keys()) stamps.add(x)
+  for (const at of cols) for (const x of at.keys()) stamps.add(x)
   const xs = [...stamps].sort((a, b) => a - b)
 
-  return [xs, ...columns.map((at) => xs.map((x) => (at.has(x) ? at.get(x) : null)))]
+  return [xs, ...cols.map((at) => xs.map((x) => (at.has(x) ? at.get(x) : null)))]
 }

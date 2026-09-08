@@ -40,6 +40,10 @@ func (s *blockingSource) AreaSeries(_ context.Context, _, _ string, _ time.Time,
 	return nil, nil
 }
 
+func (s *blockingSource) AreaSeriesBand(_ context.Context, _, _ string, _ time.Time, _ *time.Time, _ bool, _ time.Duration) ([]store.AreaBand, error) {
+	return nil, nil
+}
+
 // trustedLocateHandler builds ONE router, wrapped so the Cloudflare headers are
 // honoured. Built once rather than per request because the sharing test needs
 // two distinct routers and must control exactly how many exist.

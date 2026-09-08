@@ -375,9 +375,10 @@ func (s *Store) SensorSeries(ctx context.Context, sensorID int64, metric string,
 //
 // area_sensor carries area_slug directly (migration 00004) — there is no
 // numeric area.id to join through.
-var areaRawSeriesSQL = `
-SELECT b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
-  FROM (SELECT ` + bucketed("r.time", 5) + ` AS b, r.sensor_id, avg(r.value) AS v
+// One row per sensor per bucket. Written once and composed into both the median
+// series and the band below it, so the two can never bucket differently or
+// disagree about which readings count.
+var areaRawPerSensorSQL = `(SELECT ` + bucketed("r.time", 5) + ` AS b, r.sensor_id, avg(r.value) AS v
           FROM reading r
           JOIN area_sensor asx ON asx.sensor_id = r.sensor_id
           JOIN area a          ON a.slug = asx.area_slug
@@ -386,16 +387,28 @@ SELECT b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
            AND r.time  >= $3
            AND r.quality = ANY($4::quality_flag[])
            AND ($6::timestamptz IS NULL OR r.time < $6)
-         GROUP BY b, r.sensor_id) per_sensor
+         GROUP BY b, r.sensor_id) per_sensor`
+
+var areaRawSeriesSQL = `
+SELECT b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
+  FROM ` + areaRawPerSensorSQL + `
+ GROUP BY b
+ ORDER BY b`
+
+// areaRawBandSQL adds the two extremes to the same median. min and max are the
+// lowest and highest SENSOR in the bucket, each already averaged to one value by
+// the subquery, so a device reporting six times a minute cannot be both the
+// lowest and the highest reading of its own bucket.
+var areaRawBandSQL = `
+SELECT b, min(v), percentile_cont(0.5) WITHIN GROUP (ORDER BY v), max(v)
+  FROM ` + areaRawPerSensorSQL + `
  GROUP BY b
  ORDER BY b`
 
 // areaHourlySeriesSQL is the same over the rollup. reading_hourly carries no
 // quality column — the rollup is built from readings that already passed the
 // filter, so re-filtering here would be impossible AND unnecessary.
-var areaHourlySeriesSQL = `
-SELECT b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
-  FROM (SELECT ` + bucketed("h.bucket", 4) + ` AS b, h.sensor_id, avg(h.avg_value) AS v
+var areaHourlyPerSensorSQL = `(SELECT ` + bucketed("h.bucket", 4) + ` AS b, h.sensor_id, avg(h.avg_value) AS v
           FROM reading_hourly h
           JOIN area_sensor asx ON asx.sensor_id = h.sensor_id
           JOIN area a          ON a.slug = asx.area_slug
@@ -403,7 +416,17 @@ SELECT b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
            AND h.metric = $2
            AND h.bucket >= $3
            AND ($5::timestamptz IS NULL OR h.bucket < $5)
-         GROUP BY b, h.sensor_id) per_sensor
+         GROUP BY b, h.sensor_id) per_sensor`
+
+var areaHourlySeriesSQL = `
+SELECT b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
+  FROM ` + areaHourlyPerSensorSQL + `
+ GROUP BY b
+ ORDER BY b`
+
+var areaHourlyBandSQL = `
+SELECT b, min(v), percentile_cont(0.5) WITHIN GROUP (ORDER BY v), max(v)
+  FROM ` + areaHourlyPerSensorSQL + `
  GROUP BY b
  ORDER BY b`
 
@@ -530,4 +553,54 @@ func (s *Store) AreaSeries(ctx context.Context, slug, metric string, since time.
 		points = append(points, p)
 	}
 	return points, rows.Err()
+}
+
+// AreaBand is one bucket's spread across an area's sensors. Median is the same
+// number AreaSeries returns for that bucket; Low and High are the quietest and
+// the dirtiest sensor around it.
+type AreaBand struct {
+	Time   time.Time
+	Low    float64
+	Median float64
+	High   float64
+}
+
+// AreaSeriesBand is AreaSeries with the extremes kept. Same window, same
+// bucketing, same sensors — it answers "and how far apart were they" for a
+// reader comparing one sensor against its neighbours.
+//
+// A separate method rather than a flag on AreaSeries: the two return different
+// shapes, and the callers that want a plain median line (the snapshot builder
+// among them) must not pay for two more aggregates.
+func (s *Store) AreaSeriesBand(ctx context.Context, slug, metric string, since time.Time, until *time.Time, hourly bool, bucket time.Duration) ([]AreaBand, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin area band: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.StatementTimeoutValue(s.seriesTimeout)); err != nil {
+		return nil, fmt.Errorf("store: area band timeout: %w", err)
+	}
+
+	var rows pgx.Rows
+	if hourly {
+		rows, err = tx.Query(ctx, areaHourlyBandSQL, slug, metric, since, bucket.Seconds(), until)
+	} else {
+		rows, err = tx.Query(ctx, areaRawBandSQL, slug, metric, since, usableQuality, bucket.Seconds(), until)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: area band for %q: %w", slug, err)
+	}
+	defer rows.Close()
+
+	var bands []AreaBand
+	for rows.Next() {
+		var b AreaBand
+		if err := rows.Scan(&b.Time, &b.Low, &b.Median, &b.High); err != nil {
+			return nil, fmt.Errorf("store: scan area band: %w", err)
+		}
+		bands = append(bands, b)
+	}
+	return bands, rows.Err()
 }

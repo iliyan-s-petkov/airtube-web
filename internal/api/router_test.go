@@ -48,6 +48,12 @@ type stubSource struct {
 	// that the default combination never reaches here.
 	areaSeriesCalls int
 
+	// bands is what AreaSeriesBand returns, and bandCalls counts the calls: the
+	// band tests assert both that ?band=1 reaches the database at all and that
+	// the plain path never does.
+	bands     []store.AreaBand
+	bandCalls int
+
 	// areaAtPointCalls counts calls to AreaAtPoint. The locate admission tests
 	// assert on this directly: a request refused by the admission semaphore
 	// must never have reached the database.
@@ -79,6 +85,12 @@ func (s *stubSource) AreaSeries(_ context.Context, _, _ string, since time.Time,
 	s.areaSeriesCalls++
 	s.recordWindow(since, until, hourly, bucket)
 	return s.points, s.err
+}
+
+func (s *stubSource) AreaSeriesBand(_ context.Context, _, _ string, since time.Time, until *time.Time, hourly bool, bucket time.Duration) ([]store.AreaBand, error) {
+	s.bandCalls++
+	s.recordWindow(since, until, hourly, bucket)
+	return s.bands, s.err
 }
 
 func deps(t *testing.T, snap *snapshot.Snapshot) api.Deps {

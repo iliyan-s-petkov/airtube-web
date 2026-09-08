@@ -80,3 +80,39 @@ describe('mergeSeries', () => {
     expect(mergeSeries([{ t: [], v: [] }, undefined])).toEqual([[], [], []])
   })
 })
+
+describe('banded columns', () => {
+  const banded = {
+    t: ['2026-08-11T00:00:00Z', '2026-08-11T01:00:00Z'],
+    v: [12, 14],
+    lo: [4, 5],
+    hi: [40, 44],
+  }
+
+  it('reads the named column instead of v', () => {
+    expect(toUplotData(banded, 'lo')[1]).toEqual([4, 5])
+    expect(toUplotData(banded, 'hi')[1]).toEqual([40, 44])
+    expect(toUplotData(banded)[1]).toEqual([12, 14])
+  })
+
+  // A plain series asked for a band column has no such array. Two empty arrays
+  // draw an empty frame; undefined throws inside uPlot and takes the island out.
+  it('returns an empty series for a column the body has not got', () => {
+    expect(toUplotData({ t: ['2026-08-11T00:00:00Z'], v: [12] }, 'lo')).toEqual([[], []])
+  })
+
+  // The three lines of a band come from ONE body. Merging it against itself is
+  // what lets Chart.svelte fetch that body once.
+  it('merges three columns of one body onto a single x axis', () => {
+    const [xs, lo, mid, hi] = mergeSeries([banded, banded, banded], ['lo', 'v', 'hi'])
+    expect(xs).toHaveLength(2)
+    expect(lo).toEqual([4, 5])
+    expect(mid).toEqual([12, 14])
+    expect(hi).toEqual([40, 44])
+  })
+
+  it('defaults a body with no column named to v', () => {
+    const [, ys] = mergeSeries([banded], [])
+    expect(ys).toEqual([12, 14])
+  })
+})

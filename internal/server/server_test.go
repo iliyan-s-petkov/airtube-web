@@ -496,6 +496,10 @@ func (b *blockingSeriesStore) AreaSeries(ctx context.Context, slug, metric strin
 	return []store.Point{}, nil
 }
 
+func (b *blockingSeriesStore) AreaSeriesBand(ctx context.Context, slug, metric string, since time.Time, until *time.Time, hourly bool, _ time.Duration) ([]store.AreaBand, error) {
+	return nil, errors.New("blockingSeriesStore: AreaSeriesBand unexpectedly called")
+}
+
 // TestSeriesAdmissionCapComesFromConfiguredMaxInflight proves
 // Config.Database.MaxInflight — not a package constant — is the size of the
 // admission semaphore server.New builds in front of the database-backed

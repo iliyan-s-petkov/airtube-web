@@ -123,6 +123,17 @@
      data-t-failed="{{.T "refresh.failed"}}"
      data-t-auto="{{.T "refresh.auto"}}"></div>{{end}}
 
+{{/* The nearby-sensors control's copy, in attribute position on the panel
+     island. Defined once because three pages mount that island — home, area and
+     the embed — and five attributes written three times is five chances for one
+     page to offer different words for the same three lines. */}}
+{{define "panelNearbyLabels"}}data-t-nearby-legend="{{.T "chart.nearby.legend"}}"
+     data-t-nearby-off="{{.T "chart.nearby.off"}}"
+     data-t-nearby-single-only="{{.T "chart.nearby.single_only"}}"
+     data-t-nearby-low="{{.T "chart.nearby.low"}}"
+     data-t-nearby-median="{{.T "chart.nearby.median"}}"
+     data-t-nearby-high="{{.T "chart.nearby.high"}}"{{end}}
+
 {{/* The figures strip, given a []Readout. Shared because the home page and an
      area page draw the same cells from different sums, and a second copy of
      this markup is how the two start rendering differently. Each cell keeps its

@@ -11,12 +11,16 @@
   // temperature against PM2.5. Everything below the normalisation works on the
   // list, so there is no second code path to keep in step.
   //
-  // A source is { url, label, colour, scale, unit }. scale names the y axis the
-  // line is measured against: two metrics in the same unit share one, and µg/m³
-  // against °C must not, or one of them is flattened into the other's range.
-  // unit is what that axis's numbers are counted in — without it a plot of two
-  // metrics shows two columns of bare numbers and leaves the reader to guess
-  // which quantity each one belongs to.
+  // A source is { url, label, colour, scale, unit, column, dash }. scale names
+  // the y axis the line is measured against: two metrics in the same unit share
+  // one, and µg/m³ against °C must not, or one of them is flattened into the
+  // other's range. unit is what that axis's numbers are counted in — without it
+  // a plot of two metrics shows two columns of bare numbers and leaves the
+  // reader to guess which quantity each one belongs to.
+  //
+  // column names which array of its url's payload the line reads, defaulting to
+  // "v". It is what lets one banded response draw three lines, and dash is how
+  // those three are told apart: the sensor is solid, its surroundings dashed.
   //
   // resizable gives the plot a drag handle: analysing a day of four metrics
   // wants more than the 240px a summary chart needs.
@@ -66,6 +70,11 @@
     // chart would never redraw when the reader picks another metric.
     const lines = defs
 
+    // One getJSON per line, not per distinct url: three lines off one banded
+    // response name the same url and differ only in which column they read, and
+    // getJSON already collapses concurrent callers of a url onto one request
+    // (see inFlight in lib/api.js). Deduping again here would be a second copy
+    // of that rule, provable only by deleting the first.
     ;(async () => {
       let bodies
       try {
@@ -80,7 +89,7 @@
       }
       if (cancelled) return
 
-      const data = mergeSeries(bodies)
+      const data = mergeSeries(bodies, lines.map((s) => s.column ?? 'v'))
       if (data[0].length === 0) { status = 'empty'; return }
       status = 'ok'
 
@@ -111,6 +120,7 @@
             width: 2,
             scale: s.scale ?? 'y',
             spanGaps: false,
+            ...(s.dash ? { dash: s.dash } : {}),
           })),
         ],
         axes: [
