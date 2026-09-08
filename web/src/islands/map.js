@@ -900,7 +900,7 @@ async function refresh(map, state, cfg, chrome, force = false) {
   // already-open panel the instant a visitor zooms out past the sensor
   // tier, rather than leaving its last-known content on screen.
   if (effective === 'sensors') {
-    setSensors(body)
+    setSensors(body, state.slug ?? null)
     state.sensorBody = body
   } else {
     state.sensorBody = null

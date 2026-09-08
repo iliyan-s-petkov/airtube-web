@@ -28,8 +28,18 @@ let body = $state(null)
 // and reacts the same way findSensor does: a plain $state read.
 let scales = $state(null)
 
-export function setSensors(next) {
+// The slug the body was loaded for. The body itself names no area, and the
+// readout strip has to be able to say WHICH area the figures beside an open
+// sensor describe — an unnamed "highest nearby" is a number with no set.
+let areaSlug = $state(null)
+
+export function setSensors(next, slug = null) {
   body = next
+  areaSlug = slug
+}
+
+export function getSensorArea() {
+  return areaSlug
 }
 
 export function setScales(next) {

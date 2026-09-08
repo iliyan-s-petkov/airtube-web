@@ -150,3 +150,23 @@
 {{end}}    <span class="readout__tier">{{.Tier}}</span>
   </div>
 {{end}}</div>{{end}}
+
+{{/* The strip plus the island that swaps it while a sensor is open, given the
+     page. The server's cells stay in the DOM and are hidden rather than
+     replaced, so closing the sensor restores exactly what was rendered here
+     instead of a second implementation's guess at it. */}}
+{{define "readouts-island"}}<div data-island="readouts"
+     data-metrics="{{.MetricsAttr}}"
+     data-metric-labels="{{.MetricLabelsAttr}}"
+     data-metric="{{.DefaultMetric}}"
+     data-t-high="{{.T "read.sensor.high"}}"
+     data-t-low="{{.T "read.sensor.low"}}"
+     data-t-median="{{.T "read.sensor.median"}}"
+     data-t-this-sensor="{{.T "read.sensor.this"}}"
+     data-t-of-total="{{.T "read.sensor.of_total"}}"
+     data-t-above="{{.T "read.sensor.above_median"}}"
+     data-t-below="{{.T "read.sensor.below_median"}}"
+     data-t-at="{{.T "read.sensor.at_median"}}"
+     data-t-area-sensors="{{.T "read.sensor.area_sensors"}}"
+     data-t-sensors-only="{{.T "read.sensor.sensors_only"}}"
+  >{{with .StripReadouts}}{{template "readouts" .}}{{end}}</div>{{end}}

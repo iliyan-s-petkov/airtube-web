@@ -239,6 +239,10 @@ strong, b { font-weight: var(--weight-emphasis); }
    longer take the zoom stack away from the reader — which is what the old
    right-offset was working around. It also stops covering the map it describes,
    so the marker that was clicked stays visible beside its own numbers. */
+/* The kit's slot spaces itself from the map above; nothing spaced it from what
+   follows, so an open panel sat flush against the readout strip and its raised
+   shadow fell across the first card — which reads as the panel overlapping it. */
+.place-host:not(:empty) { margin-block-end: var(--space-4); }
 .sensor-panel {
   background: var(--bg); border: 0; box-shadow: var(--elev-raised); border-radius: var(--radius);
   padding: var(--space-3) var(--space-4); font-size: var(--text-compact); letter-spacing: var(--track-compact); color: var(--fg);

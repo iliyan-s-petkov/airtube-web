@@ -35,7 +35,7 @@
      title and again as the fourth cell. Only the cell survives here: it is the
      same number, and the cell carries a tier line saying what the sensors are
      counted in, which the bare sentence did not. */}}
-{{with .AreaReadouts}}{{template "readouts" .}}{{end}}
+{{template "readouts-island" .}}
 
 {{if not .Area.Covered}}
   <div class="notice">

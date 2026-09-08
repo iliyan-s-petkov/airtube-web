@@ -39,8 +39,14 @@
   // rather than overflowing the box.
   const BASE_HEIGHT = 240
   const LEGEND_STRIP = 34
+  // Measured once the legend exists, because 34 was only its height in one
+  // font at one language: wherever it ran taller the plot overflowed the
+  // clipped frame and the x-axis title was cut off against the strip below.
+  function legendStrip() {
+    return host?.querySelector('.u-legend')?.offsetHeight || LEGEND_STRIP
+  }
   function plotSize() {
-    const dragged = resizable && frame?.clientHeight ? frame.clientHeight - LEGEND_STRIP : BASE_HEIGHT
+    const dragged = resizable && frame?.clientHeight ? frame.clientHeight - legendStrip() : BASE_HEIGHT
     return { width: host.clientWidth || 600, height: Math.max(160, dragged) }
   }
 
@@ -140,6 +146,14 @@
           setCursor: [(u) => host.classList.toggle('chart-live', u.cursor.idx != null)],
         },
       }, data, host)
+
+      // The first size was computed before uPlot had drawn its legend, so the
+      // strip could only be assumed. Re-fit once against the real one; the
+      // frame's height is fixed, so this cannot feed the observer below.
+      if (resizable) {
+        const fitted = plotSize()
+        if (fitted.width > 0 && fitted.height !== chart.height) chart.setSize(fitted)
+      }
 
       // The container is fluid; a chart left at its first-paint width is
       // visibly wrong after a phone rotates. setSize does not re-fetch.

@@ -325,6 +325,16 @@ func (p PageData) Readouts() []Readout {
 	}
 }
 
+// StripReadouts is whichever set the page in hand draws, so the one island
+// wrapper in base.gohtml serves both without either template naming the other's
+// field.
+func (p PageData) StripReadouts() []Readout {
+	if p.Area != nil {
+		return p.AreaReadouts()
+	}
+	return p.Readouts()
+}
+
 // AreaReadouts is the strip at the top of one area's page: what this area is
 // currently measuring, one cell per metric, then how many sensors the figures
 // come from.

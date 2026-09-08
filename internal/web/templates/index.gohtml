@@ -181,7 +181,7 @@
      PageData.Readouts), so the strip can never name a top province the list
      ranks second. Each cell carries the tier it aggregates — no bare numbers
      (DESIGN.md §9.1). */}}
-{{with .Readouts}}{{template "readouts" .}}{{end}}
+{{template "readouts-island" .}}
 
 {{/* The map's text alternative, named so aria-describedby can reach it. It is
      one sentence and a link, not a copy of the list: the list is a whole tab of
