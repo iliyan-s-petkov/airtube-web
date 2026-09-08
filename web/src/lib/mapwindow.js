@@ -105,32 +105,94 @@ export function chooseWindow(state, name) {
 }
 
 /**
- * mountWindow builds the selector, unwired: the caller owns what a pick does,
- * because that needs the map.
+ * mountWindow builds the window chooser, unwired: the caller registers what a
+ * pick does through onpick, because that needs the map.
  *
- * A <select> rather than a row of buttons, and top-centre rather than in the
- * layers menu. The menu is checkboxes — things that are on or off, independently
- * — and the window is one choice among four, which is the one shape a checkbox
- * list cannot express. Top-centre because the other three corners are taken (the
- * key, the layers button, the zoom stack and the find-me button), and because
- * this control changes what every number on the map MEANS: it is not furniture.
+ * A disclosure in the bottom-left cluster, beside the refresh button, rather
+ * than a select floating across the top of the map: the top centre is where the
+ * reader is looking at the map itself, and a control parked there is furniture
+ * over the thing it describes. Radios rather than the layers menu's checkboxes
+ * — the window is ONE choice out of four, which is the one shape a checkbox
+ * list cannot state.
  *
- * Labelled by aria-label and title only. The option texts say what they are —
- * "Now", "Last 24 hours" — so a visible caption beside them would be a second
- * word for the same fact, on a control that has to fit across a phone.
+ * The button carries the chosen window's own text, so the map says which
+ * question it is answering without the reader having to open anything.
  */
-export function mountWindow(frame, { label, options, value }) {
-  const select = document.createElement('select')
-  select.className = 'map-window'
-  select.setAttribute('aria-label', label)
-  select.setAttribute('title', label)
-  for (const opt of options) {
-    const el = document.createElement('option')
-    el.value = opt.value
-    el.textContent = opt.text
-    select.appendChild(el)
+export function mountWindow(frame, { label, options, value }, doc = document) {
+  const root = doc.createElement('div')
+  root.className = 'colmenu map-window'
+
+  const button = doc.createElement('button')
+  button.type = 'button'
+  button.className = 'btn colmenu__btn map-window__btn'
+  button.setAttribute('aria-label', label)
+  button.setAttribute('title', label)
+  button.setAttribute('aria-expanded', 'false')
+
+  const panel = doc.createElement('div')
+  panel.className = 'colmenu__panel map-window__panel'
+  panel.hidden = true
+
+  // aria-controls needs an id, and two maps on one page would collide on a
+  // fixed one — derived from the frame's own id, as the layers menu is.
+  const id = `${frame.id || 'map'}-window-panel`
+  panel.id = id
+  button.setAttribute('aria-controls', id)
+
+  const fieldset = doc.createElement('fieldset')
+  const caption = doc.createElement('legend')
+  caption.textContent = label
+  fieldset.appendChild(caption)
+
+  const open = (yes) => {
+    button.setAttribute('aria-expanded', String(yes))
+    panel.hidden = !yes
   }
-  select.value = value
-  frame.appendChild(select)
-  return select
+
+  const listeners = []
+  const say = (opt) => { button.textContent = opt.text }
+
+  for (const opt of options) {
+    const wrap = doc.createElement('label')
+    wrap.className = 'colmenu__opt'
+    const input = doc.createElement('input')
+    input.type = 'radio'
+    input.name = `${id}-choice`
+    input.value = opt.value
+    input.checked = opt.value === value
+    if (input.checked) say(opt)
+    const text = doc.createElement('span')
+    text.textContent = opt.text
+    input.addEventListener('change', () => {
+      if (!input.checked) return
+      say(opt)
+      open(false)
+      button.focus()
+      for (const fn of listeners) fn(opt.value)
+    })
+    wrap.appendChild(input)
+    wrap.appendChild(text)
+    fieldset.appendChild(wrap)
+  }
+  // A stored window the server no longer publishes leaves nothing checked, and
+  // a button with no text is a button nobody can find.
+  if (!button.textContent) say(options[0] ?? { text: LIVE_FALLBACK })
+
+  panel.appendChild(fieldset)
+
+  button.addEventListener('click', () => open(button.getAttribute('aria-expanded') !== 'true'))
+  root.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !panel.hidden) {
+      open(false)
+      button.focus()
+    }
+  })
+  doc.addEventListener('mousedown', (e) => {
+    if (!panel.hidden && !root.contains(e.target)) open(false)
+  })
+
+  root.appendChild(button)
+  root.appendChild(panel)
+  frame.appendChild(root)
+  return { root, button, panel, open, onpick: (fn) => listeners.push(fn) }
 }

@@ -163,27 +163,82 @@ describe('chooseWindow', () => {
 })
 
 describe('mountWindow', () => {
-  it('builds a labelled select on the frame, showing the current window', () => {
+  const mount = (value = '48h') => {
     const frame = document.createElement('div')
+    frame.id = 'map'
     document.body.append(frame)
-    const select = mountWindow(frame, {
-      label: 'Averaging period',
-      options: windowOptions(['Now', '24h', '48h', '7d']),
-      value: '48h',
-    })
-    expect(select.parentElement).toBe(frame)
-    expect(select.className).toBe('map-window')
-    expect(select.getAttribute('aria-label')).toBe('Averaging period')
-    expect(select.getAttribute('title')).toBe('Averaging period')
-    expect([...select.options].map((o) => o.value)).toEqual(WINDOW_CHOICES)
-    expect(select.value).toBe('48h')
+    return {
+      frame,
+      ui: mountWindow(frame, {
+        label: 'Averaging period',
+        options: windowOptions(['Now', '24h', '48h', '7d']),
+        value,
+      }),
+    }
+  }
+
+  // A disclosure in the bottom-left cluster, beside the refresh button, rather
+  // than a select floating over the top of the map.
+  it('builds a labelled button on the frame, showing the current window', () => {
+    const { frame, ui } = mount()
+    expect(ui.root.parentElement).toBe(frame)
+    expect(ui.root.className).toContain('map-window')
+    expect(ui.button.getAttribute('aria-label')).toBe('Averaging period')
+    expect(ui.button.getAttribute('title')).toBe('Averaging period')
+    expect(ui.button.textContent).toContain('48h')
+    expect(ui.button.getAttribute('aria-expanded')).toBe('false')
+    expect(ui.panel.hidden).toBe(true)
+  })
+
+  it('offers every published window, with the current one checked', () => {
+    const { ui } = mount()
+    const radios = [...ui.panel.querySelectorAll('input[type="radio"]')]
+    expect(radios.map((r) => r.value)).toEqual(WINDOW_CHOICES)
+    expect(radios.filter((r) => r.checked).map((r) => r.value)).toEqual(['48h'])
+    // One group, so picking one un-picks the last: the window is one choice,
+    // not a set of independent layers.
+    expect(new Set(radios.map((r) => r.name)).size).toBe(1)
+  })
+
+  it('opens on click and closes on Escape', () => {
+    const { ui } = mount()
+    ui.button.click()
+    expect(ui.panel.hidden).toBe(false)
+    expect(ui.button.getAttribute('aria-expanded')).toBe('true')
+
+    ui.root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(ui.panel.hidden).toBe(true)
+  })
+
+  it('closes on a click outside itself', () => {
+    const { ui } = mount()
+    ui.button.click()
+    document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    expect(ui.panel.hidden).toBe(true)
+  })
+
+  // The caller reloads the map from this; what it owes back is the picked name
+  // and a closed panel, with the button now saying what is on screen.
+  it('reports the pick, closes, and renames the button', () => {
+    const { ui } = mount('')
+    const picked = []
+    ui.onpick((name) => picked.push(name))
+    ui.button.click()
+
+    const radio = ui.panel.querySelector('input[value="7d"]')
+    radio.checked = true
+    radio.dispatchEvent(new Event('change', { bubbles: true }))
+
+    expect(picked).toEqual(['7d'])
+    expect(ui.panel.hidden).toBe(true)
+    expect(ui.button.textContent).toContain('7d')
   })
 
   // No el.style anywhere: the CSP carries no style-src 'unsafe-inline', so a
   // control positioned from JS would simply not be placed.
   it('writes no inline style', () => {
-    const frame = document.createElement('div')
-    const select = mountWindow(frame, { label: 'x', options: windowOptions(), value: '' })
-    expect(select.getAttribute('style')).toBe(null)
+    const { ui } = mount()
+    expect(ui.root.getAttribute('style')).toBe(null)
+    expect(ui.button.getAttribute('style')).toBe(null)
   })
 })

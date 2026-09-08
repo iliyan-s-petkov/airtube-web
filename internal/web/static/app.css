@@ -127,19 +127,31 @@ strong, b { font-weight: var(--weight-emphasis); }
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--muted);
 }
 .map-note[hidden] { display: none; }
-/* Top centre, the last free edge: top-left is the layers button and the note,
-   top-right the kit's full-screen button and zoom stack, and both bottom
-   corners are spoken for. A <select> rather than more checkboxes in the layers
-   menu, because the window is one choice out of four and that menu is a set of
-   independent on/off layers. Only anchored on one axis — see
-   TestAppCSSDoesNotCoAnchorAKitSelector on what the other one costs. */
-.map-window {
-  position: absolute; z-index: 3; top: 12px; left: 50%; transform: translateX(-50%);
+/* Beside the refresh button in the bottom-left cluster, not across the top of
+   the map: the top centre is where the reader is looking at the MAP, and a
+   control parked there is furniture over the thing it describes.
+
+   The offset is .map-freshness's own width — two 1.75rem icons and the pill's
+   padding either side of them — plus a gutter, so the two sit in one row and
+   read as one cluster. */
+.map-window { position: absolute; z-index: 3; bottom: 12px; left: calc(12px + 4.25rem + var(--space-2)); }
+.map-window__btn {
+  block-size: calc(1.75rem + 2 * var(--space-1));
+  min-height: 0; padding: 0 var(--space-2);
   background: var(--overlay-bg); border: 0; border-radius: var(--radius); box-shadow: var(--elev-raised);
-  padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption);
-  color: var(--fg); cursor: pointer;
+  font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg); cursor: pointer;
 }
-.map-window:focus-visible { box-shadow: var(--focus-ring); }
+.map-window__btn:hover { background: var(--surface-2); }
+.map-window__btn[aria-expanded="true"] { background: var(--fg); color: var(--bg); }
+.map-window__btn:focus-visible { box-shadow: var(--focus-ring); }
+/* Upward: there is nothing but map above the cluster, and a panel opening
+   downward would run straight off the bottom of the frame. The kit anchors its
+   panel from the top, so that edge is released here or the panel stretches. */
+.map-window__panel {
+  inset-block-start: auto; inset-block-end: calc(100% + var(--space-2));
+  inset-inline-end: auto; inset-inline-start: 0;
+  min-inline-size: 12rem; padding: var(--space-3);
+}
 /* The no-data swatch carries a server-defined colour as an SVG fill attribute,
    so it needs a size here and nothing else — see renderLegend on why a styled
    span cannot work under the CSP. The BAND swatches need nothing: the kit sizes
@@ -290,7 +302,10 @@ strong, b { font-weight: var(--weight-emphasis); }
   background: var(--bg); color: var(--fg); padding: 0 var(--space-2); cursor: pointer;
 }
 .chart-range { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
-/* Square, because there is a glyph in it and no word. */
+/* Square, because there is a glyph in it and no word. flex-end because the kit
+   stretches a .chart-controls child to the row's height, which on the area page
+   is the select PLUS its label — a 73px tall button beside a 48px select. */
+.chart-controls { align-items: flex-end; }
 .chart-reset { padding-inline: var(--space-3); }
 .chart-message { color: var(--fg-2); margin: var(--space-4) 0; }
 

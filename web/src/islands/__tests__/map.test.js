@@ -1891,12 +1891,13 @@ describe('the averaging selector', () => {
     el.dataset.tWindows = 'Now,Last 24 hours,Last 48 hours,Last week'
     document.body.appendChild(el)
 
-    const { windowSelect } = mountChrome(el, readConfig(el))
-    expect(windowSelect, 'no window selector in the chrome').toBeTruthy()
-    expect(windowSelect.parentElement).toBe(el)
-    expect(windowSelect.getAttribute('aria-label')).toBe('Averaging period')
-    expect([...windowSelect.options].map((o) => o.value)).toEqual(['', '24h', '48h', '7d'])
-    expect([...windowSelect.options].map((o) => o.textContent))
+    const { windowMenu } = mountChrome(el, readConfig(el))
+    expect(windowMenu, 'no window menu in the chrome').toBeTruthy()
+    expect(windowMenu.root.parentElement).toBe(el)
+    expect(windowMenu.button.getAttribute('aria-label')).toBe('Averaging period')
+    const radios = [...windowMenu.panel.querySelectorAll('input[type="radio"]')]
+    expect(radios.map((r) => r.value)).toEqual(['', '24h', '48h', '7d'])
+    expect(radios.map((r) => r.nextElementSibling.textContent))
       .toEqual(['Now', 'Last 24 hours', 'Last 48 hours', 'Last week'])
   })
 })

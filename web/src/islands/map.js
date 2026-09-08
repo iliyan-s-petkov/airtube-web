@@ -422,8 +422,8 @@ export function mount(el) {
     // sources exist. The grid comes along because it is the same readings under
     // the same markers, and a map where half the picture averaged a week and
     // the other half did not would be two answers to one question.
-    chrome.windowSelect.addEventListener('change', async () => {
-      if (!chooseWindow(state, chrome.windowSelect.value)) return
+    chrome.windowMenu.onpick(async (name) => {
+      if (!chooseWindow(state, name)) return
       await refresh(map, state, cfg, chrome, true)
       await refreshHexes(map, state, cfg)
     })
@@ -1813,10 +1813,10 @@ export function mountChrome(el, cfg) {
   // does not exist until MapLibre has loaded one.
   const layers = mountLayers(el, { label: cfg.t.layersButton })
 
-  // The averaging window. Built with the chrome and read back by mount(), which
-  // owns what a pick costs — see lib/mapwindow.js on why it is a <select> in the
-  // top centre rather than one more checkbox in the menu beside it.
-  const windowSelect = mountWindow(el, {
+  // The averaging window. Built with the chrome and wired by mount(), which
+  // owns what a pick costs — see lib/mapwindow.js on why it is a menu in the
+  // bottom-left cluster rather than a select across the top of the map.
+  const windowMenu = mountWindow(el, {
     label: cfg.t.windowLabel,
     options: windowOptions(cfg.windowLabels),
     value: readWindow(),
@@ -1957,7 +1957,7 @@ export function mountChrome(el, cfg) {
     },
     showLegend,
     zoomButtons: zoom.buttons,
-    windowSelect,
+    windowMenu,
     layersUI: layers,
     layerViews,
     locateButton,
