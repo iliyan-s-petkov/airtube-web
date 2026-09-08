@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import Chart from './Chart.svelte'
   import PeriodPicker from './PeriodPicker.svelte'
+  import ResetButton from './ResetButton.svelte'
   import { CUSTOM, periodQuery } from '../lib/period.js'
 
   // periods/labels arrive as parallel lists from the server (the config's own
@@ -9,7 +10,7 @@
   // outside it, so a hard-coded option is a button that returns 400.
   let {
     slug, metric, periods, periodLabels, initialPeriod,
-    metricLabel, tier, periodLegend, customLabel, fromLabel, toLabel,
+    metricLabel, tier, periodLegend, customLabel, fromLabel, toLabel, nowLabel,
     resetLabel, rangeInvalid,
     lineColour, valueLabel, valueUnit = '', timeLabel, empty, unavailable,
   } = $props()
@@ -58,10 +59,11 @@
       {customLabel}
       {fromLabel}
       {toLabel}
+      {nowLabel}
       id="area-period"
       onchange={(next) => { period = next.period; from = next.from; to = next.to }}
     />
-    <button type="button" class="btn btn--secondary" onclick={reset}>{resetLabel}</button>
+    <ResetButton label={resetLabel} onreset={reset} />
   </div>
 </div>
 

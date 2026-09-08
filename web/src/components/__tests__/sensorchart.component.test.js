@@ -45,6 +45,7 @@ const props = {
   customLabel: 'Избран период',
   fromLabel: 'От',
   toLabel: 'До',
+  nowLabel: 'Now',
   resetLabel: 'Върни изгледа',
   rangeInvalid: 'Изберете начало и край.',
   colours: ['rgb(1, 2, 3)', 'rgb(4, 5, 6)', 'rgb(7, 8, 9)'],
@@ -203,6 +204,44 @@ describe('SensorChart.svelte', () => {
     expect(fetched[1]).toContain('to=')
   })
 
+  // Typing "2026-08-14T00:00" by hand is the thing the reader should never have
+  // to do: the browser has a calendar and a clock dial behind showPicker(), and
+  // clicking anywhere on the field is what opens it.
+  it('opens the browser calendar when a range field is clicked', async () => {
+    const { target } = render()
+    await chooseCustom(target)
+
+    const opened = []
+    for (const id of ['#panel-period-from', '#panel-period-to']) {
+      const input = target.querySelector(id)
+      input.showPicker = () => opened.push(id)
+      input.click()
+    }
+    expect(opened).toEqual(['#panel-period-from', '#panel-period-to'])
+  })
+
+  // A field the reader has to fill in with the current time by hand is a field
+  // they will fill in wrong: the end of a range is "now" far more often than it
+  // is any other instant.
+  it('fills the end of the range with the current time on request', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 8, 8, 9, 30))
+    try {
+      const { target, fetched } = render()
+      await vi.waitFor(() => expect(fetched).toHaveLength(1))
+
+      await chooseCustom(target)
+      setValue(target.querySelector('#panel-period-from'), '2026-09-07T09:30')
+      target.querySelector('.chart-range__now').click()
+
+      await vi.waitFor(() => expect(target.querySelector('#panel-period-to').value)
+        .toBe('2026-09-08T09:30'))
+      await vi.waitFor(() => expect(fetched.at(-1)).toContain('period=custom'))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('says nothing can be drawn when the range runs backwards', async () => {
     const { target, fetched } = render()
     await vi.waitFor(() => expect(fetched).toHaveLength(1))
@@ -215,6 +254,18 @@ describe('SensorChart.svelte', () => {
     expect(target.querySelector('.chart-message').textContent).toContain(props.rangeInvalid)
   })
 
+  // Icon alone, so the row does not carry a fourth sentence beside three
+  // controls that already read as sentences. The name still has to reach a
+  // reader who cannot see the glyph (DESIGN.md §5.2a).
+  it('resets from an icon that still states what it does', () => {
+    const { target } = render()
+    const btn = target.querySelector('.chart-reset')
+    expect(btn.textContent.trim()).toBe('')
+    expect(btn.getAttribute('aria-label')).toBe(props.resetLabel)
+    expect(btn.getAttribute('title')).toBe(props.resetLabel)
+    expect(btn.querySelector('svg').getAttribute('aria-hidden')).toBe('true')
+  })
+
   it('reset returns the metric and the window to the view the panel opened on', async () => {
     const { target, fetched } = render()
     await vi.waitFor(() => expect(fetched).toHaveLength(1))
@@ -223,9 +274,7 @@ describe('SensorChart.svelte', () => {
     setValue(periodSelect(target), '7d')
     await vi.waitFor(() => expect(fetched.at(-1)).toContain('period=7d'))
 
-    // Last of the row: the metric menu's own button is a .btn--secondary too.
-    const buttons = target.querySelectorAll('.panel-chart__controls button.btn--secondary')
-    buttons[buttons.length - 1].click()
+    target.querySelector('.chart-reset').click()
     await vi.waitFor(() => expect(uplotCalls.at(-1).opts.series).toHaveLength(2))
     // No new request: the opening view is still in the cache. What reset owes
     // the reader is that view back, so the controls are what this asserts.

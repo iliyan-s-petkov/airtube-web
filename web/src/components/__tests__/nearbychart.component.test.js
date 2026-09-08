@@ -190,9 +190,7 @@ describe('the nearby-sensors overlay', () => {
     tickNearby(target, 'median')
     await vi.waitFor(() => expect(uplotCalls.at(-1).opts.series).toHaveLength(3))
 
-    target.querySelectorAll('button').forEach((b) => {
-      if (b.textContent.trim() === props.resetLabel) b.click()
-    })
+    target.querySelector('.chart-reset').click()
     await vi.waitFor(() => expect(uplotCalls.at(-1).opts.series).toHaveLength(2))
     expect(nearbyBox(target, 'median').checked).toBe(false)
   })

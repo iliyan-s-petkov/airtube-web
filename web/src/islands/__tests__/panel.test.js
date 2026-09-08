@@ -69,6 +69,7 @@ const PANEL_ATTR_FIXTURES = {
   tPeriodCustom: 'Custom range',
   tPeriodFrom: 'From',
   tPeriodTo: 'To',
+  tPeriodNow: 'Now',
   tDetails: 'About this station',
   tDetailDevices: 'Devices',
   tDetailHardware: 'Hardware',

@@ -27,6 +27,7 @@ export function mount(el) {
       customLabel: d.tPeriodCustom || '',
       fromLabel: d.tPeriodFrom || '',
       toLabel: d.tPeriodTo || '',
+      nowLabel: d.tPeriodNow || '',
       resetLabel: d.tReset || '',
       rangeInvalid: d.tRangeInvalid || '',
       lineColour: d.lineColour,

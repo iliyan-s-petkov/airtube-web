@@ -12,6 +12,16 @@ export function toInstant(local) {
   return Number.isNaN(t.getTime()) ? null : t.toISOString()
 }
 
+// The inverse of toInstant: an instant as the naive local string a
+// datetime-local input takes. toISOString cannot be used — it states UTC, and
+// the input would read it as wall clock and land the reader's own offset away
+// from the moment they asked for.
+export function localNow(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 export function customRangeValid(from, to) {
   const a = toInstant(from)
   const b = toInstant(to)

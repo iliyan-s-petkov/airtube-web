@@ -4,6 +4,7 @@
   import MetricPicker from './MetricPicker.svelte'
   import NearbyPicker from './NearbyPicker.svelte'
   import PeriodPicker from './PeriodPicker.svelte'
+  import ResetButton from './ResetButton.svelte'
   import { unitFor } from '../lib/metrics.js'
   import { getScales, getSensorArea } from '../lib/sensors.svelte.js'
   import { nearbyOptions, nearbySources } from '../lib/nearby.js'
@@ -22,7 +23,7 @@
   let {
     stationId, sources, options,
     periods, periodLabels, initialPeriod, initialMetric,
-    metricLegend, periodLegend, customLabel, fromLabel, toLabel,
+    metricLegend, periodLegend, customLabel, fromLabel, toLabel, nowLabel,
     resetLabel, rangeInvalid,
     nearbyLegend = '', nearbyOff = '', nearbySingleOnly = '', nearbyLabels = {},
     colours = [],
@@ -142,12 +143,13 @@
       {customLabel}
       {fromLabel}
       {toLabel}
+      {nowLabel}
       id="panel-period"
       onchange={(next) => { period = next.period; from = next.from; to = next.to }}
     />
     <!-- In the slot the old "Compare with" select had: the control that undoes
          everything the other two (and the drag handle) did. -->
-    <button type="button" class="btn btn--secondary" onclick={reset}>{resetLabel}</button>
+    <ResetButton label={resetLabel} onreset={reset} />
   </div>
 
   {#if period === CUSTOM && !query}

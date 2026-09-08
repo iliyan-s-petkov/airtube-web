@@ -158,6 +158,7 @@ function buildChartSnippet(sensor, options, d) {
           customLabel: d.tPeriodCustom || '',
           fromLabel: d.tPeriodFrom || '',
           toLabel: d.tPeriodTo || '',
+          nowLabel: d.tPeriodNow || '',
           resetLabel: d.tChartReset || '',
           rangeInvalid: d.tChartRangeInvalid || '',
           nearbyLegend: d.tNearbyLegend || '',

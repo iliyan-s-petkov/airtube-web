@@ -30,6 +30,7 @@ const props = {
   customLabel: 'Custom range',
   fromLabel: 'From',
   toLabel: 'To',
+  nowLabel: 'Now',
   resetLabel: 'Reset view',
   rangeInvalid: 'Choose a start and an end.',
   lineColour: '#2563eb',
