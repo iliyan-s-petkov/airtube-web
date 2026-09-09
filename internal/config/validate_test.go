@@ -563,6 +563,13 @@ func TestEEAValidationRejectsBadSettings(t *testing.T) {
 		"poll under minimum":   func(c *Config) { c.EEA.PollInterval = time.Minute; c.EEA.MinPollInterval = time.Hour },
 		"zero payload bound":   func(c *Config) { c.EEA.MaxPayloadBytes = 0 },
 		"metadata url is http": func(c *Config) { c.EEA.MetadataURL = "http://example.invalid/x.csv" },
+		// "relative url" above trips the scheme rule as well, so it would still
+		// fail with the host rule deleted. This one is https and hostless, so
+		// only the host rule can reject it.
+		"empty host": func(c *Config) { c.EEA.URL = "https:///ParquetFile" },
+		// Nothing else reads metadata_cache at validation time, and an empty
+		// one only surfaces at runtime as a cache that never loads.
+		"empty metadata_cache": func(c *Config) { c.EEA.MetadataCache = "" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := validConfig(t)
