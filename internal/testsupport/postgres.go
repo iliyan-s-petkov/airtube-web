@@ -18,6 +18,12 @@ import (
 	"airbg.org/internal/db"
 )
 
+// StoreConfig mirrors airbg.yaml's store: block, the same threshold every
+// other package's local testStoreConfig helper already duplicates.
+func StoreConfig() config.Store {
+	return config.Store{CoverageThreshold: 3, FreshnessWindow: 2 * time.Hour}
+}
+
 // testDatabaseConfig mirrors airbg.yaml's database.statement_timeouts. URL is
 // filled in by the caller; it is a credential and never belongs in a
 // committed fixture.
