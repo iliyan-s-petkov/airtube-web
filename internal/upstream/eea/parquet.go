@@ -28,15 +28,17 @@ type Row struct {
 
 // fileRow mirrors the file's own physical types. Start/End are int96 and Value
 // is a DECIMAL(38,18) in a fixed_len_byte_array(16); neither has a Go mapping
-// parquet-go will do for us.
+// parquet-go will do for us. Samplingpoint, Value, Unit and AggType are
+// "optional" in the EEA schema, so they are pointers here: a nil distinguishes
+// a real NULL from a genuine zero value or empty string.
 type fileRow struct {
-	Samplingpoint string           `parquet:"Samplingpoint"`
+	Samplingpoint *string          `parquet:"Samplingpoint,optional"`
 	Pollutant     int32            `parquet:"Pollutant"`
 	Start         deprecated.Int96 `parquet:"Start"`
 	End           deprecated.Int96 `parquet:"End"`
-	Value         [16]byte         `parquet:"Value"`
-	Unit          string           `parquet:"Unit"`
-	AggType       string           `parquet:"AggType"`
+	Value         *[16]byte        `parquet:"Value,optional"`
+	Unit          *string          `parquet:"Unit,optional"`
+	AggType       *string          `parquet:"AggType,optional"`
 	Validity      int32            `parquet:"Validity"`
 	Verification  int32            `parquet:"Verification"`
 }
@@ -52,9 +54,17 @@ func int96Time(v deprecated.Int96) time.Time {
 	return time.Unix((int64(v[2])-julianEpochDay)*86400, nanos).UTC()
 }
 
-// dec18 reads a DECIMAL(38,18) stored big-endian in 16 bytes.
+// twoToThe128 is the modulus for two's-complement sign recovery below.
+var twoToThe128 = new(big.Int).Lsh(big.NewInt(1), 128)
+
+// dec18 reads a DECIMAL(38,18) stored big-endian in 16 bytes, two's complement.
+// SetBytes alone reads the bytes as unsigned, so a set high bit (a negative
+// value) must be corrected by subtracting 2^128.
 func dec18(b [16]byte) float64 {
 	i := new(big.Int).SetBytes(b[:])
+	if b[0]&0x80 != 0 {
+		i.Sub(i, twoToThe128)
+	}
 	f, _ := new(big.Float).Quo(new(big.Float).SetInt(i), big.NewFloat(1e18)).Float64()
 	return f
 }
@@ -68,14 +78,20 @@ func DecodeRows(r io.ReaderAt, size int64) ([]Row, error) {
 	}
 	out := make([]Row, 0, len(raw))
 	for _, fr := range raw {
+		// Policy: a row with a NULL in any field required to store or identify
+		// the reading is unusable and is dropped, not defaulted. A NULL Value
+		// must never reach the store as 0.
+		if fr.Samplingpoint == nil || fr.Value == nil || fr.Unit == nil || fr.AggType == nil {
+			continue
+		}
 		out = append(out, Row{
-			Samplingpoint: fr.Samplingpoint,
+			Samplingpoint: *fr.Samplingpoint,
 			Pollutant:     fr.Pollutant,
 			Start:         int96Time(fr.Start),
 			End:           int96Time(fr.End),
-			Value:         dec18(fr.Value),
-			Unit:          fr.Unit,
-			AggType:       fr.AggType,
+			Value:         dec18(*fr.Value),
+			Unit:          *fr.Unit,
+			AggType:       *fr.AggType,
 			Validity:      fr.Validity,
 			Verification:  fr.Verification,
 		})
