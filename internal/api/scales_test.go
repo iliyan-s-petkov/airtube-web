@@ -141,17 +141,52 @@ func TestEveryScaleForOneMetricAgreesOnItsUnit(t *testing.T) {
 	}
 }
 
+func TestGasScalesCiteTheEAQI(t *testing.T) {
+	want := map[string]float64{"NO2": 40, "O3": 50, "SO2": 100}
+	for _, s := range api.Scales() {
+		edge, ok := want[s.Metric]
+		if !ok || s.Name != "eaqi" {
+			continue
+		}
+		if s.Source != "https://airindex.eea.europa.eu/" {
+			t.Errorf("%s eaqi cites %q", s.Metric, s.Source)
+		}
+		if s.Unit != "µg/m³" {
+			t.Errorf("%s eaqi is in %q, want µg/m³", s.Metric, s.Unit)
+		}
+		if s.Bands[0].Upper == nil || *s.Bands[0].Upper != edge {
+			t.Errorf("%s first band edge is not %v", s.Metric, edge)
+		}
+		delete(want, s.Metric)
+	}
+	for m := range want {
+		t.Errorf("%s has no eaqi table", m)
+	}
+}
+
+// An axis-only table must not claim a guideline it does not have.
+func TestUnlegislatedGasesCiteNobody(t *testing.T) {
+	for _, s := range api.Scales() {
+		switch s.Metric {
+		case "CO", "C6H6", "NOX":
+			if s.Source != "" {
+				t.Errorf("%s cites %q but has no guideline behind it", s.Metric, s.Source)
+			}
+		}
+	}
+}
+
 // A scale that cites an authority must link it: the legend's info dialog offers
 // the reader the guideline itself, and a table naming "Directive 2008/50/EC"
 // with nowhere to read it asks for the colours to be taken on trust.
 //
-// The meteo tables are the exception and say so by carrying no source — they
-// are an axis, not a health guideline.
+// The meteo and axis tables are the exception and say so by carrying no
+// source — they are an axis, not a health guideline.
 func TestGuidelineScalesLinkTheirSource(t *testing.T) {
 	for _, s := range api.Scales() {
-		if s.Name == "meteo" {
+		if s.Name == "meteo" || s.Name == "axis" {
 			if s.Source != "" {
-				t.Errorf("%s/%s cites %q, but a weather axis has no guideline behind it", s.Name, s.Metric, s.Source)
+				t.Errorf("%s/%s cites %q, but an axis has no guideline behind it", s.Name, s.Metric, s.Source)
 			}
 			continue
 		}
