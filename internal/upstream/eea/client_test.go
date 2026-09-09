@@ -3,11 +3,13 @@ package eea_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -157,20 +159,115 @@ func TestFetchFileRespectsRequestTimeout(t *testing.T) {
 	}
 }
 
-// The header truncated below its required columns is the observable proof
-// that FetchMetadata stops reading at MaxPayloadBytes rather than at EOF.
-func TestFetchMetadataBoundsTheBody(t *testing.T) {
-	header := "Countrycode\tSamplingPoint\tAirQualityStationEoICode\tAirQualityStationNatCode\tLongitude\tLatitude\tAirQualityStationType\tAirQualityStationArea\n"
-	row := "BG\tSP1\tCODE1\tNAT1\t23.32\t42.69\tbackground\turban\n"
+const (
+	mdHeader = "Countrycode\tSamplingPoint\tAirQualityStationEoICode\tAirQualityStationNatCode\tLongitude\tLatitude\tAirQualityStationType\tAirQualityStationArea\n"
+	mdRow    = "BG\tSP1\tCODE1\tNAT1\t23.32\t42.69\tbackground\turban\n"
+)
+
+func metadataServer(t *testing.T) *httptest.Server {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(header + row))
+		_, _ = w.Write([]byte(mdHeader + mdRow))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A body over MaxPayloadBytes must fail rather than parse short: a CSV cut
+// mid-file is still valid CSV, so a short read would drop the remaining
+// stations from the official layer with no signal at all.
+func TestFetchMetadataRejectsAnOversizedBody(t *testing.T) {
+	srv := metadataServer(t)
+	cfg := testConfig(srv.URL, srv.URL)
+	// One byte short of the body, so only the bound can reject it — the CSV
+	// itself parses.
+	cfg.MaxPayloadBytes = int64(len(mdHeader+mdRow)) - 1
+	_, err := eea.New(cfg).FetchMetadata(context.Background())
+	if !errors.Is(err, eea.ErrPayloadTooLarge) {
+		t.Errorf("got %v, want ErrPayloadTooLarge", err)
+	}
+}
+
+// A body of exactly MaxPayloadBytes is within the bound; off by one here
+// would reject every response whose length lands on the limit.
+func TestFetchMetadataAcceptsABodyExactlyAtTheLimit(t *testing.T) {
+	srv := metadataServer(t)
+	cfg := testConfig(srv.URL, srv.URL)
+	cfg.MaxPayloadBytes = int64(len(mdHeader + mdRow))
+	md, err := eea.New(cfg).FetchMetadata(context.Background())
+	if err != nil {
+		t.Fatalf("a body of exactly MaxPayloadBytes was rejected: %v", err)
+	}
+	if len(md) != 1 {
+		t.Errorf("got %d stations, want 1", len(md))
+	}
+}
+
+// Setting CheckRedirect replaces net/http's own 10-hop cap, so a same-host
+// redirect loop would otherwise spin until RequestTimeout on every poll.
+func TestClientStopsASameHostRedirectLoop(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Redirect(w, r, "/loop", http.StatusFound)
 	}))
 	defer srv.Close()
 
 	cfg := testConfig(srv.URL, srv.URL)
-	cfg.MaxPayloadBytes = 10 // shorter than the header row itself
+	// Long enough that the timeout cannot be what ends the loop; the hop count
+	// below is the assertion, since any stop produces an error.
+	cfg.RequestTimeout = 30 * time.Second
+	if _, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/loop", time.Time{}); err == nil {
+		t.Error("FetchFile followed a redirect loop without stopping")
+	}
+	if n := hits.Load(); n > 11 {
+		t.Errorf("the client made %d hops round a redirect loop, want at most 11", n)
+	}
+}
+
+// A 302 to another host must not be followed: the scheme+host allowlist
+// FileURLs applies to the response body is worthless if net/http will chase a
+// redirect off it.
+func TestClientRefusesACrossHostRedirect(t *testing.T) {
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("the client followed a redirect to another host")
+		_, _ = w.Write([]byte(mdHeader + mdRow))
+	}))
+	defer elsewhere.Close()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer srv.Close()
+
+	cfg := testConfig(srv.URL, srv.URL)
+	if _, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{}); err == nil {
+		t.Error("FetchFile followed a cross-host redirect; want an error")
+	}
 	if _, err := eea.New(cfg).FetchMetadata(context.Background()); err == nil {
-		t.Error("FetchMetadata succeeded on a header cut mid-row by MaxPayloadBytes; want a parse error")
+		t.Error("FetchMetadata followed a cross-host redirect; want an error")
+	}
+}
+
+// Same-host redirects stay allowed: the EEA server moves paths around, and
+// refusing those breaks the fetch for no security gain.
+func TestClientFollowsASameHostRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/a.parquet" {
+			http.Redirect(w, r, "/moved.parquet", http.StatusFound)
+			return
+		}
+		_, _ = w.Write([]byte("PAR1"))
+	}))
+	defer srv.Close()
+
+	body, _, err := eea.New(testConfig(srv.URL, srv.URL)).
+		FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{})
+	if err != nil {
+		t.Fatalf("a same-host redirect was refused: %v", err)
+	}
+	if string(body) != "PAR1" {
+		t.Errorf("got %q, want the redirected body", body)
 	}
 }
 
