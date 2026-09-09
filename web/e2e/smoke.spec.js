@@ -1,7 +1,9 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures.js'
 
 test('the area page renders server-side with JavaScript disabled', async ({ browser }) => {
-  // The whole point of server-rendered pages: this must pass with no bundle.
+  // The one context of its own in the suite: JavaScript has to be off before
+  // the context exists, and the whole point of server-rendered pages is that
+  // this passes with no bundle — so it costs no JS chunks either.
   const context = await browser.newContext({ javaScriptEnabled: false })
   const page = await context.newPage()
   await page.goto('/area/sofia')
@@ -9,8 +11,10 @@ test('the area page renders server-side with JavaScript disabled', async ({ brow
   await context.close()
 })
 
-test('the metric switcher is mounted and reflects the default metric', async ({ page }) => {
-  await page.goto('/area/sofia')
-  const pressed = page.locator('.metric-switcher button[aria-pressed="true"]')
-  await expect(pressed).toHaveCount(1)
+// EN route, because the button names the metric in the page's own language.
+test('the metric switcher is mounted and reflects the default metric', async ({ ctx }) => {
+  const page = await ctx.newPage()
+  await page.goto('/en/area/sofia')
+  await expect(page.getByRole('button', { name: 'Metric: PM2.5' })).toBeVisible()
+  await page.close()
 })

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures.js'
 
 // D4 fixed three things that are invisible in a diff and silent when they
 // break: the map's accessible name, the description that points at its text
@@ -6,7 +6,8 @@ import { test, expect } from '@playwright/test'
 // a later refactor could drop an attribute and every existing test would still
 // pass. These are the guards.
 
-test('the map is a named region, described, and every control shows a focus ring', async ({ page }) => {
+test('the map is a named region, described, and every control shows a focus ring', async ({ ctx }) => {
+  const page = await ctx.newPage()
   // ONE navigation for all three checks. The harness drives the real server
   // with its rate limiter live and workers: 1, so page loads are a shared
   // budget: three extra loads here starved panel.spec.js of its own and made
@@ -61,4 +62,6 @@ test('the map is a named region, described, and every control shows a focus ring
     if (!info.ring) ringless.push(info.id)
   }
   expect(ringless, `focusable elements with no visible focus ring: ${ringless.join(', ')}`).toEqual([])
+
+  await page.close()
 })

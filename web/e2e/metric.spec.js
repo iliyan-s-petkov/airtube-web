@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures.js'
 
 // EN routes throughout: i18n.DefaultLang is "bg", and these specs assert the
 // EN catalogue strings verbatim (metric.P1 = "PM10", metric.temperature =
@@ -18,17 +18,27 @@ import { test, expect } from '@playwright/test'
 test.describe.serial('metric switcher', () => {
   let page
 
-  test.beforeAll(async ({ browser }) => {
-    page = await browser.newPage()
+  test.beforeAll(async ({ ctx }) => {
+    page = await ctx.newPage()
   })
 
   test.afterAll(async () => {
     await page.close()
   })
 
+  // The switcher is a pop-up (MetricMenu.svelte): the button names the metric
+  // in force, the radios inside the panel change it.
+  const chooser = () => page.getByRole('button', { name: /^Metric: / })
+
+  async function choose(label) {
+    await chooser().click()
+    await page.getByRole('radio', { name: label }).click()
+  }
+
   test('switching metric rewrites the hash without growing the back stack', async () => {
     await page.goto('/en/area/sofia')
-    await page.getByRole('button', { name: 'PM10' }).click()
+    await choose('PM10')
+    await expect(chooser()).toHaveText('Metric: PM10')
     await expect(page).toHaveURL(/#metric=P1/)
     // Back must leave the page, not undo the metric — replaceState is the
     // whole reason this assertion exists and the only way to prove it in a
@@ -39,11 +49,13 @@ test.describe.serial('metric switcher', () => {
 
   test('a deep-linked metric is selected on load', async () => {
     await page.goto('/en/area/sofia#metric=temperature')
-    await expect(page.getByRole('button', { name: 'Temperature' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(chooser()).toHaveText('Metric: Temperature')
+    await chooser().click()
+    await expect(page.getByRole('radio', { name: 'Temperature' })).toBeChecked()
   })
 
   test('an unknown metric in the hash falls back to the default', async () => {
     await page.goto('/en/area/sofia#metric=plutonium')
-    await expect(page.locator('.metric-switcher button[aria-pressed="true"]')).toHaveCount(1)
+    await expect(chooser()).toHaveText('Metric: PM2.5')
   })
 })

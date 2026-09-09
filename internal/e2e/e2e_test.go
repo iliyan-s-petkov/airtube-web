@@ -41,6 +41,12 @@ func TestBrowser(t *testing.T) {
 		t.Fatalf("config.Load: %v", err)
 	}
 
+	// design_kit.dir is the path the kit lands on INSIDE the image; on a
+	// developer's machine it is the repo's own copy, or the route 404s.
+	if kit, err := filepath.Abs(filepath.Join("..", "..", "design-kit")); err == nil {
+		cfg.DesignKit.Dir = kit
+	}
+
 	st := store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series)
 	seedFixtures(t, st) // the fixtures every spec relies on; see seedFixtures
 

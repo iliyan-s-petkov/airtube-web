@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures.js'
 
 // EN routes throughout — see metric.spec.js's header comment.
 //
@@ -9,8 +9,8 @@ import { test, expect } from '@playwright/test'
 test.describe.serial('one zoom, one redraw', () => {
   let page
 
-  test.beforeAll(async ({ browser }) => {
-    page = await browser.newPage()
+  test.beforeAll(async ({ ctx }) => {
+    page = await ctx.newPage()
     // Attached from a frame-by-frame poll installed before any page script
     // runs, not after goto(): the first paint of a cold load lands while
     // goto() is still returning, and a listener attached afterwards misses it.
@@ -35,6 +35,15 @@ test.describe.serial('one zoom, one redraw', () => {
 
   const paints = () => page.evaluate(() => window.__paints)
 
+  // Both data layers painted at least once, which is what "the load has
+  // settled" means here. Not networkidle: the basemap's tiles come from
+  // tile.openstreetmap.org and the page refreshes itself on a timer, so the
+  // network goes idle late, or never.
+  const loaded = () => page.waitForFunction(() => {
+    const seen = new Set((window.__paints ?? []).map((p) => p.source))
+    return seen.has('airbg-data') && seen.has('airbg-hexes')
+  }, null, { timeout: 20000 })
+
   // A keyboard zoom rather than a wheel: one keypress is one discrete zoom
   // step, where a wheel gesture is a stream of them and would not tell a
   // coalesced redraw from a debounced one. Focused rather than clicked — a
@@ -50,7 +59,7 @@ test.describe.serial('one zoom, one redraw', () => {
     // the city tier — the markers change with the grid, which is the gesture
     // where two layers redraw and the double draw is visible.
     await page.goto('/en/area/sofia')
-    await page.waitForLoadState('networkidle')
+    await loaded()
     // The grid held back by most of a second, which is what a real visitor's
     // link does to the larger of the two responses. Against a localhost server
     // both land in the same millisecond and a redraw per layer is invisible.
@@ -85,7 +94,9 @@ test.describe.serial('one zoom, one redraw', () => {
     // push the grid past the load pass and into a moveend of its own.
     await page.unroute('**/api/v1/hexes*')
     await page.goto('/en/')
-    await page.waitForLoadState('networkidle')
+    await loaded()
+    // A moment past the load, so a second, later paint would be caught rather
+    // than merely not having happened yet.
     await page.waitForTimeout(2000)
 
     const seen = await paints()
