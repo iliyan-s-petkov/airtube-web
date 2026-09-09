@@ -10,9 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/testcontainers/testcontainers-go"
-	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"airbg.org/internal/config"
 	"airbg.org/internal/db"
@@ -57,25 +54,24 @@ func NewPostgres(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// NewPostgresURL starts a throwaway instance and returns its connection string,
-// for tests that need to control pool configuration themselves.
+// NewPostgresURL returns an empty database's connection string, for tests that
+// need to control pool configuration themselves. When the package's TestMain
+// has called StartSharedPostgres it is a new database inside that one
+// container; otherwise it is a container of this test's own. Either way the
+// database is empty and the caller runs db.Migrate.
 func NewPostgresURL(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 
-	container, err := tcpostgres.Run(ctx,
-		"timescale/timescaledb-ha:pg18",
-		tcpostgres.WithDatabase("airbg"),
-		tcpostgres.WithUsername("airbg"),
-		tcpostgres.WithPassword("airbg"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(120*time.Second),
-		),
-	)
+	if shared, err := freshSharedDatabase(ctx); err != nil {
+		t.Fatalf("shared postgres: %v", err)
+	} else if shared != "" {
+		return shared
+	}
+
+	container, err := runPostgresContainer(ctx)
 	if err != nil {
-		t.Fatalf("start postgres: %v", err)
+		t.Fatalf("%v", err)
 	}
 	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
 
