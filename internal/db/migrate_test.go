@@ -3,6 +3,12 @@ package db_test
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
+
+	"airbg.org/internal/db/migrations"
 )
 
 // TestSourceColumnsExist asserts migration 00011 added the source-tagging
@@ -44,8 +50,56 @@ func TestSourceColumnsExist(t *testing.T) {
 
 	_, err = pool.Exec(ctx,
 		`INSERT INTO sensor (sensor_id, sensor_type, location, source)
-		 VALUES (1, 'test', ST_SetSRID(ST_MakePoint(23.3, 42.7), 4326)::geography, 'made-up')`)
+		 VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5)`,
+		int64(1), "test", 23.3, 42.7, "made-up")
 	if err == nil {
 		t.Error("sensor.source accepted an unknown source")
+	}
+}
+
+// TestMigration00011DownGuardBlocksBeforeDroppingColumns runs the actual
+// goose Down migration (not just the extracted guard statement) against a
+// database carrying a 'source_invalid' reading. 00011 is NO TRANSACTION, so
+// each Down statement commits independently; the guard must be the first
+// statement, or a rollback would already have dropped sensor.source (the
+// only column distinguishing an EEA row from a community row) by the time
+// the guard raises. This proves the reorder, not just that a guard exists.
+func TestMigration00011DownGuardBlocksBeforeDroppingColumns(t *testing.T) {
+	ctx, pool := migrated(t)
+
+	mustInsertSensor(t, ctx, pool, 1)
+	_, err := pool.Exec(ctx,
+		`INSERT INTO reading (time, sensor_id, metric, value, quality)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		time.Now().UTC(), int64(1), "P1", 24.3, "source_invalid")
+	if err != nil {
+		t.Fatalf("insert source_invalid reading: %v", err)
+	}
+
+	goose.SetBaseFS(migrations.FS)
+	if err := goose.SetDialect("postgres"); err != nil {
+		t.Fatal(err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(pool)
+	defer sqlDB.Close()
+
+	err = goose.DownContext(ctx, sqlDB, ".")
+	if err == nil {
+		t.Fatal("Down succeeded with a source_invalid reading present; the guard did not run")
+	}
+	for _, want := range []string{"00011", "source_invalid", "UPDATE reading"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("guard error %q does not mention %q", err, want)
+		}
+	}
+
+	// The guard firing first must mean none of the destructive DDL after it
+	// ran. If sensor.source were gone here, the guard fired too late to help
+	// an operator — the data it exists to protect would already be lost.
+	var def string
+	if err := pool.QueryRow(ctx,
+		`SELECT column_default FROM information_schema.columns
+		 WHERE table_name = 'sensor' AND column_name = 'source'`).Scan(&def); err != nil {
+		t.Fatalf("sensor.source was dropped despite the guard raising: %v", err)
 	}
 }
