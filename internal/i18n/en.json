@@ -66,6 +66,7 @@
   "map.error.unavailable": "Map data is unavailable right now",
   "map.fullscreen": "Full screen",
   "map.fullscreen.exit": "Exit full screen",
+  "map.hint.no_sources": "No networks are shown. Tick a network in Layers to see readings again.",
   "map.hint.select_area": "Select an area to see individual sensors",
   "map.label": "Air quality map",
   "map.layer.base": "Terrain and parks",

@@ -493,7 +493,13 @@ export function mount(el) {
       refreshHexes(map, state, cfg)
     })
 
-    unfilterSource = onSourceChange(() => repaintSensors(map, state, cfg))
+    unfilterSource = onSourceChange(() => {
+      repaintSensors(map, state, cfg)
+      // Unticking both networks empties the map, and repaintSensors alone would
+      // leave that unexplained. Recomputed here rather than in repaintSensors
+      // because the hint is chrome, not paint.
+      chrome.showHint(mapHint(cfg.t, { fellBack: state.fellBack, sources: getSources() }))
+    })
 
     // What "refresh" MEANS lives here, with the map that owns the data; the
     // toolbar button and the freshness line only ask for it (see
@@ -953,7 +959,10 @@ async function refresh(map, state, cfg, chrome, force = false, { defer = false }
   // accepted so that enumeration breadth is bounded by deliberate clicks rather
   // than by pan distance.
   const effective = tier === 'sensors' && !state.slug ? 'city' : tier
-  chrome.showHint(effective !== tier ? cfg.t.hint : '')
+  // Held for the source-toggle handler, which recomputes the hint without a
+  // refresh and cannot work the fallback out for itself.
+  state.fellBack = effective !== tier
+  chrome.showHint(mapHint(cfg.t, { fellBack: state.fellBack, sources: getSources() }))
 
   // EFFECTIVE, not tier: on an area page opened at the sensor zoom with no slug
   // adopted, the dots are city aggregates while the page prints a sensor count.
@@ -1043,6 +1052,16 @@ export function applyMarkerZoomRange(map, tier) {
   for (const id of [LAYER_ID, LABEL_LAYER_ID]) {
     if (map.getLayer?.(id)) map.setLayerZoomRange(id, 0, max)
   }
+}
+
+// mapHint picks the one routine hint that applies now. Both networks unticked
+// outranks the select-an-area hint: it empties the map completely, and with no
+// message the reader is looking at a blank canvas with nothing to explain it.
+// Returns '' when neither applies, because showHint's clear-on-empty is what
+// makes a hint disappear once it stops applying (see hintController).
+export function mapHint(t, { fellBack, sources }) {
+  if (sources && sources.size === 0) return t.noSources
+  return fellBack ? t.hint : ''
 }
 
 // repaintSensors redraws the sensor tier from the payload already in hand.
@@ -1647,6 +1666,7 @@ export function readConfig(el) {
       // fact. A group with no string falls back to its key at render time.
       layers: Object.fromEntries(LAYER_ORDER.map((g) => [g, d[layerLabelKey(g)] || ''])),
       hint: d.tHint || '',
+      noSources: d.tNoSources || '',
       rateLimited: d.tRateLimited || '',
       unavailable: d.tUnavailable || '',
       unscaled: d.tUnscaled || '',
@@ -2107,6 +2127,11 @@ export function mountChrome(el, cfg) {
 
   const hint = document.createElement('div')
   hint.className = 'map-hint'
+  // The banner is the map's only running commentary — the fallback tier, a
+  // failed load, both networks unticked — and none of it is visible to a screen
+  // reader otherwise, because the map itself is a canvas. polite, not assertive:
+  // nothing here interrupts what the reader is doing.
+  hint.setAttribute('aria-live', 'polite')
   hint.hidden = true
   el.appendChild(hint)
 
