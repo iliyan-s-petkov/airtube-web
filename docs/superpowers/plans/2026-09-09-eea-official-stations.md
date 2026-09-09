@@ -208,7 +208,7 @@ Restore the CHECK, re-run, confirm PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 git add internal/db/migrations/00011_sources.sql
 printf '%s\n' 'db: add sensor.source and official station columns' '' '- sensor.source: sensor.community | eea, CHECK constrained' '- sensor.source_ref: EEA sampling point, unique where not null' '- station_code/name/type/area: EEA classification, null for community' '- official_sensor_id_seq starts at 9e9 so synthetic ids cannot collide' '  with upstream sensor.community device ids' '- quality_flag gains source_invalid for EEA Validity <= 0' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/db/migrations/00011_sources.sql internal/db/migrate_test.go
@@ -253,7 +253,7 @@ message root {
 The fixture must be a real EEA file, truncated to one row group. Do not hand-write one — the point is to pin the real schema.
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 mkdir -p internal/upstream/eea/testdata
 ```
 
@@ -369,7 +369,7 @@ Expected: FAIL — the package does not compile, `undefined: eea.DecodeRows`.
 - [ ] **Step 4: Add the dependency**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 go get github.com/parquet-go/parquet-go@latest
 go mod tidy
 ```
@@ -478,7 +478,7 @@ Change `big.NewFloat(1e18)` to `big.NewFloat(1e15)`, run — the value range che
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 git add internal/upstream/eea/parquet.go internal/upstream/eea/parquet_test.go internal/upstream/eea/testdata
 printf '%s\n' 'eea: decode the EEA parquet files' '' '- add github.com/parquet-go/parquet-go (scoped dependency exception)' '- Start/End are int96; parquet-go has no time helper, so int96Time()' '  decodes nanos-in-day + Julian day by hand' '- Value is DECIMAL(38,18) in fixed_len_byte_array(16); dec18() reads it' '  as a big-endian big.Int over 1e18' '- fixture is a real EEA file, not a synthetic one: the schema under' '  test is theirs, not ours' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/upstream/eea go.mod go.sum
@@ -675,7 +675,7 @@ Change `"mg.m-3": 1000` to `1` — `TestNormaliseValueConvertsCO` must fail. Res
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 git add internal/upstream/eea/pollutant.go internal/upstream/eea/pollutant_test.go
 printf '%s\n' 'eea: map pollutant codes onto canonical metric names' '' '- 5 -> P1, 6001 -> P2: reuse the sensor.community names so both' '  networks share one scale table and one chart axis' '- 1/7/8/9/10/20 -> SO2/O3/NO2/NOX/CO/C6H6, new canonical metrics' '- unmapped codes are skipped; EEA publishes hundreds' '- NormaliseValue converts to ug/m3; CO arrives in mg.m-3' '- an unknown unit is an error, not a pass-through' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/upstream/eea/pollutant.go internal/upstream/eea/pollutant_test.go internal/upstream/types.go
@@ -918,7 +918,7 @@ Swap `Longitude` and `Latitude` in the two `at()` calls — the bounding-box ass
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 git add internal/upstream/eea/metadata.go internal/upstream/eea/metadata_test.go internal/upstream/eea/testdata/metadata_extract.csv
 printf '%s\n' 'eea: resolve station coordinates from the metadata CSV' '' '- the download API returns readings only; positions come from' '  discomap PanEuropean_metadata.csv (26 MB, frozen 2024-03-11)' '- columns read by name; a missing required column is a decode error' '  rather than a station at 0,0' '- a sampling point with unparseable coordinates is skipped, not' '  defaulted; the collector counts them' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/upstream/eea/metadata.go internal/upstream/eea/metadata_test.go internal/upstream/eea/testdata/metadata_extract.csv
@@ -1251,7 +1251,7 @@ Delete the `If-Modified-Since` header line — `TestFetchFileReportsNotModified`
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 git add internal/upstream/eea/client.go internal/upstream/eea/client_test.go
 printf '%s\n' 'eea: add the download API client' '' '- POST /ParquetFile/urls, dataset 1 (UTD near-real-time)' '- per-file GET with If-Modified-Since; a full pass is ~99 MB over 141' '  files, so an unchanged hour costs 141 x 304 instead' '- every response body read through io.LimitReader(MaxPayloadBytes)' '- non-200 is an error; 304 returns modified=false and an empty body' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/upstream/eea/client.go internal/upstream/eea/client_test.go internal/config/resolve.go
@@ -1463,7 +1463,7 @@ Change `c.EEA.PollInterval < c.EEA.MinPollInterval` to `>`, run — the `poll un
 - [ ] **Step 10: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 printf '%s\n' 'config: add the eea block' '' '- url, metadata_url, metadata_cache, countries, timeouts, intervals,' '  max_payload_bytes; matching AIRBG_EEA_* env keys in .env.example' '  and the role env.j2' '- min_poll_interval floors poll_interval; a mistyped interval would be' '  ~99 MB per tick against a third-party public service' '- the block is validated even when enabled=false' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/config airbg.yaml deploy/.env.example
 ```
@@ -1721,7 +1721,7 @@ Change the conflict clause to `DO NOTHING` — `TestUpsertStationsAssignsStableI
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 printf '%s\n' 'store: add the official-station write path' '' '- UpsertStations keys on source_ref (the EEA sampling point) and' '  returns sampling point -> sensor_id; the id comes from' '  official_sensor_id_seq on first insert and is stable after, so the' '  reading history stays attached across cycles' '- WriteStationReadings upserts on (sensor_id, metric, time): the UTD' '  dataset is revised in place upstream' '- SensorReading carries source and the four station columns' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/store
 ```
@@ -2158,7 +2158,7 @@ Change the unplaceable branch to fall through instead of `continue` — `TestRun
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 git add internal/upstream/eea/collector.go internal/upstream/eea/collector_test.go internal/upstream/eea/README.md
 printf '%s\n' 'eea: add the hourly collector and wire it into collect and serve' '' '- RunOnce: metadata -> file urls -> conditional fetch -> decode ->' '  UpsertStations -> WriteStationReadings' '- Stats counts each discard separately (unmodified, unplaceable,' '  invalid, unknown_pollutant) so an empty result is diagnosable' '- Validity <= 0 stores quality=source_invalid, which usableQuality' '  excludes; the row is kept so a rejected hour reads as a gap' '- metadata is cached on disk and refreshed on MetadataInterval; a' '  failed refresh keeps the previous copy' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/upstream/eea cmd/airbg/main.go
@@ -2351,7 +2351,7 @@ Give the CO table `Source: "https://example.invalid"` — `TestUnlegislatedGases
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 printf '%s\n' 'api: add scale tables for the six gas metrics' '' '- NO2, O3 and SO2 get EAQI hourly-mean bands, cited to' '  airindex.eea.europa.eu' '- CO, C6H6 and NOX have no published band set; they get axis-only' '  tables with an empty Source, as the meteo tables do' '- new test asserts every canonical metric has a table: without one the' '  map paints a flat ramp and the panel prints a unitless number' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/api/scales.go internal/api/scales_test.go
 ```
@@ -2475,7 +2475,7 @@ Remove `"source": c.Source` from `MarshalJSON` — the Go test must fail. Restor
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 printf '%s\n' 'web: carry source and station columns in the sensor payload' '' '- sensorColumns gains source, station_code, station_name,' '  station_type, station_area, all len(ID)' '- stations.js derives metrics by exclusion from META_COLUMNS, so the' '  five names are added there too or they render as metrics' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/snapshot web/src/lib/stations.js web/src/lib/__tests__/stations.test.js
 ```
@@ -2793,7 +2793,7 @@ Delete `"map.view.not_measured"` from `bg.json` — the i18n parity test must fa
 - [ ] **Step 10: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 git checkout internal/web/dist/.keep
 git add web/src/lib/sourcefilter.svelte.js web/src/lib/__tests__/sourcefilter.test.js
 printf '%s\n' 'web: add a per-network layer toggle' '' '- sourcefilter.svelte.js mirrors sensorfilter.svelte.js: a pure filter' '  over the features already in state.sensorBody, so a toggle repaints' '  and does not refetch' '- two installLayers views, both on by default' '- measuredBy() greys the box for a network that does not measure the' '  selected metric and appends the reason to the label; five gases are' '  EEA-only, four meteo metrics are community-only' '- official markers get circle-stroke-width 3; fill still encodes value' > /tmp/airbg-commit-msg.txt
@@ -2883,7 +2883,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 git checkout internal/web/dist/.keep
 printf '%s\n' 'web: show station identity in the sensor panel' '' '- heading uses station_name when present; the synthetic 9e9 sensor id' '  is not a useful label' '- official stations show EoI code, station type and area' '- every sensor shows which network published the reading' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- web/src/components internal/web/templates/base.gohtml internal/i18n
@@ -3045,7 +3045,7 @@ Change the government link to `https://example.invalid` — `TestAttributionsNam
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 printf '%s\n' 'web: replace the single attribution string with a per-source list' '' '- Attributions() returns sensor.community, eea and openstreetmap, each' '  with the map URL a reader can check it against' '- /api/v1/meta gains attributions[], replacing attribution and' '  boundary_attribution' '- footer links maps.sensor.community and eea.government.bg/kav' '- a test asserts every ingested source is credited: ODbL and the EEA' '  reuse terms both require it' > /tmp/airbg-commit-msg.txt
 git commit -F /tmp/airbg-commit-msg.txt -- internal/api internal/web internal/i18n
 ```
@@ -3129,7 +3129,7 @@ test('the footer credits both programmes', async ({ ctx }) => {
 
 Run:
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 npm --prefix web run build && git checkout internal/web/dist/.keep
 DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test -tags e2e ./internal/e2e/ -run TestE2E -v
 ```
@@ -3146,7 +3146,7 @@ Run the Step 3 command twice back to back. Both must be green. One green run of 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 git checkout internal/web/dist/.keep
 git add web/e2e/sources.spec.js
 printf '%s\n' 'e2e: cover the network layer toggle' '' '- asserts a toggle fires airbg:paint and puts zero /api/v1/ requests' '  on the wire, which is why a filter was used over a second source' '- asserts the disabled state and the reason text for a metric only one' '  network measures; the unit test cannot see the real disabled' '  attribute or its accessible name' '- asserts both footer attribution links' > /tmp/airbg-commit-msg.txt
@@ -3162,7 +3162,7 @@ git commit -F /tmp/airbg-commit-msg.txt -- web/e2e/sources.spec.js internal/e2e/
 - [ ] **Step 1: Full test run**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea
 npm --prefix web test
 npm --prefix web run build && git checkout internal/web/dist/.keep
 DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./... 2>&1 | tail -40
