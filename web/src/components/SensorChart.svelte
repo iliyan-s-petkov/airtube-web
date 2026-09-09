@@ -14,7 +14,7 @@
   // window, and a reset back to the view the panel opened on.
   //
   // options are the metrics THIS STATION measures (the panel's own rows), not
-  // the seven the map switches between: offering pressure for an address with
+  // the whole set the map switches between: offering pressure for an address with
   // no barometer is a control that can only ever draw an empty frame.
   //
   // periods/periodLabels come from the server's own vocabulary — the API rejects

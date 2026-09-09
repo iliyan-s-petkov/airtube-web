@@ -51,7 +51,8 @@ func TestBandColourRefusesAMetricWithNoScale(t *testing.T) {
 }
 
 // Every metric the store keeps now has a table (api.Scales), so every row this
-// package renders can carry a swatch. Before, five of the seven drew none.
+// package renders can carry a swatch. Before the official layer, five of the
+// seven community metrics drew none.
 func TestBandColourCoversEveryCanonicalMetric(t *testing.T) {
 	for _, metric := range upstream.CanonicalMetrics() {
 		if got := bandColour(metric, 20); got == "" {

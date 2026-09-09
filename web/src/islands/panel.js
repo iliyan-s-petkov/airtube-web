@@ -152,7 +152,7 @@ export function mount(el) {
 // visitor switches metric while it is open. After that the reader owns both,
 // inside SensorChart.
 //
-// The metric list offered is this station's, not the map's seven: the switcher
+// The metric list offered is this station's, not the map's whole set: the switcher
 // must not offer a metric whose only possible answer is an empty plot.
 function buildChartSnippet(sensor, options, d) {
   const measured = options.filter(({ metric }) => Object.hasOwn(sensor.values, metric))

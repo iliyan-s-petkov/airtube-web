@@ -12,7 +12,7 @@ import (
 // A device measures what its hardware measures, whether or not this cycle's
 // reading survived the quality filter. Without that, a rejected reading is
 // indistinguishable from a thermometer the box does not have, and the panel has
-// to print "no reading" for all seven metrics on every sensor in the country.
+// to print "no reading" for every metric on every sensor in the country.
 func TestMeasuresKeepsAMetricWhoseReadingWasRejected(t *testing.T) {
 	sr := store.SensorReading{
 		SensorID: 5966, SensorType: "BME280",

@@ -180,9 +180,9 @@ type PageData struct {
 	// has no 'unsafe-inline' and data-* attributes are the only channel.
 	//
 	// The units come from the catalogue and not from /api/v1/scales, which also
-	// carries one: that endpoint has an entry only for a metric with a band
-	// table, which today is two of the seven. The legend has to name a unit for
-	// all seven.
+	// carries one: the catalogue is the metric vocabulary itself, so it names a
+	// unit for every entry in upstream.CanonicalMetrics, whereas a scale exists
+	// only where someone published a table to draw.
 	Metrics      []string
 	MetricLabels []string
 	MetricUnits  []string
@@ -221,7 +221,7 @@ type AreaRow struct {
 	// in precision.
 	ValueText string
 	// The band colour for Value under the page's default metric, or empty when
-	// there is no reading or the metric has no band table (five of the seven).
+	// there is no reading, or for a metric api.Scales has no band table for.
 	// Server-side because the row is server-rendered: the table's swatch has to
 	// be right with no JavaScript, and it must agree with the dot the map draws
 	// for the same province — see bandColour.

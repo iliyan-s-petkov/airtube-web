@@ -250,7 +250,7 @@ var latestSensorsSQL = "WITH" + latestSensorsCTE + sensorsSelect("l.value", "")
 // LatestSensors returns one row per sensor with a fresh reading, carrying every
 // usable metric value. Grouping happens in SQL: the naive join returns one row
 // per sensor-metric pair, and a caller assembling those in Go is one forgotten
-// map lookup away from emitting seven markers where one belongs.
+// map lookup away from emitting one marker per metric where one belongs.
 func (s *Store) LatestSensors(ctx context.Context) ([]SensorReading, error) {
 	since := time.Now().UTC().Add(-s.cfg.FreshnessWindow)
 

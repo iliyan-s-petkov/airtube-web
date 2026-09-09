@@ -48,15 +48,17 @@ func TestResolveCommittedConfig(t *testing.T) {
 	}
 }
 
-// All seven canonical metrics must have a range. A missing entry would mean a
-// metric whose readings are never plausibility-checked.
+// Every canonical metric must have a range; a missing entry is a metric whose
+// readings are never plausibility-checked. Driven from canonicalMetrics rather
+// than from a list written out here, which is how the six EEA gases went
+// unchecked while the set written here still held the seven community ones.
 func TestResolveHasEveryMetricRange(t *testing.T) {
 	r, err := readRaw(filepath.Join("..", "..", "airbg.yaml"))
 	if err != nil {
 		t.Fatalf("readRaw error = %v, want nil", err)
 	}
 	cfg := resolve(r)
-	for _, m := range []string{"P1", "P2", "temperature", "humidity", "pressure", "noise_LAeq", "noise_LA_max"} {
+	for m := range canonicalMetrics {
 		rng, ok := cfg.Quality.Ranges[m]
 		if !ok {
 			t.Errorf("Quality.Ranges is missing %q", m)

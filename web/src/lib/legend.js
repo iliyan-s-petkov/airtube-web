@@ -22,9 +22,9 @@ import { rampGradient } from './ramp.js'
 export const LEGEND_CLASSES = 'scale scale--named scale--vertical scale--onmap'
 
 // What the key is a key TO. The kit writes the current metric and its unit —
-// "ФПЧ2.5, µg/m³" — and that is the honest caption for a map with seven
-// switchable metrics: "Air quality" is simply wrong when the map is painting
-// temperature, and it is the same seven words whichever metric is showing.
+// "ФПЧ2.5, µg/m³" — and that is the honest caption for a map whose metric is
+// switchable: "Air quality" is simply wrong when the map is painting
+// temperature, and it is the same phrase whichever metric is showing.
 //
 // The unit is second and the name first, because the name is what the reader
 // is looking for; a key with no unit still says something, a key with only a
@@ -84,7 +84,7 @@ export function legendRows(bands, { noDataColour, noDataLabel, lang }) {
 // the app can only set per-row through the attribute the CSP forbids.
 //
 // The bar IS emitted, but never the kit mockup's copy of it: that one paints a
-// hardcoded six-stop EAQI gradient, and this key is drawn for seven metrics
+// hardcoded six-stop EAQI gradient, and this key is drawn for every metric,
 // whose bands are served and differ — temperature's scale is not PM2.5's.
 // rampGradient below builds it from the same band table the hexes are painted
 // from, so the key cannot show a colour the map does not use.

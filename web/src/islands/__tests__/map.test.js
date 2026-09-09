@@ -2915,9 +2915,9 @@ describe('mountChrome anchors the key to the shell and the tier line outside it'
 
 // The key's caption is the metric and its unit, not a fixed phrase. "Качество
 // на въздуха" is simply false when the map is painting temperature, and it is
-// the same words for all seven metrics — so it says nothing about which one is
-// on screen. The unit cannot come from /api/v1/scales: that endpoint carries
-// one only for a metric with a band table, which live is two of the seven.
+// the same words for every metric — so it says nothing about which one is on
+// screen. The unit comes from the server-rendered catalogue rather than
+// /api/v1/scales, which the key must caption without waiting on.
 describe('the key names the metric it is a key to', () => {
   const captionOf = (cfg) => {
     const el = document.createElement('div')
@@ -2939,7 +2939,6 @@ describe('the key names the metric it is a key to', () => {
     expect(el.querySelector('.scale__label').textContent).toBe('ФПЧ10, µg/m³')
   })
 
-  // Five of the seven metrics have a unit in the catalogue but no band table.
   // A metric the catalogue has no unit for still gets its name.
   it('drops to the name alone when the metric has no unit', () => {
     const cfg = chromeCfg({ metricUnits: { P1: '', P2: '' } })

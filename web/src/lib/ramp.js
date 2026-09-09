@@ -9,7 +9,7 @@
 // The model is the design kit's (ui_kits/app/map-render.js): stops interpolated
 // BY VALUE, mixed in OKLab, on a piecewise axis. What differs is where the
 // stops come from. The kit hardcodes a µg/m³ ramp measured off its reference
-// image; this site paints seven metrics, and its band colours arrive from
+// image; this site paints every canonical metric, and its band colours arrive from
 // /api/v1/scales so that a legislative change stays a one-file server edit.
 // So the stops are derived from the served band table instead — same model,
 // same look, and no colour in code.

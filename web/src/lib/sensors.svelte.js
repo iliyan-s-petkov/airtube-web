@@ -62,7 +62,7 @@ export function getSensors() {
 //
 // A station, not a device (lib/stations.js says why): the reader clicked one
 // dot on one address, and the address is where the temperature is measured as
-// much as the particulate matter is. So the seven rows are filled from every
+// much as the particulate matter is. So the rows are filled from every
 // device standing there, and `sources` records which device each reading came
 // from — the chart endpoint is keyed by device, so the panel has to be able to
 // say which one to ask.
@@ -75,8 +75,8 @@ export function getSensors() {
 // reading right now lands as null and the panel says so; a metric no device
 // here measures never becomes a key at all, and the panel omits the row. That
 // is the distinction lib/sensorview.js's panelRows filters on — before the
-// server published `measures`, every station claimed all seven metrics and the
-// panel said "no reading" for the four it has no hardware for.
+// server published `measures`, every station claimed every metric and the
+// panel said "no reading" for the ones it has no hardware for.
 export function normaliseSensor(responseBody, id) {
   const members = stationMembers(responseBody, id)
   if (!members) return null

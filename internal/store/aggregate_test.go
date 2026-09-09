@@ -402,8 +402,8 @@ func TestSensorSeriesUsesHourlyAboveThirtyDays(t *testing.T) {
 }
 
 // TestLatestSensorsReturnsOneRowPerSensor guards against the classic
-// join-fanout bug: seven metrics per sensor must produce one SensorReading with
-// seven values, not seven SensorReadings.
+// join-fanout bug: four metrics on one sensor must produce one SensorReading
+// with four values, not four SensorReadings.
 func TestLatestSensorsReturnsOneRowPerSensor(t *testing.T) {
 	ctx, pool := migrated(t)
 	s := store.New(pool, testStoreConfig(), testSeriesTimeout)

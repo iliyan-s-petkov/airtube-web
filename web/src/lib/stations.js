@@ -52,7 +52,7 @@ export function metricColumnsOf(body) {
 // This is not the same question as "which columns hold a value". Every canonical
 // metric gets a column for every device, so a null in the noise column says both
 // "this address has no microphone" and "the microphone's reading was rejected" —
-// and the panel printed "no reading" for all seven metrics on every station in
+// and the panel printed "no reading" for every metric on every station in
 // the country as a result. The server answers the first question outright (the
 // `measures` column, build.go's measuresOf); this joins its members' answers.
 //

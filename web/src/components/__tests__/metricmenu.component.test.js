@@ -25,8 +25,8 @@ const panel = (t) => t.querySelector('.colmenu__panel')
 const radios = (t) => [...t.querySelectorAll('input[type="radio"]')]
 
 describe('MetricMenu.svelte', () => {
-  // The button is the whole point of the pop-up: seven segments took four lines
-  // on a phone and pushed the map below the fold. One line, and it says which
+  // The button is the whole point of the pop-up: a segment per metric took four
+  // lines on a phone and pushed the map below the fold. One line, and it says which
   // metric the map is painting.
   it('names the current metric on the button, closed', () => {
     const t = render({ selected: 'P1', onselect: () => {} })
