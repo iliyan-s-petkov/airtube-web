@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"airbg.org/internal/config"
 	"airbg.org/internal/httpx"
 	"airbg.org/internal/ratelimit"
+	"airbg.org/internal/upstream"
 )
 
 // serve wraps the mux in WithClientIP so BucketKeyFrom resolves, which is how
@@ -115,8 +117,10 @@ func TestMetaReportsGeneratedAtAndCoverage(t *testing.T) {
 	if len(got.Attributions) == 0 {
 		t.Error("attributions is empty")
 	}
-	if len(got.Metrics) != 7 {
-		t.Errorf("metrics has %d entries, want the 7 canonical metrics", len(got.Metrics))
+	// Against upstream.CanonicalMetrics rather than a count: the set grew from 7
+	// to 13 when the EEA gases arrived, and a hardcoded number goes stale silently.
+	if want := upstream.CanonicalMetrics(); !slices.Equal(got.Metrics, want) {
+		t.Errorf("metrics = %v, want %v", got.Metrics, want)
 	}
 }
 
