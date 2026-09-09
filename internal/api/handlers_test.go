@@ -95,11 +95,10 @@ func TestMetaReportsGeneratedAtAndCoverage(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	var got struct {
-		GeneratedAt         time.Time `json:"generated_at"`
-		CoverageThreshold   int       `json:"coverage_threshold"`
-		Attribution         string    `json:"attribution"`
-		BoundaryAttribution string    `json:"boundary_attribution"`
-		Metrics             []string  `json:"metrics"`
+		GeneratedAt       time.Time         `json:"generated_at"`
+		CoverageThreshold int               `json:"coverage_threshold"`
+		Attributions      []api.Attribution `json:"attributions"`
+		Metrics           []string          `json:"metrics"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v (%s)", err, rec.Body.String())
@@ -110,14 +109,11 @@ func TestMetaReportsGeneratedAtAndCoverage(t *testing.T) {
 	if got.CoverageThreshold != 3 {
 		t.Errorf("coverage_threshold = %d, want 3", got.CoverageThreshold)
 	}
-	// Both attributions are licence obligations, not decoration: sensor.community
-	// data is ODbL and the OSM boundaries are ODbL. Omitting either is a licence
-	// breach, so it is asserted rather than left to the template.
-	if got.Attribution == "" {
-		t.Error("attribution is empty")
-	}
-	if got.BoundaryAttribution == "" {
-		t.Error("boundary_attribution is empty")
+	// sensor.community and the OSM boundaries are both ODbL; omitting either
+	// credit is a licence breach, so it is asserted rather than left to the
+	// template.
+	if len(got.Attributions) == 0 {
+		t.Error("attributions is empty")
 	}
 	if len(got.Metrics) != 7 {
 		t.Errorf("metrics has %d entries, want the 7 canonical metrics", len(got.Metrics))

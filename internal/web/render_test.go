@@ -775,3 +775,12 @@ func TestBasemapAttribution(t *testing.T) {
 		t.Error("page with no basemap carries the basemap credit anyway")
 	}
 }
+
+func TestFooterCreditsTheOfficialProgramme(t *testing.T) {
+	page := fetch(t, renderer(t, fixture(t)), "/").Body.String()
+	for _, want := range []string{"eea.government.bg/kav", "maps.sensor.community"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the footer does not link to %s", want)
+		}
+	}
+}
