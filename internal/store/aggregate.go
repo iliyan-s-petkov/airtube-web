@@ -178,6 +178,15 @@ type SensorReading struct {
 	// panel must not call ours one.
 	FirstSeen time.Time
 	LastSeen  time.Time
+	// Source is "sensor.community" or "eea"; the map layer control filters on
+	// it and the sensor panel displays it.
+	Source string
+	// StationCode, StationName, StationType and StationArea are the EEA
+	// classification, empty for a sensor.community device.
+	StationCode string
+	StationName string
+	StationType string
+	StationArea string
 }
 
 // Same split as the area CTEs above, and for the same reason: window.go asks
@@ -225,12 +234,15 @@ SELECT s.sensor_id, s.sensor_type,
        -- Unfiltered, unlike the values above: a metric whose latest reading was
        -- rejected for quality is still a metric this device measures.
        array_agg(DISTINCT l.metric::text),
-       s.first_seen, s.last_seen
+       s.first_seen, s.last_seen,
+       s.source, COALESCE(s.station_code, ''), COALESCE(s.station_name, ''),
+       COALESCE(s.station_type, ''), COALESCE(s.station_area, '')
   FROM sensor s
   JOIN latest l ON l.sensor_id = s.sensor_id
 :join
  GROUP BY s.sensor_id, s.sensor_type, s.location, s.country_code,
-          s.first_seen, s.last_seen
+          s.first_seen, s.last_seen, s.source, s.station_code,
+          s.station_name, s.station_type, s.station_area
  ORDER BY s.sensor_id`
 
 var latestSensorsSQL = "WITH" + latestSensorsCTE + sensorsSelect("l.value", "")
@@ -260,7 +272,8 @@ func scanSensorReadings(rows pgx.Rows) ([]SensorReading, error) {
 		var values map[string]float64
 		if err := rows.Scan(&sr.SensorID, &sr.SensorType, &sr.Lon, &sr.Lat,
 			&sr.Country, &sr.AreaSlugs, &sr.Quality, &values, &sr.Measures,
-			&sr.FirstSeen, &sr.LastSeen); err != nil {
+			&sr.FirstSeen, &sr.LastSeen, &sr.Source, &sr.StationCode,
+			&sr.StationName, &sr.StationType, &sr.StationArea); err != nil {
 			return nil, fmt.Errorf("store: scan sensor: %w", err)
 		}
 		if values == nil {
