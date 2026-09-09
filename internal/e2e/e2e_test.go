@@ -162,6 +162,13 @@ func seedFixtures(t *testing.T, st *store.Store) {
 	for i := 1; i <= 12; i++ {
 		seedReading(t, st, 101, "P2", 10+float64(i%5), "ok", now.Add(-time.Duration(i)*2*time.Hour))
 	}
+
+	// One EEA reference station, inside the same fixture area. O3 is measured
+	// only at EEA stations (sourcefilter.svelte.js's MEASURED table), which is
+	// what makes sources.spec.js's disabled-checkbox case reachable.
+	station := seedStation(t, st, lon, lat, "BG0050A", "София Дружба")
+	seedReading(t, st, station, "P1", 18, "ok", now)
+	seedReading(t, st, station, "O3", 40, "ok", now)
 }
 
 // seedSensor upserts one sensor at (lon, lat). Every value travels as a bound
@@ -180,6 +187,31 @@ func seedSensor(t *testing.T, st *store.Store, sensorID int64, lon, lat float64)
 	if err != nil {
 		t.Fatalf("seedSensor(%d): %v", sensorID, err)
 	}
+}
+
+// seedStation inserts one EEA reference station and returns its sensor_id.
+// sensor_id comes from official_sensor_id_seq (migration 00011), the same
+// sequence store.UpsertStations draws from, so the id lands in the reserved
+// >= 9_000_000_000 range real official sensors use. Every value travels as a
+// bound parameter.
+func seedStation(t *testing.T, st *store.Store, lon, lat float64, code, name string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	var id int64
+	err := st.Pool().QueryRow(ctx,
+		`INSERT INTO sensor (sensor_id, sensor_type, location, last_seen,
+		                     source, station_code, station_name)
+		 VALUES (nextval('official_sensor_id_seq'), 'eea_reference',
+		         ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3,
+		         'eea', $4, $5)
+		 RETURNING sensor_id`,
+		lon, lat, now, code, name).Scan(&id)
+	if err != nil {
+		t.Fatalf("seedStation(%s): %v", code, err)
+	}
+	return id
 }
 
 // seedReading inserts one reading for an already-seeded sensor. Every value
