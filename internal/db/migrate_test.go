@@ -83,7 +83,9 @@ func TestMigration00011DownGuardBlocksBeforeDroppingColumns(t *testing.T) {
 	sqlDB := stdlib.OpenDBFromPool(pool)
 	defer sqlDB.Close()
 
-	err = goose.DownContext(ctx, sqlDB, ".")
+	// DownTo(10) rather than Down(): Down rolls back only the newest migration,
+	// which is 00012, and this test is about 00011's guard.
+	err = goose.DownToContext(ctx, sqlDB, ".", 10)
 	if err == nil {
 		t.Fatal("Down succeeded with a source_invalid reading present; the guard did not run")
 	}

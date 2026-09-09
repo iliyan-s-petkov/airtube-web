@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -284,5 +285,92 @@ func TestLatestSensorsCarriesEEASourceAndStationFields(t *testing.T) {
 	}
 	if got.StationArea != "urban" {
 		t.Errorf("StationArea = %q, want urban", got.StationArea)
+	}
+}
+
+// F3: sensor.community ids and the 9e9 official range were kept apart by
+// convention alone. Migration 00012's CHECK ties the range to the source, and
+// Postgres evaluates a CHECK on the proposed row before ON CONFLICT arbitration,
+// so a colliding community id is refused outright rather than silently merged.
+func TestCommunitySensorCannotBeCreatedInTheOfficialIDRange(t *testing.T) {
+	ctx, pool, s := newStore(t)
+
+	ids, err := s.UpsertStations(ctx, []store.StationUpsert{{
+		SourceRef: "BG/SPO-BG0070A_06001_100",
+		Code:      "BG0070A", Name: "София - АИС Копитото",
+		Type: "background", Area: "urban",
+		Lon: 23.26, Lat: 42.63, LastSeen: time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := ids["BG/SPO-BG0070A_06001_100"]
+
+	ts := time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+	err = s.UpsertSensors(ctx, []quality.Scored{sample(id, "P1", 24.3, quality.FlagOK, ts)}, nil)
+	if err == nil {
+		t.Fatal("UpsertSensors error = nil, want the sensor_id_matches_source CHECK to refuse a community row in the official range")
+	}
+	if !strings.Contains(err.Error(), "sensor_id_matches_source") {
+		t.Errorf("error = %v, want it to name the sensor_id_matches_source constraint", err)
+	}
+	assertOfficialRowIntact(ctx, t, pool, id)
+}
+
+// The second half of F3, tested with the CHECK dropped so it cannot mask the
+// thing under test: UpsertSensors omits source, source_ref and the station_*
+// columns from its SET list, so without the WHERE a colliding id left one row
+// still badged 'eea' with its station identity, at the citizen device's
+// coordinates, merging both devices' readings under one id. The WHERE is what
+// makes that a no-op on a database that predates 00012.
+func TestCommunityUpsertDoesNotOverwriteAnOfficialStation(t *testing.T) {
+	ctx, pool, s := newStore(t)
+
+	ids, err := s.UpsertStations(ctx, []store.StationUpsert{{
+		SourceRef: "BG/SPO-BG0070A_06001_100",
+		Code:      "BG0070A", Name: "София - АИС Копитото",
+		Type: "background", Area: "urban",
+		Lon: 23.26, Lat: 42.63, LastSeen: time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := ids["BG/SPO-BG0070A_06001_100"]
+
+	if _, err := pool.Exec(ctx, `ALTER TABLE sensor DROP CONSTRAINT sensor_id_matches_source`); err != nil {
+		t.Fatalf("drop constraint: %v", err)
+	}
+
+	// sample() puts the device at 23.3327/42.6957 with sensor_type SDS011,
+	// neither of which matches the station above.
+	ts := time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+	if err := s.UpsertSensors(ctx, []quality.Scored{sample(id, "P1", 24.3, quality.FlagOK, ts)}, nil); err != nil {
+		t.Fatalf("UpsertSensors: %v", err)
+	}
+	assertOfficialRowIntact(ctx, t, pool, id)
+}
+
+// assertOfficialRowIntact checks the four columns a collision would have
+// scrambled: the badge, the device type, the station identity and the location.
+func assertOfficialRowIntact(ctx context.Context, t *testing.T, pool *pgxpool.Pool, id int64) {
+	t.Helper()
+	var source, sensorType, name string
+	var lon float64
+	if err := pool.QueryRow(ctx,
+		`SELECT source, sensor_type, station_name, ST_X(location::geometry)
+		   FROM sensor WHERE sensor_id = $1`, id).Scan(&source, &sensorType, &name, &lon); err != nil {
+		t.Fatal(err)
+	}
+	if source != "eea" {
+		t.Errorf("source = %q, want eea", source)
+	}
+	if name != "София - АИС Копитото" {
+		t.Errorf("station_name = %q, want the station's own name", name)
+	}
+	if sensorType != "eea_reference" {
+		t.Errorf("sensor_type = %q, want eea_reference; the community upsert overwrote an official row", sensorType)
+	}
+	if lon < 23.25 || lon > 23.27 {
+		t.Errorf("longitude = %v, want the station's 23.26; the community upsert moved an official row", lon)
 	}
 }

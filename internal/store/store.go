@@ -31,6 +31,13 @@ func New(pool *pgxpool.Pool, cfg config.Store, seriesTimeout time.Duration) *Sto
 // admitted it, as decided geometrically by area.FilterByBoundary. A sensor
 // missing from the map keeps whatever code it already had rather than being
 // reset to NULL: COALESCE, not EXCLUDED, below.
+//
+// The DO UPDATE is confined to rows this source owns. source, source_ref and
+// the station_* columns are absent from both the column list and the SET list,
+// so without the WHERE an upstream id colliding with an allocated official id
+// would leave one row still badged 'eea' with its station identity intact, at
+// the citizen device's coordinates, merging both devices' readings. The WHERE
+// makes that a no-op; migration 00012's CHECK makes it a loud error.
 func (s *Store) UpsertSensors(ctx context.Context, scored []quality.Scored, country map[int64]string) error {
 	seen := make(map[int64]bool, len(scored))
 	batch := &pgx.Batch{}
@@ -53,7 +60,8 @@ func (s *Store) UpsertSensors(ctx context.Context, scored []quality.Scored, coun
 			       sensor_type = EXCLUDED.sensor_type,
 			       last_seen = EXCLUDED.last_seen,
 			       country_code = COALESCE(EXCLUDED.country_code, sensor.country_code),
-			       active = true`,
+			       active = true
+			 WHERE sensor.source = 'sensor.community'`,
 			r.SensorID, r.SensorType, r.Lon, r.Lat, r.Timestamp, code)
 	}
 	if batch.Len() == 0 {
