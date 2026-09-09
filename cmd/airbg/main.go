@@ -298,7 +298,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 		close(windDone)
 	}
 
-	// Hourly, matching EEA's own publish cadence. Shares the collector pool.
+	// Runs on cfg.EEA.PollInterval, sharing the collector pool.
 	eeaDone := make(chan struct{})
 	if cfg.EEA.Enabled {
 		ec := eea.NewCollector(cfg.EEA, collectorStore)

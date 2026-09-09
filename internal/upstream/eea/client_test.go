@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,21 +35,25 @@ func TestFileURLsPostsTheDocumentedBody(t *testing.T) {
 		Dataset    int      `json:"dataset"`
 		Source     string   `json:"source"`
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/ParquetFile/urls" {
 			t.Errorf("got %s %s, want POST /ParquetFile/urls", r.Method, r.URL.Path)
 		}
 		_ = json.NewDecoder(r.Body).Decode(&got)
-		_, _ = w.Write([]byte("https://example.invalid/a.parquet\nhttps://example.invalid/b.parquet\n"))
+		_, _ = w.Write([]byte(srv.URL + "/a.parquet\n" + srv.URL + "/b.parquet\n"))
 	}))
 	defer srv.Close()
 
-	urls, err := eea.New(testConfig(srv.URL, srv.URL)).FileURLs(context.Background())
+	urls, rejected, err := eea.New(testConfig(srv.URL, srv.URL)).FileURLs(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(urls) != 2 {
 		t.Fatalf("got %d urls, want 2", len(urls))
+	}
+	if rejected != 0 {
+		t.Errorf("rejected = %d, want 0 for same-origin urls", rejected)
 	}
 	if len(got.Countries) != 1 || got.Countries[0] != "BG" {
 		t.Errorf("countries = %v, want [BG]", got.Countries)
@@ -109,8 +115,29 @@ func TestFileURLsRejectsANonOKStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := eea.New(testConfig(srv.URL, srv.URL)).FileURLs(context.Background()); err == nil {
+	if _, _, err := eea.New(testConfig(srv.URL, srv.URL)).FileURLs(context.Background()); err == nil {
 		t.Error("FileURLs accepted a 502")
+	}
+}
+
+// A malicious or compromised /ParquetFile/urls response naming an off-host
+// URL must be refused, not followed — FetchFile would otherwise download
+// from wherever the response body points.
+func TestFileURLsRejectsOffHostURLs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("https://attacker.invalid/a.parquet\n"))
+	}))
+	defer srv.Close()
+
+	urls, rejected, err := eea.New(testConfig(srv.URL, srv.URL)).FileURLs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(urls) != 0 {
+		t.Errorf("got %d urls, want 0 — the off-host url should have been refused", len(urls))
+	}
+	if rejected != 1 {
+		t.Errorf("rejected = %d, want 1", rejected)
 	}
 }
 
@@ -147,19 +174,47 @@ func TestFetchMetadataBoundsTheBody(t *testing.T) {
 	}
 }
 
-// The second URL is cut clean at the line boundary, so its absence from the
-// result is the observable proof of the bound rather than of the line filter.
-func TestFileURLsBoundsTheBody(t *testing.T) {
-	line1 := "https://example.invalid/a.parquet\n"
-	line2 := "https://example.invalid/b.parquet\n"
+// A successful fetch must persist the raw CSV to MetadataCache so a restart
+// can fall back to it — this is the write side of that fallback.
+func TestFetchMetadataWritesTheCacheFile(t *testing.T) {
+	header := "Countrycode\tSamplingPoint\tAirQualityStationEoICode\tAirQualityStationNatCode\tLongitude\tLatitude\tAirQualityStationType\tAirQualityStationArea\n"
+	row := "BG\tSP1\tCODE1\tNAT1\t23.32\t42.69\tbackground\turban\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(line1 + line2))
+		_, _ = w.Write([]byte(header + row))
 	}))
 	defer srv.Close()
 
+	dir := t.TempDir()
+	cfg := testConfig(srv.URL, srv.URL)
+	cfg.MetadataCache = dir
+	if _, err := eea.New(cfg).FetchMetadata(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "PanEuropean_metadata.csv"))
+	if err != nil {
+		t.Fatalf("cache file not written: %v", err)
+	}
+	if string(got) != header+row {
+		t.Errorf("cache file = %q, want %q", got, header+row)
+	}
+}
+
+// The second URL is cut clean at the line boundary, so its absence from the
+// result is the observable proof of the bound rather than of the line filter.
+func TestFileURLsBoundsTheBody(t *testing.T) {
+	var srv *httptest.Server
+	var line1, line2 string
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(line1 + line2))
+	}))
+	defer srv.Close()
+	line1 = srv.URL + "/a.parquet\n"
+	line2 = srv.URL + "/b.parquet\n"
+
 	cfg := testConfig(srv.URL, srv.URL)
 	cfg.MaxPayloadBytes = int64(len(line1))
-	urls, err := eea.New(cfg).FileURLs(context.Background())
+	urls, _, err := eea.New(cfg).FileURLs(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

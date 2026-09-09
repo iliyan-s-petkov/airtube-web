@@ -19,8 +19,6 @@ type bgStationName struct {
 	Area    string `json:"area"`
 }
 
-// bgStationNames is the EoI-code join table, keyed the same way
-// Station.Code already is.
 var bgStationNames = loadBGStationNames()
 
 func loadBGStationNames() map[string]bgStationName {

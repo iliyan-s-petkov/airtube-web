@@ -6,12 +6,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"airbg.org/internal/config"
 )
+
+// metadataCacheFile is the on-disk name for the cached coordinate CSV,
+// shared by the write side (FetchMetadata) and the read fallback
+// (Collector.loadMetadata).
+const metadataCacheFile = "PanEuropean_metadata.csv"
+
+func metadataCachePath(dir string) string {
+	return filepath.Join(dir, metadataCacheFile)
+}
 
 const userAgent = "airbg.org collector (+https://airbg.org)"
 
@@ -38,7 +51,17 @@ type urlsRequest struct {
 
 // FileURLs returns the parquet file URLs for the configured countries. One
 // request covers the whole country list.
-func (c *Client) FileURLs(ctx context.Context) ([]string, error) {
+//
+// The response body is third-party controlled: a candidate line is only kept
+// if its scheme and host match the configured EEA.URL, so a compromised or
+// malicious response cannot steer FetchFile at an arbitrary host. Rejections
+// are counted rather than silently dropped.
+func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err error) {
+	trusted, err := url.Parse(c.cfg.URL)
+	if err != nil {
+		return nil, 0, fmt.Errorf("eea: file urls: configured URL: %w", err)
+	}
+
 	body, err := json.Marshal(urlsRequest{
 		Countries:  c.cfg.Countries,
 		Cities:     []string{},
@@ -47,39 +70,44 @@ func (c *Client) FileURLs(ctx context.Context) ([]string, error) {
 		Source:     "API",
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		strings.TrimSuffix(c.cfg.URL, "/")+"/ParquetFile/urls", bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("eea: file urls: %w", err)
+		return nil, 0, fmt.Errorf("eea: file urls: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("eea: file urls: status %d", resp.StatusCode)
+		return nil, 0, fmt.Errorf("eea: file urls: status %d", resp.StatusCode)
 	}
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, c.cfg.MaxPayloadBytes))
 	if err != nil {
-		return nil, fmt.Errorf("eea: file urls: read body: %w", err)
+		return nil, 0, fmt.Errorf("eea: file urls: read body: %w", err)
 	}
 
-	var urls []string
 	for _, line := range strings.Split(string(raw), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "http") {
-			urls = append(urls, line)
+		if line == "" {
+			continue
 		}
+		u, parseErr := url.Parse(line)
+		if parseErr != nil || u.Scheme != trusted.Scheme || u.Host != trusted.Host {
+			rejected++
+			continue
+		}
+		urls = append(urls, line)
 	}
-	return urls, nil
+	return urls, rejected, nil
 }
 
 // FetchFile downloads one Parquet file. modified is false on a 304, where the
@@ -132,5 +160,23 @@ func (c *Client) FetchMetadata(ctx context.Context) (Metadata, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("eea: fetch metadata: status %d", resp.StatusCode)
 	}
-	return ParseMetadata(io.LimitReader(resp.Body, c.cfg.MaxPayloadBytes), c.cfg.Countries)
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, c.cfg.MaxPayloadBytes))
+	if err != nil {
+		return nil, fmt.Errorf("eea: fetch metadata: read body: %w", err)
+	}
+
+	md, err := ParseMetadata(bytes.NewReader(raw), c.cfg.Countries)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.cfg.MetadataCache != "" {
+		if err := os.WriteFile(metadataCachePath(c.cfg.MetadataCache), raw, 0o644); err != nil {
+			// A failed cache write does not fail the fetch: the caller has a
+			// good in-memory copy, only the restart fallback is degraded.
+			slog.Warn("eea metadata cache write failed", "error", err)
+		}
+	}
+	return md, nil
 }

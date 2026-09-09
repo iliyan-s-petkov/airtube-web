@@ -113,7 +113,22 @@ never averaged.
   26 MB, so that bound must be sized for it (`internal/config/validate.go`
   checks the block is internally consistent, not that it is large enough for
   this specific file).
-- The metadata file itself is cached to `MetadataCache` and refetched only
-  every `MetadataInterval` (weekly is generous for a file untouched since
-  2024-03-01); a failed refresh keeps the previously loaded copy rather than
-  running with no official layer at all.
+- In memory, the metadata file is refetched only every `MetadataInterval`
+  (weekly is generous for a file untouched since 2024-03-01); a failed
+  refresh keeps the previously loaded copy rather than running with no
+  official layer at all.
+- On disk, `Client.FetchMetadata` writes the raw CSV to `MetadataCache` after
+  every successful fetch. `Collector.loadMetadata` reads that file back only
+  as a last resort — on startup, when there is no in-memory copy yet and the
+  live fetch also failed — so a process restart during an upstream outage
+  still has coordinates to place stations with.
+- `Client.FileURLs` only follows a returned URL whose scheme and host match
+  the configured `EEA.URL`; anything else is refused and counted in
+  `Stats.UntrustedURL` rather than followed. The `/ParquetFile/urls` response
+  is third-party input, so `Client.FetchFile` must never be steered at an
+  arbitrary host by it.
+- `Collector.RunOnce` writes readings in chunks of `writeChunkSize` (2000)
+  rather than one `pgx.Batch` for the whole cycle — history backfills alone
+  can put ~2M readings through a single run. Each chunk is a separate
+  `WriteStationReadings` call, so a failure partway through a cycle leaves
+  earlier chunks durably written instead of rolling the whole cycle back.

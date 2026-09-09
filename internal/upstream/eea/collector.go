@@ -5,12 +5,15 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	"airbg.org/internal/config"
 	"airbg.org/internal/store"
 )
+
+// writeChunkSize bounds pgx.Batch size. A full cycle can carry ~2M readings
+// once history backfills; one unbounded batch would be all-or-nothing.
+const writeChunkSize = 2000
 
 // Stats is one cycle's outcome. Each discard reason gets its own counter so a
 // zero-reading cycle can be diagnosed from the log line alone.
@@ -22,6 +25,7 @@ type Stats struct {
 	Unplaceable      int
 	Invalid          int
 	UnknownPollutant int
+	UntrustedURL     int
 }
 
 type Collector struct {
@@ -45,14 +49,6 @@ func NewCollector(cfg config.EEA, s *store.Store) *Collector {
 	}
 }
 
-func (c *Collector) SetClockForTesting(clock func() time.Time) { c.clock = clock }
-
-// metadataPath caches the 26 MB coordinate file between restarts. Upstream has
-// not changed it since 2024-03-11.
-func (c *Collector) metadataPath() string {
-	return filepath.Join(c.cfg.MetadataCache, "PanEuropean_metadata.csv")
-}
-
 func (c *Collector) loadMetadata(ctx context.Context) error {
 	now := c.clock().UTC()
 	if c.metadata != nil && now.Sub(c.metadataAt) < c.cfg.MetadataInterval {
@@ -67,7 +63,7 @@ func (c *Collector) loadMetadata(ctx context.Context) error {
 			slog.Warn("eea metadata refresh failed, keeping the cached copy", "error", err)
 			return nil
 		}
-		if cached, readErr := os.ReadFile(c.metadataPath()); readErr == nil {
+		if cached, readErr := os.ReadFile(metadataCachePath(c.cfg.MetadataCache)); readErr == nil {
 			md, err = ParseMetadata(bytes.NewReader(cached), c.cfg.Countries)
 			if err != nil {
 				return err
@@ -90,9 +86,13 @@ func (c *Collector) RunOnce(ctx context.Context) (Stats, error) {
 		return st, err
 	}
 
-	urls, err := c.client.FileURLs(ctx)
+	urls, rejected, err := c.client.FileURLs(ctx)
 	if err != nil {
 		return st, err
+	}
+	st.UntrustedURL = rejected
+	if rejected > 0 {
+		slog.Warn("eea file urls: rejected off-host URLs", "count", rejected)
 	}
 
 	stations := map[string]Station{}
@@ -194,11 +194,21 @@ func (c *Collector) RunOnce(ctx context.Context) (Stats, error) {
 		})
 	}
 
-	n, err := c.store.WriteStationReadings(ctx, readings)
-	if err != nil {
-		return st, err
+	// Chunked so one cycle's worth of readings (up to ~2M on first
+	// production run) never queues into a single all-or-nothing pgx.Batch.
+	// Each chunk is its own round trip: a failure part-way through leaves
+	// earlier chunks durably written rather than rolling the cycle back.
+	for start := 0; start < len(readings); start += writeChunkSize {
+		end := start + writeChunkSize
+		if end > len(readings) {
+			end = len(readings)
+		}
+		n, err := c.store.WriteStationReadings(ctx, readings[start:end])
+		st.Written += int(n)
+		if err != nil {
+			return st, err
+		}
 	}
-	st.Written = int(n)
 	return st, nil
 }
 
@@ -215,7 +225,8 @@ func (c *Collector) Loop(ctx context.Context) {
 		slog.Info("eea cycle complete",
 			"files", s.Files, "unmodified", s.Unmodified, "rows", s.Rows,
 			"written", s.Written, "unplaceable", s.Unplaceable,
-			"invalid", s.Invalid, "unknown_pollutant", s.UnknownPollutant)
+			"invalid", s.Invalid, "unknown_pollutant", s.UnknownPollutant,
+			"untrusted_url", s.UntrustedURL)
 	}
 
 	run()
