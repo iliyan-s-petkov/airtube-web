@@ -312,6 +312,9 @@ describe('readConfig', () => {
         tViewCellValues: 'Cell values',
         tViewInactiveSensors: 'Inactive sensors',
         tViewBoundaries: 'Province outlines',
+        tViewCommunitySensors: 'Citizen sensors',
+        tViewOfficialStations: 'Official stations',
+        tNotMeasured: 'does not measure this',
         // Two of the twelve groups, deliberately: the other ten prove the
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
@@ -356,6 +359,13 @@ describe('readConfig', () => {
       viewCellValues: 'Cell values',
       viewInactiveSensors: 'Inactive sensors',
       viewBoundaries: 'Province outlines',
+      viewCommunitySensors: 'Citizen sensors',
+      viewOfficialStations: 'Official stations',
+      notMeasured: 'does not measure this',
+      // communitySensors/officialStations reuse the view labels: setSourceViewAvailability
+      // keys the checkbox label lookup by view id, not by a second pair of dataset attributes.
+      communitySensors: 'Citizen sensors',
+      officialStations: 'Official stations',
       // One entry per group in LAYER_ORDER, always: the menu looks a label up
       // by the group the STYLE reports, so a key that is simply absent here
       // would be a group that renders under its own slug the day the style

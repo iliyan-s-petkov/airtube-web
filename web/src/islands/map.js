@@ -19,6 +19,9 @@ import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.j
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales, findSensor, getSensors } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
+import {
+  filterBySource, getSources, measuredBy, onSourceChange, setSourceEnabled,
+} from '../lib/sourcefilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
@@ -193,6 +196,7 @@ export function mount(el) {
   let unsubscribe = null
   let unprovide = null
   let unfilter = null
+  let unfilterSource = null
   // The finder island is beside this one, not inside it: it names an area and
   // this map is what moves. Registered here, where the camera is.
   const unselect = provideAreaSelect((area) => showArea(map, state, cfg, chrome, area))
@@ -419,11 +423,29 @@ export function mount(el) {
       apply: (on) => setBoundaries(map, state, boundaryState, on),
     }
 
+    // One toggle per network, both on by default (no defaultOff).
+    // setSourceViewAvailability disables the one that has no data for the
+    // selected metric.
+    const sourceViews = [
+      {
+        id: 'communitySensors',
+        label: cfg.t.viewCommunitySensors,
+        apply: (on) => { setSourceEnabled('sensor.community', on); return on },
+      },
+      {
+        id: 'officialStations',
+        label: cfg.t.viewOfficialStations,
+        apply: (on) => { setSourceEnabled('eea', on); return on },
+      },
+    ]
+
     installLayers(map, chrome.layersUI, {
       labels: cfg.t.layers,
       caption: cfg.t.layersCaption,
-      views: [...chrome.layerViews, windView, boundaryView],
+      views: [...chrome.layerViews, ...sourceViews, windView, boundaryView],
     })
+
+    setSourceViewAvailability(chrome, cfg.metric, cfg.t)
 
     // Wired here rather than in mount(), for the reason the layers menu is: a
     // pick reloads every data layer, and there is nothing to reload until the
@@ -470,6 +492,8 @@ export function mount(el) {
       // the fetch when the URL has not moved, so this is a repaint, not a call.
       refreshHexes(map, state, cfg)
     })
+
+    unfilterSource = onSourceChange(() => repaintSensors(map, state, cfg))
 
     // What "refresh" MEANS lives here, with the map that owns the data; the
     // toolbar button and the freshness line only ask for it (see
@@ -605,7 +629,11 @@ export function mount(el) {
     if (bounds) map.fitBounds(bounds, { padding: BOUNDARY_FIT_PADDING })
   })
 
-  return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.(); unselect() } }
+  return {
+    map,
+    chrome,
+    stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.(); unfilterSource?.(); unselect() },
+  }
 }
 
 // Padding in pixels around a province fitted into the frame. Enough that the
@@ -830,6 +858,7 @@ function onMetricChange(map, state, cfg, chrome, metric) {
   // On every call the URL is unchanged, so refreshHexes recolours the body it
   // holds rather than refetching.
   refreshHexes(map, state, cfg)
+  setSourceViewAvailability(chrome, metric, cfg.t)
 }
 
 // The colour half of a metric change: which band table the markers are painted
@@ -981,7 +1010,10 @@ async function refresh(map, state, cfg, chrome, force = false, { defer = false }
   }
 
   const features = effective === 'sensors'
-    ? filterByStatus(sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour), getSensorStatus())
+    ? filterBySource(
+      filterByStatus(sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour), getSensorStatus()),
+      getSources(),
+    )
     : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
   const paint = () => paintSource(map, SOURCE_ID, features)
   if (defer) return paint
@@ -1019,11 +1051,28 @@ export function applyMarkerZoomRange(map, tier) {
 // aggregates must not blank them.
 export function repaintSensors(map, state, cfg) {
   if (!state.sensorBody) return
-  const features = filterByStatus(
-    sensorFeatures(state.sensorBody, cfg.metric, state.scales, cfg.noDataColour),
-    getSensorStatus(),
+  const features = filterBySource(
+    filterByStatus(
+      sensorFeatures(state.sensorBody, cfg.metric, state.scales, cfg.noDataColour),
+      getSensorStatus(),
+    ),
+    getSources(),
   )
   paintSource(map, SOURCE_ID, features)
+}
+
+// setSourceViewAvailability disables the checkbox of a network that has no data
+// for metric and appends t.notMeasured to its label. The five gases exist only
+// at EEA stations, the weather metrics only on sensor.community devices.
+export function setSourceViewAvailability(chrome, metric, t) {
+  for (const [id, source] of [['communitySensors', 'sensor.community'], ['officialStations', 'eea']]) {
+    const input = chrome.layersUI?.fieldset?.querySelector(`[data-layer-key="view:${id}"]`)
+    if (!input) continue
+    const measures = measuredBy(source, metric)
+    input.disabled = !measures
+    const span = input.parentElement?.querySelector('span')
+    if (span) span.textContent = measures ? t[id] : `${t[id]} — ${t.notMeasured}`
+  }
 }
 
 // refreshHexes fetches the hex grid for the current zoom and viewport and
@@ -1401,6 +1450,7 @@ export function sensorFeatures(body, metric, scales, noDataColour) {
         colour: rampColour(value, bands, noDataColour),
         value,
         quality: s.quality?.[i] ?? '',
+        source: s.source?.[i] ?? 'sensor.community',
       },
     })
   }
@@ -1584,6 +1634,11 @@ export function readConfig(el) {
       // administrative lines, which are a different set of lines from a
       // different source and switch independently.
       viewBoundaries: d.tViewBoundaries || '',
+      viewCommunitySensors: d.tViewCommunitySensors || '',
+      viewOfficialStations: d.tViewOfficialStations || '',
+      notMeasured: d.tNotMeasured || '',
+      communitySensors: d.tViewCommunitySensors || '',
+      officialStations: d.tViewOfficialStations || '',
       // One label per style group, keyed by the group's own name so the menu
       // can look up whatever the style turns out to carry. Derived from
       // LAYER_ORDER rather than written out, because the attribute name is a
@@ -1742,7 +1797,8 @@ export function layerPaint(cfg) {
   return {
     'circle-color': ['get', 'colour'],
     'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 5, 12, 9],
-    'circle-stroke-width': 1,
+    // Stroke width marks the network; fill stays the reading's scale colour.
+    'circle-stroke-width': ['case', ['==', ['get', 'source'], 'eea'], 3, 1],
     'circle-stroke-color': cfg.markerStrokeColour,
   }
 }
