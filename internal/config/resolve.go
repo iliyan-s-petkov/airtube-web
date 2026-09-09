@@ -154,8 +154,8 @@ type EEA struct {
 	Enabled bool
 	// URL is the download API base; MetadataURL is a different host on a much
 	// longer refresh cycle.
-	URL              string
-	MetadataURL      string
+	URL           string
+	MetadataURL   string
 	MetadataCache string
 	// FileHosts are the hosts a parquet download may come from. /ParquetFile/urls
 	// answers with blob-storage URLs on a different host than URL, so the

@@ -78,6 +78,10 @@ type urlsRequest struct {
 // URL, so without skipping it every cycle reports one bogus rejection.
 const csvHeader = "ParquetFileUrl"
 
+// utf8BOM prefixes that response. strings.TrimSpace does not treat U+FEFF as
+// space, so without stripping it the header line never equals csvHeader.
+const utf8BOM = "\ufeff"
+
 // FileURLs returns the parquet file URLs for the configured countries. One
 // request covers the whole country list.
 //
@@ -135,7 +139,7 @@ func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err
 		allowed[host] = true
 	}
 
-	for _, line := range strings.Split(string(raw), "\n") {
+	for _, line := range strings.Split(strings.TrimPrefix(string(raw), utf8BOM), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || line == csvHeader {
 			continue

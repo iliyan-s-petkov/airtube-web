@@ -165,8 +165,10 @@ func TestFileURLsRejectsOffHostURLs(t *testing.T) {
 func TestFileURLsAcceptsAConfiguredFileHostThatIsNotTheAPIHost(t *testing.T) {
 	files := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer files.Close()
+	// The live response opens with a UTF-8 BOM, which strings.TrimSpace does
+	// not remove — so the header only matches if it is stripped separately.
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("ParquetFileUrl\n" + files.URL + "/BG/a.parquet\n"))
+		_, _ = w.Write([]byte("\ufeffParquetFileUrl\n" + files.URL + "/BG/a.parquet\n"))
 	}))
 	defer api.Close()
 
