@@ -102,9 +102,8 @@ func TestSensorPayloadCarriesTheMeasuresColumn(t *testing.T) {
 	}
 }
 
-// Placed here rather than build_test.go (brief's suggested file): that file is
-// package snapshot_test and cannot see the unexported sensorPayloadFrom, while
-// this file already is package snapshot and already calls it.
+// Not in build_test.go: that file is package snapshot_test, which cannot reach
+// the unexported sensorPayloadFrom.
 func TestSensorPayloadCarriesTheSource(t *testing.T) {
 	body := sensorPayloadFrom(time.Now().UTC(), []store.SensorReading{
 		{SensorID: 1, SensorType: "SDS011", Lon: 23.3, Lat: 42.7, Quality: "ok",
