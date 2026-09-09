@@ -19,7 +19,11 @@ import (
 // testStoreConfig mirrors airbg.yaml so existing coverage assertions keep
 // asserting the same threshold.
 func testStoreConfig() config.Store {
-	return config.Store{CoverageThreshold: 3, FreshnessWindow: 2 * time.Hour}
+	return config.Store{
+		CoverageThreshold:       3,
+		FreshnessWindow:         2 * time.Hour,
+		OfficialFreshnessWindow: 6 * time.Hour,
+	}
 }
 
 // testSeriesTimeout and testAssignTimeout mirror airbg.yaml's

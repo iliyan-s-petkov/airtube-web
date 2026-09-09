@@ -45,7 +45,7 @@ per_area AS (
      GROUP BY a.slug, l.metric
 )`
 
-var windowedAreaAggregateSQL = "WITH" + latestCTE +
+var windowedAreaAggregateSQL = "WITH" + latestCTE(5) +
 	"," + fmt.Sprintf(windowedSensorCTE, 4) +
 	"," + windowedPerAreaCTE +
 	"," + coverageCTE + areaAggregateSelect
@@ -56,16 +56,16 @@ var windowedAreaAggregateSQL = "WITH" + latestCTE +
 // which areas appear at all — is identical, by construction: both queries are
 // assembled from the same CTE and projection fragments.
 func (s *Store) WindowedAreaAggregates(ctx context.Context, kinds []string, since time.Time) ([]AreaAggregate, error) {
-	fresh := time.Now().UTC().Add(-s.cfg.FreshnessWindow)
+	official, community := s.cutoffs()
 
-	rows, err := s.pool.Query(ctx, windowedAreaAggregateSQL, fresh, usableQuality, kinds, since)
+	rows, err := s.pool.Query(ctx, windowedAreaAggregateSQL, official, usableQuality, kinds, since, community)
 	if err != nil {
 		return nil, fmt.Errorf("store: windowed area aggregates: %w", err)
 	}
 	return s.scanAreaAggregates(rows)
 }
 
-var windowedSensorsSQL = "WITH" + latestSensorsCTE +
+var windowedSensorsSQL = "WITH" + latestSensorsCTE(4) +
 	"," + fmt.Sprintf(windowedSensorCTE, 3) +
 	sensorsSelect("w.value", "  LEFT JOIN windowed w ON w.sensor_id = l.sensor_id AND w.metric = l.metric")
 
@@ -79,9 +79,9 @@ var windowedSensorsSQL = "WITH" + latestSensorsCTE +
 // intact and no value for that metric, which the panel already renders as "no
 // reading".
 func (s *Store) WindowedSensors(ctx context.Context, since time.Time) ([]SensorReading, error) {
-	fresh := time.Now().UTC().Add(-s.cfg.FreshnessWindow)
+	official, community := s.cutoffs()
 
-	rows, err := s.pool.Query(ctx, windowedSensorsSQL, fresh, usableQuality, since)
+	rows, err := s.pool.Query(ctx, windowedSensorsSQL, official, usableQuality, since, community)
 	if err != nil {
 		return nil, fmt.Errorf("store: windowed sensors: %w", err)
 	}

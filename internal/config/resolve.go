@@ -173,6 +173,11 @@ type EEA struct {
 type Store struct {
 	CoverageThreshold int
 	FreshnessWindow   time.Duration
+	// OfficialFreshnessWindow is FreshnessWindow for EEA stations. Their
+	// readings are hourly means stamped at the start of the hour and published
+	// about an hour after it closes, so an official reading is already older
+	// than FreshnessWindow when it arrives and the layer never shows at all.
+	OfficialFreshnessWindow time.Duration
 }
 
 type Series struct {
@@ -421,8 +426,9 @@ func resolve(r *raw) Config {
 			MaxPayloadBytes:  *r.EEA.MaxPayloadBytes,
 		},
 		Store: Store{
-			CoverageThreshold: *r.Store.CoverageThreshold,
-			FreshnessWindow:   r.Store.FreshnessWindow.Std(),
+			CoverageThreshold:       *r.Store.CoverageThreshold,
+			FreshnessWindow:         r.Store.FreshnessWindow.Std(),
+			OfficialFreshnessWindow: r.Store.OfficialFreshnessWindow.Std(),
 		},
 		Series: Series{
 			DefaultMetric: *r.Series.DefaultMetric,

@@ -219,6 +219,9 @@ store:
   coverage_threshold: 3
   # A reading older than this does not count toward an area's current value.
   freshness_window: "2h"
+  # The same for EEA stations, which publish hourly means about an hour after
+  # the hour closes and so are never fresh by the rule above.
+  official_freshness_window: "6h"
 
 series:
   # Must match the first entry in periods below: the snapshot serves this

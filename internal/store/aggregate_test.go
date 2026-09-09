@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -302,6 +303,68 @@ func TestLatestSensorsExcludesStaleReadings(t *testing.T) {
 		if sr.SensorID == 60 {
 			t.Fatalf("sensor 60 present with only a 3h-old reading; freshnessWindow (2h) must exclude it: %+v", sr)
 		}
+	}
+}
+
+// seedOfficialSensorReading is seedSensorReading for an EEA station. The id must
+// be at or above store.OfficialSensorIDFloor: migration 00012 constrains source
+// 'eea' and that range to mean the same thing.
+func seedOfficialSensorReading(t *testing.T, ctx contextT, pool poolT, id int64, lon, lat float64, metric string, value float64, at time.Time) {
+	t.Helper()
+	if id < store.OfficialSensorIDFloor {
+		t.Fatalf("official sensor id %d is below the floor %d", id, store.OfficialSensorIDFloor)
+	}
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sensor (sensor_id, sensor_type, location, source, source_ref)
+		 VALUES ($1, 'EEA', ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, 'eea', $4)
+		 ON CONFLICT (sensor_id) DO NOTHING`,
+		id, lon, lat, fmt.Sprintf("BG/SPO-TEST-%d", id))
+	if err != nil {
+		t.Fatalf("seed official sensor %d: %v", id, err)
+	}
+	_, err = pool.Exec(ctx,
+		`INSERT INTO reading (time, sensor_id, metric, value, quality)
+		 VALUES ($1, $2, $3, $4, 'ok')`,
+		at, id, metric, value)
+	if err != nil {
+		t.Fatalf("seed official reading %d/%s: %v", id, metric, err)
+	}
+}
+
+// EEA publishes hourly means stamped at the start of the hour, about an hour
+// after the hour closes, so an official reading is already older than
+// freshness_window when it arrives. Under one shared window the official layer
+// is empty at every moment — which is what production showed.
+func TestLatestSensorsKeepsOfficialStationsPastTheCommunityWindow(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	const officialID = store.OfficialSensorIDFloor + 7
+	// Older than freshness_window (2h), inside official_freshness_window (6h).
+	seedOfficialSensorReading(t, ctx, pool, officialID, 23.0, 42.0, "P1", 21, now.Add(-3*time.Hour))
+	seedSensorReading(t, ctx, pool, 61, 23.0, 42.0, "P1", 15, "ok", now.Add(-3*time.Hour))
+
+	sensors, err := s.LatestSensors(ctx)
+	if err != nil {
+		t.Fatalf("LatestSensors: %v", err)
+	}
+	var sawOfficial, sawCommunity bool
+	for _, sr := range sensors {
+		switch sr.SensorID {
+		case officialID:
+			sawOfficial = true
+		case 61:
+			sawCommunity = true
+		}
+	}
+	if !sawOfficial {
+		t.Errorf("official station %d absent with a 3h-old reading; official_freshness_window (6h) must admit it", officialID)
+	}
+	// The wider window is for official stations only. Applying it to citizen
+	// devices would leave dead sensors on the map for six hours.
+	if sawCommunity {
+		t.Errorf("community sensor 61 present with a 3h-old reading; freshness_window (2h) must exclude it")
 	}
 }
 

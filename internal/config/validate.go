@@ -363,6 +363,14 @@ func (c Config) validateStoreAndSeries(p *problems) {
 		p.addf("store.coverage_threshold = %d, must be at least 1; below that a single sensor would be painted as a whole area", c.Store.CoverageThreshold)
 	}
 	p.positive("store.freshness_window", c.Store.FreshnessWindow)
+	p.positive("store.official_freshness_window", c.Store.OfficialFreshnessWindow)
+	// Shorter than the community window would hide official stations sooner than
+	// citizen devices, which is backwards: EEA readings arrive already older than
+	// freshness_window and the whole point of the key is to admit them.
+	if c.Store.OfficialFreshnessWindow < c.Store.FreshnessWindow {
+		p.addf("store.official_freshness_window (%v) is shorter than store.freshness_window (%v)",
+			c.Store.OfficialFreshnessWindow, c.Store.FreshnessWindow)
+	}
 
 	if !canonicalMetrics[c.Series.DefaultMetric] {
 		p.addf("series.default_metric = %q is not a canonical metric", c.Series.DefaultMetric)

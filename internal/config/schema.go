@@ -151,8 +151,9 @@ type rawEEA struct {
 }
 
 type rawStore struct {
-	CoverageThreshold *int      `yaml:"coverage_threshold"`
-	FreshnessWindow   *Duration `yaml:"freshness_window"`
+	CoverageThreshold       *int      `yaml:"coverage_threshold"`
+	FreshnessWindow         *Duration `yaml:"freshness_window"`
+	OfficialFreshnessWindow *Duration `yaml:"official_freshness_window"`
 }
 
 type rawSeries struct {
