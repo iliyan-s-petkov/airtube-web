@@ -28,10 +28,6 @@ type breadthEntry struct {
 	lastSeen    time.Time
 	slugs       map[string]struct{}
 	sensors     map[string]struct{}
-	// tripped is sticky for the rest of the window. Without it a client that
-	// walked the country could replay its visited set freely after tripping.
-	areaTripped   bool
-	sensorTripped bool
 }
 
 // Breadth counts how many distinct areas and sensors each client key touches
@@ -107,30 +103,27 @@ func (b *Breadth) observe(key, value string, sensor bool) bool {
 		e.windowStart = now
 		e.slugs = make(map[string]struct{})
 		e.sensors = make(map[string]struct{})
-		e.areaTripped = false
-		e.sensorTripped = false
 	}
 	e.lastSeen = now
 
-	set, limit, tripped := e.slugs, b.areaLimit, &e.areaTripped
+	set, limit := e.slugs, b.areaLimit
 	if sensor {
-		set, limit, tripped = e.sensors, b.sensorLimit, &e.sensorTripped
+		set, limit = e.sensors, b.sensorLimit
 	}
 
-	if *tripped {
-		// Already over: refuse without recording. Recording would let a client
-		// we have already refused keep growing our memory.
-		return false
-	}
-
+	// Revisiting something already counted is free, over the limit or not. This
+	// is what makes "reads one city's page all day" indistinguishable from one
+	// request, and it is checked first because one page can need several
+	// observations of the area it is already showing — the sensor panel's
+	// nearby line re-observes the open area, and refusing that blanked the
+	// chart.
 	if _, seen := set[value]; seen {
-		// Revisiting something already counted is free. This is what makes
-		// "reads one city's page all day" indistinguishable from one request.
 		return true
 	}
 
+	// Refuse without recording: the set stops growing at the limit, so a client
+	// we have already refused cannot keep growing our memory.
 	if len(set) >= limit {
-		*tripped = true
 		return false
 	}
 	set[value] = struct{}{}

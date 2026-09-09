@@ -81,19 +81,37 @@ func TestDistinctAreasTripTheLimit(t *testing.T) {
 	}
 }
 
-// TestTrippedClientStaysTrippedForKnownAreas: once over the limit, a client must
-// be refused even for a slug it already visited. Otherwise a scraper walks the
-// country, trips at the end, and then replays its whole visited set freely —
-// which is exactly the extraction the check exists to stop.
-func TestTrippedClientStaysTrippedForKnownAreas(t *testing.T) {
+// TestTrippedClientMayRevisitKnownAreas: a tripped client keeps the areas it
+// already paid for. The limit is breadth, so re-serving a slug already in the
+// set reveals nothing new; refusing it instead broke the sensor panel, whose
+// nearby-line request re-observes the area the reader is already looking at.
+func TestTrippedClientMayRevisitKnownAreas(t *testing.T) {
 	b, _ := breadth(t, 2, 10)
 
 	b.ObserveArea("client", "a")
 	b.ObserveArea("client", "b")
 	b.ObserveArea("client", "c") // trips
 
-	if b.ObserveArea("client", "a") {
-		t.Error("a tripped client was allowed to re-request an already-seen area")
+	if !b.ObserveArea("client", "a") {
+		t.Error("a tripped client was refused an area it had already been served")
+	}
+}
+
+// TestTrippedClientStillRefusedNewAreas: the half that does the work. A scraper
+// over the limit must not keep walking new slugs, and must not grow the set it
+// walked.
+func TestTrippedClientStillRefusedNewAreas(t *testing.T) {
+	b, _ := breadth(t, 2, 10)
+
+	b.ObserveArea("client", "a")
+	b.ObserveArea("client", "b")
+	b.ObserveArea("client", "c") // trips
+
+	if b.ObserveArea("client", "d") {
+		t.Error("a tripped client was allowed a new area")
+	}
+	if n := b.SlugSetSizeForTesting("client"); n != 2 {
+		t.Errorf("slug set grew past the limit after tripping: %d, want 2", n)
 	}
 }
 

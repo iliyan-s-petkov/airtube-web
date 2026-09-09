@@ -110,7 +110,7 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			// under three hours. See
 			// docs/superpowers/specs/2026-08-17-airbg-deployment-design.md.
 			// Every other row in this table still means "unchanged since Phase 2".
-			{"ratelimit.enumerate.areas_per_window", float64(cfg.RateLimit.Enumerate.AreasPerWindow), 20},
+			{"ratelimit.enumerate.areas_per_window", float64(cfg.RateLimit.Enumerate.AreasPerWindow), 60},
 			{"ratelimit.enumerate.sensors_per_window", float64(cfg.RateLimit.Enumerate.SensorsPerWindow), 40},
 			{"ratelimit.shard_count", float64(cfg.RateLimit.ShardCount), 32},
 			{"upstream.max_payload_bytes", float64(cfg.Upstream.MaxPayloadBytes), 64 << 20},
