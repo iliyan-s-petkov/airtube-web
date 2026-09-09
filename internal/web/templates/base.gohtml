@@ -68,8 +68,8 @@
        the caveats apply to every number the site shows — a reader who has
        just misread a city average is looking at this footer, not at a menu. */}}
   <p class="disclaimer">{{.T "disclaimer"}} <a href="{{.Path "/about-the-data"}}">{{.T "about.title"}}</a></p>
-  <p>{{.T "footer.data"}} <a href="https://maps.sensor.community/" rel="noopener">{{.T "footer.data.map"}}</a></p>
-  <p>{{.T "footer.official"}} <a href="https://eea.government.bg/kav/" rel="noopener">{{.T "footer.official.map"}}</a></p>
+  <p>{{.T "footer.data"}} <a href="{{.AttributionURL "sensor.community"}}" rel="noopener">{{.T "footer.data.map"}}</a></p>
+  <p>{{.T "footer.official"}} <a href="{{.AttributionURL "eea"}}" rel="noopener">{{.T "footer.official.map"}}</a></p>
   <p>{{.T "footer.boundaries"}}</p>
   {{if .HasBasemap}}<p>{{.T "footer.basemap"}}</p>{{end}}
   {{if not .GeneratedAt.IsZero}}<p>{{.T "area.updated"}}: <time datetime="{{.GeneratedAtISO}}">{{.GeneratedAtHuman}}</time></p>{{end}}

@@ -776,11 +776,22 @@ func TestBasemapAttribution(t *testing.T) {
 	}
 }
 
+// TestFooterCreditsTheOfficialProgramme pins the exact hrefs, not just their
+// presence, against the same literal URLs TestAttributionsNameBothNetworksAndTheirMaps
+// pins for api.Attributions(). The footer's href is now computed by calling
+// PageData.AttributionURL, which reads api.Attributions() at request time —
+// so a hardcoded want here is what catches the two falling out of step; a
+// want read from api.Attributions() itself could never disagree with what
+// the template renders, since the template calls the same function.
 func TestFooterCreditsTheOfficialProgramme(t *testing.T) {
 	page := fetch(t, renderer(t, fixture(t)), "/").Body.String()
-	for _, want := range []string{"eea.government.bg/kav", "maps.sensor.community"} {
-		if !strings.Contains(page, want) {
-			t.Errorf("the footer does not link to %s", want)
+	want := map[string]string{
+		"sensor.community": "https://maps.sensor.community/",
+		"eea":              "https://eea.government.bg/kav/",
+	}
+	for source, url := range want {
+		if !strings.Contains(page, `href="`+url+`"`) {
+			t.Errorf("the footer's %s link is not %q", source, url)
 		}
 	}
 }
