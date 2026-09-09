@@ -28,12 +28,12 @@ type Row struct {
 
 // fileRow mirrors the file's own physical types. Start/End are int96 and Value
 // is a DECIMAL(38,18) in a fixed_len_byte_array(16); neither has a Go mapping
-// parquet-go will do for us. Samplingpoint, Value, Unit and AggType are
-// "optional" in the EEA schema, so they are pointers here: a nil distinguishes
-// a real NULL from a genuine zero value or empty string.
+// parquet-go will do for us. Samplingpoint, Pollutant, Value, Unit and AggType
+// are "optional" in the EEA schema, so they are pointers here: a nil
+// distinguishes a real NULL from a genuine zero value or empty string.
 type fileRow struct {
 	Samplingpoint *string          `parquet:"Samplingpoint,optional"`
-	Pollutant     int32            `parquet:"Pollutant"`
+	Pollutant     *int32           `parquet:"Pollutant,optional"`
 	Start         deprecated.Int96 `parquet:"Start"`
 	End           deprecated.Int96 `parquet:"End"`
 	Value         *[16]byte        `parquet:"Value,optional"`
@@ -80,13 +80,14 @@ func DecodeRows(r io.ReaderAt, size int64) ([]Row, error) {
 	for _, fr := range raw {
 		// Policy: a row with a NULL in any field required to store or identify
 		// the reading is unusable and is dropped, not defaulted. A NULL Value
-		// must never reach the store as 0.
-		if fr.Samplingpoint == nil || fr.Value == nil || fr.Unit == nil || fr.AggType == nil {
+		// must never reach the store as 0, and a NULL Pollutant must never
+		// decode as code 0.
+		if fr.Samplingpoint == nil || fr.Pollutant == nil || fr.Value == nil || fr.Unit == nil || fr.AggType == nil {
 			continue
 		}
 		out = append(out, Row{
 			Samplingpoint: *fr.Samplingpoint,
-			Pollutant:     fr.Pollutant,
+			Pollutant:     *fr.Pollutant,
 			Start:         int96Time(fr.Start),
 			End:           int96Time(fr.End),
 			Value:         dec18(*fr.Value),
