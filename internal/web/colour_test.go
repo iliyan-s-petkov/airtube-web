@@ -50,10 +50,22 @@ func TestBandColourRefusesAMetricWithNoScale(t *testing.T) {
 	}
 }
 
-// Every metric the store keeps now has a table (api.Scales), so every row this
-// package renders can carry a swatch. Before, five of the seven drew none.
+// Every metric with an authority-backed scale (api.Scales, Source != "") gets
+// a swatch. CO, C6H6 and NOX have no published EAQI band set — Source is
+// deliberately "" for them — and asserting a colour here would make this
+// package invent a health classification no authority published; a row
+// drawing no swatch is the honest outcome for those three.
 func TestBandColourCoversEveryCanonicalMetric(t *testing.T) {
+	published := map[string]bool{}
+	for _, s := range api.Scales() {
+		if s.Source != "" {
+			published[s.Metric] = true
+		}
+	}
 	for _, metric := range upstream.CanonicalMetrics() {
+		if !published[metric] {
+			continue
+		}
 		if got := bandColour(metric, 20); got == "" {
 			t.Errorf("bandColour(%q, 20) is empty; the metric has no band table", metric)
 		}
