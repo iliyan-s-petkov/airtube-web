@@ -1229,24 +1229,24 @@ export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSO
 
   if (move) map.jumpTo({ center: [body.lon, body.lat], zoom: DEEP_LINK_ZOOM })
 
-  // On a reload this runs before the first refresh, so the map holds no area
-  // list yet and there would be nothing to resolve against. Fetched here, and
-  // published: the readout strip names the area from this list, and without it
-  // the figures beside the sensor are an unnamed count.
-  if (!state.areas || state.areas.length === 0) {
+  // /locate names the area that CONTAINS the sensor; nearestArea only names
+  // the one whose centre is closest, which for a sensor near a boundary is an
+  // area it does not stand in — and the readout strip would then rank it
+  // against neighbours it has none of. Kept as the fallback for a sensor no
+  // area holds.
+  const slug = body.slug || nearestArea([body.lon, body.lat], state.areas ?? [])?.slug
+
+  // The city list, because that is the tier those slugs belong to. On a reload
+  // this runs before the first refresh, so nothing has loaded one yet, and the
+  // strip has no way to turn the adopted slug into a place name — it falls back
+  // to counting sensors without saying where.
+  if (slug && (!state.areas || state.areas.length === 0)) {
     const overview = await fetchJSON(urlFor('city')).catch(() => null)
     if (overview?.areas?.length) {
       state.areas = overview.areas
       setMapAreas(state.areas)
     }
   }
-
-  // The area list first, the locate slug only as the fallback. /locate answers
-  // with the finest area holding the sensor, which can be a quarter no tier
-  // lists — adopting it would rank the sensor against a different set than a
-  // click on the same sensor does, and leave that set unnamed. nearestArea is
-  // the rule every other selection path uses.
-  const slug = nearestArea([body.lon, body.lat], state.areas ?? [])?.slug ?? body.slug
   // Only a real slug: a sensor outside every area still deserves the flight,
   // and adopting '' would make refresh() ask for an area page that cannot exist.
   if (slug) state.slug = slug

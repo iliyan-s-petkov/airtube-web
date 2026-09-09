@@ -1602,26 +1602,32 @@ describe('openDeepLinkedSensor', () => {
   // /locate answers with the finest area holding the sensor, which the loaded
   // tier need not list. Taking it would rank the sensor against a set a click
   // on the same sensor never uses, and one the loaded tier cannot name.
-  it('adopts the loaded tier’s area over a finer one the locate call names', async () => {
+  // The nearest area by centre is not the area a sensor stands in. Taking it
+  // would rank the sensor among neighbours it has none of — the strip loses its
+  // "this sensor, Nth of M" card, because the sensor is not in the M.
+  it('keeps the area the locate call names over a nearer centre', async () => {
     vi.stubGlobal('fetch', stubFetch())
     const state = {
       slug: null, tier: null, scales: null,
-      areas: [{ slug: 'sofia-grad', lon: 23.32, lat: 42.7 }, { slug: 'plovdiv', lon: 24.75, lat: 42.14 }],
+      // krasna-polyana's centre is the nearer one; ovcha-kupel is where the
+      // sensor stands. This is sensor 11338's real arrangement in Sofia.
+      areas: [{ slug: 'krasna-polyana', lon: 23.25, lat: 42.69 }, { slug: 'ovcha-kupel', lon: 23.2, lat: 42.65 }],
     }
     const fetchJSON = vi.fn().mockResolvedValue({ id: 11338, lon: 23.252, lat: 42.684, slug: 'ovcha-kupel' })
 
     await openDeepLinkedSensor(fakeMap(), state, cfg, chrome(), viewState(11338), fetchJSON, { move: false })
 
-    expect(state.slug).toBe('sofia-grad')
+    expect(state.slug).toBe('ovcha-kupel')
+    // The list is already loaded; nothing to fetch beyond the locate call.
     expect(fetchJSON).toHaveBeenCalledTimes(1)
   })
 
   // A reload resolves the deep link before the first refresh, so the list has
-  // to be fetched here or the sensor is ranked against a quarter the map never
-  // drew — and named by nothing.
+  // to be fetched here or the adopted slug has no name and the strip can only
+  // count the sensors around this one.
   it('loads the area list when the map has none yet', async () => {
     vi.stubGlobal('fetch', stubFetch())
-    const areas = [{ slug: 'sofia-grad', lon: 23.32, lat: 42.7 }, { slug: 'smolyan', lon: 24.7, lat: 41.58 }]
+    const areas = [{ slug: 'ovcha-kupel', lon: 23.24, lat: 42.67, name_bg: 'Овча купел' }]
     const state = { slug: null, tier: null, scales: null, areas: [] }
     const fetchJSON = vi.fn(async (url) => (
       url === '/api/v1/overview?tier=city'
@@ -1634,8 +1640,20 @@ describe('openDeepLinkedSensor', () => {
     await openDeepLinkedSensor(fakeMap(), state, cfg, chrome(), viewState(11338), fetchJSON, { paint: false })
 
     expect(fetchJSON).toHaveBeenCalledWith('/api/v1/overview?tier=city')
-    expect(state.slug).toBe('sofia-grad')
+    expect(state.slug).toBe('ovcha-kupel')
     expect(getMapAreas()).toEqual(areas)
+  })
+
+  // A sensor no area page owns still has a position, and the nearest area is
+  // the only set left to compare it against.
+  it('falls back to the nearest area when the sensor is in none', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const state = { slug: null, tier: null, scales: null, areas: [{ slug: 'vidin', lon: 22.87, lat: 43.99 }] }
+    const fetchJSON = vi.fn().mockResolvedValue({ id: 7, lon: 22.9, lat: 44, slug: '' })
+
+    await openDeepLinkedSensor(fakeMap(), state, cfg, chrome(), viewState(7), fetchJSON, { move: false })
+
+    expect(state.slug).toBe('vidin')
   })
 
   // A sensor the snapshot knows but no area page owns: the position is still
