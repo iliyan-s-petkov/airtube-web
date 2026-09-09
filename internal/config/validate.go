@@ -18,9 +18,14 @@ const maxHostLength = 253
 
 var colourPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
+// canonicalMetrics mirrors upstream.CanonicalMetrics(). It is a second copy
+// because internal/upstream imports internal/config, so importing back would be
+// a cycle; TestCanonicalMetricsMatchUpstream in the external test package
+// compares the two and fails if either drifts.
 var canonicalMetrics = map[string]bool{
 	"P1": true, "P2": true, "temperature": true, "humidity": true,
 	"pressure": true, "noise_LAeq": true, "noise_LA_max": true,
+	"SO2": true, "O3": true, "NO2": true, "NOX": true, "CO": true, "C6H6": true,
 }
 
 // problems accumulates every violation so an operator sees the whole list in one

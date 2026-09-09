@@ -445,6 +445,12 @@ func resolve(r *raw) Config {
 				"pressure":     resolveRange(r.Quality.Ranges.Pressure),
 				"noise_LAeq":   resolveRange(r.Quality.Ranges.NoiseLAeq),
 				"noise_LA_max": resolveRange(r.Quality.Ranges.NoiseLAMax),
+				"SO2":          resolveRange(r.Quality.Ranges.SO2),
+				"O3":           resolveRange(r.Quality.Ranges.O3),
+				"NO2":          resolveRange(r.Quality.Ranges.NO2),
+				"NOX":          resolveRange(r.Quality.Ranges.NOX),
+				"CO":           resolveRange(r.Quality.Ranges.CO),
+				"C6H6":         resolveRange(r.Quality.Ranges.C6H6),
 			},
 			ClampSentinels: map[string]float64{
 				"P1": *r.Quality.ClampSentinels.P1,

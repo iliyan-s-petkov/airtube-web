@@ -211,6 +211,16 @@ type rawRanges struct {
 	Pressure    *rawRange `yaml:"pressure"`
 	NoiseLAeq   *rawRange `yaml:"noise_LAeq"`
 	NoiseLAMax  *rawRange `yaml:"noise_LA_max"`
+	// The six gases come only from the EEA official layer. They are fields
+	// rather than map entries for the same reason the rest are: the metric set
+	// is a code fact (upstream.CanonicalMetrics), so a metric typed here that
+	// does not exist must be a strict-decode error.
+	SO2  *rawRange `yaml:"SO2"`
+	O3   *rawRange `yaml:"O3"`
+	NO2  *rawRange `yaml:"NO2"`
+	NOX  *rawRange `yaml:"NOX"`
+	CO   *rawRange `yaml:"CO"`
+	C6H6 *rawRange `yaml:"C6H6"`
 }
 
 type rawRange struct {

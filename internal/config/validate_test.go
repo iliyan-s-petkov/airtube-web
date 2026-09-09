@@ -45,6 +45,11 @@ func TestValidateRejects(t *testing.T) {
 		{"unknown default metric", func(c *Config) { c.Series.DefaultMetric = "PM9" }, "not a canonical metric"},
 		{"default window matches no period", func(c *Config) { c.Series.DefaultWindow = 3 * time.Hour }, "matches no entry"},
 		{"missing metric range", func(c *Config) { delete(c.Quality.Ranges, "pressure") }, "no entry for \"pressure\""},
+		// The gas half of the same rule. While canonicalMetrics listed only
+		// seven the loop never asked for these, and an unranged metric makes
+		// quality.Scorer.InRange reject every reading of it.
+		{"missing gas range", func(c *Config) { delete(c.Quality.Ranges, "NO2") }, "no entry for \"NO2\""},
+		{"missing O3 range", func(c *Config) { delete(c.Quality.Ranges, "O3") }, "no entry for \"O3\""},
 		{"inverted range", func(c *Config) { c.Quality.Ranges["pressure"] = Range{Min: 1100, Max: 650} }, "must exceed min"},
 		{"rejection fraction above one", func(c *Config) { c.Backfill.HighRejectionFraction = 1.5 }, "high_rejection_fraction"},
 		{"bad colour", func(c *Config) { c.Frontend.NoDataColour = "grey" }, "hex colour"},
@@ -154,6 +159,21 @@ func TestValidateRejectsEmptyUnscaledColour(t *testing.T) {
 	err := c.Validate()
 	if err == nil || !strings.Contains(err.Error(), "frontend.unscaled_colour") {
 		t.Fatalf("Validate() = %v, want an error naming frontend.unscaled_colour", err)
+	}
+}
+
+// Every canonical metric must be settable as series.default_metric. NO2 stands
+// for the six EEA gases, which validate.go rejected as "not a canonical
+// metric" while canonicalMetrics held only the seven community ones.
+func TestValidateAcceptsAGasAsTheDefaultMetric(t *testing.T) {
+	for _, metric := range []string{"NO2", "SO2", "O3", "NOX", "CO", "C6H6"} {
+		t.Run(metric, func(t *testing.T) {
+			cfg := good(t)
+			cfg.Series.DefaultMetric = metric
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() error = %v, want series.default_metric = %q accepted", err, metric)
+			}
+		})
 	}
 }
 
