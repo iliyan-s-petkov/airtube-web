@@ -230,3 +230,59 @@ func TestWriteStationReadingsUpsertsOnRerun(t *testing.T) {
 		t.Errorf("value = %v, want 33", v)
 	}
 }
+
+// Task 7 added Source and the four Station* fields to SensorReading and wrote
+// them for an EEA station, but nothing asserted they come back POPULATED on a
+// read — only that dropping the COALESCE broke an unrelated NULL scan. This is
+// that missing round trip: write an EEA station and a reading through the
+// store, then read it back via LatestSensors, the same path build.go's
+// sensorPayloadFrom consumes.
+func TestLatestSensorsCarriesEEASourceAndStationFields(t *testing.T) {
+	ctx, _, s := newStore(t)
+
+	ids, err := s.UpsertStations(ctx, []store.StationUpsert{{
+		SourceRef: "BG/SPO-BG0070A_06001_100",
+		Code:      "BG0070A", Name: "Пловдив Каменица",
+		Type: "background", Area: "urban",
+		Lon: 24.75, Lat: 42.14, LastSeen: time.Now().UTC(),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := ids["BG/SPO-BG0070A_06001_100"]
+
+	if _, err := s.WriteStationReadings(ctx, []store.StationReading{
+		{SensorID: id, Metric: "P1", Value: 31.5, Timestamp: time.Now().UTC(), Quality: "ok"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	sensors, err := s.LatestSensors(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *store.SensorReading
+	for i := range sensors {
+		if sensors[i].SensorID == id {
+			got = &sensors[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("LatestSensors did not return sensor %d", id)
+	}
+	if got.Source != "eea" {
+		t.Errorf("Source = %q, want eea", got.Source)
+	}
+	if got.StationCode != "BG0070A" {
+		t.Errorf("StationCode = %q, want BG0070A", got.StationCode)
+	}
+	if got.StationName != "Пловдив Каменица" {
+		t.Errorf("StationName = %q, want Пловдив Каменица", got.StationName)
+	}
+	if got.StationType != "background" {
+		t.Errorf("StationType = %q, want background", got.StationType)
+	}
+	if got.StationArea != "urban" {
+		t.Errorf("StationArea = %q, want urban", got.StationArea)
+	}
+}

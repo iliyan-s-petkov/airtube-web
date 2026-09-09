@@ -102,6 +102,42 @@ func TestSensorPayloadCarriesTheMeasuresColumn(t *testing.T) {
 	}
 }
 
+// Placed here rather than build_test.go (brief's suggested file): that file is
+// package snapshot_test and cannot see the unexported sensorPayloadFrom, while
+// this file already is package snapshot and already calls it.
+func TestSensorPayloadCarriesTheSource(t *testing.T) {
+	body := sensorPayloadFrom(time.Now().UTC(), []store.SensorReading{
+		{SensorID: 1, SensorType: "SDS011", Lon: 23.3, Lat: 42.7, Quality: "ok",
+			Source: "sensor.community", Values: map[string]float64{"P1": 20}},
+		{SensorID: 9_000_000_001, SensorType: "eea_reference", Lon: 24.75, Lat: 42.14, Quality: "ok",
+			Source: "eea", StationCode: "BG0070A", StationName: "Пловдив Каменица",
+			StationType: "background", StationArea: "urban",
+			Values: map[string]float64{"P1": 31.5}},
+	})
+
+	raw, err := json.Marshal(body.Sensors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, col := range []string{"source", "station_code", "station_name", "station_type", "station_area"} {
+		if _, ok := got[col]; !ok {
+			t.Errorf("the payload has no %q column", col)
+		}
+	}
+
+	var sources []string
+	if err := json.Unmarshal(got["source"], &sources); err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 2 || sources[0] != "sensor.community" || sources[1] != "eea" {
+		t.Errorf("source column = %v, want [sensor.community eea]", sources)
+	}
+}
+
 func equal(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

@@ -28,6 +28,7 @@
 //   first_seen / last_seen
 //            - the device's lifetime as our ingest saw it, metadata about the
 //              readings rather than one of them
+//   source   - which network the row came from, "sensor.community" or "eea"
 //
 // Every other key in the columnar body is a canonical metric column
 // (upstream.CanonicalMetrics, internal/snapshot/build.go). Deriving the metric
@@ -36,6 +37,7 @@
 // frontend change.
 export const META_COLUMNS = new Set([
   'id', 'type', 'lon', 'lat', 'quality', 'station', 'measures', 'first_seen', 'last_seen',
+  'source', 'station_code', 'station_name', 'station_type', 'station_area',
 ])
 
 // metricColumnsOf is every metric the response carries a column for, in the
