@@ -425,7 +425,7 @@ export function mount(el) {
 
     // One toggle per network, both on by default (no defaultOff).
     // setSourceViewAvailability disables the one that has no data for the
-    // selected metric.
+    // selected metric, and both of them away from the sensor tier.
     const sourceViews = [
       {
         id: 'communitySensors',
@@ -445,7 +445,7 @@ export function mount(el) {
       views: [...chrome.layerViews, ...sourceViews, windView, boundaryView],
     })
 
-    setSourceViewAvailability(chrome, cfg.metric, cfg.t)
+    setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.onSensorTier !== false)
 
     // Wired here rather than in mount(), for the reason the layers menu is: a
     // pick reloads every data layer, and there is nothing to reload until the
@@ -864,7 +864,7 @@ function onMetricChange(map, state, cfg, chrome, metric) {
   // On every call the URL is unchanged, so refreshHexes recolours the body it
   // holds rather than refetching.
   refreshHexes(map, state, cfg)
-  setSourceViewAvailability(chrome, metric, cfg.t)
+  setSourceViewAvailability(chrome, metric, cfg.t, state.onSensorTier !== false)
 }
 
 // The colour half of a metric change: which band table the markers are painted
@@ -962,6 +962,10 @@ async function refresh(map, state, cfg, chrome, force = false, { defer = false }
   // Held for the source-toggle handler, which recomputes the hint without a
   // refresh and cannot work the fallback out for itself.
   state.fellBack = effective !== tier
+  // The source toggles only govern sensor markers, so they are disabled at the
+  // aggregate tiers rather than left live and inert (see repaintSensors).
+  state.onSensorTier = effective === 'sensors'
+  setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.onSensorTier)
   chrome.showHint(mapHint(cfg.t, { fellBack: state.fellBack, sources: getSources() }))
 
   // EFFECTIVE, not tier: on an area page opened at the sensor zoom with no slug
@@ -1080,17 +1084,26 @@ export function repaintSensors(map, state, cfg) {
   paintSource(map, SOURCE_ID, features)
 }
 
-// setSourceViewAvailability disables the checkbox of a network that has no data
-// for metric and appends t.notMeasured to its label. The five gases exist only
-// at EEA stations, the weather metrics only on sensor.community devices.
-export function setSourceViewAvailability(chrome, metric, t) {
+// setSourceViewAvailability disables a network's checkbox when it cannot act,
+// and says which of the two reasons it is in the label.
+//
+// no data for metric: the five gases exist only at EEA stations, the weather
+// metrics only on sensor.community devices.
+//
+// away from the sensor tier: the filter only ever governs sensor markers, and
+// repaintSensors returns early with a null state.sensorBody, so at the country
+// and city tiers the checkbox was a live control with no effect at all.
+export function setSourceViewAvailability(chrome, metric, t, onSensorTier = true) {
   for (const [id, source] of [['communitySensors', 'sensor.community'], ['officialStations', 'eea']]) {
     const input = chrome.layersUI?.fieldset?.querySelector(`[data-layer-key="view:${id}"]`)
     if (!input) continue
     const measures = measuredBy(source, metric)
-    input.disabled = !measures
+    input.disabled = !measures || !onSensorTier
+    // Metric coverage first: it is the narrower claim, and it stays true at
+    // whatever tier the reader zooms to.
+    const reason = !measures ? t.notMeasured : (!onSensorTier ? t.sensorTierOnly : '')
     const span = input.parentElement?.querySelector('span')
-    if (span) span.textContent = measures ? t[id] : `${t[id]} — ${t.notMeasured}`
+    if (span) span.textContent = reason ? `${t[id]} — ${reason}` : t[id]
   }
 }
 
@@ -1656,6 +1669,7 @@ export function readConfig(el) {
       viewCommunitySensors: d.tViewCommunitySensors || '',
       viewOfficialStations: d.tViewOfficialStations || '',
       notMeasured: d.tNotMeasured || '',
+      sensorTierOnly: d.tSensorTierOnly || '',
       communitySensors: d.tViewCommunitySensors || '',
       officialStations: d.tViewOfficialStations || '',
       // One label per style group, keyed by the group's own name so the menu

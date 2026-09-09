@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -317,6 +317,7 @@ describe('readConfig', () => {
         tViewCommunitySensors: 'Citizen sensors',
         tViewOfficialStations: 'Official stations',
         tNotMeasured: 'does not measure this',
+        tSensorTierOnly: 'only when single sensors are shown',
         // Two of the twelve groups, deliberately: the other ten prove the
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
@@ -365,6 +366,7 @@ describe('readConfig', () => {
       viewCommunitySensors: 'Citizen sensors',
       viewOfficialStations: 'Official stations',
       notMeasured: 'does not measure this',
+      sensorTierOnly: 'only when single sensors are shown',
       // communitySensors/officialStations reuse the view labels: setSourceViewAvailability
       // keys the checkbox label lookup by view id, not by a second pair of dataset attributes.
       communitySensors: 'Citizen sensors',
@@ -720,6 +722,27 @@ describe('initData ordering', () => {
     await initData(map, { slug: null, tier: null, scales: null }, cfg, chrome)
 
     expect(rendered.at(-1)).toBe(cfg.t.noSources)
+  })
+
+  // The wiring for the tier half of setSourceViewAvailability. Zoom 7 is the
+  // country tier, where repaintSensors has no payload to repaint from.
+  it('disables the network checkboxes at the country tier', async () => {
+    vi.stubGlobal('fetch', stubFetch({ scalesOk: true }))
+    const fieldset = document.createElement('fieldset')
+    const boxes = ['communitySensors', 'officialStations'].map((id) => {
+      const label = document.createElement('label')
+      const input = document.createElement('input')
+      input.type = 'checkbox'
+      input.dataset.layerKey = `view:${id}`
+      label.append(input, document.createElement('span'))
+      fieldset.appendChild(label)
+      return input
+    })
+    const chrome = { ...hintController(() => {}), showLegend: () => {}, layersUI: { fieldset } }
+
+    await initData(fakeMap(7), { slug: null, tier: null, scales: null }, cfg, chrome)
+
+    expect(boxes.map((b) => b.disabled)).toEqual([true, true])
   })
 
   // J3 (review round 2): refresh must call tierFor with cfg.zoomCity and
@@ -3165,5 +3188,70 @@ describe('mountChrome() announces the hint banner', () => {
 
     mountChrome(el, readConfig(el))
     expect(el.querySelector('.map-hint')?.getAttribute('aria-live')).toBe('polite')
+  })
+})
+
+// At the country and city tiers repaintSensors returns early on a null
+// state.sensorBody, so the two network checkboxes were live controls that did
+// nothing at all. They get the same disabled-with-a-reason treatment the menu
+// already gives a network that does not measure the selected metric.
+describe('setSourceViewAvailability', () => {
+  const t = {
+    communitySensors: 'Citizen sensors',
+    officialStations: 'Official stations',
+    notMeasured: 'does not measure this',
+    sensorTierOnly: 'only when single sensors are shown',
+  }
+
+  function menu() {
+    const fieldset = document.createElement('fieldset')
+    const boxes = {}
+    for (const id of ['communitySensors', 'officialStations']) {
+      const label = document.createElement('label')
+      const input = document.createElement('input')
+      input.type = 'checkbox'
+      input.dataset.layerKey = `view:${id}`
+      const span = document.createElement('span')
+      label.append(input, span)
+      fieldset.appendChild(label)
+      boxes[id] = { input, span }
+    }
+    return { chrome: { layersUI: { fieldset } }, boxes }
+  }
+
+  it('leaves both live on the sensor tier for a metric both networks measure', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'P2', t, true)
+
+    expect(boxes.communitySensors.input.disabled).toBe(false)
+    expect(boxes.officialStations.input.disabled).toBe(false)
+    expect(boxes.communitySensors.span.textContent).toBe(t.communitySensors)
+  })
+
+  it('disables both away from the sensor tier, and says why', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'P2', t, false)
+
+    expect(boxes.communitySensors.input.disabled).toBe(true)
+    expect(boxes.officialStations.input.disabled).toBe(true)
+    expect(boxes.officialStations.span.textContent).toBe(`${t.officialStations} — ${t.sensorTierOnly}`)
+  })
+
+  it('still names the narrower reason when the network does not measure the metric', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'O3', t, false)
+
+    // O3 is EEA-only, so this is the one label that must not blame the tier.
+    expect(boxes.communitySensors.span.textContent).toBe(`${t.communitySensors} — ${t.notMeasured}`)
+    expect(boxes.officialStations.span.textContent).toBe(`${t.officialStations} — ${t.sensorTierOnly}`)
+  })
+
+  it('re-enables a network when the map returns to the sensor tier', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'P2', t, false)
+    setSourceViewAvailability(chrome, 'P2', t, true)
+
+    expect(boxes.officialStations.input.disabled).toBe(false)
+    expect(boxes.officialStations.span.textContent).toBe(t.officialStations)
   })
 })
