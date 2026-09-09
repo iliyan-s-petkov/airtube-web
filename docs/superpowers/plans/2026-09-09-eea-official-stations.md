@@ -33,7 +33,7 @@ Spec §5 says "Two MapLibre sources rather than one, so a layer toggle is a visi
 - **Commit messages via file**, never `-m`: backticks in a `-m` string execute.
 - **No `Co-Authored-By` trailer. Never stage `CLAUDE.md`.**
 - **Mutation testing is mandatory** for any test asserting a security or correctness invariant: break the implementation, prove the test fails, restore.
-- Shell CWD drifts — prefix every command with `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 &&`.
+- Shell CWD drifts — prefix every command with `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea &&`.
 - DB-backed Go tests need colima plus `DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"` and `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock`.
 - `npm run build` deletes `internal/web/dist/.keep` — restore with `git checkout internal/web/dist/.keep` before committing.
 - URL paths: `/en/…` works, `/bg/…` 404s (Bulgarian is served from `/`).
@@ -129,7 +129,7 @@ func TestSourceColumnsExist(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/db/ -run TestSourceColumnsExist -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/db/ -run TestSourceColumnsExist -v`
 Expected: FAIL — `sensor.source is missing`.
 
 - [ ] **Step 3: Write the migration**
@@ -363,7 +363,7 @@ with `"io"` added to the imports.
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/upstream/eea/ -run TestDecodeRows -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/upstream/eea/ -run TestDecodeRows -v`
 Expected: FAIL — the package does not compile, `undefined: eea.DecodeRows`.
 
 - [ ] **Step 4: Add the dependency**
@@ -467,7 +467,7 @@ func DecodeRows(r io.ReaderAt, size int64) ([]Row, error) {
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/upstream/eea/ -run TestDecodeRows -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/upstream/eea/ -run TestDecodeRows -v`
 Expected: PASS, both tests.
 
 - [ ] **Step 7: Mutation-check the two decoders**
@@ -586,7 +586,7 @@ func TestNormaliseValueRejectsAnUnknownUnit(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/upstream/eea/ -run 'TestMetricFor|TestNormalise|TestEveryMapped' -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/upstream/eea/ -run 'TestMetricFor|TestNormalise|TestEveryMapped' -v`
 Expected: FAIL — `undefined: eea.MetricFor`.
 
 - [ ] **Step 3: Extend the canonical metric set**
@@ -664,7 +664,7 @@ func NormaliseValue(metric string, value float64, unit string) (float64, error) 
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/upstream/... -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/upstream/... -v`
 Expected: PASS. `TestEveryMappedMetricIsCanonical` is what catches a code mapped to a metric name the rest of the system does not know.
 
 - [ ] **Step 6: Mutation-check**
@@ -790,7 +790,7 @@ func TestLookupMissesAnUnknownSamplingPoint(t *testing.T) {
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/upstream/eea/ -run 'TestParseMetadata|TestLookup' -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/upstream/eea/ -run 'TestParseMetadata|TestLookup' -v`
 Expected: FAIL — `undefined: eea.ParseMetadata`.
 
 - [ ] **Step 4: Write the implementation**
@@ -907,7 +907,7 @@ If the fixture's header names differ from `requiredColumns`, correct `requiredCo
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/upstream/eea/ -run 'TestParseMetadata|TestLookup' -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/upstream/eea/ -run 'TestParseMetadata|TestLookup' -v`
 Expected: PASS.
 
 - [ ] **Step 6: Mutation-check the country filter**
@@ -1068,7 +1068,7 @@ func TestFileURLsRejectsANonOKStatus(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/upstream/eea/ -run 'TestFileURLs|TestFetchFile' -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/upstream/eea/ -run 'TestFileURLs|TestFetchFile' -v`
 Expected: FAIL — `undefined: config.EEA`, `undefined: eea.New`.
 
 - [ ] **Step 3: Add the config type**
@@ -1240,7 +1240,7 @@ func (c *Client) FetchMetadata(ctx context.Context) (Metadata, error) {
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/upstream/eea/ -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/upstream/eea/ -v`
 Expected: PASS, all tests in the package.
 
 - [ ] **Step 6: Mutation-check the bound and the conditional**
@@ -1313,7 +1313,7 @@ func TestEEAIsValidatedWhenDisabled(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/config/ -run TestEEA -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/config/ -run TestEEA -v`
 Expected: FAIL — `Validate accepted http url` etc., because nothing validates the block.
 
 - [ ] **Step 3: Add the schema**
@@ -1453,7 +1453,7 @@ Verify the derived names against `envName` in `internal/config/load.go` before w
 
 - [ ] **Step 8: Run the whole config suite**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/config/ -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/config/ -v`
 Expected: PASS, including `TestCommittedConfigLoads` and the missing-keys test, which is what catches a `raw` field with no `airbg.yaml` key.
 
 - [ ] **Step 9: Mutation-check the poll floor**
@@ -1594,7 +1594,7 @@ func TestWriteStationReadingsUpsertsOnRerun(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/store/ -run 'TestUpsertStations|TestWriteStationReadings' -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/store/ -run 'TestUpsertStations|TestWriteStationReadings' -v`
 Expected: FAIL — `undefined: store.StationUpsert`.
 
 - [ ] **Step 3: Write the implementation**
@@ -1711,7 +1711,7 @@ Then extend `sensorsSelect` to project `s.source, s.station_code, s.station_name
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/store/ -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/store/ -v`
 Expected: PASS, whole package.
 
 - [ ] **Step 6: Mutation-check id stability**
@@ -1874,7 +1874,7 @@ Add `testsupport.StoreConfig()` if it does not exist — read `internal/testsupp
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/upstream/eea/ -run TestRunOnce -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/upstream/eea/ -run TestRunOnce -v`
 Expected: FAIL — `undefined: eea.NewCollector`.
 
 - [ ] **Step 3: Write the implementation**
@@ -2147,7 +2147,7 @@ with `<-eeaDone` added beside `<-windDone` at the end, and the import `"airbg.or
 
 - [ ] **Step 6: Run the tests**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/upstream/... ./cmd/... -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && DOCKER_HOST="unix://$HOME/.colima/default/docker.sock" TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock go test ./internal/upstream/... ./cmd/... -v`
 Expected: PASS.
 
 - [ ] **Step 7: Mutation-check the validity mapping and the skip**
@@ -2242,7 +2242,7 @@ func TestUnlegislatedGasesCiteNobody(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/api/ -run 'TestEveryCanonicalMetricHasAScale|TestGasScales|TestUnlegislatedGases' -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/api/ -run 'TestEveryCanonicalMetricHasAScale|TestGasScales|TestUnlegislatedGases' -v`
 Expected: FAIL — `metric "SO2" has no scale table` and five siblings.
 
 - [ ] **Step 3: Write the tables**
@@ -2340,7 +2340,7 @@ Append `gases` and `axisOnly` to the slice `Scales()` returns, wherever `particu
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/api/ -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/api/ -v`
 Expected: PASS. `TestEveryCanonicalMetricHasAScale` is the one that stops a future metric shipping with no table.
 
 - [ ] **Step 5: Mutation-check**
@@ -2428,8 +2428,8 @@ it('knows the source columns are not metrics', () => {
 
 Run:
 ```
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/snapshot/ -run TestSensorPayloadCarriesTheSource -v
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && npm --prefix web test -- stations
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/snapshot/ -run TestSensorPayloadCarriesTheSource -v
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && npm --prefix web test -- stations
 ```
 Expected: both FAIL.
 
@@ -2579,7 +2579,7 @@ describe('what each network measures', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && npm --prefix web test -- sourcefilter`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && npm --prefix web test -- sourcefilter`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Write the implementation**
@@ -2656,7 +2656,7 @@ export function measuredBy(source, metric) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && npm --prefix web test -- sourcefilter`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && npm --prefix web test -- sourcefilter`
 Expected: PASS.
 
 - [ ] **Step 5: Add the two view toggles**
@@ -2782,7 +2782,7 @@ Read the `cfg.t` construction in `map.js` and add `viewCommunitySensors`, `viewO
 
 - [ ] **Step 8: Run the full frontend suite**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && npm --prefix web test && go test ./internal/web/ ./internal/i18n/ -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && npm --prefix web test && go test ./internal/web/ ./internal/i18n/ -v`
 Expected: PASS. `internal/web`'s `template_keys_test.go` is what catches a `data-t-*` attribute with no catalogue entry, and `internal/i18n` is what catches en/bg drift.
 
 - [ ] **Step 9: Mutation-check**
@@ -2851,7 +2851,7 @@ Match `sensorPanelProps` to the existing helper in that file; if there is none, 
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && npm --prefix web test -- SensorPanel`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && npm --prefix web test -- SensorPanel`
 Expected: FAIL.
 
 - [ ] **Step 3: Write the implementation**
@@ -2877,7 +2877,7 @@ Add `panel.station_code`, `panel.station_type`, `panel.station_area` and `panel.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && npm --prefix web test && go test ./internal/web/ ./internal/i18n/`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && npm --prefix web test && go test ./internal/web/ ./internal/i18n/`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -2965,7 +2965,7 @@ Match `renderIndex` to whatever helper that file already uses.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./internal/api/ ./internal/web/ -run 'TestAttributions|TestEveryIngestedSource|TestFooterCredits' -v`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./internal/api/ ./internal/web/ -run 'TestAttributions|TestEveryIngestedSource|TestFooterCredits' -v`
 Expected: FAIL — `undefined: api.Attributions`.
 
 - [ ] **Step 3: Write the implementation**
@@ -3034,7 +3034,7 @@ In `base.gohtml`, replace the two footer paragraphs:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && go test ./... 2>&1 | tail -30`
+Run: `cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && go test ./... 2>&1 | tail -30`
 Expected: PASS across the tree. This is the run that catches every remaining `DataAttribution` reference.
 
 - [ ] **Step 6: Mutation-check**
@@ -3172,14 +3172,14 @@ Expected: no failures. Report the output verbatim if there are any.
 - [ ] **Step 2: Confirm a clean tree**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && git status --porcelain
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && git status --porcelain
 ```
 Expected: empty. `deploy` asserts a clean tree, and `internal/web/dist/.keep` is the file that is usually missing.
 
 - [ ] **Step 3: Deploy**
 
 ```bash
-cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0 && ./tools/deploy-airbg.sh
+cd /Users/iliyan/Work/DojoBits/infra/github/airtube-web2.0-eea && ./tools/deploy-airbg.sh
 ```
 Run backgrounded — it takes over two minutes.
 
