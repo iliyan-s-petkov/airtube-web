@@ -14,6 +14,7 @@ import { mountPlayer } from '../../lib/timelapse.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
 import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
+import { getMapAreas, setMapAreas } from '../../lib/mapareas.svelte.js'
 
 // mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
 // out of reach under jsdom (see the "no jsdom" rule respected everywhere else
@@ -1513,8 +1514,8 @@ describe('the opening render', () => {
 // to find the sensor themselves. openDeepLinkedSensor is what turns that URL
 // into the view it promises.
 describe('openDeepLinkedSensor', () => {
-  beforeEach(() => { clearCache(); resetViewStateForTests(); setSensors(null) })
-  afterEach(() => { resetViewStateForTests(); setSensors(null) })
+  beforeEach(() => { clearCache(); resetViewStateForTests(); setSensors(null); setMapAreas(null) })
+  afterEach(() => { resetViewStateForTests(); setSensors(null); setMapAreas(null) })
 
   function fakeMap() {
     return {
@@ -1612,6 +1613,29 @@ describe('openDeepLinkedSensor', () => {
     await openDeepLinkedSensor(fakeMap(), state, cfg, chrome(), viewState(11338), fetchJSON, { move: false })
 
     expect(state.slug).toBe('sofia-grad')
+    expect(fetchJSON).toHaveBeenCalledTimes(1)
+  })
+
+  // A reload resolves the deep link before the first refresh, so the list has
+  // to be fetched here or the sensor is ranked against a quarter the map never
+  // drew — and named by nothing.
+  it('loads the area list when the map has none yet', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const areas = [{ slug: 'sofia-grad', lon: 23.32, lat: 42.7 }, { slug: 'smolyan', lon: 24.7, lat: 41.58 }]
+    const state = { slug: null, tier: null, scales: null, areas: [] }
+    const fetchJSON = vi.fn(async (url) => (
+      url === '/api/v1/overview?tier=city'
+        ? { areas }
+        : { id: 11338, lon: 23.252, lat: 42.684, slug: 'ovcha-kupel' }
+    ))
+
+    // paint: false, as the reload path calls it — the caller paints once after
+    // the camera settles, and that pass would overwrite the list published here.
+    await openDeepLinkedSensor(fakeMap(), state, cfg, chrome(), viewState(11338), fetchJSON, { paint: false })
+
+    expect(fetchJSON).toHaveBeenCalledWith('/api/v1/overview?tier=city')
+    expect(state.slug).toBe('sofia-grad')
+    expect(getMapAreas()).toEqual(areas)
   })
 
   // A sensor the snapshot knows but no area page owns: the position is still

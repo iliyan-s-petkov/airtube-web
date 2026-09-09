@@ -1228,11 +1228,24 @@ export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSO
   if (typeof body?.lon !== 'number' || typeof body?.lat !== 'number') return false
 
   if (move) map.jumpTo({ center: [body.lon, body.lat], zoom: DEEP_LINK_ZOOM })
+
+  // On a reload this runs before the first refresh, so the map holds no area
+  // list yet and there would be nothing to resolve against. Fetched here, and
+  // published: the readout strip names the area from this list, and without it
+  // the figures beside the sensor are an unnamed count.
+  if (!state.areas || state.areas.length === 0) {
+    const overview = await fetchJSON(urlFor('city')).catch(() => null)
+    if (overview?.areas?.length) {
+      state.areas = overview.areas
+      setMapAreas(state.areas)
+    }
+  }
+
   // The area list first, the locate slug only as the fallback. /locate answers
-  // with the finest area holding the sensor, which can be a quarter the map's
-  // current tier does not list — adopting it would rank the sensor against a
-  // different set than a click on the same sensor does, and leave that set
-  // unnamed. nearestArea is the rule every other selection path uses.
+  // with the finest area holding the sensor, which can be a quarter no tier
+  // lists — adopting it would rank the sensor against a different set than a
+  // click on the same sensor does, and leave that set unnamed. nearestArea is
+  // the rule every other selection path uses.
   const slug = nearestArea([body.lon, body.lat], state.areas ?? [])?.slug ?? body.slug
   // Only a real slug: a sensor outside every area still deserves the flight,
   // and adopting '' would make refresh() ask for an area page that cannot exist.
