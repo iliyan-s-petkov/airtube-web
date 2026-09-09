@@ -141,10 +141,16 @@ func TestEveryScaleForOneMetricAgreesOnItsUnit(t *testing.T) {
 	}
 }
 
+// Every stated edge, not just the first: a shifted interior edge would
+// misclassify a reading as silently as a shifted first one.
 func TestGasScalesCiteTheEAQI(t *testing.T) {
-	want := map[string]float64{"NO2": 40, "O3": 50, "SO2": 100}
+	want := map[string][5]float64{
+		"NO2": {40, 90, 120, 230, 340},
+		"O3":  {50, 100, 130, 240, 380},
+		"SO2": {100, 200, 350, 500, 750},
+	}
 	for _, s := range api.Scales() {
-		edge, ok := want[s.Metric]
+		edges, ok := want[s.Metric]
 		if !ok || s.Name != "eaqi" {
 			continue
 		}
@@ -154,8 +160,17 @@ func TestGasScalesCiteTheEAQI(t *testing.T) {
 		if s.Unit != "µg/m³" {
 			t.Errorf("%s eaqi is in %q, want µg/m³", s.Metric, s.Unit)
 		}
-		if s.Bands[0].Upper == nil || *s.Bands[0].Upper != edge {
-			t.Errorf("%s first band edge is not %v", s.Metric, edge)
+		if len(s.Bands) != 6 {
+			t.Errorf("%s eaqi has %d bands, want 6", s.Metric, len(s.Bands))
+			continue
+		}
+		for i, edge := range edges {
+			if s.Bands[i].Upper == nil || *s.Bands[i].Upper != edge {
+				t.Errorf("%s band %d edge is not %v", s.Metric, i, edge)
+			}
+		}
+		if s.Bands[5].Upper != nil {
+			t.Errorf("%s top band is not open", s.Metric)
 		}
 		delete(want, s.Metric)
 	}
