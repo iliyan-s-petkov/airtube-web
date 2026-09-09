@@ -178,6 +178,10 @@ strong, b { font-weight: var(--weight-emphasis); }
   font-size: var(--text-caption); letter-spacing: var(--track-caption);
   color: var(--meta); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
+/* Muted until hovered: it sits at the end of the row and must not compete with
+   the play button for the first glance. */
+.map-play__exit { color: var(--meta); }
+.map-play__exit:hover { color: var(--fg); }
 
 /* The no-data swatch carries a server-defined colour as an SVG fill attribute,
    so it needs a size here and nothing else — see renderLegend on why a styled

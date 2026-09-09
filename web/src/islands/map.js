@@ -1124,7 +1124,12 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
 
   const load = async () => {
     const url = timelapseURL(cfg.metric, state.window)
-    if (url === loaded && body) return true
+    // show() again on the held body: leaving the animation hides the scrubber,
+    // and this is the path that brings it back without a second fetch.
+    if (url === loaded && body) {
+      ui.show(head.count)
+      return head.count > 0
+    }
     try {
       body = await fetchJSON(url)
     } catch (err) {
@@ -1161,6 +1166,15 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
       ui.playing(false)
     }
     if (head.count > 0) paint(seek(head, i))
+  })
+
+  // The way out. A scrub pauses on a past hour without restoring anything, and
+  // pressing play from there replays rather than returning, so this is the only
+  // control that puts the live grid back. It collapses the scrubber too: the
+  // held body stays, so the next press of play repaints without a refetch.
+  ui.onexit(async () => {
+    ui.show(0)
+    await stop()
   })
 
   // A different window or metric is a different animation; what is held is stale.
@@ -1574,6 +1588,7 @@ export function readConfig(el) {
       playLabel: d.tPlayLabel || '',
       pauseLabel: d.tPauseLabel || '',
       timeLabel: d.tTimeLabel || '',
+      exitLabel: d.tExitLabel || '',
       layersButton: d.tLayersButton || '',
       layersCaption: d.tLayersCaption || '',
       viewLegend: d.tViewLegend || '',
@@ -2002,6 +2017,7 @@ export function mountChrome(el, cfg) {
     label: cfg.t.timeLabel,
     playLabel: cfg.t.playLabel,
     pauseLabel: cfg.t.pauseLabel,
+    exitLabel: cfg.t.exitLabel,
     host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
   })
 

@@ -104,7 +104,7 @@ describe('the playhead', () => {
 })
 
 describe('mountPlayer', () => {
-  const labels = { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause' }
+  const labels = { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now' }
 
   function mount() {
     const frame = document.createElement('div')
@@ -157,20 +157,60 @@ describe('mountPlayer', () => {
     expect(ui.slider.hidden).toBe(true)
   })
 
-  it('reports a press and a scrub', () => {
+  // The exit is the way out of the animation, so it appears and disappears with
+  // the scrubber it cancels: offering it over a map that is not animating would
+  // be a button with nothing to leave.
+  it('shows the exit with the scrubber and hides it again', () => {
+    const { ui } = mount()
+    expect(ui.exit.hidden).toBe(true)
+
+    ui.show(24)
+    expect(ui.exit.hidden).toBe(false)
+
+    ui.show(0)
+    expect(ui.exit.hidden).toBe(true)
+  })
+
+  // Icon-only like the play button beside it, and named for what it does rather
+  // than for the state it leaves.
+  it('names the exit without a word in it', () => {
+    const { ui } = mount()
+    expect(ui.exit.textContent.trim()).toBe('')
+    expect(ui.exit.getAttribute('aria-label')).toBe('Now')
+    expect(ui.exit.getAttribute('title')).toBe('Now')
+    expect(ui.exit.querySelector('svg').getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('reports a press, a scrub and an exit', () => {
     const { ui } = mount()
     const pressed = []
     const scrubbed = []
+    const exited = []
     ui.ontoggle(() => pressed.push(true))
     ui.onscrub((i) => scrubbed.push(i))
+    ui.onexit(() => exited.push(true))
 
     ui.button.click()
     ui.show(10)
     ui.slider.value = '4'
     ui.slider.dispatchEvent(new Event('input'))
+    ui.exit.click()
 
     expect(pressed).toHaveLength(1)
     expect(scrubbed).toEqual([4])
+    expect(exited).toHaveLength(1)
+  })
+
+  // The exit must not also fire the play toggle: one press would then stop the
+  // animation and immediately start it again.
+  it('does not report an exit as a press', () => {
+    const { ui } = mount()
+    const pressed = []
+    ui.ontoggle(() => pressed.push(true))
+    ui.show(10)
+
+    ui.exit.click()
+    expect(pressed).toEqual([])
   })
 
   it('puts the playhead and its time on screen', () => {
@@ -190,7 +230,7 @@ describe('mountPlayer', () => {
   // dropped by the browser and the control would land wherever the flow put it.
   it('writes no inline style', () => {
     const { ui } = mount()
-    for (const el of [ui.root, ui.button, ui.slider, ui.clock]) {
+    for (const el of [ui.root, ui.button, ui.slider, ui.clock, ui.exit]) {
       expect(el.getAttribute('style')).toBeNull()
     }
   })

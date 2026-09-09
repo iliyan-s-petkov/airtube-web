@@ -68,10 +68,10 @@ export function seek(c, i) {
   return c.i
 }
 
-// The play control, unwired: the caller says what play, pause and scrub do,
-// because all three need the map. The scrubber stays hidden until there is
+// The play control, unwired: the caller says what play, pause, scrub and exit
+// do, because all four need the map. The scrubber stays hidden until there is
 // something to scrub.
-export function mountPlayer(frame, { label, playLabel, pauseLabel, host = frame }, doc = document) {
+export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, host = frame }, doc = document) {
   const root = doc.createElement('div')
   root.className = 'map-play'
 
@@ -107,6 +107,27 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, host = frame 
   clock.className = 'map-play__clock'
   clock.hidden = true
 
+  // Its own button rather than a second meaning for the play button: pressing
+  // play from a scrubbed frame replays, so without this there is no control that
+  // returns the map to the live readings.
+  const exit = doc.createElement('button')
+  exit.type = 'button'
+  exit.className = 'btn map-play__btn map-play__exit'
+  exit.setAttribute('aria-label', exitLabel)
+  exit.setAttribute('title', exitLabel)
+  exit.hidden = true
+  const exitGlyph = doc.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  exitGlyph.setAttribute('viewBox', '0 0 16 16')
+  exitGlyph.setAttribute('width', '14')
+  exitGlyph.setAttribute('height', '14')
+  exitGlyph.setAttribute('aria-hidden', 'true')
+  exitGlyph.setAttribute('focusable', 'false')
+  const exitPath = doc.createElementNS('http://www.w3.org/2000/svg', 'path')
+  exitPath.setAttribute('fill', 'currentColor')
+  exitPath.setAttribute('d', 'M4.4 3.5 8 7.1l3.6-3.6 1 1L9 8.1l3.6 3.6-1 1L8 9.1l-3.6 3.6-1-1L7 8.1 3.4 4.5z')
+  exit.appendChild(exitGlyph)
+  exitGlyph.appendChild(exitPath)
+
   const PLAY = 'M5 3.5v9l7-4.5z'
   const PAUSE = 'M4.5 3.5h3v9h-3zM8.5 3.5h3v9h-3z'
   path.setAttribute('d', PLAY)
@@ -121,26 +142,32 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, host = frame 
 
   const toggles = []
   const scrubs = []
+  const exits = []
   button.addEventListener('click', () => {
     for (const fn of toggles) fn()
   })
   slider.addEventListener('input', () => {
     for (const fn of scrubs) fn(Number(slider.value))
   })
+  exit.addEventListener('click', () => {
+    for (const fn of exits) fn()
+  })
 
   root.appendChild(button)
   root.appendChild(slider)
   root.appendChild(clock)
+  root.appendChild(exit)
   host.appendChild(root)
 
   return {
-    root, button, slider, clock,
+    root, button, slider, clock, exit,
     playing,
-    // Together: half the pair on screen alone reads as a bug.
+    // All three together: any one of them on screen alone reads as a bug.
     show: (count) => {
       slider.max = String(Math.max(0, count - 1))
       slider.hidden = count <= 0
       clock.hidden = count <= 0
+      exit.hidden = count <= 0
     },
     at: (i, text) => {
       slider.value = String(i)
@@ -148,5 +175,6 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, host = frame 
     },
     ontoggle: (fn) => toggles.push(fn),
     onscrub: (fn) => scrubs.push(fn),
+    onexit: (fn) => exits.push(fn),
   }
 }
