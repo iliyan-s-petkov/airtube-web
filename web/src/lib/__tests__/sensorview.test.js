@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { panelRows, detailRows } from '../sensorview.js'
+import { panelRows, detailRows, stationMeta, networkText } from '../sensorview.js'
 
 const options = [
   { metric: 'P2', label: 'PM2.5' },
@@ -100,5 +100,51 @@ describe('detailRows', () => {
 
   it('returns nothing for a sensor it was handed nothing about', () => {
     expect(detailRows(null, LABELS, 'en-GB')).toEqual([])
+  })
+})
+
+const STATION_LABELS = { code: 'EoI code', type: 'Station type', area: 'Area type' }
+
+describe('stationMeta', () => {
+  it('lists the EoI code, type and area for an official station', () => {
+    const rows = stationMeta(
+      { source: 'eea', stationCode: 'BG0070A', stationType: 'background', stationArea: 'urban' },
+      STATION_LABELS,
+    )
+    expect(rows).toEqual([
+      { key: 'code', label: 'EoI code', value: 'BG0070A' },
+      { key: 'type', label: 'Station type', value: 'background' },
+      { key: 'area', label: 'Area type', value: 'urban' },
+    ])
+  })
+
+  // Guards on `source`, not merely on the fields being empty: a citizen
+  // device response carries no station_* columns in practice, but a
+  // fixture with them still set must not leak an EEA classification block.
+  it('returns nothing for a citizen device even if station fields are set', () => {
+    expect(stationMeta(
+      { source: 'sensor.community', stationCode: 'X', stationType: 'background', stationArea: 'urban' },
+      STATION_LABELS,
+    )).toEqual([])
+  })
+
+  it('omits a classification field the station does not carry', () => {
+    const rows = stationMeta({ source: 'eea', stationCode: 'BG0070A' }, STATION_LABELS)
+    expect(rows.map((r) => r.key)).toEqual(['code'])
+  })
+})
+
+describe('networkText', () => {
+  it('names the network the reading came from', () => {
+    expect(networkText({ source: 'eea' }, 'Network')).toBe('Network: eea')
+    expect(networkText({ source: 'sensor.community' }, 'Network')).toBe('Network: sensor.community')
+  })
+
+  it('falls back to sensor.community when the source column is empty', () => {
+    expect(networkText({ source: '' }, 'Network')).toBe('Network: sensor.community')
+  })
+
+  it('returns nothing for no sensor', () => {
+    expect(networkText(null, 'Network')).toBe('')
   })
 })

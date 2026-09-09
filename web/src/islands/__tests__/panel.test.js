@@ -76,6 +76,10 @@ const PANEL_ATTR_FIXTURES = {
   tDetailSince: 'In our data since',
   tDetailUpdated: 'Last reading',
   tDetailCoords: 'Coordinates',
+  tNetwork: 'Network',
+  tStationCode: 'EoI code',
+  tStationType: 'Station type',
+  tStationArea: 'Area type',
 }
 
 // islandFrom returns the REAL server template's island container as a live DOM
@@ -124,6 +128,13 @@ describe('normaliseSensor', () => {
       // One device standing alone is a station of one, and every reading at
       // that station came from it.
       sources: { P1: 42, P2: 42 },
+      // No source/station_* columns in this body: the identity fields
+      // default to empty (task 12's addition, tested on its own below).
+      source: '',
+      stationCode: '',
+      stationName: '',
+      stationType: '',
+      stationArea: '',
       // The station's description, for the panel's detail list. A body with no
       // coordinate or lifetime columns says null rather than inventing one.
       lon: null,
@@ -192,6 +203,34 @@ describe('normaliseSensor', () => {
   it('returns null for an id the body does not carry', () => {
     const body = { sensors: { id: [42] } }
     expect(normaliseSensor(body, 999)).toBeNull()
+  })
+
+  // Task 10's wire columns, projected onto the station like lon/lat: taken
+  // from the first member, since a station's identity does not vary by device.
+  it('carries the station identity columns for an official station', () => {
+    const body = {
+      sensors: {
+        id: [9000000001], quality: ['ok'], P1: [12],
+        source: ['eea'], station_code: ['BG0070A'],
+        station_name: ['Пловдив Каменица'], station_type: ['background'], station_area: ['urban'],
+      },
+    }
+    const got = normaliseSensor(body, 9000000001)
+    expect(got.source).toBe('eea')
+    expect(got.stationCode).toBe('BG0070A')
+    expect(got.stationName).toBe('Пловдив Каменица')
+    expect(got.stationType).toBe('background')
+    expect(got.stationArea).toBe('urban')
+  })
+
+  // A citizen device's response predates task 10 in some fixtures and carries
+  // no station_* columns at all — must not throw, and must project to ''.
+  it('defaults the station identity columns to empty for a citizen device', () => {
+    const body = { sensors: { id: [1], quality: ['ok'], source: ['sensor.community'], P2: [12] } }
+    const got = normaliseSensor(body, 1)
+    expect(got.source).toBe('sensor.community')
+    expect(got.stationCode).toBe('')
+    expect(got.stationName).toBe('')
   })
 })
 
@@ -478,6 +517,40 @@ describe('mount() puts the panel copy on screen', () => {
     })
     expect(el.textContent).toContain('PM10')
     expect(el.querySelector('dl').textContent).toContain(PANEL_ATTR_FIXTURES.tNoValue)
+    el.remove()
+  })
+
+  // Task 12: the heading names an official station rather than repeating the
+  // synthetic 9e9 id, and shows its EEA classification.
+  it('names an official station and shows its EEA classification', async () => {
+    const el = mountPanel(9000000001)
+    setSensors({
+      sensors: {
+        id: [9000000001], quality: ['ok'], P1: [12],
+        source: ['eea'], station_code: ['BG0070A'],
+        station_name: ['Пловдив Каменица'], station_type: ['background'], station_area: ['urban'],
+      },
+    })
+
+    await vi.waitFor(() => {
+      expect(el.querySelector('.sensor-panel')).not.toBeNull()
+    })
+    expect(el.querySelector('#sensor-panel-title').textContent).toBe('Пловдив Каменица')
+    expect(el.textContent).toContain('BG0070A')
+    expect(el.textContent).toContain('background')
+    el.remove()
+  })
+
+  // Every sensor, official or citizen, says which network it came from.
+  it('says which network a citizen device s reading came from', async () => {
+    const el = mountPanel(104)
+    setSensors({ sensors: { id: [104], quality: ['ok'], source: ['sensor.community'], P2: [30] } })
+
+    await vi.waitFor(() => {
+      expect(el.querySelector('.sensor-panel')).not.toBeNull()
+    })
+    expect(el.querySelector('.panel-network').textContent).toBe('Network: sensor.community')
+    expect(el.querySelector('.panel-meta')).toBeNull()
     el.remove()
   })
 })

@@ -19,9 +19,17 @@
   // `details` (added with the panel's chart controls) describes the station
   // rather than its readings — hardware, lifetime, coordinates. Defaults to
   // empty so a caller that has nothing to say renders no second list.
+  // `meta` (task 12) is the station's EEA classification (EoI code, type,
+  // area) — precomposed rows like `details`, but shown directly under the
+  // heading rather than behind a disclosure: unlike the hardware inventory,
+  // this is what the station IS, not a fact a reader has to open a drawer
+  // for. `network` is a single precomposed sentence, the same idiom as
+  // `flagText`. Both default empty so every sensor without them (every
+  // citizen device today) renders neither block.
   let {
     rows, title, flagText, closeLabel, noValue, onclose,
     details = [], detailsLabel = '', chart = null, open = true,
+    meta = [], network = '',
   } = $props()
 </script>
 
@@ -55,6 +63,17 @@
   </header>
 
   {#if flagText}<p class="panel-flag">{flagText}</p>{/if}
+
+  {#if meta.length}
+    <dl class="panel-meta">
+      {#each meta as row (row.key)}
+        <dt>{row.label}</dt>
+        <dd>{row.value}</dd>
+      {/each}
+    </dl>
+  {/if}
+
+  {#if network}<p class="panel-network">{network}</p>{/if}
 
   <dl>
     {#each rows as row (row.metric)}

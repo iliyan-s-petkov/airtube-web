@@ -74,6 +74,27 @@ export function detailRows(sensor, labels, locale) {
   return rows
 }
 
+// stationMeta lists an official station's EEA classification: EoI code,
+// station type (background/traffic/industrial) and area type (urban/
+// suburban/rural). Empty for a citizen device — 'eea' is the only source
+// that carries these columns (internal/snapshot/build.go's sensorPayload).
+export function stationMeta(sensor, labels) {
+  if (sensor?.source !== 'eea') return []
+  const rows = []
+  if (sensor.stationCode) rows.push({ key: 'code', label: labels.code, value: sensor.stationCode })
+  if (sensor.stationType) rows.push({ key: 'type', label: labels.type, value: sensor.stationType })
+  if (sensor.stationArea) rows.push({ key: 'area', label: labels.area, value: sensor.stationArea })
+  return rows
+}
+
+// networkText names which network published the reading, for every sensor
+// — not only official stations. Falls back to 'sensor.community' for a
+// sensor projected before the source column existed on the wire.
+export function networkText(sensor, label) {
+  if (!sensor) return ''
+  return `${label}: ${sensor.source || 'sensor.community'}`
+}
+
 function stamps(list) {
   return list.map((s) => (s ? Date.parse(s) : NaN)).filter((n) => Number.isFinite(n))
 }

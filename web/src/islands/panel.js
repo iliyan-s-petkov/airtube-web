@@ -15,7 +15,7 @@
 import { mount as mountComponent, unmount, createRawSnippet } from 'svelte'
 import SensorPanel from '../components/SensorPanel.svelte'
 import SensorChart from '../components/SensorChart.svelte'
-import { panelRows, detailRows } from '../lib/sensorview.js'
+import { panelRows, detailRows, stationMeta, networkText } from '../lib/sensorview.js'
 import { parseMetricList, zipLabels } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { findSensor, getScales, normaliseSensor } from '../lib/sensors.svelte.js'
@@ -79,6 +79,11 @@ export function mount(el) {
     updated: d.tDetailUpdated || '',
     coords: d.tDetailCoords || '',
   }
+  const stationLabels = {
+    code: d.tStationCode || '',
+    type: d.tStationType || '',
+    area: d.tStationArea || '',
+  }
   // The page's own language, so dates read the way the rest of the page does.
   // document.documentElement.lang is what the server rendered; undefined (the
   // browser's own locale) only if the attribute is missing.
@@ -94,10 +99,13 @@ export function mount(el) {
       },
       // Composed from the (non-templated) i18n label plus the sensor id —
       // see SensorPanel.svelte's own comment on why `sensor` itself is not
-      // one of its props.
+      // one of its props. An official station names itself (station_name);
+      // the synthetic 9e9 sensor id it would otherwise fall back to is not
+      // a useful label for a reader.
       get title() {
         const sensor = findSensor(vs.sensorId)
-        return sensor ? `${d.tTitle || ''} ${sensor.id}` : ''
+        if (!sensor) return ''
+        return sensor.stationName || `${d.tTitle || ''} ${sensor.id}`
       },
       get flagText() {
         const sensor = findSensor(vs.sensorId)
@@ -109,6 +117,14 @@ export function mount(el) {
       get details() {
         const sensor = findSensor(vs.sensorId)
         return sensor ? detailRows(sensor, detailLabels, locale) : []
+      },
+      get meta() {
+        const sensor = findSensor(vs.sensorId)
+        return sensor ? stationMeta(sensor, stationLabels) : []
+      },
+      get network() {
+        const sensor = findSensor(vs.sensorId)
+        return sensor ? networkText(sensor, d.tNetwork || '') : ''
       },
       onclose: () => vs.closeSensor(),
       // Keyed by STATION now, not by the device charted: the chart component

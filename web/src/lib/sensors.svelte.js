@@ -113,6 +113,14 @@ export function normaliseSensor(responseBody, id) {
     // — see internal/snapshot/build.go's stationIDs).
     lon: cols.lon?.[members.indices[0]] ?? null,
     lat: cols.lat?.[members.indices[0]] ?? null,
+    // Station identity columns (Task 10's addition to the wire): 'eea' for
+    // an official reference station, 'sensor.community' for a citizen
+    // device. The EoI code/type/area only exist for 'eea' rows.
+    source: cols.source?.[members.indices[0]] ?? '',
+    stationCode: cols.station_code?.[members.indices[0]] ?? '',
+    stationName: cols.station_name?.[members.indices[0]] ?? '',
+    stationType: cols.station_type?.[members.indices[0]] ?? '',
+    stationArea: cols.station_area?.[members.indices[0]] ?? '',
     // One entry per box standing here, so the panel can say what the hardware
     // is rather than leaving "Сензор 5965" to stand for a pair of instruments.
     devices: members.indices.map((i) => ({
