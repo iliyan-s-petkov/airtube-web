@@ -49,6 +49,10 @@ services:
         ipv4_address: 172.29.0.10
     volumes:
       - /var/lib/airbg/tiles:/var/lib/airbg/tiles:ro
+      # Writable: AIRBG_EEA_METADATA_CACHE. read_only below makes every other
+      # path in the container unwritable, and without this the 26 MB station
+      # CSV is refetched on every restart instead of falling back to disk.
+      - /var/lib/airbg/eea:/var/lib/airbg/eea
     depends_on:
       db:
         condition: service_healthy
