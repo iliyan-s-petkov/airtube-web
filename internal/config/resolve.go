@@ -17,6 +17,7 @@ type Config struct {
 	Cache     Cache
 	Upstream  Upstream
 	Wind      Wind
+	EEA       EEA
 	Store     Store
 	Series    Series
 	Quality   Quality
@@ -146,6 +147,22 @@ type Wind struct {
 	PointsPerReq    int
 	MaxPayloadBytes int64
 	Retention       time.Duration
+}
+
+// EEA configures the official-station feed. See internal/upstream/eea/README.md.
+type EEA struct {
+	Enabled bool
+	// URL is the download API base; MetadataURL is a different host on a much
+	// longer refresh cycle.
+	URL              string
+	MetadataURL      string
+	MetadataCache    string
+	Countries        []string
+	RequestTimeout   time.Duration
+	PollInterval     time.Duration
+	MinPollInterval  time.Duration
+	MetadataInterval time.Duration
+	MaxPayloadBytes  int64
 }
 
 type Store struct {
