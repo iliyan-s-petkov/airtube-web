@@ -8,12 +8,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// rollupSQL takes the quality filter as $2 rather than inlining it: usableQuality
+// in aggregate.go is the single definition of which flags may move a published
+// number, and a second literal here could drift from it silently.
 const rollupSQL = `INSERT INTO reading_hourly
 	     (bucket, sensor_id, metric, avg_value, min_value, max_value, sample_count)
 	 SELECT $1, sensor_id, metric, avg(value), min(value), max(value), count(*)
 	 FROM reading
 	 WHERE time >= $1 AND time < $1 + interval '1 hour'
-	   AND quality IN ('ok', 'no_neighbours')
+	   AND quality = ANY($2::quality_flag[])
 	 GROUP BY sensor_id, metric
 	 ON CONFLICT (sensor_id, metric, bucket) DO UPDATE
 	   SET avg_value = EXCLUDED.avg_value,
@@ -47,7 +50,7 @@ const watermarkSQL = `INSERT INTO rollup_watermark (id, bucket, updated_at)
 // use RollupBacklog instead, which performs both under a single transaction.
 func (s *Store) RollupHour(ctx context.Context, bucket time.Time) (int64, error) {
 	bucket = TruncateHour(bucket)
-	tag, err := s.pool.Exec(ctx, rollupSQL, bucket)
+	tag, err := s.pool.Exec(ctx, rollupSQL, bucket, usableQuality)
 	if err != nil {
 		return 0, err
 	}
@@ -82,7 +85,7 @@ func (s *Store) rollupAndAdvance(ctx context.Context, bucket time.Time) (int64, 
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after a successful Commit
 
-	tag, err := tx.Exec(ctx, rollupSQL, bucket)
+	tag, err := tx.Exec(ctx, rollupSQL, bucket, usableQuality)
 	if err != nil {
 		return 0, err
 	}
