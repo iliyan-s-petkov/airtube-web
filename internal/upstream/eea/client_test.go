@@ -113,3 +113,57 @@ func TestFileURLsRejectsANonOKStatus(t *testing.T) {
 		t.Error("FileURLs accepted a 502")
 	}
 }
+
+// A server that never replies must not hang the collector forever: the
+// timeout is the only thing that turns a stuck upstream into an error.
+func TestFetchFileRespectsRequestTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := testConfig(srv.URL, srv.URL)
+	cfg.RequestTimeout = 20 * time.Millisecond
+	if _, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{}); err == nil {
+		t.Error("FetchFile succeeded past RequestTimeout; want a timeout error")
+	}
+}
+
+// The header truncated below its required columns is the observable proof
+// that FetchMetadata stops reading at MaxPayloadBytes rather than at EOF.
+func TestFetchMetadataBoundsTheBody(t *testing.T) {
+	header := "Countrycode\tSamplingPoint\tAirQualityStationEoICode\tAirQualityStationNatCode\tLongitude\tLatitude\tAirQualityStationType\tAirQualityStationArea\n"
+	row := "BG\tSP1\tCODE1\tNAT1\t23.32\t42.69\tbackground\turban\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(header + row))
+	}))
+	defer srv.Close()
+
+	cfg := testConfig(srv.URL, srv.URL)
+	cfg.MaxPayloadBytes = 10 // shorter than the header row itself
+	if _, err := eea.New(cfg).FetchMetadata(context.Background()); err == nil {
+		t.Error("FetchMetadata succeeded on a header cut mid-row by MaxPayloadBytes; want a parse error")
+	}
+}
+
+// The second URL is cut clean at the line boundary, so its absence from the
+// result is the observable proof of the bound rather than of the line filter.
+func TestFileURLsBoundsTheBody(t *testing.T) {
+	line1 := "https://example.invalid/a.parquet\n"
+	line2 := "https://example.invalid/b.parquet\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(line1 + line2))
+	}))
+	defer srv.Close()
+
+	cfg := testConfig(srv.URL, srv.URL)
+	cfg.MaxPayloadBytes = int64(len(line1))
+	urls, err := eea.New(cfg).FileURLs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(urls) != 1 {
+		t.Errorf("got %d urls, want 1 — the second line should have been cut by MaxPayloadBytes", len(urls))
+	}
+}
