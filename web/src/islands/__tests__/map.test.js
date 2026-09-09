@@ -49,7 +49,15 @@ vi.mock('maplibre-gl', () => {
       this.zoomIn = vi.fn()
       this.zoomOut = vi.fn()
       this.flyTo = vi.fn()
-      this.getSource = vi.fn(() => ({ setData: vi.fn() }))
+      // One object per source id, every setData recorded in order.
+      this.painted = []
+      this.sources = {}
+      this.getSource = vi.fn((id) => {
+        this.sources[id] ??= { setData: vi.fn(() => this.painted.push(id)) }
+        return this.sources[id]
+      })
+      this.container = document.createElement('div')
+      this.getContainer = vi.fn(() => this.container)
       // The layers menu reads its options off the mounted style, so a map that
       // cannot report one is a map this island cannot mount. Empty here: the
       // basemap layers come from tools/basemap/style.json, which no test
@@ -2769,6 +2777,44 @@ describe('the wind toggle lives in the layers menu, not in the corner', () => {
 
     await new Promise((r) => setTimeout(r, 600))
     expect(source.setData).not.toHaveBeenCalled()
+  })
+})
+
+// One zoom used to draw twice: the markers when they landed, the grid a request
+// later. Both are held now until both have answered.
+describe('a move paints its layers in one pass', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests() })
+  afterEach(() => { resetViewStateForTests() })
+
+  it('holds the marker paint until the grid has answered too', async () => {
+    let gate = null
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      if (String(url).includes('/api/v1/hexes') && gate) await gate
+      const json = String(url).includes('/api/v1/scales')
+        ? [{ metric: 'P2', bands: [{ upper: 10, colour: '#00ff00' }] }]
+        : { areas: [{ slug: 'sofia', lon: 23.3, lat: 42.7, covered: true, values: { P2: 5 }, sensor_count: 9 }], hexes: [] }
+      return { ok: true, status: 200, headers: new Headers(), json: async () => json }
+    }))
+
+    const { map } = mountTestMap({ metric: 'P2' })
+    await vi.waitFor(() => expect(map.painted).toContain('airbg-data'))
+
+    let release
+    gate = new Promise((r) => { release = r })
+    map.painted.length = 0
+    map.getZoom.mockReturnValue(10)
+    map.handlers.moveend()
+
+    // Long enough for the markers to have fetched, parsed and — before this
+    // change — painted, while the grid is still out.
+    await new Promise((r) => setTimeout(r, 600))
+    expect(map.painted).toEqual([])
+
+    release()
+    await vi.waitFor(() => {
+      expect(map.painted).toContain('airbg-data')
+      expect(map.painted).toContain('airbg-hexes')
+    })
   })
 })
 

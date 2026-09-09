@@ -199,9 +199,14 @@ export function mount(el) {
 
   // Declared before the 'load' handler that cancels it: a jumpTo taken during
   // the opening placement queues a moveend the handler has already answered.
-  const onMoveEnd = debounce(() => {
-    refresh(map, state, cfg, chrome)
-    refreshHexes(map, state, cfg)
+  // Markers and grid answer at different latencies; painting each on arrival is
+  // the map visibly redrawing itself twice per zoom. Load both, paint both.
+  const onMoveEnd = debounce(async () => {
+    const paints = await Promise.all([
+      refresh(map, state, cfg, chrome, false, { defer: true }),
+      refreshHexes(map, state, cfg, getJSON, { defer: true }),
+    ])
+    for (const paint of paints) paint?.()
     // Only while the layer is on: the arrow lattice is sized to the viewport,
     // so a move that changes the zoom changes which arrows exist.
     if (windState.on) paintWind(map, windState)
@@ -516,7 +521,7 @@ export function mount(el) {
       if (!placed && !cfg.slug) {
         placed = await placeVisitor(map, state, cfg, getJSON, { timeoutMs: LOCATE_TIMEOUT_MS })
       }
-    }, () => refreshHexes(map, state, cfg))
+    }, () => refreshHexes(map, state, cfg, getJSON, { defer: true }))
 
     // Every jumpTo above queued a moveend of its own, and the paint it would
     // debounce into has just happened at that exact camera position.
@@ -783,10 +788,16 @@ export function setCellValues(map, on) {
 // exactly like a forecast that failed. windField resamples the same vectors
 // onto a screen-sized lattice instead; the values are still the model's, only
 // repeated, and the disclosure already names the grid they came from.
+// Every data-layer repaint goes through here. The event nothing in the app
+// listens to is how e2e/redraw.spec.js counts the draws a reader sees.
+export function paintSource(map, sourceId, features) {
+  map.getSource(sourceId)?.setData({ type: 'FeatureCollection', features })
+  map.getContainer?.()?.dispatchEvent?.(new CustomEvent('airbg:paint', { detail: { source: sourceId } }))
+}
+
 export function paintWind(map, state) {
   if (!state.body) return
-  const source = map.getSource(WIND_SOURCE_ID)
-  if (!source) return
+  if (!map.getSource(WIND_SOURCE_ID)) return
   const b = map.getBounds?.()
   const features = b
     ? windField(state.body, {
@@ -794,7 +805,7 @@ export function paintWind(map, state) {
       zoom: map.getZoom(),
     })
     : windFeatures(state.body)
-  source.setData({ type: 'FeatureCollection', features })
+  paintSource(map, WIND_SOURCE_ID, features)
 }
 
 // onMetricChange is what runs on every metric switch (and once, explicitly,
@@ -860,7 +871,11 @@ export async function initData(map, state, cfg, chrome, place = null, alongside 
   // reads scales from there rather than calling loadScales a second time.
   setScales(state.scales)
   if (place) await place()
-  await Promise.all([refresh(map, state, cfg, chrome), alongside ? alongside() : null])
+  const paints = await Promise.all([
+    refresh(map, state, cfg, chrome, false, { defer: true }),
+    alongside ? alongside() : null,
+  ])
+  for (const paint of paints) if (typeof paint === 'function') paint()
 }
 
 // loadScales fetches the band tables once per page load. Cache-Control: public,
@@ -899,7 +914,9 @@ export function cellTier(zoom, markerTier) {
 // onMetricChange does — the tier and slug are untouched by a metric switch,
 // so without `force` the dedup key would make repainting for the new metric a
 // silent no-op.
-async function refresh(map, state, cfg, chrome, force = false) {
+// `defer` returns the paint instead of performing it, so a caller loading two
+// layers at once can hold both until both are ready — see onMoveEnd.
+async function refresh(map, state, cfg, chrome, force = false, { defer = false } = {}) {
   const tier = tierFor(map.getZoom(), cfg.zoomCity, cfg.zoomSensor)
 
   // The sensor tier needs a slug and must not invent one. With none selected,
@@ -966,7 +983,9 @@ async function refresh(map, state, cfg, chrome, force = false) {
   const features = effective === 'sensors'
     ? filterByStatus(sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour), getSensorStatus())
     : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
-  map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
+  const paint = () => paintSource(map, SOURCE_ID, features)
+  if (defer) return paint
+  paint()
 }
 
 // showArea is what the finder's pick does: fly to the area and select it, on
@@ -1004,7 +1023,7 @@ export function repaintSensors(map, state, cfg) {
     sensorFeatures(state.sensorBody, cfg.metric, state.scales, cfg.noDataColour),
     getSensorStatus(),
   )
-  map.getSource(SOURCE_ID).setData({ type: 'FeatureCollection', features })
+  paintSource(map, SOURCE_ID, features)
 }
 
 // refreshHexes fetches the hex grid for the current zoom and viewport and
@@ -1023,7 +1042,7 @@ export function repaintSensors(map, state, cfg) {
 // The response body is retained so a metric switch repaints from memory. Only
 // the colours change — the bins, their counts and their geometry do not — so a
 // refetch would return bytes the client already holds.
-export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
+export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer = false } = {}) {
   // The window rides on the URL, so it is also what makes the dedup below let a
   // window change through: the same viewport under a different window is a
   // different URL, and therefore a fetch rather than a repaint.
@@ -1057,10 +1076,9 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON) {
   // The same filter the markers answer to. The grid is the tier that covers the
   // country, so leaving it out made "hide inactive sensors" a control with no
   // visible effect anywhere a reader was likely to be looking.
-  map.getSource(HEX_SOURCE_ID)?.setData({
-    type: 'FeatureCollection',
-    features: filterByStatus(features, getSensorStatus()),
-  })
+  const paint = () => paintSource(map, HEX_SOURCE_ID, filterByStatus(features, getSensorStatus()))
+  if (defer) return paint
+  paint()
 }
 
 // installTimelapse swaps a past hour's numbers into the hex layer the map
