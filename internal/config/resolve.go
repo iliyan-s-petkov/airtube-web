@@ -156,7 +156,12 @@ type EEA struct {
 	// longer refresh cycle.
 	URL              string
 	MetadataURL      string
-	MetadataCache    string
+	MetadataCache string
+	// FileHosts are the hosts a parquet download may come from. /ParquetFile/urls
+	// answers with blob-storage URLs on a different host than URL, so the
+	// allowlist cannot be derived from URL; it is configured instead, so a
+	// compromised response still cannot steer a fetch at an arbitrary host.
+	FileHosts        []string
 	Countries        []string
 	RequestTimeout   time.Duration
 	PollInterval     time.Duration
@@ -407,6 +412,7 @@ func resolve(r *raw) Config {
 			URL:              *r.EEA.URL,
 			MetadataURL:      *r.EEA.MetadataURL,
 			MetadataCache:    *r.EEA.MetadataCache,
+			FileHosts:        *r.EEA.FileHosts,
 			Countries:        *r.EEA.Countries,
 			RequestTimeout:   r.EEA.RequestTimeout.Std(),
 			PollInterval:     r.EEA.PollInterval.Std(),

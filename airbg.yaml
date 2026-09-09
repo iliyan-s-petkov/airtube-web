@@ -203,6 +203,9 @@ eea:
   url: "https://eeadmz1-downloads-api-appservice.azurewebsites.net"
   metadata_url: "https://discomap.eea.europa.eu/map/fme/metadata/PanEuropean_metadata.csv"
   metadata_cache: "/var/lib/airbg/eea"
+  # Where the parquet files themselves live. /ParquetFile/urls answers with
+  # URLs on this host, not on url above, and a download is refused anywhere else.
+  file_hosts: ["eeadmz1batchservice02.blob.core.windows.net"]
   countries: ["BG"]
   request_timeout: "60s"
   poll_interval: "1h"

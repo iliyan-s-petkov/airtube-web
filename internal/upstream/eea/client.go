@@ -74,13 +74,20 @@ type urlsRequest struct {
 	Source     string   `json:"source"`
 }
 
+// csvHeader is the first line of the /ParquetFile/urls response. It is not a
+// URL, so without skipping it every cycle reports one bogus rejection.
+const csvHeader = "ParquetFileUrl"
+
 // FileURLs returns the parquet file URLs for the configured countries. One
 // request covers the whole country list.
 //
-// The response body is third-party controlled: a candidate line is only kept
-// if its scheme and host match the configured EEA.URL, so a compromised or
-// malicious response cannot steer FetchFile at an arbitrary host. Rejections
-// are counted rather than silently dropped.
+// The response body is third-party controlled: a candidate line is only kept if
+// its host is in EEA.FileHosts and its scheme matches EEA.URL's, so a
+// compromised or malicious response cannot steer FetchFile at an arbitrary
+// host. The host allowlist is configured rather than derived from EEA.URL
+// because the API answers with blob-storage URLs on a different host than its
+// own; the scheme still comes from EEA.URL, which validation forces to https.
+// Rejections are counted rather than silently dropped.
 func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err error) {
 	trusted, err := url.Parse(c.cfg.URL)
 	if err != nil {
@@ -123,13 +130,18 @@ func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err
 		return nil, 0, fmt.Errorf("eea: file urls: read body: %w", err)
 	}
 
+	allowed := make(map[string]bool, len(c.cfg.FileHosts))
+	for _, host := range c.cfg.FileHosts {
+		allowed[host] = true
+	}
+
 	for _, line := range strings.Split(string(raw), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" {
+		if line == "" || line == csvHeader {
 			continue
 		}
 		u, parseErr := url.Parse(line)
-		if parseErr != nil || u.Scheme != trusted.Scheme || u.Host != trusted.Host {
+		if parseErr != nil || u.Scheme != trusted.Scheme || !allowed[u.Host] {
 			rejected++
 			continue
 		}

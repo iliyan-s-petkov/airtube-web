@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,11 +18,26 @@ import (
 	"airbg.org/internal/upstream/eea"
 )
 
+// hostOf is the bare host of a test server URL, the form eea.file_hosts takes.
+func hostOf(t *testing.T, raw string) string {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse %q: %v", raw, err)
+	}
+	return u.Host
+}
+
 func testConfig(base, metadata string) config.EEA {
+	u, err := url.Parse(base)
+	if err != nil {
+		panic(err)
+	}
 	return config.EEA{
 		Enabled:         true,
 		URL:             base,
 		MetadataURL:     metadata,
+		FileHosts:       []string{u.Host},
 		Countries:       []string{"BG"},
 		RequestTimeout:  5 * time.Second,
 		PollInterval:    time.Hour,
@@ -140,6 +156,54 @@ func TestFileURLsRejectsOffHostURLs(t *testing.T) {
 	}
 	if rejected != 1 {
 		t.Errorf("rejected = %d, want 1", rejected)
+	}
+}
+
+// The live API serves the files from blob storage, not from itself, so an
+// allowlist derived from eea.url rejects every file and the official layer
+// stays empty with only a counter to show for it.
+func TestFileURLsAcceptsAConfiguredFileHostThatIsNotTheAPIHost(t *testing.T) {
+	files := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer files.Close()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ParquetFileUrl\n" + files.URL + "/BG/a.parquet\n"))
+	}))
+	defer api.Close()
+
+	cfg := testConfig(api.URL, api.URL)
+	cfg.FileHosts = []string{hostOf(t, files.URL)}
+
+	urls, rejected, err := eea.New(cfg).FileURLs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(urls) != 1 {
+		t.Fatalf("got %d urls, want 1 — a file host other than the API host must be allowed", len(urls))
+	}
+	// The header line is not a URL. Counting it would report a rejection every
+	// cycle and bury a real one.
+	if rejected != 0 {
+		t.Errorf("rejected = %d, want 0 — the ParquetFileUrl header is not a rejection", rejected)
+	}
+}
+
+// The allowlist is the whole reason a third-party body cannot choose where the
+// collector's next request goes.
+func TestFileURLsRejectsAHostNotInFileHosts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("http://elsewhere.invalid/a.parquet\n"))
+	}))
+	defer srv.Close()
+
+	cfg := testConfig(srv.URL, srv.URL)
+	cfg.FileHosts = []string{"allowed.invalid"}
+
+	urls, rejected, err := eea.New(cfg).FileURLs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(urls) != 0 || rejected != 1 {
+		t.Errorf("got %d urls and %d rejected, want 0 and 1", len(urls), rejected)
 	}
 }
 

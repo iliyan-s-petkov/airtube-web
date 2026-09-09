@@ -141,6 +141,7 @@ type rawEEA struct {
 	URL              *string   `yaml:"url"`
 	MetadataURL      *string   `yaml:"metadata_url"`
 	MetadataCache    *string   `yaml:"metadata_cache"`
+	FileHosts        *[]string `yaml:"file_hosts"`
 	Countries        *[]string `yaml:"countries"`
 	RequestTimeout   *Duration `yaml:"request_timeout"`
 	PollInterval     *Duration `yaml:"poll_interval"`

@@ -122,11 +122,16 @@ never averaged.
   as a last resort — on startup, when there is no in-memory copy yet and the
   live fetch also failed — so a process restart during an upstream outage
   still has coordinates to place stations with.
-- `Client.FileURLs` only follows a returned URL whose scheme and host match
-  the configured `EEA.URL`; anything else is refused and counted in
-  `Stats.UntrustedURL` rather than followed. The `/ParquetFile/urls` response
-  is third-party input, so `Client.FetchFile` must never be steered at an
-  arbitrary host by it.
+- `Client.FileURLs` only follows a returned URL whose host is listed in
+  `EEA.FileHosts` and whose scheme matches `EEA.URL`'s; anything else is
+  refused and counted in `Stats.UntrustedURL` rather than followed. The
+  `/ParquetFile/urls` response is third-party input, so `Client.FetchFile` must
+  never be steered at an arbitrary host by it. The host list is configured
+  rather than derived from `EEA.URL` because the API answers with blob-storage
+  URLs — `eeadmz1batchservice02.blob.core.windows.net` — on a different host
+  than its own; deriving it rejected all 142 files in production and left the
+  official layer empty. The response's first line is the CSV header
+  `ParquetFileUrl` and is skipped, not counted as a rejection.
 - `Collector.RunOnce` writes readings in chunks of `writeChunkSize` (2000)
   rather than one `pgx.Batch` for the whole cycle — history backfills alone
   can put ~2M readings through a single run. Each chunk is a separate

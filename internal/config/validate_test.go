@@ -570,6 +570,12 @@ func TestEEAValidationRejectsBadSettings(t *testing.T) {
 		// Nothing else reads metadata_cache at validation time, and an empty
 		// one only surfaces at runtime as a cache that never loads.
 		"empty metadata_cache": func(c *Config) { c.EEA.MetadataCache = "" },
+		// Empty rejects every URL the API offers, so the official layer stays
+		// empty and the only symptom is a counter in one log line.
+		"empty file_hosts":         func(c *Config) { c.EEA.FileHosts = nil },
+		"file_hosts with a scheme": func(c *Config) { c.EEA.FileHosts = []string{"https://blob.invalid"} },
+		"file_hosts with a port":   func(c *Config) { c.EEA.FileHosts = []string{"blob.invalid:443"} },
+		"file_hosts with a path":   func(c *Config) { c.EEA.FileHosts = []string{"blob.invalid/airquality"} },
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := validConfig(t)

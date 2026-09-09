@@ -319,6 +319,19 @@ func (c Config) validateEEA(p *problems) {
 		}
 	}
 
+	// Empty would mean every candidate URL in the API's response is refused and
+	// the official layer silently stays empty, which is how this was found in
+	// the first place. Each entry is a bare host: url.Parse of "host:port" reads
+	// the host as a scheme, so anything with a scheme or path is a typo.
+	if len(c.EEA.FileHosts) == 0 {
+		p.addf("eea.file_hosts must name at least one host the parquet files may be downloaded from")
+	}
+	for _, host := range c.EEA.FileHosts {
+		if strings.ContainsAny(host, "/:") {
+			p.addf("eea.file_hosts contains %q, which must be a bare host with no scheme, port or path", host)
+		}
+	}
+
 	if len(c.EEA.Countries) == 0 {
 		p.addf("eea.countries must name at least one ISO 3166-1 alpha-2 code")
 	}
