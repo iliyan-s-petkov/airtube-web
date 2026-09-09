@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -644,6 +644,34 @@ describe('initData ordering', () => {
     // the fix exists for: real markers, no colour scale, uniformly grey.
     expect(map.painted).toHaveLength(1)
     expect(map.painted[0].features[0].properties.colour).toBe(NO_DATA_COLOUR)
+  })
+
+  // The grid used to be painted after initData returned, one request later than
+  // the markers: on a slow link that is a second draw of the same screen.
+  it('paints the layer given alongside in the markers own pass', async () => {
+    vi.stubGlobal('fetch', stubFetch({ scalesOk: true }))
+    const chrome = { ...hintController(() => {}), showLegend: () => {} }
+    const map = fakeMap()
+    const order = []
+    let paintedWhenStarted = null
+    const alongside = vi.fn(async () => {
+      // Zero: sequenced after the markers, this would be one, and the reader
+      // would see the grid arrive on a screen that already had dots on it.
+      paintedWhenStarted = map.painted.length
+      order.push('alongside started')
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      order.push('alongside painted')
+    })
+
+    await initData(map, { slug: null, tier: null, scales: null }, cfg, chrome, null, alongside)
+    order.push('initData resolved')
+
+    // Started before the markers land, so the two arrive together; and awaited,
+    // because initData resolving is what mount treats as the first screen being
+    // complete.
+    expect(paintedWhenStarted).toBe(0)
+    expect(map.painted).toHaveLength(1)
+    expect(order).toEqual(['alongside started', 'alongside painted', 'initData resolved'])
   })
 
   it('leaves the banner empty when everything loads', async () => {
@@ -1570,6 +1598,48 @@ describe('openDeepLinkedSensor', () => {
     expect(fetchJSON).not.toHaveBeenCalled()
   })
 
+  // The prefetch exists to overlap the placement with the scales, so what it
+  // asks for has to be the URL the placement itself will ask for — a divergence
+  // here is not an error anywhere, just a second request and the old delay.
+  describe('prefetchPlacement', () => {
+    it('asks for the deep-linked sensor, and otherwise for the visitor', () => {
+      const fetchJSON = vi.fn().mockResolvedValue(null)
+
+      prefetchPlacement(viewState(11338), cfg, fetchJSON)
+      expect(fetchJSON).toHaveBeenCalledWith('/api/v1/sensor/11338/locate')
+
+      fetchJSON.mockClear()
+      prefetchPlacement(viewState(null), cfg, fetchJSON)
+      expect(fetchJSON).toHaveBeenCalledWith('/api/v1/locate')
+    })
+
+    it('asks for nothing on an area page, which opens at its own centre', () => {
+      const fetchJSON = vi.fn().mockResolvedValue(null)
+
+      prefetchPlacement(viewState(null), { ...cfg, slug: 'sofia' }, fetchJSON)
+
+      expect(fetchJSON).not.toHaveBeenCalled()
+    })
+
+    // mount's own order: a sensor the map already holds needs no lookup, and
+    // the deep link then places nothing, so the visitor lookup is what runs.
+    it('asks for the visitor when the map already holds the sensor', () => {
+      const fetchJSON = vi.fn().mockResolvedValue(null)
+      setSensors({ sensors: { id: [11338], lon: [23.31], lat: [42.69], quality: ['ok'], type: ['SDS011'], P2: [12] } })
+
+      prefetchPlacement(viewState(11338), cfg, fetchJSON)
+
+      expect(fetchJSON).toHaveBeenCalledWith('/api/v1/locate')
+    })
+
+    // An unawaited rejection is an unhandled rejection whatever the placement
+    // later does with its own copy of the promise.
+    it('swallows a failed lookup', async () => {
+      prefetchPlacement(viewState(11338), cfg, vi.fn().mockRejectedValue(new Error('429')))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+  })
+
   // A refused or failed lookup — the enumeration limiter answers 429 — must
   // leave the map exactly where the server put it, not throw out of mount().
   it('stays put when the lookup fails or answers nothing usable', async () => {
@@ -2358,8 +2428,13 @@ describe('mount() opens a sensor from the cell that carries one', () => {
       }
     }))
     const { map } = mountTestMap({ metric: 'P2' })
-    // After the load pass, which flies to a #sensor= of its own.
-    await vi.waitFor(() => expect(asked.some((u) => u.endsWith('/api/v1/locate'))).toBe(true))
+    // After the load pass, which flies to a #sensor= of its own. Waited on the
+    // markers, not on /api/v1/locate: that request is started ahead of the
+    // scales now (see prefetchPlacement), so it no longer marks the end of the
+    // pass — and a click landing before the pass reads the viewstate would make
+    // the load pass itself the deep link.
+    await vi.waitFor(() => expect(asked.some((u) => u.includes('/api/v1/overview'))).toBe(true))
+    await new Promise((r) => setTimeout(r, 0))
     map.jumpTo.mockClear()
 
     map.clickHandlers['airbg-hex-fill']({ features: [{ properties: { sensorId: 4242 } }] })
@@ -2370,6 +2445,29 @@ describe('mount() opens a sensor from the cell that carries one', () => {
     await new Promise((r) => setTimeout(r, 0))
     // In place: the reader is already looking at the cell they clicked.
     expect(map.jumpTo.mock.calls.every((c) => c[0]?.zoom !== DEEP_LINK_ZOOM)).toBe(true)
+  })
+
+  // The placement decides the opening camera, and until it answers the map is
+  // showing a view it is about to leave. Asked before the scales, not after
+  // them: the camera needs no band table, and awaiting one to ask for the other
+  // is a round trip of national view on a slow link.
+  it('asks where to open before it asks for the colour scales', async () => {
+    clearCache()
+    setSensors(null)
+    const asked = []
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      asked.push(String(url))
+      return {
+        ok: true, status: 200, headers: new Headers(),
+        json: async () => ({ areas: [] }),
+      }
+    }))
+
+    mountTestMap({ metric: 'P2' })
+    await vi.waitFor(() => expect(asked.some((u) => u.endsWith('/api/v1/locate'))).toBe(true))
+
+    expect(asked.findIndex((u) => u.endsWith('/api/v1/locate')))
+      .toBeLessThan(asked.findIndex((u) => u.endsWith('/api/v1/scales')))
   })
 
   it('opens no panel for an aggregate cell, which names no device', () => {

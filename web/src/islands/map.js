@@ -492,6 +492,14 @@ export function mount(el) {
     // The cost is that the map holds off its readings until the placement
     // answers — capped at LOCATE_TIMEOUT_MS, past which the national view is
     // drawn and a late answer moves it the old way.
+    // Started beside the scales, not after them. The camera needs neither band
+    // table, but initData awaits the scales before it calls `place`, so the
+    // placement request used to queue behind them — and on a slow link the
+    // national view sat on screen for that whole extra round trip before
+    // jumping. getJSON dedups by URL, so `place` below adopts this very
+    // promise instead of asking again.
+    prefetchPlacement(vs, cfg)
+
     let placed = false
     await initData(map, state, cfg, chrome, async () => {
       applyMetricColours(map, state, cfg, chrome, vs.metric)
@@ -508,8 +516,7 @@ export function mount(el) {
       if (!placed && !cfg.slug) {
         placed = await placeVisitor(map, state, cfg, getJSON, { timeoutMs: LOCATE_TIMEOUT_MS })
       }
-    })
-    await refreshHexes(map, state, cfg)
+    }, () => refreshHexes(map, state, cfg))
 
     // Every jumpTo above queued a moveend of its own, and the paint it would
     // debounce into has just happened at that exact camera position.
@@ -843,14 +850,17 @@ function applyMetricColours(map, state, cfg, chrome, metric) {
 // where the opening camera is decided. Before it existed the map painted the
 // server's default view, then the visitor's city, then whatever the moveend
 // from that jump asked for — three draws of the same first screen.
-export async function initData(map, state, cfg, chrome, place = null) {
+// `alongside`, when given, is painted in the same pass as the markers rather
+// than after them: two layers of one screen arriving a request apart is the
+// second draw a reader sees.
+export async function initData(map, state, cfg, chrome, place = null, alongside = null) {
   state.scales = await loadScales(chrome, cfg)
   // Published into the registry the moment it resolves (null included, on a
   // failed fetch) — see lib/sensors.svelte.js's own comment on why the panel
   // reads scales from there rather than calling loadScales a second time.
   setScales(state.scales)
   if (place) await place()
-  await refresh(map, state, cfg, chrome)
+  await Promise.all([refresh(map, state, cfg, chrome), alongside ? alongside() : null])
 }
 
 // loadScales fetches the band tables once per page load. Cache-Control: public,
@@ -1194,6 +1204,24 @@ export async function placeVisitor(map, state, cfg, fetchJSON = getJSON, { timeo
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(() => resolve(null), ms))
+}
+
+// prefetchPlacement starts the request the opening camera will wait on, one
+// step before anything awaits it. It asks the same URL the placement itself
+// asks, and getJSON hands the same in-flight promise to both, so this costs no
+// second request and its only effect is when the answer arrives.
+//
+// The rejection is swallowed here as well as at the call site: an unawaited
+// promise that rejects is an unhandled rejection, whatever the later caller
+// does with its own copy.
+export function prefetchPlacement(vs, cfg, fetchJSON = getJSON) {
+  const id = vs.sensorId
+  if (id !== null && id !== undefined && !findSensor(id)) {
+    fetchJSON(`/api/v1/sensor/${id}/locate`).catch(() => null)
+    return
+  }
+  // Area pages open at their own centre and never ask (see mount).
+  if (!cfg.slug) fetchJSON('/api/v1/locate').catch(() => null)
 }
 
 // The zoom a #sensor= link opens at.
