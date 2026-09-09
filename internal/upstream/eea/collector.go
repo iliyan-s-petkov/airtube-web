@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"math"
 	"os"
 	"time"
 
 	"airbg.org/internal/config"
+	"airbg.org/internal/quality"
 	"airbg.org/internal/store"
 )
 
@@ -24,6 +26,7 @@ type Stats struct {
 	Written          int
 	Unplaceable      int
 	Invalid          int
+	OutOfRange       int
 	UnknownPollutant int
 	UntrustedURL     int
 }
@@ -32,6 +35,7 @@ type Collector struct {
 	cfg    config.EEA
 	client *Client
 	store  *store.Store
+	scorer *quality.Scorer
 	clock  func() time.Time
 
 	metadata      Metadata
@@ -39,11 +43,16 @@ type Collector struct {
 	lastFileFetch map[string]time.Time
 }
 
-func NewCollector(cfg config.EEA, s *store.Store) *Collector {
+// NewCollector takes the scorer rather than building one so the official layer
+// is plausibility-checked by the same quality.Scorer the community ingest and
+// the backfill use; scorer.InRange rejects a metric with no quality.ranges
+// entry, so every canonical metric must be ranged in airbg.yaml.
+func NewCollector(cfg config.EEA, s *store.Store, scorer *quality.Scorer) *Collector {
 	return &Collector{
 		cfg:           cfg,
 		client:        New(cfg),
 		store:         s,
+		scorer:        scorer,
 		clock:         time.Now,
 		lastFileFetch: map[string]time.Time{},
 	}
@@ -178,19 +187,28 @@ func (c *Collector) RunOnce(ctx context.Context) (Stats, error) {
 			slog.Warn("eea reading has an unusable unit", "sampling_point", k.row.Samplingpoint, "error", err)
 			continue
 		}
-		// Validity > 0 is EEA's own usable flag. Anything else is stored with a
-		// quality that usableQuality excludes, so the hour reads as a gap.
-		quality := "ok"
-		if k.row.Validity <= 0 {
-			quality = "source_invalid"
+		// Validity > 0 is EEA's own usable flag: provenance, not plausibility.
+		// It is tested first and can only make a row worse — a row the agency
+		// flags invalid stays invalid whatever the scorer says — and an
+		// agency-valid row still has to pass quality.Scorer.InRange, so a
+		// scale misdecode or an upstream unit change cannot be averaged in as
+		// "ok". Anything but "ok" is excluded by store.usableQuality, so the
+		// hour reads as a gap.
+		flag := string(quality.FlagOK)
+		switch {
+		case k.row.Validity <= 0:
+			flag = "source_invalid"
 			st.Invalid++
+		case math.IsNaN(value) || math.IsInf(value, 0) || !c.scorer.InRange(metric, value):
+			flag = string(quality.FlagOutOfRange)
+			st.OutOfRange++
 		}
 		readings = append(readings, store.StationReading{
 			SensorID:  ids[k.row.Samplingpoint],
 			Metric:    metric,
 			Value:     value,
 			Timestamp: k.row.Start.UTC(),
-			Quality:   quality,
+			Quality:   flag,
 		})
 	}
 
@@ -225,7 +243,8 @@ func (c *Collector) Loop(ctx context.Context) {
 		slog.Info("eea cycle complete",
 			"files", s.Files, "unmodified", s.Unmodified, "rows", s.Rows,
 			"written", s.Written, "unplaceable", s.Unplaceable,
-			"invalid", s.Invalid, "unknown_pollutant", s.UnknownPollutant,
+			"invalid", s.Invalid, "out_of_range", s.OutOfRange,
+			"unknown_pollutant", s.UnknownPollutant,
 			"untrusted_url", s.UntrustedURL)
 	}
 

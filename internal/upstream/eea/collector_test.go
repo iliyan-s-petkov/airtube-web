@@ -5,10 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
+	"airbg.org/internal/quality"
 	"airbg.org/internal/store"
 	"airbg.org/internal/testsupport"
 	"airbg.org/internal/upstream/eea"
@@ -25,6 +28,20 @@ func newStoreForCollector(t *testing.T) (context.Context, *store.Store) {
 		t.Fatalf("Migrate: %v", err)
 	}
 	return ctx, store.New(pool, testsupport.StoreConfig(), 5*time.Second)
+}
+
+// shippedScorer builds the scorer from the committed airbg.yaml, so these tests
+// check the official layer against the quality.ranges the service actually
+// ships with: a gas range set too tight would turn the whole layer into
+// out_of_range rows, and that must fail here rather than in production.
+func shippedScorer(t *testing.T) *quality.Scorer {
+	t.Helper()
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile(airbg.yaml): %v", err)
+	}
+	return quality.NewScorer(cfg.Quality)
 }
 
 func TestRunOnceStoresStationsAndReadings(t *testing.T) {
@@ -56,7 +73,7 @@ func TestRunOnceStoresStationsAndReadings(t *testing.T) {
 	cfg.MetadataCache = t.TempDir()
 	cfg.MaxPayloadBytes = 64 << 20
 
-	st, err := eea.NewCollector(cfg, s).RunOnce(ctx)
+	st, err := eea.NewCollector(cfg, s, shippedScorer(t)).RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
@@ -139,7 +156,7 @@ func TestRunOnceCountsUnplaceableSamplingPoints(t *testing.T) {
 	cfg.MetadataCache = t.TempDir()
 	cfg.MaxPayloadBytes = 64 << 20
 
-	st, err := eea.NewCollector(cfg, s).RunOnce(ctx)
+	st, err := eea.NewCollector(cfg, s, shippedScorer(t)).RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
@@ -186,7 +203,7 @@ func TestRunOnceCountsUnmodifiedFiles(t *testing.T) {
 	cfg.MetadataCache = t.TempDir()
 	cfg.MaxPayloadBytes = 64 << 20
 
-	c := eea.NewCollector(cfg, s)
+	c := eea.NewCollector(cfg, s, shippedScorer(t))
 	if _, err := c.RunOnce(ctx); err != nil {
 		t.Fatalf("first RunOnce: %v", err)
 	}
@@ -233,7 +250,7 @@ func TestRunOnceFallsBackToCachedMetadataAfterRestart(t *testing.T) {
 	cfg.MetadataCache = cacheDir
 	cfg.MaxPayloadBytes = 64 << 20
 
-	if _, err := eea.NewCollector(cfg, s).RunOnce(ctx); err != nil {
+	if _, err := eea.NewCollector(cfg, s, shippedScorer(t)).RunOnce(ctx); err != nil {
 		t.Fatalf("first collector RunOnce: %v", err)
 	}
 
@@ -256,11 +273,96 @@ func TestRunOnceFallsBackToCachedMetadataAfterRestart(t *testing.T) {
 	cfg2.MetadataCache = cacheDir
 	cfg2.MaxPayloadBytes = 64 << 20
 
-	st, err := eea.NewCollector(cfg2, s).RunOnce(ctx)
+	st, err := eea.NewCollector(cfg2, s, shippedScorer(t)).RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("second collector RunOnce: %v", err)
 	}
 	if st.Written == 0 {
 		t.Error("no readings written; the metadata disk-cache fallback did not kick in")
+	}
+}
+
+// F2: EEA rows used to be written with quality set from EEA's own Validity
+// column alone, so an implausible gas value arrived as 'ok' and was averaged in.
+// Validity is provenance, not plausibility; the collector must also run
+// quality.Scorer.InRange, and a reading that fails it must be excluded from
+// every aggregate by store.usableQuality.
+func TestRunOnceFlagsAnImplausibleReadingAndKeepsItOutOfAggregates(t *testing.T) {
+	parquet, err := os.ReadFile("testdata/spo_bg0070a_06001_100.parquet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := os.ReadFile("testdata/metadata_extract.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ParquetFile/urls":
+			_, _ = w.Write([]byte(srv.URL + "/a.parquet\n"))
+		case "/metadata.csv":
+			_, _ = w.Write(metadata)
+		default:
+			_, _ = w.Write(parquet)
+		}
+	}))
+	defer srv.Close()
+
+	ctx, s := newStoreForCollector(t)
+
+	cfg := testConfig(srv.URL, srv.URL+"/metadata.csv")
+	cfg.MetadataCache = t.TempDir()
+	cfg.MaxPayloadBytes = 64 << 20
+
+	// The fixture carries P2. A floor of 1e6 µg/m³ makes every value in it
+	// implausible without touching the parquet, which is what an upstream unit
+	// change or a DECIMAL scale misdecode would look like. The floor is above
+	// the fixture's Validity <= 0 rows too, so the source_invalid assertion
+	// below fails if the scorer is ever allowed to overwrite EEA's own flag.
+	tight := quality.NewScorer(config.Quality{Ranges: map[string]config.Range{"P2": {Min: 1e6, Max: 2e6}}})
+
+	st, err := eea.NewCollector(cfg, s, tight).RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if st.OutOfRange == 0 {
+		t.Fatal("no readings counted as out of range; the scorer did not run")
+	}
+
+	var ok int
+	if err := s.Pool().QueryRow(ctx,
+		`SELECT count(*) FROM reading WHERE quality = 'ok'`).Scan(&ok); err != nil {
+		t.Fatal(err)
+	}
+	if ok != 0 {
+		t.Errorf("%d readings stored as 'ok' despite failing the plausibility check", ok)
+	}
+
+	// EEA's own invalid flag still wins: the scorer must not promote a row the
+	// agency rejected, and it must not silently relabel it either.
+	var invalid int
+	if err := s.Pool().QueryRow(ctx,
+		`SELECT count(*) FROM reading WHERE quality = 'source_invalid'`).Scan(&invalid); err != nil {
+		t.Fatal(err)
+	}
+	if invalid == 0 {
+		t.Error("no source_invalid rows; the fixture is known to carry Validity = -1 rows")
+	}
+
+	// And nothing reaches an aggregate: SensorSeries applies the same
+	// usableQuality filter every published average does.
+	var id int64
+	if err := s.Pool().QueryRow(ctx,
+		`SELECT sensor_id FROM sensor WHERE source_ref = 'BG/SPO-BG0070A_06001_100'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	pts, err := s.SensorSeries(ctx, id, "P2", time.Unix(0, 0).UTC(), nil, false, time.Hour)
+	if err != nil {
+		t.Fatalf("SensorSeries: %v", err)
+	}
+	if len(pts) != 0 {
+		t.Errorf("SensorSeries returned %d points, want none: an implausible reading reached an average", len(pts))
 	}
 }

@@ -86,7 +86,7 @@ func main() {
 			go wind.NewCollector(cfg.Wind, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series)).Loop(ctx)
 		}
 		if cfg.EEA.Enabled {
-			go eea.NewCollector(cfg.EEA, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series)).Loop(ctx)
+			go eea.NewCollector(cfg.EEA, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series), quality.NewScorer(cfg.Quality)).Loop(ctx)
 		}
 		client := upstream.New(cfg.Upstream)
 		ing := ingest.New(client, store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Series), quality.NewHistory(cfg.Quality.HistoryDepth), quality.NewScorer(cfg.Quality), cfg.Database.StatementTimeouts.Assign, cfg.Upstream.Countries)
@@ -301,7 +301,7 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	// Runs on cfg.EEA.PollInterval, sharing the collector pool.
 	eeaDone := make(chan struct{})
 	if cfg.EEA.Enabled {
-		ec := eea.NewCollector(cfg.EEA, collectorStore)
+		ec := eea.NewCollector(cfg.EEA, collectorStore, quality.NewScorer(cfg.Quality))
 		go func() {
 			defer close(eeaDone)
 			ec.Loop(pollCtx)
