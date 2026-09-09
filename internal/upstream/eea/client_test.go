@@ -198,6 +198,109 @@ func TestFetchMetadataWritesTheCacheFile(t *testing.T) {
 	if string(got) != header+row {
 		t.Errorf("cache file = %q, want %q", got, header+row)
 	}
+
+	// os.CreateTemp makes the file 0600, so the atomic write has to restore
+	// the 0644 the cache had when os.WriteFile made it.
+	info, err := os.Stat(filepath.Join(dir, "PanEuropean_metadata.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("cache file mode = %v, want -rw-r--r--", info.Mode().Perm())
+	}
+
+	// The write goes through a temp file in the same directory; leaving one
+	// behind would add 26 MB to the cache directory every cycle.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("cache dir holds %v, want only the cache file", names)
+	}
+}
+
+// The cache write is atomic: the reader is Collector.loadMetadata's restart
+// fallback, and a half-written CSV parses clean as a shorter station list, so a
+// failed write must leave the previous copy exactly as it was rather than
+// truncate it. Proved with a read-only directory, which stops a new file being
+// created but not an existing one being opened for writing — the difference
+// between os.Rename and os.WriteFile.
+func TestFetchMetadataDoesNotTruncateTheCacheWhenTheWriteFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory permissions this test relies on")
+	}
+	header := "Countrycode\tSamplingPoint\tAirQualityStationEoICode\tAirQualityStationNatCode\tLongitude\tLatitude\tAirQualityStationType\tAirQualityStationArea\n"
+	row := "BG\tSP1\tCODE1\tNAT1\t23.32\t42.69\tbackground\turban\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(header + row))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "PanEuropean_metadata.csv")
+	const previous = "the previous cycle's copy\n"
+	if err := os.WriteFile(path, []byte(previous), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	cfg := testConfig(srv.URL, srv.URL)
+	cfg.MetadataCache = dir
+	if _, err := eea.New(cfg).FetchMetadata(context.Background()); err != nil {
+		t.Fatalf("a failed cache write must not fail the fetch: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != previous {
+		t.Errorf("cache file = %q, want the previous copy %q untouched", got, previous)
+	}
+}
+
+// The failure path has to clean up after itself too. A directory where the
+// cache file belongs lets the temp file be created and written and makes only
+// the rename fail, which is the one window in which a temp file can be
+// stranded; a cycle-per-hour collector would otherwise fill the disk with them.
+func TestFetchMetadataRemovesItsTempFileWhenTheRenameFails(t *testing.T) {
+	header := "Countrycode\tSamplingPoint\tAirQualityStationEoICode\tAirQualityStationNatCode\tLongitude\tLatitude\tAirQualityStationType\tAirQualityStationArea\n"
+	row := "BG\tSP1\tCODE1\tNAT1\t23.32\t42.69\tbackground\turban\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(header + row))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "PanEuropean_metadata.csv"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := testConfig(srv.URL, srv.URL)
+	cfg.MetadataCache = dir
+	if _, err := eea.New(cfg).FetchMetadata(context.Background()); err != nil {
+		t.Fatalf("a failed cache write must not fail the fetch: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("cache dir holds %v, want no temp file left behind", names)
+	}
 }
 
 // The second URL is cut clean at the line boundary, so its absence from the

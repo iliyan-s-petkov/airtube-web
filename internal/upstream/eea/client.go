@@ -172,11 +172,41 @@ func (c *Client) FetchMetadata(ctx context.Context) (Metadata, error) {
 	}
 
 	if c.cfg.MetadataCache != "" {
-		if err := os.WriteFile(metadataCachePath(c.cfg.MetadataCache), raw, 0o644); err != nil {
+		if err := writeCacheFile(metadataCachePath(c.cfg.MetadataCache), raw); err != nil {
 			// A failed cache write does not fail the fetch: the caller has a
 			// good in-memory copy, only the restart fallback is degraded.
 			slog.Warn("eea metadata cache write failed", "error", err)
 		}
 	}
 	return md, nil
+}
+
+// writeCacheFile replaces path in one step. os.WriteFile truncates the target
+// before writing, so a crash or a full disk part-way through a 26 MB write left
+// a short file that Collector.loadMetadata's fallback would parse without
+// error — a valid CSV holding fewer stations, dropping the rest of the official
+// layer silently. The temp file is created in the same directory because
+// os.Rename is atomic only within one filesystem.
+func writeCacheFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+metadataCacheFile+".*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	// Removes the temp file on every failure path below; a no-op once the
+	// rename has moved it away.
+	defer func() { _ = os.Remove(tmp) }()
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// CreateTemp makes the file 0600; the cache was 0644 before this.
+	if err := os.Chmod(tmp, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
