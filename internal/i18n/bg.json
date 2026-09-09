@@ -34,6 +34,8 @@
   "chart.reset": "Върни изгледа",
   "chart.title": "ПМ2.5, последните 24 часа",
   "disclaimer": "Данните от нискобюджетни сензори са индикативни и не са измервания по референтен метод.",
+  "embed.credit.data": "sensor.community, ODbL 1.0",
+  "embed.credit.official": "ИАОС чрез ЕАОС",
   "error.internal.body": "Нещо се обърка. Опитайте отново по-късно.",
   "error.internal.title": "Възникна грешка",
   "error.not_found.body": "Няма такава страница.",

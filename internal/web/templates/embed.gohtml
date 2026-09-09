@@ -77,8 +77,15 @@
      data-t-wind-attribution="{{.T "wind.attribution"}}"></div>
 
 {{/* The credit, and the only way out of the frame. target=_blank because a
-     plain link would load the whole site inside the host's iframe. */}}
+     plain link would load the whole site inside the host's iframe. The data
+     credit sits beside it: the embed drops the site footer, so this is the only
+     place the two networks whose licences require attribution are named. Both
+     hrefs come from .AttributionURL, which reads api.Attributions(), so they
+     cannot drift from the footer's. */}}
+<div class="embed__footline">
 <a class="embed__credit" href="{{.BaseURL}}{{.Path "/"}}" target="_blank" rel="noopener">airbg<span class="tld">.org</span></a>
+<p class="embed__attribution"><a href="{{.AttributionURL "sensor.community"}}" target="_blank" rel="noopener">{{.T "embed.credit.data"}}</a> · <a href="{{.AttributionURL "eea"}}" target="_blank" rel="noopener">{{.T "embed.credit.official"}}</a></p>
+</div>
 </div>
 
 {{/* The chart for a clicked sensor, capped so it can never take the frame from

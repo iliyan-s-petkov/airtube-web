@@ -444,18 +444,28 @@ html:has(> body.embed) { block-size: 100%; }
   padding: var(--space-1) var(--space-2);
 }
 .embed .map-note { left: auto; right: calc(2rem + var(--space-2) + var(--space-2)); }
-/* Whose map this is, and the only way out of the frame. Bottom-left, above the
-   key's own corner content is not: the other three corners are the switcher
-   row, the zoom stack and the attribution. */
-.embed__credit {
+/* Whose map this is, whose data it is, and the only way out of the frame.
+   Bottom-left, because the other three corners are the switcher row, the zoom
+   stack and MapLibre's own attribution. Capped at 70% and wrapping so a long
+   translation grows upwards rather than under that attribution. */
+.embed__footline {
   position: absolute; z-index: 4; bottom: var(--space-2); left: var(--space-2);
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  max-inline-size: 70%;
+}
+.embed__credit, .embed__attribution {
+  margin: 0;
   background: var(--overlay-bg); border-radius: 999px; box-shadow: var(--elev-raised);
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-compact); letter-spacing: var(--track-compact);
-  color: var(--fg); text-decoration: none; font-weight: var(--weight-emphasis);
+  color: var(--fg); text-decoration: none;
 }
+.embed__credit { font-weight: var(--weight-emphasis); }
 .embed__credit:hover { text-decoration: underline; }
 .embed__credit:focus-visible { box-shadow: var(--focus-ring); }
+.embed__attribution a { color: inherit; text-decoration: none; }
+.embed__attribution a:hover { text-decoration: underline; }
+.embed__attribution a:focus-visible { box-shadow: var(--focus-ring); }
 .embed .scale--onmap { inset-block-end: 3.5rem; }
 /* Geolocation is denied by Permissions-Policy and a cross-origin frame needs
    its own allow= besides, so the button could only ever fail here. */

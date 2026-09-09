@@ -34,6 +34,8 @@
   "chart.reset": "Reset view",
   "chart.title": "PM2.5, last 24 hours",
   "disclaimer": "Low-cost sensor readings are indicative and are not reference-method measurements.",
+  "embed.credit.data": "sensor.community, ODbL 1.0",
+  "embed.credit.official": "ИАОС via the EEA",
   "error.internal.body": "Something went wrong. Please try again later.",
   "error.internal.title": "Something went wrong",
   "error.not_found.body": "There is no such page.",

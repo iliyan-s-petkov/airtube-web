@@ -795,3 +795,32 @@ func TestFooterCreditsTheOfficialProgramme(t *testing.T) {
 		}
 	}
 }
+
+// The embed drops the site footer, so it was the one page serving both
+// networks' data without naming either — which ODbL 1.0 requires and the EEA
+// programme expects. Hardcoded URLs for the same reason as above: the template
+// calls PageData.AttributionURL, so a want read from api.Attributions() could
+// never disagree with it.
+func TestEmbedCreditsBothDataSources(t *testing.T) {
+	body := framed(t, renderer(t, fixture(t)), "/embed").Body.String()
+
+	if !strings.Contains(body, `class="embed__attribution"`) {
+		t.Error("the embed carries no data credit")
+	}
+	want := map[string]string{
+		"sensor.community": "https://maps.sensor.community/",
+		"eea":              "https://eea.government.bg/kav/",
+	}
+	for source, url := range want {
+		if !strings.Contains(body, `href="`+url+`"`) {
+			t.Errorf("the embed's %s link is not %q", source, url)
+		}
+	}
+	// The fixture renders in Bulgarian, so these are the bg.json values;
+	// template_keys_test proves the same keys exist in en.json.
+	for _, text := range []string{"sensor.community, ODbL 1.0", "ИАОС чрез ЕАОС"} {
+		if !strings.Contains(body, text) {
+			t.Errorf("the embed's credit does not read %q", text)
+		}
+	}
+}
