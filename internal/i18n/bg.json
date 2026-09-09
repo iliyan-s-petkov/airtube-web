@@ -85,6 +85,7 @@
   "map.legend.tier.sensors": "Всяка клетка е отделен сензор",
   "map.legend.title": "Качество на въздуха",
   "map.legend.toggle": "Легенда",
+  "map.play.exit": "Обратно към текущите стойности",
   "map.play.pause": "Спри анимацията",
   "map.play.play": "Пусни анимацията",
   "map.play.time": "Показан час",

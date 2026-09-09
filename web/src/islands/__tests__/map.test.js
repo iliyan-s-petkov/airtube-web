@@ -329,7 +329,7 @@ describe('readConfig', () => {
         tLocateFailed: 'We could not determine your location.',
         tWindowLabel: 'Averaging period',
         tPlayLabel: 'Play the animation', tPauseLabel: 'Pause the animation',
-        tTimeLabel: 'Hour shown',
+        tTimeLabel: 'Hour shown', tExitLabel: 'Back to the current readings',
         tWindToggle: 'Wind',
         tWindAbout: 'About the wind layer',
         tWindNote: 'Arrows show where the wind blows.',
@@ -351,7 +351,7 @@ describe('readConfig', () => {
       zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomReset: 'Reset view',
       layersButton: 'Layers', layersCaption: 'Show on the map',
       playLabel: 'Play the animation', pauseLabel: 'Pause the animation',
-      timeLabel: 'Hour shown',
+      timeLabel: 'Hour shown', exitLabel: 'Back to the current readings',
       viewLegend: 'Scale', viewBasemap: 'OpenStreetMap basemap',
       viewCellValues: 'Cell values',
       viewInactiveSensors: 'Inactive sensors',
@@ -811,7 +811,7 @@ describe('installTimelapse', () => {
       getBounds: () => ({ getWest: () => 23, getSouth: () => 42, getEast: () => 24, getNorth: () => 43 }),
       getSource: () => ({ setData: (d) => painted.push(d) }),
     }
-    const ui = mountPlayer(document.createElement('div'), { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause' })
+    const ui = mountPlayer(document.createElement('div'), { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now' })
     const state = { scales: null, hexUrl: null, window: '24h' }
     const ctl = installTimelapse(map, state, cfg, { player: ui }, fetchJSON)
     return { painted, ui, state, ctl, map }
@@ -872,6 +872,52 @@ describe('installTimelapse', () => {
 
     expect(ui.button.getAttribute('aria-pressed')).toBe('false')
     expect(painted.at(-1).features[0].properties.value).toBe(20)
+  })
+
+  // Scrubbing pauses without restoring, so a reader who drags the slider and
+  // stops is left on a past hour. The exit is the only way back to now from
+  // there: pressing play again would replay, not return.
+  it('goes back to the live grid from a scrubbed frame', async () => {
+    const LIVE = { resolution_km: 15, hexes: [{ lon: 23, lat: 42, values: { P2: 99 } }] }
+    const fetchJSON = async (url) => (url.includes('timelapse') ? BODY : LIVE)
+    const { ui, painted, state, map } = harness(fetchJSON)
+
+    await refreshHexes(map, state, cfg, fetchJSON)
+    ui.button.click()
+    await vi.waitFor(() => expect(painted.at(-1).features[0].properties.value).toBe(10))
+
+    ui.slider.value = '1'
+    ui.slider.dispatchEvent(new Event('input'))
+    expect(painted.at(-1).features[0].properties.value).toBe(20)
+
+    ui.exit.click()
+    await vi.waitFor(() => expect(painted.at(-1).features[0].properties.value).toBe(99))
+  })
+
+  // Leaving the animation collapses the control back to the play button: a
+  // scrubber left on screen over a live map is a control with nothing behind it.
+  // The held body survives, so coming back costs no second fetch.
+  it('collapses the scrubber on exit, and reopens it without a refetch', async () => {
+    const asked = []
+    const LIVE = { resolution_km: 15, hexes: [] }
+    const { ui } = harness(async (url) => {
+      asked.push(url)
+      return url.includes('timelapse') ? BODY : LIVE
+    })
+
+    ui.button.click()
+    await vi.waitFor(() => expect(ui.slider.hidden).toBe(false))
+    expect(ui.exit.hidden).toBe(false)
+
+    ui.exit.click()
+    await vi.waitFor(() => expect(ui.slider.hidden).toBe(true))
+    expect(ui.exit.hidden).toBe(true)
+    expect(ui.button.getAttribute('aria-pressed')).toBe('false')
+
+    ui.button.click()
+    await vi.waitFor(() => expect(ui.slider.hidden).toBe(false))
+    expect(asked.filter((u) => u.includes('timelapse'))).toHaveLength(1)
+    ui.button.click()
   })
 
   // A different window is a different animation: keeping the old body would
