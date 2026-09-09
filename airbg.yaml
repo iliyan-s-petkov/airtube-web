@@ -197,6 +197,19 @@ wind:
   max_payload_bytes: 16777216
   retention: "48h"
 
+# The official reference stations. See internal/upstream/eea/README.md.
+eea:
+  enabled: true
+  url: "https://eeadmz1-downloads-api-appservice.azurewebsites.net"
+  metadata_url: "https://discomap.eea.europa.eu/map/fme/metadata/PanEuropean_metadata.csv"
+  metadata_cache: "/var/lib/airbg/eea"
+  countries: ["BG"]
+  request_timeout: "60s"
+  poll_interval: "1h"
+  min_poll_interval: "30m"
+  metadata_interval: "168h"
+  max_payload_bytes: 67108864
+
 store:
   # Minimum sensors before an area gets a value at all. Below it the area is
   # painted "no data" — one sensor must never be presented as an oblast.

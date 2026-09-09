@@ -16,6 +16,7 @@ type raw struct {
 	Cache     *rawCache     `yaml:"cache"`
 	Upstream  *rawUpstream  `yaml:"upstream"`
 	Wind      *rawWind      `yaml:"wind"`
+	EEA       *rawEEA       `yaml:"eea"`
 	Store     *rawStore     `yaml:"store"`
 	Series    *rawSeries    `yaml:"series"`
 	Quality   *rawQuality   `yaml:"quality"`
@@ -131,6 +132,21 @@ type rawWind struct {
 	PointsPerReq    *int      `yaml:"points_per_request"`
 	MaxPayloadBytes *int64    `yaml:"max_payload_bytes"`
 	Retention       *Duration `yaml:"retention"`
+}
+
+// rawEEA configures the official-station feed. Shaped like rawWind: enabled is
+// an explicit key, and the block is validated whether or not it is on.
+type rawEEA struct {
+	Enabled          *bool     `yaml:"enabled"`
+	URL              *string   `yaml:"url"`
+	MetadataURL      *string   `yaml:"metadata_url"`
+	MetadataCache    *string   `yaml:"metadata_cache"`
+	Countries        *[]string `yaml:"countries"`
+	RequestTimeout   *Duration `yaml:"request_timeout"`
+	PollInterval     *Duration `yaml:"poll_interval"`
+	MinPollInterval  *Duration `yaml:"min_poll_interval"`
+	MetadataInterval *Duration `yaml:"metadata_interval"`
+	MaxPayloadBytes  *int64    `yaml:"max_payload_bytes"`
 }
 
 type rawStore struct {

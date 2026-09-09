@@ -68,6 +68,7 @@ func (c Config) Validate() error {
 	c.validateRateLimit(&p)
 	c.validateUpstreamAndCache(&p)
 	c.validateWind(&p)
+	c.validateEEA(&p)
 	c.validateStoreAndSeries(&p)
 	c.validateQuality(&p)
 	c.validateFrontend(&p)
@@ -293,6 +294,49 @@ func (c Config) validateWind(p *problems) {
 	// still serving, which reads as a layer that goes blank at the far end.
 	if h := time.Duration(c.Wind.ForecastHours) * time.Hour; c.Wind.Retention < h {
 		p.addf("wind.retention (%v) is shorter than wind.forecast_hours (%v); stored forecasts would expire while still being served", c.Wind.Retention, h)
+	}
+}
+
+// validateEEA runs whether or not the feed is enabled, so a bad setting fails
+// at startup rather than when an operator switches it on.
+func (c Config) validateEEA(p *problems) {
+	for name, raw := range map[string]string{"eea.url": c.EEA.URL, "eea.metadata_url": c.EEA.MetadataURL} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			p.addf("%s = %q is not a URL: %v", name, raw, err)
+			continue
+		}
+		if u.Scheme != "https" {
+			p.addf("%s = %q must use https", name, raw)
+		}
+		if u.Host == "" {
+			p.addf("%s = %q must be absolute", name, raw)
+		}
+	}
+
+	if len(c.EEA.Countries) == 0 {
+		p.addf("eea.countries must name at least one ISO 3166-1 alpha-2 code")
+	}
+	for _, code := range c.EEA.Countries {
+		if !IsCountryCode(code) {
+			p.addf("eea.countries contains %q, which is not an ISO 3166-1 alpha-2 code", code)
+		}
+	}
+
+	p.positive("eea.request_timeout", c.EEA.RequestTimeout)
+	p.positive("eea.poll_interval", c.EEA.PollInterval)
+	p.positive("eea.min_poll_interval", c.EEA.MinPollInterval)
+	p.positive("eea.metadata_interval", c.EEA.MetadataInterval)
+
+	if c.EEA.PollInterval > 0 && c.EEA.MinPollInterval > 0 && c.EEA.PollInterval < c.EEA.MinPollInterval {
+		p.addf("eea.poll_interval (%v) is below eea.min_poll_interval (%v); the agency's own cadence is hourly",
+			c.EEA.PollInterval, c.EEA.MinPollInterval)
+	}
+	if c.EEA.MaxPayloadBytes <= 0 {
+		p.addf("eea.max_payload_bytes must be positive, got %d", c.EEA.MaxPayloadBytes)
+	}
+	if c.EEA.MetadataCache == "" {
+		p.addf("eea.metadata_cache must name a directory for the coordinate file")
 	}
 }
 

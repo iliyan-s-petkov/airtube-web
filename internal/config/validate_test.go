@@ -533,3 +533,34 @@ func TestTilesPublicURLShape(t *testing.T) {
 		})
 	}
 }
+
+func TestEEAValidationRejectsBadSettings(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"http url":             func(c *Config) { c.EEA.URL = "http://example.invalid" },
+		"relative url":         func(c *Config) { c.EEA.URL = "/ParquetFile" },
+		"no countries":         func(c *Config) { c.EEA.Countries = nil },
+		"zero poll interval":   func(c *Config) { c.EEA.PollInterval = 0 },
+		"poll under minimum":   func(c *Config) { c.EEA.PollInterval = time.Minute; c.EEA.MinPollInterval = time.Hour },
+		"zero payload bound":   func(c *Config) { c.EEA.MaxPayloadBytes = 0 },
+		"metadata url is http": func(c *Config) { c.EEA.MetadataURL = "http://example.invalid/x.csv" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := validConfig(t)
+			mutate(&c)
+			if err := c.Validate(); err == nil {
+				t.Errorf("Validate accepted %s", name)
+			}
+		})
+	}
+}
+
+// The block is validated even when disabled, so an operator turning it on does
+// not discover the settings are wrong at that moment.
+func TestEEAIsValidatedWhenDisabled(t *testing.T) {
+	c := validConfig(t)
+	c.EEA.Enabled = false
+	c.EEA.URL = "not a url at all"
+	if err := c.Validate(); err == nil {
+		t.Error("Validate skipped the eea block because it was disabled")
+	}
+}

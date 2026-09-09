@@ -402,6 +402,18 @@ func resolve(r *raw) Config {
 			MaxPayloadBytes: *r.Wind.MaxPayloadBytes,
 			Retention:       r.Wind.Retention.Std(),
 		},
+		EEA: EEA{
+			Enabled:          *r.EEA.Enabled,
+			URL:              *r.EEA.URL,
+			MetadataURL:      *r.EEA.MetadataURL,
+			MetadataCache:    *r.EEA.MetadataCache,
+			Countries:        *r.EEA.Countries,
+			RequestTimeout:   r.EEA.RequestTimeout.Std(),
+			PollInterval:     r.EEA.PollInterval.Std(),
+			MinPollInterval:  r.EEA.MinPollInterval.Std(),
+			MetadataInterval: r.EEA.MetadataInterval.Std(),
+			MaxPayloadBytes:  *r.EEA.MaxPayloadBytes,
+		},
 		Store: Store{
 			CoverageThreshold: *r.Store.CoverageThreshold,
 			FreshnessWindow:   r.Store.FreshnessWindow.Std(),
