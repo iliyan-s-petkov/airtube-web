@@ -1087,7 +1087,7 @@ export function repaintSensors(map, state, cfg) {
 // setSourceViewAvailability disables a network's checkbox when it cannot act,
 // and says which of the two reasons it is in the label.
 //
-// no data for metric: the five gases exist only at EEA stations, the weather
+// no data for metric: the six gases exist only at EEA stations, the weather
 // metrics only on sensor.community devices.
 //
 // away from the sensor tier: the filter only ever governs sensor markers, and

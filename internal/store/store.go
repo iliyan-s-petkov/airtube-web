@@ -25,6 +25,13 @@ func New(pool *pgxpool.Pool, cfg config.Store, seriesTimeout time.Duration) *Sto
 	return &Store{pool: pool, cfg: cfg, seriesTimeout: seriesTimeout}
 }
 
+// OfficialSensorIDFloor is the id at and above which a sensor must be an EEA
+// station. It mirrors migration 00012's CHECK and official_sensor_id_seq's
+// START WITH. Callers filter on it before upserting so that a colliding
+// upstream id is dropped as one row: pgx.Batch fails whole, so leaving it to
+// the CHECK would cost the entire ingest cycle.
+const OfficialSensorIDFloor int64 = 9_000_000_000
+
 // UpsertSensors records every distinct sensor in the batch. Location is
 // refreshed on conflict because sensors are occasionally relocated upstream.
 // country maps sensor ID to the ISO 3166-1 alpha-2 code of the boundary that

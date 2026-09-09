@@ -154,6 +154,29 @@ func TestRunOnceStoresScoredReadings(t *testing.T) {
 	}
 }
 
+// A community id in the official range would violate migration 00012's CHECK,
+// and pgx.Batch fails whole — so without the filter this cycle stores nothing
+// at all rather than losing the one bad row.
+func TestRunOnceDropsReservedIDsWithoutLosingTheCycle(t *testing.T) {
+	ts := time.Date(2026, 1, 15, 8, 3, 0, 0, time.UTC)
+	f := stubFetcher{readings: []upstream.Reading{
+		reading(1, "temperature", 22, 0, ts),
+		reading(store.OfficialSensorIDFloor, "temperature", 21, 0.01, ts),
+	}}
+	ctx, _, ing := newIngester(t, f)
+
+	stats, err := ing.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if stats.RejectedReservedID != 1 {
+		t.Errorf("RejectedReservedID = %d, want 1", stats.RejectedReservedID)
+	}
+	if stats.Written != 1 {
+		t.Errorf("Written = %d, want 1 — the good reading must survive the bad one", stats.Written)
+	}
+}
+
 func TestRunOncePropagatesFetchFailure(t *testing.T) {
 	wantErr := errors.New("upstream down")
 	ctx, _, ing := newIngester(t, stubFetcher{err: wantErr})

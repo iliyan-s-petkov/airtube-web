@@ -415,10 +415,10 @@ func TestFileURLsBoundsTheBody(t *testing.T) {
 	cfg := testConfig(srv.URL, srv.URL)
 	cfg.MaxPayloadBytes = int64(len(line1))
 	urls, _, err := eea.New(cfg).FileURLs(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, eea.ErrPayloadTooLarge) {
+		t.Fatalf("err = %v, want ErrPayloadTooLarge: a cut list parses as a shorter list, so a short read would drop files silently", err)
 	}
-	if len(urls) != 1 {
-		t.Errorf("got %d urls, want 1 — the second line should have been cut by MaxPayloadBytes", len(urls))
+	if urls != nil {
+		t.Errorf("got %d urls alongside the error, want none", len(urls))
 	}
 }

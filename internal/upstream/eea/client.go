@@ -115,7 +115,10 @@ func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err
 		return nil, 0, fmt.Errorf("eea: file urls: status %d", resp.StatusCode)
 	}
 
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, c.cfg.MaxPayloadBytes))
+	// A cut list is still a valid list, holding fewer files: truncation drops
+	// part of the official layer with no signal, so this is ErrPayloadTooLarge
+	// rather than a short read.
+	raw, err := readBounded(resp.Body, c.cfg.MaxPayloadBytes)
 	if err != nil {
 		return nil, 0, fmt.Errorf("eea: file urls: read body: %w", err)
 	}
