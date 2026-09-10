@@ -117,8 +117,11 @@ window (so it is computed once per build and copied):
   fetch), as `onSensorStatusChange` already does.
 - `setSourceViewAvailability(chrome, metric, t, coverage)` replaces the
   `onSensorTier` gate. Both checkboxes are always enabled. Label text:
-  - `coverage[s][metric] > 0` → `"{label} — {count}"` using a new i18n key
-    `map.view.station_count` = "{n} with data" (EN) / "{n} с данни" (BG).
+  - `coverage[s][metric] > 0` → `` `${label} — ${count} ${t.withData}` ``, with a
+    new i18n key `map.view.with_data` = "with data" (EN) / "с данни" (BG). The
+    number is composed client-side, as `sensorCountLine` already does:
+    `i18n.Catalogue.T` takes no parameters, so a sentence with a number in it is
+    assembled from catalogue parts.
   - otherwise → `"{label} — {t.notMeasured}"`, checkbox still enabled (the
     reader may turn it off; it hides nothing).
 - `state.onSensorTier`, `t.sensorTierOnly`, `tSensorTierOnly`, and i18n key
@@ -152,7 +155,10 @@ Vitest (`web/src/lib/__tests__/hexes.test.js`, `sourcefilter.test.js`,
 - `onSourceChange` triggers a grid repaint with zero fetches.
 - `setSourceViewAvailability` renders "Official stations — 4 with data" for P2
   and keeps both inputs enabled on the country tier; renders `notMeasured`
-  when the count is 0.
+  when the count is 0. Its tier-gate tests (`map.test.js` "disables both away
+  from the sensor tier", "disables the network checkboxes at the country tier",
+  "re-enables a network when the map returns to the sensor tier") are replaced
+  rather than kept.
 - `measuredBy` tests are deleted with the function.
 
 Playwright (`web/e2e/sources.spec.js`):
