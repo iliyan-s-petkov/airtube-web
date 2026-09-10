@@ -6,7 +6,9 @@ package api
 //
 // Sources:
 //   - EAQI: European Environment Agency, European Air Quality Index bands for
-//     PM10 and PM2.5 (24-hour running mean).
+//     PM10, PM2.5, NO2, O3 and SO2. The particulate bands are 24-hour running
+//     means; the gas bands are hourly means, which is exactly the cadence the
+//     official stations publish (internal/upstream/eea).
 //   - EU limit values: Directive 2008/50/EC — PM10 50 µg/m³ daily,
 //     PM2.5 25 µg/m³ annual.
 //   - WHO: 2021 Global Air Quality Guidelines — PM10 45 µg/m³ 24-hour,
@@ -88,6 +90,8 @@ func Scales() []Scale {
 		"reference-method measurements."
 	const indicativeBG = "Данните от нискобюджетни сензори са индикативни и не " +
 		"са измервания по референтен метод."
+	const officialOnly = "Measured only at official reference stations."
+	const officialOnlyBG = "Измерва се само в официалните референтни станции."
 
 	particulate := []Scale{
 		{Name: "eaqi", Metric: "P2", Unit: "µg/m³", Bands: eaqiPM25,
@@ -139,11 +143,82 @@ func Scales() []Scale {
 		particulate[i].Ceiling = upper(pmCeiling)
 	}
 
+	// EEA-only metrics. The EAQI publishes bands for three of the six.
+	gasEAQI := func(metric string, edges [5]float64, notes, notesBG string) Scale {
+		colours := [6]string{"#50f0e6", "#50ccaa", "#f0e641", "#ff5050", "#960032", "#7d2181"}
+		labels := [6][2]string{
+			{"Good", "Добро"}, {"Fair", "Задоволително"}, {"Moderate", "Умерено"},
+			{"Poor", "Лошо"}, {"Very poor", "Много лошо"},
+			{"Extremely poor", "Изключително лошо"},
+		}
+		bands := make([]Band, 0, 6)
+		for i := range labels {
+			var up *float64
+			if i < len(edges) {
+				up = upper(edges[i])
+			}
+			bands = append(bands, Band{
+				Label: labels[i][0], LabelBG: labels[i][1], Upper: up, Colour: colours[i],
+			})
+		}
+		// Headroom above the top stated edge so an off-scale reading still
+		// varies visibly rather than clamping flat.
+		ceiling := edges[4] * 1.5
+		return Scale{
+			Name: "eaqi", Metric: metric, Unit: "µg/m³", Bands: bands,
+			Ceiling: &ceiling,
+			Notes:   notes + " " + officialOnly,
+			NotesBG: notesBG + " " + officialOnlyBG,
+			Source:  "https://airindex.eea.europa.eu/",
+		}
+	}
+
+	gases := []Scale{
+		gasEAQI("NO2", [5]float64{40, 90, 120, 230, 340},
+			"European Air Quality Index bands for nitrogen dioxide, hourly mean.",
+			"Класове на Европейския индекс за качество на въздуха за азотен диоксид, часова средна стойност."),
+		gasEAQI("O3", [5]float64{50, 100, 130, 240, 380},
+			"European Air Quality Index bands for ozone, hourly mean.",
+			"Класове на Европейския индекс за качество на въздуха за озон, часова средна стойност."),
+		gasEAQI("SO2", [5]float64{100, 200, 350, 500, 750},
+			"European Air Quality Index bands for sulphur dioxide, hourly mean.",
+			"Класове на Европейския индекс за качество на въздуха за серен диоксид, часова средна стойност."),
+	}
+
+	// No index publishes bands for these three. Axis-only tables give the
+	// metric a unit and the map a ramp, and cite no source, like the meteo
+	// tables.
+	axisOnly := []Scale{
+		{Name: "axis", Metric: "CO", Unit: "µg/m³", Ceiling: upper(10000),
+			Bands: []Band{
+				{Label: "Lower", LabelBG: "По-ниско", Upper: upper(4000), Colour: "#50ccaa"},
+				{Label: "Higher", LabelBG: "По-високо", Upper: nil, Colour: "#ff5050"},
+			},
+			Notes:   "Carbon monoxide has no European Air Quality Index band set; this is an axis, not a health scale. " + officialOnly,
+			NotesBG: "За въглероден оксид няма класове по Европейския индекс за качество на въздуха; това е скала, а не здравна оценка. " + officialOnlyBG},
+		{Name: "axis", Metric: "C6H6", Unit: "µg/m³", Ceiling: upper(20),
+			Bands: []Band{
+				{Label: "Lower", LabelBG: "По-ниско", Upper: upper(5), Colour: "#50ccaa"},
+				{Label: "Higher", LabelBG: "По-високо", Upper: nil, Colour: "#ff5050"},
+			},
+			Notes:   "Benzene has no European Air Quality Index band set; this is an axis, not a health scale. " + officialOnly,
+			NotesBG: "За бензен няма класове по Европейския индекс за качество на въздуха; това е скала, а не здравна оценка. " + officialOnlyBG},
+		{Name: "axis", Metric: "NOX", Unit: "µg/m³", Ceiling: upper(500),
+			Bands: []Band{
+				{Label: "Lower", LabelBG: "По-ниско", Upper: upper(100), Colour: "#50ccaa"},
+				{Label: "Higher", LabelBG: "По-високо", Upper: nil, Colour: "#ff5050"},
+			},
+			Notes:   "Nitrogen oxides as NO2 have no European Air Quality Index band set; this is an axis, not a health scale. " + officialOnly,
+			NotesBG: "За азотни оксиди като NO2 няма класове по Европейския индекс за качество на въздуха; това е скала, а не здравна оценка. " + officialOnlyBG},
+	}
+
 	// The rest of what the network measures. Each states its own ceiling,
 	// because unlike the particulate tables they share no axis: the top of the
 	// temperature bar and the top of the pressure bar are different numbers in
 	// different units.
-	return append(particulate, weather()...)
+	all := append(particulate, gases...)
+	all = append(all, axisOnly...)
+	return append(all, weather()...)
 }
 
 // weather returns the tables for the five non-particulate metrics.

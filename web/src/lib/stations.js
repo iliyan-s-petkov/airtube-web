@@ -28,6 +28,7 @@
 //   first_seen / last_seen
 //            - the device's lifetime as our ingest saw it, metadata about the
 //              readings rather than one of them
+//   source   - which network the row came from, "sensor.community" or "eea"
 //
 // Every other key in the columnar body is a canonical metric column
 // (upstream.CanonicalMetrics, internal/snapshot/build.go). Deriving the metric
@@ -36,6 +37,7 @@
 // frontend change.
 export const META_COLUMNS = new Set([
   'id', 'type', 'lon', 'lat', 'quality', 'station', 'measures', 'first_seen', 'last_seen',
+  'source', 'station_code', 'station_name', 'station_type', 'station_area',
 ])
 
 // metricColumnsOf is every metric the response carries a column for, in the
@@ -50,7 +52,7 @@ export function metricColumnsOf(body) {
 // This is not the same question as "which columns hold a value". Every canonical
 // metric gets a column for every device, so a null in the noise column says both
 // "this address has no microphone" and "the microphone's reading was rejected" —
-// and the panel printed "no reading" for all seven metrics on every station in
+// and the panel printed "no reading" for every metric on every station in
 // the country as a result. The server answers the first question outright (the
 // `measures` column, build.go's measuresOf); this joins its members' answers.
 //

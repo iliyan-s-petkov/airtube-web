@@ -17,8 +17,9 @@ type Reading struct {
 	Timestamp  time.Time
 }
 
-// canonicalMetrics is the exact set stored. Upstream sends many more
-// (durP1, ratioP1, signal, …); everything outside this set is dropped.
+// canonicalMetrics is the exact set stored; anything else upstream sends is
+// dropped. The last six come only from internal/upstream/eea — no
+// sensor.community device measures them.
 var canonicalMetrics = map[string]bool{
 	"P1":           true,
 	"P2":           true,
@@ -27,6 +28,12 @@ var canonicalMetrics = map[string]bool{
 	"pressure":     true,
 	"noise_LAeq":   true,
 	"noise_LA_max": true,
+	"SO2":          true,
+	"O3":           true,
+	"NO2":          true,
+	"NOX":          true,
+	"CO":           true,
+	"C6H6":         true,
 }
 
 func IsCanonicalMetric(m string) bool { return canonicalMetrics[m] }

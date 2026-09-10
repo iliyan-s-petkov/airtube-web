@@ -65,6 +65,7 @@
      data-t-zoom-reset="{{.T "map.zoom.reset"}}"
      {{template "mapLayerLabels" .}}
      data-t-hint="{{.T "map.hint.select_area"}}"
+     data-t-no-sources="{{.T "map.hint.no_sources"}}"
      data-t-rate-limited="{{.T "map.error.rate_limited"}}"
      data-t-unavailable="{{.T "map.error.unavailable"}}"
      data-t-unscaled="{{.T "metric.unscaled"}}"
@@ -77,8 +78,15 @@
      data-t-wind-attribution="{{.T "wind.attribution"}}"></div>
 
 {{/* The credit, and the only way out of the frame. target=_blank because a
-     plain link would load the whole site inside the host's iframe. */}}
+     plain link would load the whole site inside the host's iframe. The data
+     credit sits beside it: the embed drops the site footer, so this is the only
+     place the two networks whose licences require attribution are named. Both
+     hrefs come from .AttributionURL, which reads api.Attributions(), so they
+     cannot drift from the footer's. */}}
+<div class="embed__footline">
 <a class="embed__credit" href="{{.BaseURL}}{{.Path "/"}}" target="_blank" rel="noopener">airbg<span class="tld">.org</span></a>
+<p class="embed__attribution"><a href="{{.AttributionURL "sensor.community"}}" target="_blank" rel="noopener">{{.T "embed.credit.data"}}</a> · <a href="{{.AttributionURL "eea"}}" target="_blank" rel="noopener">{{.T "embed.credit.official"}}</a></p>
+</div>
 </div>
 
 {{/* The chart for a clicked sensor, capped so it can never take the frame from
@@ -118,7 +126,11 @@
      data-t-detail-hardware="{{.T "panel.detail.hardware"}}"
      data-t-detail-since="{{.T "panel.detail.since"}}"
      data-t-detail-updated="{{.T "panel.detail.updated"}}"
-     data-t-detail-coords="{{.T "panel.detail.coords"}}"></div>
+     data-t-detail-coords="{{.T "panel.detail.coords"}}"
+     data-t-network="{{.T "panel.network"}}"
+     data-t-station-code="{{.T "panel.station.code"}}"
+     data-t-station-type="{{.T "panel.station.type"}}"
+     data-t-station-area="{{.T "panel.station.area"}}"></div>
 
 {{/* Both the no-JavaScript fallback and the text alternative: a frame with no
      bundle is an empty box otherwise. */}}

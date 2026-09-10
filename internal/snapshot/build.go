@@ -89,6 +89,14 @@ type sensorColumns struct {
 	// distinct from reporting zero, and must stay distinct: 0 µg/m³ is a
 	// reading, absence is not.
 	Metrics map[string][]*float64 `json:"-"`
+	// Source is "sensor.community" or "eea", one per row, len(ID).
+	Source []string `json:"source"`
+	// EEA classification, empty strings for a sensor.community device. Each
+	// len(ID).
+	StationCode []string `json:"station_code"`
+	StationName []string `json:"station_name"`
+	StationType []string `json:"station_type"`
+	StationArea []string `json:"station_area"`
 }
 
 // MarshalJSON flattens Metrics into sibling keys of the fixed columns, so the
@@ -97,15 +105,20 @@ type sensorColumns struct {
 // siblings, and Phase 3 reads them that way.
 func (c sensorColumns) MarshalJSON() ([]byte, error) {
 	out := map[string]any{
-		"id":         c.ID,
-		"type":       c.Type,
-		"lon":        c.Lon,
-		"lat":        c.Lat,
-		"quality":    c.Quality,
-		"station":    c.Station,
-		"measures":   c.Measures,
-		"first_seen": c.FirstSeen,
-		"last_seen":  c.LastSeen,
+		"id":           c.ID,
+		"type":         c.Type,
+		"lon":          c.Lon,
+		"lat":          c.Lat,
+		"quality":      c.Quality,
+		"station":      c.Station,
+		"measures":     c.Measures,
+		"first_seen":   c.FirstSeen,
+		"last_seen":    c.LastSeen,
+		"source":       c.Source,
+		"station_code": c.StationCode,
+		"station_name": c.StationName,
+		"station_type": c.StationType,
+		"station_area": c.StationArea,
 	}
 	for metric, col := range c.Metrics {
 		out[metric] = col
@@ -293,6 +306,12 @@ func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPaylo
 		LastSeen:  make([]time.Time, 0, n),
 		Station:   stationIDs(sensors),
 		Metrics:   make(map[string][]*float64),
+
+		Source:      make([]string, 0, n),
+		StationCode: make([]string, 0, n),
+		StationName: make([]string, 0, n),
+		StationType: make([]string, 0, n),
+		StationArea: make([]string, 0, n),
 	}
 	// Every canonical metric gets a column of exactly n entries, present or
 	// not. A ragged payload — where P2 has 40 entries and pressure has 3 — has
@@ -311,6 +330,11 @@ func sensorPayloadFrom(now time.Time, sensors []store.SensorReading) sensorPaylo
 		cols.Measures = append(cols.Measures, measuresOf(sr, metrics))
 		cols.FirstSeen = append(cols.FirstSeen, sr.FirstSeen)
 		cols.LastSeen = append(cols.LastSeen, sr.LastSeen)
+		cols.Source = append(cols.Source, sr.Source)
+		cols.StationCode = append(cols.StationCode, sr.StationCode)
+		cols.StationName = append(cols.StationName, sr.StationName)
+		cols.StationType = append(cols.StationType, sr.StationType)
+		cols.StationArea = append(cols.StationArea, sr.StationArea)
 		for _, m := range metrics {
 			if v, ok := sr.Values[m]; ok {
 				value := v

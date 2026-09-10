@@ -3,16 +3,16 @@
   // control the table's Колони menu uses, so the two menus on this site look
   // and behave alike.
   //
-  // A row of seven segments was ~810px of buttons: it wrapped to two lines on a
-  // desktop frame and to four on a phone, and it pushed the map — the thing the
-  // metric is about — below the fold. A button that names the current metric
-  // says the same thing in one line and hands the other six to the reader who
-  // wants them.
+  // A row of one segment per metric was ~810px of buttons at seven metrics, and
+  // is wider now: it wrapped to two lines on a desktop frame and to four on a
+  // phone, and it pushed the map — the thing the metric is about — below the
+  // fold. A button that names the current metric says the same thing in one line
+  // and hands the rest to the reader who wants them.
   //
   // Inside the panel it is still a radio set, for the reason it always was
   // (DESIGN.md §5.6): the metrics are mutually exclusive, so the reader gets one
   // Tab stop with arrow-key roving and the chosen metric announced as selected
-  // rather than as one pressed button among seven.
+  // rather than as one pressed button in a row.
   import { closeOnEscape, closeOnOutside } from '../lib/menu.js'
 
   // `id` because a page may carry two of these — the area page has its own

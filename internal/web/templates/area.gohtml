@@ -130,6 +130,7 @@
      data-t-zoom-reset="{{.T "map.zoom.reset"}}"
      {{template "mapLayerLabels" .}}
      data-t-hint="{{.T "map.hint.select_area"}}"
+     data-t-no-sources="{{.T "map.hint.no_sources"}}"
      data-t-rate-limited="{{.T "map.error.rate_limited"}}"
      data-t-unavailable="{{.T "map.error.unavailable"}}"
      data-t-unscaled="{{.T "metric.unscaled"}}"
@@ -188,7 +189,11 @@
      data-t-detail-hardware="{{.T "panel.detail.hardware"}}"
      data-t-detail-since="{{.T "panel.detail.since"}}"
      data-t-detail-updated="{{.T "panel.detail.updated"}}"
-     data-t-detail-coords="{{.T "panel.detail.coords"}}"></div>
+     data-t-detail-coords="{{.T "panel.detail.coords"}}"
+     data-t-network="{{.T "panel.network"}}"
+     data-t-station-code="{{.T "panel.station.code"}}"
+     data-t-station-type="{{.T "panel.station.type"}}"
+     data-t-station-area="{{.T "panel.station.area"}}"></div>
 
 {{if .Area.Covered}}
   {{/* The chart island, last on the page — after the map and the card the map

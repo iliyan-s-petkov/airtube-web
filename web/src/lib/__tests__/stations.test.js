@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stationsOf, stationMembers, readingAt, measuresAt, metricColumnsOf } from '../stations.js'
+import { stationsOf, stationMembers, readingAt, measuresAt, metricColumnsOf, META_COLUMNS } from '../stations.js'
 import { normaliseSensor } from '../sensors.svelte.js'
 import { countSensors } from '../sensorcount.js'
 import { sensorFeatures } from '../../islands/map.js'
@@ -156,6 +156,29 @@ describe('metricColumnsOf', () => {
   it('is the metric columns and nothing else', () => {
     expect(metricColumnsOf(body())).toEqual(['P1', 'P2', 'temperature', 'humidity', 'pressure', 'noise_LAeq'])
   })
+
+  // The metric list is derived by EXCLUSION from META_COLUMNS, so a source or
+  // station_* column missing from that set would be offered to the reader as a
+  // pollutant reading. Checking the derived list (not just Set membership)
+  // is what would actually fail if one of the five were dropped from
+  // META_COLUMNS while this body still carried it.
+  it('excludes the source and station columns from the metric list', () => {
+    const b = body()
+    b.sensors.source = ['sensor.community', 'sensor.community', 'eea']
+    b.sensors.station_code = ['', '', 'BG0070A']
+    b.sensors.station_name = ['', '', 'Пловдив Каменица']
+    b.sensors.station_type = ['', '', 'background']
+    b.sensors.station_area = ['', '', 'urban']
+    expect(metricColumnsOf(b)).toEqual(['P1', 'P2', 'temperature', 'humidity', 'pressure', 'noise_LAeq'])
+  })
+})
+
+// stations.js derives the metric list by EXCLUSION from this set. A non-metric
+// column missing from it is offered to the reader as if it were a reading.
+it('knows the source columns are not metrics', () => {
+  for (const col of ['source', 'station_code', 'station_name', 'station_type', 'station_area']) {
+    expect(META_COLUMNS.has(col)).toBe(true)
+  }
 })
 
 describe('measuresAt', () => {

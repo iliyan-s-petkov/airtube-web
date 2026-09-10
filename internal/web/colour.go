@@ -16,9 +16,8 @@ import "airbg.org/internal/api"
 // boundary cases.
 //
 // An empty string, not a colour, when there is no band table for the metric or
-// no value: five of the seven metrics have no bands at all, and a swatch that
-// is a colour anyway would assert a class the scale does not claim. The caller
-// renders the chip without a swatch instead.
+// no value: a swatch drawn anyway would assert a class the scale does not
+// claim. The caller renders the chip without a swatch instead.
 // gaugeUnit is the only unit an arc is drawn for. A particulate reading starts
 // at zero and gets worse, so the share of the scale it has used up is a fact
 // about the air. Pressure, temperature and noise do not work that way — 1013

@@ -16,6 +16,7 @@ type raw struct {
 	Cache     *rawCache     `yaml:"cache"`
 	Upstream  *rawUpstream  `yaml:"upstream"`
 	Wind      *rawWind      `yaml:"wind"`
+	EEA       *rawEEA       `yaml:"eea"`
 	Store     *rawStore     `yaml:"store"`
 	Series    *rawSeries    `yaml:"series"`
 	Quality   *rawQuality   `yaml:"quality"`
@@ -133,9 +134,26 @@ type rawWind struct {
 	Retention       *Duration `yaml:"retention"`
 }
 
+// rawEEA configures the official-station feed. Shaped like rawWind: enabled is
+// an explicit key, and the block is validated whether or not it is on.
+type rawEEA struct {
+	Enabled          *bool     `yaml:"enabled"`
+	URL              *string   `yaml:"url"`
+	MetadataURL      *string   `yaml:"metadata_url"`
+	MetadataCache    *string   `yaml:"metadata_cache"`
+	FileHosts        *[]string `yaml:"file_hosts"`
+	Countries        *[]string `yaml:"countries"`
+	RequestTimeout   *Duration `yaml:"request_timeout"`
+	PollInterval     *Duration `yaml:"poll_interval"`
+	MinPollInterval  *Duration `yaml:"min_poll_interval"`
+	MetadataInterval *Duration `yaml:"metadata_interval"`
+	MaxPayloadBytes  *int64    `yaml:"max_payload_bytes"`
+}
+
 type rawStore struct {
-	CoverageThreshold *int      `yaml:"coverage_threshold"`
-	FreshnessWindow   *Duration `yaml:"freshness_window"`
+	CoverageThreshold       *int      `yaml:"coverage_threshold"`
+	FreshnessWindow         *Duration `yaml:"freshness_window"`
+	OfficialFreshnessWindow *Duration `yaml:"official_freshness_window"`
 }
 
 type rawSeries struct {
@@ -195,6 +213,16 @@ type rawRanges struct {
 	Pressure    *rawRange `yaml:"pressure"`
 	NoiseLAeq   *rawRange `yaml:"noise_LAeq"`
 	NoiseLAMax  *rawRange `yaml:"noise_LA_max"`
+	// The six gases come only from the EEA official layer. They are fields
+	// rather than map entries for the same reason the rest are: the metric set
+	// is a code fact (upstream.CanonicalMetrics), so a metric typed here that
+	// does not exist must be a strict-decode error.
+	SO2  *rawRange `yaml:"SO2"`
+	O3   *rawRange `yaml:"O3"`
+	NO2  *rawRange `yaml:"NO2"`
+	NOX  *rawRange `yaml:"NOX"`
+	CO   *rawRange `yaml:"CO"`
+	C6H6 *rawRange `yaml:"C6H6"`
 }
 
 type rawRange struct {

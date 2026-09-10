@@ -46,15 +46,33 @@ type AreaAggregate struct {
 // summary changes between them — the freshness rule, the coverage rule and
 // the projection must not, or the two answers would disagree about which areas
 // exist and how many stations they have.
-const latestCTE = `
+// freshnessPredicate admits a reading under whichever cutoff applies to its
+// source. $1 is the wider official cutoff so the index range scan keeps a single
+// lower bound; the second parameter tightens it back for community devices.
+// Source is read off the sensor id rather than joined from sensor: migration
+// 00012 constrains 'eea' and the 9e9 id range to mean the same thing, and the
+// join would run per reading row.
+const freshnessPredicate = `r.time >= $1
+       AND (r.sensor_id >= %d OR r.time >= $%d)`
+
+func latestCTE(communityCutoff int) string {
+	return fmt.Sprintf(`
 latest AS (
     SELECT DISTINCT ON (r.sensor_id, r.metric)
            r.sensor_id, r.metric, r.value
       FROM reading r
-     WHERE r.time >= $1
+     WHERE `+freshnessPredicate+`
        AND r.quality = ANY($2::quality_flag[])
      ORDER BY r.sensor_id, r.metric, r.time DESC
-)`
+)`, OfficialSensorIDFloor, communityCutoff)
+}
+
+// cutoffs are the two freshness bounds, official first — the order the queries
+// bind them in.
+func (s *Store) cutoffs() (official, community time.Time) {
+	now := time.Now().UTC()
+	return now.Add(-s.cfg.OfficialFreshnessWindow), now.Add(-s.cfg.FreshnessWindow)
+}
 
 const perAreaCTE = `
 per_area AS (
@@ -102,7 +120,7 @@ SELECT a.slug, a.kind, a.name_bg, a.name_en,
  WHERE a.kind = ANY($3::text[])
  ORDER BY a.slug`
 
-var areaAggregateSQL = "WITH" + latestCTE + "," + perAreaCTE + "," + coverageCTE + areaAggregateSelect
+var areaAggregateSQL = "WITH" + latestCTE(4) + "," + perAreaCTE + "," + coverageCTE + areaAggregateSelect
 
 // AreaAggregates returns one row per area of the requested kinds, including
 // areas with no sensors at all. Areas below CoverageThreshold come back with
@@ -112,9 +130,9 @@ var areaAggregateSQL = "WITH" + latestCTE + "," + perAreaCTE + "," + coverageCTE
 // kinds is passed as a bound text[] parameter, never interpolated. A slug or
 // kind reaching SQL as text is the legacy application's injection bug.
 func (s *Store) AreaAggregates(ctx context.Context, kinds []string) ([]AreaAggregate, error) {
-	since := time.Now().UTC().Add(-s.cfg.FreshnessWindow)
+	official, community := s.cutoffs()
 
-	rows, err := s.pool.Query(ctx, areaAggregateSQL, since, usableQuality, kinds)
+	rows, err := s.pool.Query(ctx, areaAggregateSQL, official, usableQuality, kinds, community)
 	if err != nil {
 		return nil, fmt.Errorf("store: area aggregates: %w", err)
 	}
@@ -178,6 +196,15 @@ type SensorReading struct {
 	// panel must not call ours one.
 	FirstSeen time.Time
 	LastSeen  time.Time
+	// Source is "sensor.community" or "eea"; the map layer control filters on
+	// it and the sensor panel displays it.
+	Source string
+	// StationCode, StationName, StationType and StationArea are the EEA
+	// classification, empty for a sensor.community device.
+	StationCode string
+	StationName string
+	StationType string
+	StationArea string
 }
 
 // Same split as the area CTEs above, and for the same reason: window.go asks
@@ -185,14 +212,16 @@ type SensorReading struct {
 // value expression may differ. Identity, quality and the measures list are the
 // live answer in both, so a marker does not change colour rules, or appear and
 // disappear, depending on which window the reader picked.
-const latestSensorsCTE = `
+func latestSensorsCTE(communityCutoff int) string {
+	return fmt.Sprintf(`
 latest AS (
     SELECT DISTINCT ON (r.sensor_id, r.metric)
            r.sensor_id, r.metric, r.value, r.quality
       FROM reading r
-     WHERE r.time >= $1
+     WHERE `+freshnessPredicate+`
      ORDER BY r.sensor_id, r.metric, r.time DESC
-)`
+)`, OfficialSensorIDFloor, communityCutoff)
+}
 
 // sensorsSelect is the projection, parameterised by where the published number
 // comes from: valueExpr is what gets rounded into the values object, and
@@ -225,24 +254,27 @@ SELECT s.sensor_id, s.sensor_type,
        -- Unfiltered, unlike the values above: a metric whose latest reading was
        -- rejected for quality is still a metric this device measures.
        array_agg(DISTINCT l.metric::text),
-       s.first_seen, s.last_seen
+       s.first_seen, s.last_seen,
+       s.source, COALESCE(s.station_code, ''), COALESCE(s.station_name, ''),
+       COALESCE(s.station_type, ''), COALESCE(s.station_area, '')
   FROM sensor s
   JOIN latest l ON l.sensor_id = s.sensor_id
 :join
  GROUP BY s.sensor_id, s.sensor_type, s.location, s.country_code,
-          s.first_seen, s.last_seen
+          s.first_seen, s.last_seen, s.source, s.station_code,
+          s.station_name, s.station_type, s.station_area
  ORDER BY s.sensor_id`
 
-var latestSensorsSQL = "WITH" + latestSensorsCTE + sensorsSelect("l.value", "")
+var latestSensorsSQL = "WITH" + latestSensorsCTE(3) + sensorsSelect("l.value", "")
 
 // LatestSensors returns one row per sensor with a fresh reading, carrying every
 // usable metric value. Grouping happens in SQL: the naive join returns one row
 // per sensor-metric pair, and a caller assembling those in Go is one forgotten
-// map lookup away from emitting seven markers where one belongs.
+// map lookup away from emitting one marker per metric where one belongs.
 func (s *Store) LatestSensors(ctx context.Context) ([]SensorReading, error) {
-	since := time.Now().UTC().Add(-s.cfg.FreshnessWindow)
+	official, community := s.cutoffs()
 
-	rows, err := s.pool.Query(ctx, latestSensorsSQL, since, usableQuality)
+	rows, err := s.pool.Query(ctx, latestSensorsSQL, official, usableQuality, community)
 	if err != nil {
 		return nil, fmt.Errorf("store: latest sensors: %w", err)
 	}
@@ -260,7 +292,8 @@ func scanSensorReadings(rows pgx.Rows) ([]SensorReading, error) {
 		var values map[string]float64
 		if err := rows.Scan(&sr.SensorID, &sr.SensorType, &sr.Lon, &sr.Lat,
 			&sr.Country, &sr.AreaSlugs, &sr.Quality, &values, &sr.Measures,
-			&sr.FirstSeen, &sr.LastSeen); err != nil {
+			&sr.FirstSeen, &sr.LastSeen, &sr.Source, &sr.StationCode,
+			&sr.StationName, &sr.StationType, &sr.StationArea); err != nil {
 			return nil, fmt.Errorf("store: scan sensor: %w", err)
 		}
 		if values == nil {

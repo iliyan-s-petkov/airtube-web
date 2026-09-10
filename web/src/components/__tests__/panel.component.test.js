@@ -76,4 +76,36 @@ describe('SensorPanel.svelte', () => {
   it('renders no description list when there is nothing to describe', () => {
     expect(render({ details: [] }).querySelector('.panel-details')).toBeNull()
   })
+
+  // Task 12: an official station's EEA classification (EoI code, type,
+  // area), precomposed by the caller into `meta` rows — see islands/panel.js.
+  it('names an official station rather than a number', () => {
+    const target = render({
+      title: 'Пловдив Каменица',
+      meta: [
+        { key: 'code', label: 'EoI code', value: 'BG0070A' },
+        { key: 'type', label: 'Station type', value: 'background' },
+        { key: 'area', label: 'Area type', value: 'urban' },
+      ],
+    })
+    expect(target.textContent).toContain('Пловдив Каменица')
+    expect(target.textContent).toContain('BG0070A')
+  })
+
+  it('says which network the reading came from', () => {
+    const target = render({ network: 'Network: sensor.community' })
+    expect(target.textContent).toContain('sensor.community')
+  })
+
+  it('shows no network line when there is none to show', () => {
+    expect(render({ network: '' }).querySelector('.panel-network')).toBeNull()
+  })
+
+  // A citizen device has no EEA classification: `meta` arrives empty, and the
+  // panel must show no station-meta block at all rather than an empty list.
+  it('shows no station fields for a citizen device', () => {
+    const target = render({ meta: [] })
+    expect(target.querySelector('.panel-meta')).toBeNull()
+    expect(target.textContent).not.toContain('background')
+  })
 })

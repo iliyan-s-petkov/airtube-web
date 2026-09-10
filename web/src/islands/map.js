@@ -19,6 +19,9 @@ import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.j
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales, findSensor, getSensors } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
+import {
+  filterBySource, getSources, measuredBy, onSourceChange, setSourceEnabled,
+} from '../lib/sourcefilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
@@ -193,6 +196,7 @@ export function mount(el) {
   let unsubscribe = null
   let unprovide = null
   let unfilter = null
+  let unfilterSource = null
   // The finder island is beside this one, not inside it: it names an area and
   // this map is what moves. Registered here, where the camera is.
   const unselect = provideAreaSelect((area) => showArea(map, state, cfg, chrome, area))
@@ -419,11 +423,29 @@ export function mount(el) {
       apply: (on) => setBoundaries(map, state, boundaryState, on),
     }
 
+    // One toggle per network, both on by default (no defaultOff).
+    // setSourceViewAvailability disables the one that has no data for the
+    // selected metric, and both of them away from the sensor tier.
+    const sourceViews = [
+      {
+        id: 'communitySensors',
+        label: cfg.t.viewCommunitySensors,
+        apply: (on) => { setSourceEnabled('sensor.community', on); return on },
+      },
+      {
+        id: 'officialStations',
+        label: cfg.t.viewOfficialStations,
+        apply: (on) => { setSourceEnabled('eea', on); return on },
+      },
+    ]
+
     installLayers(map, chrome.layersUI, {
       labels: cfg.t.layers,
       caption: cfg.t.layersCaption,
-      views: [...chrome.layerViews, windView, boundaryView],
+      views: [...chrome.layerViews, ...sourceViews, windView, boundaryView],
     })
+
+    setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.onSensorTier !== false)
 
     // Wired here rather than in mount(), for the reason the layers menu is: a
     // pick reloads every data layer, and there is nothing to reload until the
@@ -469,6 +491,14 @@ export function mount(el) {
       // The grid too, from the body already held: refreshHexes short-circuits
       // the fetch when the URL has not moved, so this is a repaint, not a call.
       refreshHexes(map, state, cfg)
+    })
+
+    unfilterSource = onSourceChange(() => {
+      repaintSensors(map, state, cfg)
+      // Unticking both networks empties the map, and repaintSensors alone would
+      // leave that unexplained. Recomputed here rather than in repaintSensors
+      // because the hint is chrome, not paint.
+      chrome.showHint(mapHint(cfg.t, { fellBack: state.fellBack, sources: getSources() }))
     })
 
     // What "refresh" MEANS lives here, with the map that owns the data; the
@@ -605,7 +635,11 @@ export function mount(el) {
     if (bounds) map.fitBounds(bounds, { padding: BOUNDARY_FIT_PADDING })
   })
 
-  return { map, chrome, stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.(); unselect() } }
+  return {
+    map,
+    chrome,
+    stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.(); unfilterSource?.(); unselect() },
+  }
 }
 
 // Padding in pixels around a province fitted into the frame. Enough that the
@@ -830,6 +864,7 @@ function onMetricChange(map, state, cfg, chrome, metric) {
   // On every call the URL is unchanged, so refreshHexes recolours the body it
   // holds rather than refetching.
   refreshHexes(map, state, cfg)
+  setSourceViewAvailability(chrome, metric, cfg.t, state.onSensorTier !== false)
 }
 
 // The colour half of a metric change: which band table the markers are painted
@@ -924,7 +959,14 @@ async function refresh(map, state, cfg, chrome, force = false, { defer = false }
   // accepted so that enumeration breadth is bounded by deliberate clicks rather
   // than by pan distance.
   const effective = tier === 'sensors' && !state.slug ? 'city' : tier
-  chrome.showHint(effective !== tier ? cfg.t.hint : '')
+  // Held for the source-toggle handler, which recomputes the hint without a
+  // refresh and cannot work the fallback out for itself.
+  state.fellBack = effective !== tier
+  // The source toggles only govern sensor markers, so they are disabled at the
+  // aggregate tiers rather than left live and inert (see repaintSensors).
+  state.onSensorTier = effective === 'sensors'
+  setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.onSensorTier)
+  chrome.showHint(mapHint(cfg.t, { fellBack: state.fellBack, sources: getSources() }))
 
   // EFFECTIVE, not tier: on an area page opened at the sensor zoom with no slug
   // adopted, the dots are city aggregates while the page prints a sensor count.
@@ -981,7 +1023,10 @@ async function refresh(map, state, cfg, chrome, force = false, { defer = false }
   }
 
   const features = effective === 'sensors'
-    ? filterByStatus(sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour), getSensorStatus())
+    ? filterBySource(
+      filterByStatus(sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour), getSensorStatus()),
+      getSources(),
+    )
     : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
   const paint = () => paintSource(map, SOURCE_ID, features)
   if (defer) return paint
@@ -1013,17 +1058,53 @@ export function applyMarkerZoomRange(map, tier) {
   }
 }
 
+// mapHint picks the one routine hint that applies now. Both networks unticked
+// outranks the select-an-area hint: it empties the map completely, and with no
+// message the reader is looking at a blank canvas with nothing to explain it.
+// Returns '' when neither applies, because showHint's clear-on-empty is what
+// makes a hint disappear once it stops applying (see hintController).
+export function mapHint(t, { fellBack, sources }) {
+  if (sources && sources.size === 0) return t.noSources
+  return fellBack ? t.hint : ''
+}
+
 // repaintSensors redraws the sensor tier from the payload already in hand.
 // Exported for its own test, and a no-op away from the sensor tier: the filter
 // is a control over sensors, so a click on it while the map is showing province
 // aggregates must not blank them.
 export function repaintSensors(map, state, cfg) {
   if (!state.sensorBody) return
-  const features = filterByStatus(
-    sensorFeatures(state.sensorBody, cfg.metric, state.scales, cfg.noDataColour),
-    getSensorStatus(),
+  const features = filterBySource(
+    filterByStatus(
+      sensorFeatures(state.sensorBody, cfg.metric, state.scales, cfg.noDataColour),
+      getSensorStatus(),
+    ),
+    getSources(),
   )
   paintSource(map, SOURCE_ID, features)
+}
+
+// setSourceViewAvailability disables a network's checkbox when it cannot act,
+// and says which of the two reasons it is in the label.
+//
+// no data for metric: the six gases exist only at EEA stations, the weather
+// metrics only on sensor.community devices.
+//
+// away from the sensor tier: the filter only ever governs sensor markers, and
+// repaintSensors returns early with a null state.sensorBody, so at the country
+// and city tiers the checkbox was a live control with no effect at all.
+export function setSourceViewAvailability(chrome, metric, t, onSensorTier = true) {
+  for (const [id, source] of [['communitySensors', 'sensor.community'], ['officialStations', 'eea']]) {
+    const input = chrome.layersUI?.fieldset?.querySelector(`[data-layer-key="view:${id}"]`)
+    if (!input) continue
+    const measures = measuredBy(source, metric)
+    input.disabled = !measures || !onSensorTier
+    // Metric coverage first: it is the narrower claim, and it stays true at
+    // whatever tier the reader zooms to.
+    const reason = !measures ? t.notMeasured : (!onSensorTier ? t.sensorTierOnly : '')
+    const span = input.parentElement?.querySelector('span')
+    if (span) span.textContent = reason ? `${t[id]} — ${reason}` : t[id]
+  }
 }
 
 // refreshHexes fetches the hex grid for the current zoom and viewport and
@@ -1415,6 +1496,7 @@ export function sensorFeatures(body, metric, scales, noDataColour) {
         colour: rampColour(value, bands, noDataColour),
         value,
         quality: s.quality?.[i] ?? '',
+        source: s.source?.[i] ?? 'sensor.community',
       },
     })
   }
@@ -1599,6 +1681,12 @@ export function readConfig(el) {
       // administrative lines, which are a different set of lines from a
       // different source and switch independently.
       viewBoundaries: d.tViewBoundaries || '',
+      viewCommunitySensors: d.tViewCommunitySensors || '',
+      viewOfficialStations: d.tViewOfficialStations || '',
+      notMeasured: d.tNotMeasured || '',
+      sensorTierOnly: d.tSensorTierOnly || '',
+      communitySensors: d.tViewCommunitySensors || '',
+      officialStations: d.tViewOfficialStations || '',
       // One label per style group, keyed by the group's own name so the menu
       // can look up whatever the style turns out to carry. Derived from
       // LAYER_ORDER rather than written out, because the attribute name is a
@@ -1607,6 +1695,7 @@ export function readConfig(el) {
       // fact. A group with no string falls back to its key at render time.
       layers: Object.fromEntries(LAYER_ORDER.map((g) => [g, d[layerLabelKey(g)] || ''])),
       hint: d.tHint || '',
+      noSources: d.tNoSources || '',
       rateLimited: d.tRateLimited || '',
       unavailable: d.tUnavailable || '',
       unscaled: d.tUnscaled || '',
@@ -1757,7 +1846,8 @@ export function layerPaint(cfg) {
   return {
     'circle-color': ['get', 'colour'],
     'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 5, 12, 9],
-    'circle-stroke-width': 1,
+    // Stroke width marks the network; fill stays the reading's scale colour.
+    'circle-stroke-width': ['case', ['==', ['get', 'source'], 'eea'], 3, 1],
     'circle-stroke-color': cfg.markerStrokeColour,
   }
 }
@@ -2067,6 +2157,11 @@ export function mountChrome(el, cfg) {
 
   const hint = document.createElement('div')
   hint.className = 'map-hint'
+  // The banner is the map's only running commentary — the fallback tier, a
+  // failed load, both networks unticked — and none of it is visible to a screen
+  // reader otherwise, because the map itself is a canvas. polite, not assertive:
+  // nothing here interrupts what the reader is doing.
+  hint.setAttribute('aria-live', 'polite')
   hint.hidden = true
   el.appendChild(hint)
 

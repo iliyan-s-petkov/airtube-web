@@ -18,9 +18,14 @@ const maxHostLength = 253
 
 var colourPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
+// canonicalMetrics mirrors upstream.CanonicalMetrics(). It is a second copy
+// because internal/upstream imports internal/config, so importing back would be
+// a cycle; TestCanonicalMetricsMatchUpstream in the external test package
+// compares the two and fails if either drifts.
 var canonicalMetrics = map[string]bool{
 	"P1": true, "P2": true, "temperature": true, "humidity": true,
 	"pressure": true, "noise_LAeq": true, "noise_LA_max": true,
+	"SO2": true, "O3": true, "NO2": true, "NOX": true, "CO": true, "C6H6": true,
 }
 
 // problems accumulates every violation so an operator sees the whole list in one
@@ -68,6 +73,7 @@ func (c Config) Validate() error {
 	c.validateRateLimit(&p)
 	c.validateUpstreamAndCache(&p)
 	c.validateWind(&p)
+	c.validateEEA(&p)
 	c.validateStoreAndSeries(&p)
 	c.validateQuality(&p)
 	c.validateFrontend(&p)
@@ -296,11 +302,75 @@ func (c Config) validateWind(p *problems) {
 	}
 }
 
+// validateEEA runs whether or not the feed is enabled, so a bad setting fails
+// at startup rather than when an operator switches it on.
+func (c Config) validateEEA(p *problems) {
+	for name, raw := range map[string]string{"eea.url": c.EEA.URL, "eea.metadata_url": c.EEA.MetadataURL} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			p.addf("%s = %q is not a URL: %v", name, raw, err)
+			continue
+		}
+		if u.Scheme != "https" {
+			p.addf("%s = %q must use https", name, raw)
+		}
+		if u.Host == "" {
+			p.addf("%s = %q must be absolute", name, raw)
+		}
+	}
+
+	// Empty would mean every candidate URL in the API's response is refused and
+	// the official layer silently stays empty, which is how this was found in
+	// the first place. Each entry is a bare host: url.Parse of "host:port" reads
+	// the host as a scheme, so anything with a scheme or path is a typo.
+	if len(c.EEA.FileHosts) == 0 {
+		p.addf("eea.file_hosts must name at least one host the parquet files may be downloaded from")
+	}
+	for _, host := range c.EEA.FileHosts {
+		if strings.ContainsAny(host, "/:") {
+			p.addf("eea.file_hosts contains %q, which must be a bare host with no scheme, port or path", host)
+		}
+	}
+
+	if len(c.EEA.Countries) == 0 {
+		p.addf("eea.countries must name at least one ISO 3166-1 alpha-2 code")
+	}
+	for _, code := range c.EEA.Countries {
+		if !IsCountryCode(code) {
+			p.addf("eea.countries contains %q, which is not an ISO 3166-1 alpha-2 code", code)
+		}
+	}
+
+	p.positive("eea.request_timeout", c.EEA.RequestTimeout)
+	p.positive("eea.poll_interval", c.EEA.PollInterval)
+	p.positive("eea.min_poll_interval", c.EEA.MinPollInterval)
+	p.positive("eea.metadata_interval", c.EEA.MetadataInterval)
+
+	if c.EEA.PollInterval > 0 && c.EEA.MinPollInterval > 0 && c.EEA.PollInterval < c.EEA.MinPollInterval {
+		p.addf("eea.poll_interval (%v) is below eea.min_poll_interval (%v); the agency's own cadence is hourly",
+			c.EEA.PollInterval, c.EEA.MinPollInterval)
+	}
+	if c.EEA.MaxPayloadBytes <= 0 {
+		p.addf("eea.max_payload_bytes must be positive, got %d", c.EEA.MaxPayloadBytes)
+	}
+	if c.EEA.MetadataCache == "" {
+		p.addf("eea.metadata_cache must name a directory for the coordinate file")
+	}
+}
+
 func (c Config) validateStoreAndSeries(p *problems) {
 	if c.Store.CoverageThreshold < 1 {
 		p.addf("store.coverage_threshold = %d, must be at least 1; below that a single sensor would be painted as a whole area", c.Store.CoverageThreshold)
 	}
 	p.positive("store.freshness_window", c.Store.FreshnessWindow)
+	p.positive("store.official_freshness_window", c.Store.OfficialFreshnessWindow)
+	// Shorter than the community window would hide official stations sooner than
+	// citizen devices, which is backwards: EEA readings arrive already older than
+	// freshness_window and the whole point of the key is to admit them.
+	if c.Store.OfficialFreshnessWindow < c.Store.FreshnessWindow {
+		p.addf("store.official_freshness_window (%v) is shorter than store.freshness_window (%v)",
+			c.Store.OfficialFreshnessWindow, c.Store.FreshnessWindow)
+	}
 
 	if !canonicalMetrics[c.Series.DefaultMetric] {
 		p.addf("series.default_metric = %q is not a canonical metric", c.Series.DefaultMetric)

@@ -45,6 +45,11 @@ func TestValidateRejects(t *testing.T) {
 		{"unknown default metric", func(c *Config) { c.Series.DefaultMetric = "PM9" }, "not a canonical metric"},
 		{"default window matches no period", func(c *Config) { c.Series.DefaultWindow = 3 * time.Hour }, "matches no entry"},
 		{"missing metric range", func(c *Config) { delete(c.Quality.Ranges, "pressure") }, "no entry for \"pressure\""},
+		// The gas half of the same rule. While canonicalMetrics listed only
+		// seven the loop never asked for these, and an unranged metric makes
+		// quality.Scorer.InRange reject every reading of it.
+		{"missing gas range", func(c *Config) { delete(c.Quality.Ranges, "NO2") }, "no entry for \"NO2\""},
+		{"missing O3 range", func(c *Config) { delete(c.Quality.Ranges, "O3") }, "no entry for \"O3\""},
 		{"inverted range", func(c *Config) { c.Quality.Ranges["pressure"] = Range{Min: 1100, Max: 650} }, "must exceed min"},
 		{"rejection fraction above one", func(c *Config) { c.Backfill.HighRejectionFraction = 1.5 }, "high_rejection_fraction"},
 		{"bad colour", func(c *Config) { c.Frontend.NoDataColour = "grey" }, "hex colour"},
@@ -154,6 +159,21 @@ func TestValidateRejectsEmptyUnscaledColour(t *testing.T) {
 	err := c.Validate()
 	if err == nil || !strings.Contains(err.Error(), "frontend.unscaled_colour") {
 		t.Fatalf("Validate() = %v, want an error naming frontend.unscaled_colour", err)
+	}
+}
+
+// Every canonical metric must be settable as series.default_metric. NO2 stands
+// for the six EEA gases, which validate.go rejected as "not a canonical
+// metric" while canonicalMetrics held only the seven community ones.
+func TestValidateAcceptsAGasAsTheDefaultMetric(t *testing.T) {
+	for _, metric := range []string{"NO2", "SO2", "O3", "NOX", "CO", "C6H6"} {
+		t.Run(metric, func(t *testing.T) {
+			cfg := good(t)
+			cfg.Series.DefaultMetric = metric
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() error = %v, want series.default_metric = %q accepted", err, metric)
+			}
+		})
 	}
 }
 
@@ -531,5 +551,49 @@ func TestTilesPublicURLShape(t *testing.T) {
 				t.Errorf("Validate with tiles.public_url = %q returned %v, want a message mentioning %q", tc.url, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestEEAValidationRejectsBadSettings(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"http url":             func(c *Config) { c.EEA.URL = "http://example.invalid" },
+		"relative url":         func(c *Config) { c.EEA.URL = "/ParquetFile" },
+		"no countries":         func(c *Config) { c.EEA.Countries = nil },
+		"zero poll interval":   func(c *Config) { c.EEA.PollInterval = 0 },
+		"poll under minimum":   func(c *Config) { c.EEA.PollInterval = time.Minute; c.EEA.MinPollInterval = time.Hour },
+		"zero payload bound":   func(c *Config) { c.EEA.MaxPayloadBytes = 0 },
+		"metadata url is http": func(c *Config) { c.EEA.MetadataURL = "http://example.invalid/x.csv" },
+		// "relative url" above trips the scheme rule as well, so it would still
+		// fail with the host rule deleted. This one is https and hostless, so
+		// only the host rule can reject it.
+		"empty host": func(c *Config) { c.EEA.URL = "https:///ParquetFile" },
+		// Nothing else reads metadata_cache at validation time, and an empty
+		// one only surfaces at runtime as a cache that never loads.
+		"empty metadata_cache": func(c *Config) { c.EEA.MetadataCache = "" },
+		// Empty rejects every URL the API offers, so the official layer stays
+		// empty and the only symptom is a counter in one log line.
+		"empty file_hosts":         func(c *Config) { c.EEA.FileHosts = nil },
+		"file_hosts with a scheme": func(c *Config) { c.EEA.FileHosts = []string{"https://blob.invalid"} },
+		"file_hosts with a port":   func(c *Config) { c.EEA.FileHosts = []string{"blob.invalid:443"} },
+		"file_hosts with a path":   func(c *Config) { c.EEA.FileHosts = []string{"blob.invalid/airquality"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := validConfig(t)
+			mutate(&c)
+			if err := c.Validate(); err == nil {
+				t.Errorf("Validate accepted %s", name)
+			}
+		})
+	}
+}
+
+// The block is validated even when disabled, so an operator turning it on does
+// not discover the settings are wrong at that moment.
+func TestEEAIsValidatedWhenDisabled(t *testing.T) {
+	c := validConfig(t)
+	c.EEA.Enabled = false
+	c.EEA.URL = "not a url at all"
+	if err := c.Validate(); err == nil {
+		t.Error("Validate skipped the eea block because it was disabled")
 	}
 }

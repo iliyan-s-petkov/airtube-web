@@ -141,17 +141,67 @@ func TestEveryScaleForOneMetricAgreesOnItsUnit(t *testing.T) {
 	}
 }
 
+// Every stated edge, not just the first: a shifted interior edge would
+// misclassify a reading as silently as a shifted first one.
+func TestGasScalesCiteTheEAQI(t *testing.T) {
+	want := map[string][5]float64{
+		"NO2": {40, 90, 120, 230, 340},
+		"O3":  {50, 100, 130, 240, 380},
+		"SO2": {100, 200, 350, 500, 750},
+	}
+	for _, s := range api.Scales() {
+		edges, ok := want[s.Metric]
+		if !ok || s.Name != "eaqi" {
+			continue
+		}
+		if s.Source != "https://airindex.eea.europa.eu/" {
+			t.Errorf("%s eaqi cites %q", s.Metric, s.Source)
+		}
+		if s.Unit != "µg/m³" {
+			t.Errorf("%s eaqi is in %q, want µg/m³", s.Metric, s.Unit)
+		}
+		if len(s.Bands) != 6 {
+			t.Errorf("%s eaqi has %d bands, want 6", s.Metric, len(s.Bands))
+			continue
+		}
+		for i, edge := range edges {
+			if s.Bands[i].Upper == nil || *s.Bands[i].Upper != edge {
+				t.Errorf("%s band %d edge is not %v", s.Metric, i, edge)
+			}
+		}
+		if s.Bands[5].Upper != nil {
+			t.Errorf("%s top band is not open", s.Metric)
+		}
+		delete(want, s.Metric)
+	}
+	for m := range want {
+		t.Errorf("%s has no eaqi table", m)
+	}
+}
+
+// An axis-only table must not claim a guideline it does not have.
+func TestUnlegislatedGasesCiteNobody(t *testing.T) {
+	for _, s := range api.Scales() {
+		switch s.Metric {
+		case "CO", "C6H6", "NOX":
+			if s.Source != "" {
+				t.Errorf("%s cites %q but has no guideline behind it", s.Metric, s.Source)
+			}
+		}
+	}
+}
+
 // A scale that cites an authority must link it: the legend's info dialog offers
 // the reader the guideline itself, and a table naming "Directive 2008/50/EC"
 // with nowhere to read it asks for the colours to be taken on trust.
 //
-// The meteo tables are the exception and say so by carrying no source — they
-// are an axis, not a health guideline.
+// The meteo and axis tables are the exception and say so by carrying no
+// source — they are an axis, not a health guideline.
 func TestGuidelineScalesLinkTheirSource(t *testing.T) {
 	for _, s := range api.Scales() {
-		if s.Name == "meteo" {
+		if s.Name == "meteo" || s.Name == "axis" {
 			if s.Source != "" {
-				t.Errorf("%s/%s cites %q, but a weather axis has no guideline behind it", s.Name, s.Metric, s.Source)
+				t.Errorf("%s/%s cites %q, but an axis has no guideline behind it", s.Name, s.Metric, s.Source)
 			}
 			continue
 		}

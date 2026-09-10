@@ -62,7 +62,7 @@ export function getSensors() {
 //
 // A station, not a device (lib/stations.js says why): the reader clicked one
 // dot on one address, and the address is where the temperature is measured as
-// much as the particulate matter is. So the seven rows are filled from every
+// much as the particulate matter is. So the rows are filled from every
 // device standing there, and `sources` records which device each reading came
 // from — the chart endpoint is keyed by device, so the panel has to be able to
 // say which one to ask.
@@ -75,8 +75,8 @@ export function getSensors() {
 // reading right now lands as null and the panel says so; a metric no device
 // here measures never becomes a key at all, and the panel omits the row. That
 // is the distinction lib/sensorview.js's panelRows filters on — before the
-// server published `measures`, every station claimed all seven metrics and the
-// panel said "no reading" for the four it has no hardware for.
+// server published `measures`, every station claimed every metric and the
+// panel said "no reading" for the ones it has no hardware for.
 export function normaliseSensor(responseBody, id) {
   const members = stationMembers(responseBody, id)
   if (!members) return null
@@ -113,6 +113,14 @@ export function normaliseSensor(responseBody, id) {
     // — see internal/snapshot/build.go's stationIDs).
     lon: cols.lon?.[members.indices[0]] ?? null,
     lat: cols.lat?.[members.indices[0]] ?? null,
+    // Station identity columns (Task 10's addition to the wire): 'eea' for
+    // an official reference station, 'sensor.community' for a citizen
+    // device. The EoI code/type/area only exist for 'eea' rows.
+    source: cols.source?.[members.indices[0]] ?? '',
+    stationCode: cols.station_code?.[members.indices[0]] ?? '',
+    stationName: cols.station_name?.[members.indices[0]] ?? '',
+    stationType: cols.station_type?.[members.indices[0]] ?? '',
+    stationArea: cols.station_area?.[members.indices[0]] ?? '',
     // One entry per box standing here, so the panel can say what the hardware
     // is rather than leaving "Сензор 5965" to stand for a pair of instruments.
     devices: members.indices.map((i) => ({

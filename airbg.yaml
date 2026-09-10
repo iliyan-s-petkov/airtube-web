@@ -194,12 +194,31 @@ wind:
   max_payload_bytes: 16777216
   retention: "48h"
 
+# The official reference stations. See internal/upstream/eea/README.md.
+eea:
+  enabled: true
+  url: "https://eeadmz1-downloads-api-appservice.azurewebsites.net"
+  metadata_url: "https://discomap.eea.europa.eu/map/fme/metadata/PanEuropean_metadata.csv"
+  metadata_cache: "/var/lib/airbg/eea"
+  # Where the parquet files themselves live. /ParquetFile/urls answers with
+  # URLs on this host, not on url above, and a download is refused anywhere else.
+  file_hosts: ["eeadmz1batchservice02.blob.core.windows.net"]
+  countries: ["BG"]
+  request_timeout: "60s"
+  poll_interval: "1h"
+  min_poll_interval: "30m"
+  metadata_interval: "168h"
+  max_payload_bytes: 67108864
+
 store:
   # Minimum sensors before an area gets a value at all. Below it the area is
   # painted "no data" — one sensor must never be presented as an oblast.
   coverage_threshold: 3
   # A reading older than this does not count toward an area's current value.
   freshness_window: "2h"
+  # The same for EEA stations, which publish hourly means about an hour after
+  # the hour closes and so are never fresh by the rule above.
+  official_freshness_window: "6h"
 
 series:
   # Must match the first entry in periods below: the snapshot serves this
@@ -306,6 +325,32 @@ quality:
     noise_LA_max:
       min: 25.0
       max: 120.0
+    # The six gases arrive only from the EEA official layer, already normalised
+    # to µg/m³ by upstream/eea.NormaliseValue. Each ceiling sits well above the
+    # highest value Directive 2008/50/EC names for that pollutant (SO2 alert
+    # 500, O3 alert 240, NO2 alert 400, CO 8-hour limit 10 mg/m³ = 10000 µg/m³,
+    # C6H6 annual limit 5; NOX has no short-term EU value, so it follows SO2),
+    # so a genuine episode is kept and only a decode or unit fault is rejected.
+    # Every canonical metric needs an entry: validateQuality refuses a config
+    # that omits one, and quality.Scorer.InRange rejects an unranged metric.
+    SO2:
+      min: 0.0
+      max: 5000.0
+    O3:
+      min: 0.0
+      max: 1000.0
+    NO2:
+      min: 0.0
+      max: 2000.0
+    NOX:
+      min: 0.0
+      max: 5000.0
+    CO:
+      min: 0.0
+      max: 100000.0
+    C6H6:
+      min: 0.0
+      max: 500.0
   # SDS011 saturation values, matched by exact equality. Not a range question.
   # See internal/quality/README.md.
   clamp_sentinels:

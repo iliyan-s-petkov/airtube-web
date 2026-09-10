@@ -305,7 +305,7 @@ func TestNormaliseSkipsSingleBadValueOnly(t *testing.T) {
 }
 
 // TestNormaliseIgnoresPressureAtSealevel asserts pressure_at_sealevel is
-// dropped as non-canonical (it is not in the seven-metric canonical set) and
+// dropped as non-canonical (it is not in upstream.CanonicalMetrics) and
 // is never confused with "pressure": no reading carries either metric name
 // for sensor 30004, and the genuine "pressure" reading from sensor 30003 is
 // still converted Pascals -> hPa while pressure_at_sealevel is not converted

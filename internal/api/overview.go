@@ -13,11 +13,35 @@ import (
 	"airbg.org/internal/upstream"
 )
 
-// Attribution strings. Both are licence obligations under ODbL, not niceties.
-const (
-	DataAttribution     = "Data from sensor.community contributors, ODbL 1.0"
-	BoundaryAttribution = "Boundaries © OpenStreetMap contributors, ODbL 1.0"
-)
+// Attribution is one credited data source and the URL its licence requires.
+type Attribution struct {
+	Source string `json:"source"`
+	Text   string `json:"text"`
+	URL    string `json:"url"`
+}
+
+// Attributions lists every ingested source. ODbL 1.0 and the EEA reuse terms
+// both require the credit, so this must stay in step with the collectors.
+func Attributions() []Attribution {
+	return []Attribution{
+		{
+			Source: "sensor.community",
+			Text:   "Citizen data from sensor.community contributors, ODbL 1.0",
+			URL:    "https://maps.sensor.community/",
+		},
+		{
+			Source: "eea",
+			Text: "Official data from the Executive Environment Agency (ИАОС) " +
+				"via the European Environment Agency's air quality programme",
+			URL: "https://eea.government.bg/kav/",
+		},
+		{
+			Source: "openstreetmap",
+			Text:   "Boundaries © OpenStreetMap contributors, ODbL 1.0",
+			URL:    "https://www.openstreetmap.org/copyright",
+		},
+	}
+}
 
 // handleOverview serves one choropleth tier.
 //
@@ -161,17 +185,16 @@ func (d Deps) handleBoundaries(w http.ResponseWriter, r *http.Request) {
 }
 
 type metaBody struct {
-	GeneratedAt         time.Time  `json:"generated_at"`
-	CoverageThreshold   int        `json:"coverage_threshold"`
-	Metrics             []string   `json:"metrics"`
-	AreaCount           int        `json:"area_count"`
-	CoveredAreaCount    int        `json:"covered_area_count"`
-	CellStatistic       string     `json:"cell_statistic"`
-	CellStatChangedAt   time.Time  `json:"cell_statistic_changed_at"`
-	TimelapseSpans      []spanMeta `json:"timelapse_spans"`
-	Attribution         string     `json:"attribution"`
-	BoundaryAttribution string     `json:"boundary_attribution"`
-	Disclaimer          string     `json:"disclaimer"`
+	GeneratedAt       time.Time     `json:"generated_at"`
+	CoverageThreshold int           `json:"coverage_threshold"`
+	Metrics           []string      `json:"metrics"`
+	AreaCount         int           `json:"area_count"`
+	CoveredAreaCount  int           `json:"covered_area_count"`
+	CellStatistic     string        `json:"cell_statistic"`
+	CellStatChangedAt time.Time     `json:"cell_statistic_changed_at"`
+	TimelapseSpans    []spanMeta    `json:"timelapse_spans"`
+	Attributions      []Attribution `json:"attributions"`
+	Disclaimer        string        `json:"disclaimer"`
 }
 
 // spanMeta publishes what a timelapse span is worth: the wire name and how much
@@ -216,16 +239,15 @@ func (d Deps) handleMeta(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, err := json.Marshal(metaBody{
-		GeneratedAt:         snap.GeneratedAt,
-		CoverageThreshold:   d.Config.Store.CoverageThreshold,
-		Metrics:             upstream.CanonicalMetrics(),
-		AreaCount:           len(snap.KnownSlugs),
-		CoveredAreaCount:    covered,
-		CellStatistic:       "median",
-		CellStatChangedAt:   snapshot.CellStatChangedAt,
-		TimelapseSpans:      timelapseSpans(),
-		Attribution:         DataAttribution,
-		BoundaryAttribution: BoundaryAttribution,
+		GeneratedAt:       snap.GeneratedAt,
+		CoverageThreshold: d.Config.Store.CoverageThreshold,
+		Metrics:           upstream.CanonicalMetrics(),
+		AreaCount:         len(snap.KnownSlugs),
+		CoveredAreaCount:  covered,
+		CellStatistic:     "median",
+		CellStatChangedAt: snapshot.CellStatChangedAt,
+		TimelapseSpans:    timelapseSpans(),
+		Attributions:      Attributions(),
 		Disclaimer: "Low-cost sensor readings are indicative and are not " +
 			"reference-method measurements.",
 	})

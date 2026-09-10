@@ -2,8 +2,8 @@
   // A radio set, not a row of toggle buttons (DESIGN.md §5.6). The metrics are
   // mutually exclusive, so the platform control for "one of these" is what the
   // reader gets: one Tab stop with arrow-key roving, and the chosen metric
-  // announced as the selected radio rather than as one pressed button among
-  // seven. `name` groups them; the page mounts one switcher, and two sharing a
+  // announced as the selected radio rather than as one pressed button in a
+  // row. `name` groups them; the page mounts one switcher, and two sharing a
   // name would silently become a single group.
   let { options, selected, onselect, legend, name = 'metric' } = $props()
 </script>

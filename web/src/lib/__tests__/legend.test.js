@@ -115,8 +115,8 @@ describe('renderLegend', () => {
   })
 
   // The bar is drawn, and it is drawn from THESE bands — the kit mockup's own
-  // bar is a hardcoded six-stop EAQI gradient, which over a map painting one of
-  // seven served scales would be showing colours the map does not use.
+  // bar is a hardcoded six-stop EAQI gradient, which over a map painting any
+  // other served scale would be showing colours the map does not use.
   it('draws the bar from the served colours and nothing else', () => {
     const el = draw()
     expect(el.querySelector('.scale__bar')).not.toBeNull()
@@ -236,8 +236,8 @@ describe('rampGradient', () => {
   })
 })
 
-// The caption of the key. "Air quality" is the same phrase for all seven
-// metrics and is wrong outright once the map paints temperature.
+// The caption of the key. "Air quality" is the same phrase for every metric
+// and is wrong outright once the map paints temperature.
 describe('legendTitle', () => {
   it('names the metric and what it is measured in', () => {
     expect(legendTitle({ label: 'ФПЧ2.5', unit: 'µg/m³', fallback: 'x' })).toBe('ФПЧ2.5, µg/m³')

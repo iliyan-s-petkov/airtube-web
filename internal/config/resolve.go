@@ -17,6 +17,7 @@ type Config struct {
 	Cache     Cache
 	Upstream  Upstream
 	Wind      Wind
+	EEA       EEA
 	Store     Store
 	Series    Series
 	Quality   Quality
@@ -148,9 +149,35 @@ type Wind struct {
 	Retention       time.Duration
 }
 
+// EEA configures the official-station feed. See internal/upstream/eea/README.md.
+type EEA struct {
+	Enabled bool
+	// URL is the download API base; MetadataURL is a different host on a much
+	// longer refresh cycle.
+	URL           string
+	MetadataURL   string
+	MetadataCache string
+	// FileHosts are the hosts a parquet download may come from. /ParquetFile/urls
+	// answers with blob-storage URLs on a different host than URL, so the
+	// allowlist cannot be derived from URL; it is configured instead, so a
+	// compromised response still cannot steer a fetch at an arbitrary host.
+	FileHosts        []string
+	Countries        []string
+	RequestTimeout   time.Duration
+	PollInterval     time.Duration
+	MinPollInterval  time.Duration
+	MetadataInterval time.Duration
+	MaxPayloadBytes  int64
+}
+
 type Store struct {
 	CoverageThreshold int
 	FreshnessWindow   time.Duration
+	// OfficialFreshnessWindow is FreshnessWindow for EEA stations. Their
+	// readings are hourly means stamped at the start of the hour and published
+	// about an hour after it closes, so an official reading is already older
+	// than FreshnessWindow when it arrives and the layer never shows at all.
+	OfficialFreshnessWindow time.Duration
 }
 
 type Series struct {
@@ -385,9 +412,23 @@ func resolve(r *raw) Config {
 			MaxPayloadBytes: *r.Wind.MaxPayloadBytes,
 			Retention:       r.Wind.Retention.Std(),
 		},
+		EEA: EEA{
+			Enabled:          *r.EEA.Enabled,
+			URL:              *r.EEA.URL,
+			MetadataURL:      *r.EEA.MetadataURL,
+			MetadataCache:    *r.EEA.MetadataCache,
+			FileHosts:        *r.EEA.FileHosts,
+			Countries:        *r.EEA.Countries,
+			RequestTimeout:   r.EEA.RequestTimeout.Std(),
+			PollInterval:     r.EEA.PollInterval.Std(),
+			MinPollInterval:  r.EEA.MinPollInterval.Std(),
+			MetadataInterval: r.EEA.MetadataInterval.Std(),
+			MaxPayloadBytes:  *r.EEA.MaxPayloadBytes,
+		},
 		Store: Store{
-			CoverageThreshold: *r.Store.CoverageThreshold,
-			FreshnessWindow:   r.Store.FreshnessWindow.Std(),
+			CoverageThreshold:       *r.Store.CoverageThreshold,
+			FreshnessWindow:         r.Store.FreshnessWindow.Std(),
+			OfficialFreshnessWindow: r.Store.OfficialFreshnessWindow.Std(),
 		},
 		Series: Series{
 			DefaultMetric: *r.Series.DefaultMetric,
@@ -416,6 +457,12 @@ func resolve(r *raw) Config {
 				"pressure":     resolveRange(r.Quality.Ranges.Pressure),
 				"noise_LAeq":   resolveRange(r.Quality.Ranges.NoiseLAeq),
 				"noise_LA_max": resolveRange(r.Quality.Ranges.NoiseLAMax),
+				"SO2":          resolveRange(r.Quality.Ranges.SO2),
+				"O3":           resolveRange(r.Quality.Ranges.O3),
+				"NO2":          resolveRange(r.Quality.Ranges.NO2),
+				"NOX":          resolveRange(r.Quality.Ranges.NOX),
+				"CO":           resolveRange(r.Quality.Ranges.CO),
+				"C6H6":         resolveRange(r.Quality.Ranges.C6H6),
 			},
 			ClampSentinels: map[string]float64{
 				"P1": *r.Quality.ClampSentinels.P1,

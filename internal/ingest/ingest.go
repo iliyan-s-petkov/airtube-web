@@ -61,6 +61,27 @@ type Stats struct {
 	// therefore dropped before scoring or storage. It stays 0 whenever the
 	// boundary itself was absent — see the fail-closed handling in RunOnce.
 	RejectedOutsideBoundary int
+	// RejectedReservedID counts readings dropped because the upstream sensor
+	// id fell in the range reserved for official EEA stations. The sensor.
+	// community id space is far below that floor, so a non-zero value means
+	// upstream ids have grown into it and the floor needs raising.
+	RejectedReservedID int
+}
+
+// rejectReservedIDs splits off readings whose sensor id reaches into the range
+// store.OfficialSensorIDFloor reserves for EEA stations, returning the keepers
+// and how many were dropped.
+func rejectReservedIDs(scored []quality.Scored) ([]quality.Scored, int) {
+	kept := scored[:0]
+	rejected := 0
+	for _, s := range scored {
+		if s.Reading.SensorID >= store.OfficialSensorIDFloor {
+			rejected++
+			continue
+		}
+		kept = append(kept, s)
+	}
+	return kept, rejected
 }
 
 // SnapshotPublisher rebuilds the served snapshot. Declared here as an
@@ -244,6 +265,17 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 				stats.Flagged[s.Flag]++
 			}
 
+			// Drop community readings whose upstream id reaches into the range
+			// reserved for official stations. Migration 00012's CHECK would
+			// catch them, but a pgx.Batch fails whole, so one such id would
+			// cost the entire cycle. Dropped here and counted, not silenced.
+			scored, stats.RejectedReservedID = rejectReservedIDs(scored)
+			if stats.RejectedReservedID > 0 {
+				slog.Warn("dropped community sensors in the reserved official id range",
+					"sensors", stats.RejectedReservedID,
+					"floor", store.OfficialSensorIDFloor)
+			}
+
 			if len(scored) > 0 {
 				if err := i.store.UpsertSensors(ctx, scored, res.Country); err != nil {
 					pipelineErr = fmt.Errorf("ingest: upsert sensors: %w", err)
@@ -293,6 +325,7 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 		"skipped", stats.Skipped,
 		"written", stats.Written,
 		"rejected_outside_boundary", stats.RejectedOutsideBoundary,
+		"rejected_reserved_id", stats.RejectedReservedID,
 		"areas_assigned", assigned,
 		"areas_revoked", revoked,
 		"clamped", stats.Flagged[quality.FlagClamped],

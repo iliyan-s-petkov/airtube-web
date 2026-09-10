@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -14,6 +14,7 @@ import { mountPlayer } from '../../lib/timelapse.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
 import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
+import { setSourceEnabled, resetSourceFilterForTests } from '../../lib/sourcefilter.svelte.js'
 import { getMapAreas, setMapAreas } from '../../lib/mapareas.svelte.js'
 
 // mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
@@ -304,6 +305,7 @@ describe('readConfig', () => {
     const cfg = readConfig({
       dataset: {
         tLegend: 'Air quality', tHint: 'Select an area',
+        tNoSources: 'No networks are shown',
         tLegendToggle: 'Legend', tLegendNoData: 'Not enough data',
         tFullscreen: 'Full screen', tFullscreenExit: 'Exit full screen',
         tZoomIn: 'Zoom in', tZoomOut: 'Zoom out', tZoomReset: 'Reset view',
@@ -312,6 +314,10 @@ describe('readConfig', () => {
         tViewCellValues: 'Cell values',
         tViewInactiveSensors: 'Inactive sensors',
         tViewBoundaries: 'Province outlines',
+        tViewCommunitySensors: 'Citizen sensors',
+        tViewOfficialStations: 'Official stations',
+        tNotMeasured: 'does not measure this',
+        tSensorTierOnly: 'only when single sensors are shown',
         // Two of the twelve groups, deliberately: the other ten prove the
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
@@ -343,6 +349,7 @@ describe('readConfig', () => {
     })
     expect(cfg.t).toEqual({
       legend: 'Air quality', hint: 'Select an area',
+      noSources: 'No networks are shown',
       legendToggle: 'Legend', legendNoData: 'Not enough data',
       legendAbout: 'What the colours mean',
       legendSource: 'Read the official guideline',
@@ -356,6 +363,14 @@ describe('readConfig', () => {
       viewCellValues: 'Cell values',
       viewInactiveSensors: 'Inactive sensors',
       viewBoundaries: 'Province outlines',
+      viewCommunitySensors: 'Citizen sensors',
+      viewOfficialStations: 'Official stations',
+      notMeasured: 'does not measure this',
+      sensorTierOnly: 'only when single sensors are shown',
+      // communitySensors/officialStations reuse the view labels: setSourceViewAvailability
+      // keys the checkbox label lookup by view id, not by a second pair of dataset attributes.
+      communitySensors: 'Citizen sensors',
+      officialStations: 'Official stations',
       // One entry per group in LAYER_ORDER, always: the menu looks a label up
       // by the group the STYLE reports, so a key that is simply absent here
       // would be a group that renders under its own slug the day the style
@@ -599,7 +614,7 @@ describe('initData ordering', () => {
     zoomCity: 9,
     zoomSensor: 11,
     noDataColour: '#9ca3af',
-    t: { hint: 'Select an area', unavailable: 'Map data is unavailable right now' },
+    t: { hint: 'Select an area', noSources: 'No networks are shown', unavailable: 'Map data is unavailable right now' },
   }
 
   // Zoom 7 is the index page's server-rendered default, where tierFor gives
@@ -633,7 +648,7 @@ describe('initData ordering', () => {
     })
   }
 
-  beforeEach(() => { clearCache() })
+  beforeEach(() => { clearCache(); resetSourceFilterForTests() })
 
   it('still explains the grey map after refresh has run', async () => {
     vi.stubGlobal('fetch', stubFetch({ scalesOk: false }))
@@ -692,6 +707,42 @@ describe('initData ordering', () => {
 
     expect(rendered.at(-1)).toBe('')
     expect(map.painted[0].features[0].properties.colour).toBe('#00ff00')
+  })
+
+  // The wiring, not the rule: refresh has to consult the source filter at all.
+  // mapHint's own tests would pass with the call site still showing ''.
+  it('explains the blank map when the reader has unticked both networks', async () => {
+    vi.stubGlobal('fetch', stubFetch({ scalesOk: true }))
+    setSourceEnabled('sensor.community', false)
+    setSourceEnabled('eea', false)
+    const rendered = []
+    const chrome = { ...hintController((t) => rendered.push(t)), showLegend: () => {} }
+    const map = fakeMap()
+
+    await initData(map, { slug: null, tier: null, scales: null }, cfg, chrome)
+
+    expect(rendered.at(-1)).toBe(cfg.t.noSources)
+  })
+
+  // The wiring for the tier half of setSourceViewAvailability. Zoom 7 is the
+  // country tier, where repaintSensors has no payload to repaint from.
+  it('disables the network checkboxes at the country tier', async () => {
+    vi.stubGlobal('fetch', stubFetch({ scalesOk: true }))
+    const fieldset = document.createElement('fieldset')
+    const boxes = ['communitySensors', 'officialStations'].map((id) => {
+      const label = document.createElement('label')
+      const input = document.createElement('input')
+      input.type = 'checkbox'
+      input.dataset.layerKey = `view:${id}`
+      label.append(input, document.createElement('span'))
+      fieldset.appendChild(label)
+      return input
+    })
+    const chrome = { ...hintController(() => {}), showLegend: () => {}, layersUI: { fieldset } }
+
+    await initData(fakeMap(7), { slug: null, tier: null, scales: null }, cfg, chrome)
+
+    expect(boxes.map((b) => b.disabled)).toEqual([true, true])
   })
 
   // J3 (review round 2): refresh must call tierFor with cfg.zoomCity and
@@ -1334,6 +1385,7 @@ function mountSensorTierMap({ metric = 'P2' } = {}) {
   el.dataset.emptyBasemapColour = '#eef2f5'
   el.dataset.zoomCity = '9'
   el.dataset.zoomSensor = '11'
+  el.dataset.tNoSources = 'No networks are shown'
 
   const { map, chrome, stop } = mount(el)
   // FakeMap.getZoom is hardcoded to 7 (see the vi.mock at the top of this
@@ -1342,7 +1394,7 @@ function mountSensorTierMap({ metric = 'P2' } = {}) {
   // tier without disturbing them.
   map.getZoom = () => 12
   map.handlers.load()
-  return { map, chrome, stop }
+  return { map, chrome, stop, el }
 }
 
 function stubSensorTierFetch() {
@@ -2909,9 +2961,9 @@ describe('mountChrome anchors the key to the shell and the tier line outside it'
 
 // The key's caption is the metric and its unit, not a fixed phrase. "Качество
 // на въздуха" is simply false when the map is painting temperature, and it is
-// the same words for all seven metrics — so it says nothing about which one is
-// on screen. The unit cannot come from /api/v1/scales: that endpoint carries
-// one only for a metric with a band table, which live is two of the seven.
+// the same words for every metric — so it says nothing about which one is on
+// screen. The unit comes from the server-rendered catalogue rather than
+// /api/v1/scales, which the key must caption without waiting on.
 describe('the key names the metric it is a key to', () => {
   const captionOf = (cfg) => {
     const el = document.createElement('div')
@@ -2933,7 +2985,6 @@ describe('the key names the metric it is a key to', () => {
     expect(el.querySelector('.scale__label').textContent).toBe('ФПЧ10, µg/m³')
   })
 
-  // Five of the seven metrics have a unit in the catalogue but no band table.
   // A metric the catalogue has no unit for still gets its name.
   it('drops to the name alone when the metric has no unit', () => {
     const cfg = chromeCfg({ metricUnits: { P1: '', P2: '' } })
@@ -2994,8 +3045,8 @@ describe('the sensor status filter', () => {
 
   const drawn = (source) => source.setData.mock.calls.at(-1)[0].features
 
-  beforeEach(() => { clearCache(); resetViewStateForTests(); setSensors(null); resetSensorFilterForTests() })
-  afterEach(() => { resetViewStateForTests(); setSensors(null); resetSensorFilterForTests() })
+  beforeEach(() => { clearCache(); resetViewStateForTests(); setSensors(null); resetSensorFilterForTests(); resetSourceFilterForTests() })
+  afterEach(() => { resetViewStateForTests(); setSensors(null); resetSensorFilterForTests(); resetSourceFilterForTests() })
 
   // The store opens on the kit's default, "with data", so the FIRST paint is
   // already filtered — the silent sensor never reaches the map until asked for.
@@ -3069,6 +3120,22 @@ describe('the sensor status filter', () => {
     expect(map.getSource).not.toHaveBeenCalled()
   })
 
+  // The banner, not the paint: unticking both networks empties the marker
+  // source, and the source-change handler is the only thing that recomputes
+  // the hint without a refresh behind it.
+  it('explains the blank map as soon as both networks are unticked', async () => {
+    vi.stubGlobal('fetch', stubMixedSensorFetch())
+    const { el } = mountSensorTierMap()
+    await vi.waitFor(() => expect(findSensor(42)).not.toBeNull())
+    const banner = el.querySelector('.map-hint')
+
+    setSourceEnabled('sensor.community', false)
+    setSourceEnabled('eea', false)
+
+    expect(banner.hidden).toBe(false)
+    expect(banner.textContent).not.toBe('')
+  })
+
   // A subscription that outlives the island repaints a destroyed map on the
   // next status change.
   it('stops listening once the island is stopped', async () => {
@@ -3127,5 +3194,109 @@ describe('showArea', () => {
     expect(await showArea(map, state, cfg, chrome(), { lon: 1, lat: 2, zoom: 9 })).toBe(false)
     expect(map.flyTo).not.toHaveBeenCalled()
     expect(state.slug).toBe('sofia')
+  })
+})
+
+// Unticking both networks empties the marker source and the map goes blank with
+// nothing said about it. mapHint is the rule that answers for that; it is pure,
+// so the precedence it encodes can be driven directly.
+describe('mapHint', () => {
+  const t = { hint: 'Select an area', noSources: 'No networks are shown' }
+
+  it('says nothing when both networks are shown and the tier is served as asked', () => {
+    expect(mapHint(t, { fellBack: false, sources: new Set(['sensor.community', 'eea']) })).toBe('')
+  })
+
+  it('explains a blank map when no network is shown', () => {
+    expect(mapHint(t, { fellBack: false, sources: new Set() })).toBe(t.noSources)
+  })
+
+  it('outranks the fallback hint, which describes markers that are not drawn', () => {
+    expect(mapHint(t, { fellBack: true, sources: new Set() })).toBe(t.noSources)
+  })
+
+  it('keeps the fallback hint while a network is still shown', () => {
+    expect(mapHint(t, { fellBack: true, sources: new Set(['eea']) })).toBe(t.hint)
+  })
+})
+
+// The map is a canvas, so the banner is the only part of its running commentary
+// a screen reader can reach. Without aria-live the text changes silently.
+describe('mountChrome() announces the hint banner', () => {
+  it('marks it as a polite live region', () => {
+    const shell = document.createElement('div')
+    shell.className = 'map-shell'
+    const el = document.createElement('div')
+    el.className = 'map'
+    shell.appendChild(el)
+    document.body.appendChild(shell)
+
+    mountChrome(el, readConfig(el))
+    expect(el.querySelector('.map-hint')?.getAttribute('aria-live')).toBe('polite')
+  })
+})
+
+// At the country and city tiers repaintSensors returns early on a null
+// state.sensorBody, so the two network checkboxes were live controls that did
+// nothing at all. They get the same disabled-with-a-reason treatment the menu
+// already gives a network that does not measure the selected metric.
+describe('setSourceViewAvailability', () => {
+  const t = {
+    communitySensors: 'Citizen sensors',
+    officialStations: 'Official stations',
+    notMeasured: 'does not measure this',
+    sensorTierOnly: 'only when single sensors are shown',
+  }
+
+  function menu() {
+    const fieldset = document.createElement('fieldset')
+    const boxes = {}
+    for (const id of ['communitySensors', 'officialStations']) {
+      const label = document.createElement('label')
+      const input = document.createElement('input')
+      input.type = 'checkbox'
+      input.dataset.layerKey = `view:${id}`
+      const span = document.createElement('span')
+      label.append(input, span)
+      fieldset.appendChild(label)
+      boxes[id] = { input, span }
+    }
+    return { chrome: { layersUI: { fieldset } }, boxes }
+  }
+
+  it('leaves both live on the sensor tier for a metric both networks measure', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'P2', t, true)
+
+    expect(boxes.communitySensors.input.disabled).toBe(false)
+    expect(boxes.officialStations.input.disabled).toBe(false)
+    expect(boxes.communitySensors.span.textContent).toBe(t.communitySensors)
+  })
+
+  it('disables both away from the sensor tier, and says why', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'P2', t, false)
+
+    expect(boxes.communitySensors.input.disabled).toBe(true)
+    expect(boxes.officialStations.input.disabled).toBe(true)
+    expect(boxes.officialStations.span.textContent).toBe(`${t.officialStations} — ${t.sensorTierOnly}`)
+  })
+
+  it('still names the narrower reason when the network does not measure the metric', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'O3', t, false)
+
+    // O3 is EEA-only, so this is the one label that must not blame the tier.
+    expect(boxes.communitySensors.span.textContent).toBe(`${t.communitySensors} — ${t.notMeasured}`)
+    expect(boxes.officialStations.span.textContent).toBe(`${t.officialStations} — ${t.sensorTierOnly}`)
+  })
+
+  it('re-enables a network when the map returns to the sensor tier', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'P2', t, false)
+    setSourceViewAvailability(chrome, 'P2', t, true)
+
+    expect(boxes.officialStations.input.disabled).toBe(false)
+    expect(boxes.officialStations.span.textContent).toBe(t.officialStations)
   })
 })

@@ -12,7 +12,7 @@ import (
 // A device measures what its hardware measures, whether or not this cycle's
 // reading survived the quality filter. Without that, a rejected reading is
 // indistinguishable from a thermometer the box does not have, and the panel has
-// to print "no reading" for all seven metrics on every sensor in the country.
+// to print "no reading" for every metric on every sensor in the country.
 func TestMeasuresKeepsAMetricWhoseReadingWasRejected(t *testing.T) {
 	sr := store.SensorReading{
 		SensorID: 5966, SensorType: "BME280",
@@ -99,6 +99,41 @@ func TestSensorPayloadCarriesTheMeasuresColumn(t *testing.T) {
 	}
 	if !equal(got.Sensors.Measures[1], []string{"humidity", "pressure", "temperature"}) {
 		t.Errorf("the climate device measures %v, want humidity, pressure and temperature", got.Sensors.Measures[1])
+	}
+}
+
+// Not in build_test.go: that file is package snapshot_test, which cannot reach
+// the unexported sensorPayloadFrom.
+func TestSensorPayloadCarriesTheSource(t *testing.T) {
+	body := sensorPayloadFrom(time.Now().UTC(), []store.SensorReading{
+		{SensorID: 1, SensorType: "SDS011", Lon: 23.3, Lat: 42.7, Quality: "ok",
+			Source: "sensor.community", Values: map[string]float64{"P1": 20}},
+		{SensorID: 9_000_000_001, SensorType: "eea_reference", Lon: 24.75, Lat: 42.14, Quality: "ok",
+			Source: "eea", StationCode: "BG0070A", StationName: "Пловдив Каменица",
+			StationType: "background", StationArea: "urban",
+			Values: map[string]float64{"P1": 31.5}},
+	})
+
+	raw, err := json.Marshal(body.Sensors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, col := range []string{"source", "station_code", "station_name", "station_type", "station_area"} {
+		if _, ok := got[col]; !ok {
+			t.Errorf("the payload has no %q column", col)
+		}
+	}
+
+	var sources []string
+	if err := json.Unmarshal(got["source"], &sources); err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 2 || sources[0] != "sensor.community" || sources[1] != "eea" {
+		t.Errorf("source column = %v, want [sensor.community eea]", sources)
 	}
 }
 
