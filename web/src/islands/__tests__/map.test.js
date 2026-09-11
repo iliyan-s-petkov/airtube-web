@@ -317,7 +317,7 @@ describe('readConfig', () => {
         tViewCommunitySensors: 'Citizen sensors',
         tViewOfficialStations: 'Official stations',
         tNotMeasured: 'does not measure this',
-        tSensorTierOnly: 'only when single sensors are shown',
+        tWithData: 'with data',
         // Two of the twelve groups, deliberately: the other ten prove the
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
@@ -366,7 +366,7 @@ describe('readConfig', () => {
       viewCommunitySensors: 'Citizen sensors',
       viewOfficialStations: 'Official stations',
       notMeasured: 'does not measure this',
-      sensorTierOnly: 'only when single sensors are shown',
+      withData: 'with data',
       // communitySensors/officialStations reuse the view labels: setSourceViewAvailability
       // keys the checkbox label lookup by view id, not by a second pair of dataset attributes.
       communitySensors: 'Citizen sensors',
@@ -724,9 +724,9 @@ describe('initData ordering', () => {
     expect(rendered.at(-1)).toBe(cfg.t.noSources)
   })
 
-  // The wiring for the tier half of setSourceViewAvailability. Zoom 7 is the
-  // country tier, where repaintSensors has no payload to repaint from.
-  it('disables the network checkboxes at the country tier', async () => {
+  // The bug: the country tier used to disable both boxes, so the toggle on the
+  // opening map was inert. They stay live at every tier now.
+  it('leaves the network checkboxes live at the country tier', async () => {
     vi.stubGlobal('fetch', stubFetch({ scalesOk: true }))
     const fieldset = document.createElement('fieldset')
     const boxes = ['communitySensors', 'officialStations'].map((id) => {
@@ -742,7 +742,7 @@ describe('initData ordering', () => {
 
     await initData(fakeMap(7), { slug: null, tier: null, scales: null }, cfg, chrome)
 
-    expect(boxes.map((b) => b.disabled)).toEqual([true, true])
+    expect(boxes.map((b) => b.disabled)).toEqual([false, false])
   })
 
   // J3 (review round 2): refresh must call tierFor with cfg.zoomCity and
@@ -3307,16 +3307,16 @@ describe('mountChrome() announces the hint banner', () => {
   })
 })
 
-// At the country and city tiers repaintSensors returns early on a null
-// state.sensorBody, so the two network checkboxes were live controls that did
-// nothing at all. They get the same disabled-with-a-reason treatment the menu
-// already gives a network that does not measure the selected metric.
 describe('setSourceViewAvailability', () => {
   const t = {
     communitySensors: 'Citizen sensors',
     officialStations: 'Official stations',
     notMeasured: 'does not measure this',
-    sensorTierOnly: 'only when single sensors are shown',
+    withData: 'with data',
+  }
+  const coverage = {
+    'sensor.community': { P1: 1180, P2: 1180 },
+    eea: { P1: 27, P2: 4, O3: 20 },
   }
 
   function menu() {
@@ -3335,39 +3335,40 @@ describe('setSourceViewAvailability', () => {
     return { chrome: { layersUI: { fieldset } }, boxes }
   }
 
-  it('leaves both live on the sensor tier for a metric both networks measure', () => {
+  // The bug this replaces: both boxes were disabled anywhere but the sensor
+  // tier, so unticking a network on the opening map did nothing.
+  it('leaves both live and says how many stations have the metric', () => {
     const { chrome, boxes } = menu()
-    setSourceViewAvailability(chrome, 'P2', t, true)
+    setSourceViewAvailability(chrome, 'P2', t, coverage)
 
     expect(boxes.communitySensors.input.disabled).toBe(false)
     expect(boxes.officialStations.input.disabled).toBe(false)
-    expect(boxes.communitySensors.span.textContent).toBe(t.communitySensors)
+    expect(boxes.officialStations.span.textContent).toBe('Official stations — 4 with data')
+    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — 1180 with data')
   })
 
-  it('disables both away from the sensor tier, and says why', () => {
+  it('names the metric a network does not measure, and still lets it be switched off', () => {
     const { chrome, boxes } = menu()
-    setSourceViewAvailability(chrome, 'P2', t, false)
+    setSourceViewAvailability(chrome, 'O3', t, coverage)
 
-    expect(boxes.communitySensors.input.disabled).toBe(true)
-    expect(boxes.officialStations.input.disabled).toBe(true)
-    expect(boxes.officialStations.span.textContent).toBe(`${t.officialStations} — ${t.sensorTierOnly}`)
+    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — does not measure this')
+    expect(boxes.communitySensors.input.disabled).toBe(false)
+    expect(boxes.officialStations.span.textContent).toBe('Official stations — 20 with data')
   })
 
-  it('still names the narrower reason when the network does not measure the metric', () => {
+  it('falls back to the bare label before any coverage has arrived', () => {
     const { chrome, boxes } = menu()
-    setSourceViewAvailability(chrome, 'O3', t, false)
+    setSourceViewAvailability(chrome, 'P2', t, null)
 
-    // O3 is EEA-only, so this is the one label that must not blame the tier.
-    expect(boxes.communitySensors.span.textContent).toBe(`${t.communitySensors} — ${t.notMeasured}`)
-    expect(boxes.officialStations.span.textContent).toBe(`${t.officialStations} — ${t.sensorTierOnly}`)
-  })
-
-  it('re-enables a network when the map returns to the sensor tier', () => {
-    const { chrome, boxes } = menu()
-    setSourceViewAvailability(chrome, 'P2', t, false)
-    setSourceViewAvailability(chrome, 'P2', t, true)
-
+    expect(boxes.officialStations.span.textContent).toBe('Official stations')
     expect(boxes.officialStations.input.disabled).toBe(false)
-    expect(boxes.officialStations.span.textContent).toBe(t.officialStations)
+  })
+
+  it('follows the metric from one call to the next', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'O3', t, coverage)
+    setSourceViewAvailability(chrome, 'P1', t, coverage)
+
+    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — 1180 with data')
   })
 })

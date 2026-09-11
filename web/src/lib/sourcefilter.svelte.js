@@ -47,21 +47,3 @@ export function sourceOf(x) {
 export function filterBySource(features, enabled) {
   return features.filter((f) => enabled.has(sourceOf(f)))
 }
-
-// Metric coverage per network as of 2026-09-09. A metric in neither set is
-// treated as measured by both, so a metric added server-side does not blank a
-// layer until this table is updated.
-const MEASURED = {
-  'sensor.community': new Set([
-    'P1', 'P2', 'temperature', 'humidity', 'pressure', 'noise_LAeq', 'noise_LA_max',
-  ]),
-  eea: new Set(['P1', 'P2', 'SO2', 'O3', 'NO2', 'NOX', 'CO', 'C6H6']),
-}
-
-// measuredBy reports whether source has any data for metric; the layer control
-// disables the checkbox when it does not.
-export function measuredBy(source, metric) {
-  const known = new Set([...MEASURED['sensor.community'], ...MEASURED.eea])
-  if (!known.has(metric)) return true
-  return MEASURED[source]?.has(metric) === true
-}
