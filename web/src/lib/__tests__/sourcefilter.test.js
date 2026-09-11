@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   SOURCES, filterBySource, getSources, measuredBy, onSourceChange,
-  resetSourceFilterForTests, setSourceEnabled,
+  resetSourceFilterForTests, setSourceEnabled, sourceOf,
 } from '../sourcefilter.svelte.js'
 
 beforeEach(() => resetSourceFilterForTests())
@@ -62,5 +62,20 @@ describe('what each network measures', () => {
   it('assumes an unknown metric is measured by everyone', () => {
     expect(measuredBy('eea', 'brand_new')).toBe(true)
     expect(measuredBy('sensor.community', 'brand_new')).toBe(true)
+  })
+})
+
+describe('sourceOf', () => {
+  it('reads a hex entry directly', () => {
+    expect(sourceOf({ source: 'eea', n: 1 })).toBe('eea')
+  })
+
+  it('reads a GeoJSON feature through properties', () => {
+    expect(sourceOf({ properties: { source: 'eea' } })).toBe('eea')
+  })
+
+  it('treats an absent source as sensor.community on either shape', () => {
+    expect(sourceOf({ n: 3 })).toBe('sensor.community')
+    expect(sourceOf({ properties: {} })).toBe('sensor.community')
   })
 })

@@ -575,3 +575,66 @@ describe('the fractional handovers', () => {
     expect(Number(tierAt(GRID_MIN_ZOOM_FRACTIONAL))).toBeGreaterThan(0)
   })
 })
+
+describe('hexFeatures with a network filter', () => {
+  const bands = [{ upper: 10, colour: '#00ff00' }, { upper: 1000, colour: '#ff0000' }]
+  const body = {
+    resolution_km: 15,
+    hexes: [
+      // Mixed: both networks reach this cell.
+      {
+        lon: 23.32, lat: 42.69, n: 4, values: { P2: 25 },
+        by_source: {
+          'sensor.community': { n: 3, values: { P2: 20 } },
+          eea: { n: 1, values: { P2: 100 } },
+        },
+      },
+      // Community only.
+      { lon: 24.0, lat: 43.0, n: 2, source: 'sensor.community', values: { P2: 30 } },
+      // Official only.
+      { lon: 25.0, lat: 43.5, n: 1, source: 'eea', values: { P2: 40 } },
+    ],
+  }
+  const draw = (enabled) =>
+    hexFeatures(body, 'P2', bands, '#cccccc', rampColour, 0, enabled)
+
+  it('draws the blended number when both networks are on', () => {
+    const f = draw(new Set(['sensor.community', 'eea']))
+    expect(f).toHaveLength(3)
+    const mixed = f.find((x) => x.geometry.coordinates[0][0][0] !== undefined && x.properties.n === 4)
+    expect(mixed.properties.value).toBe(25)
+  })
+
+  it('draws one network its own median and count', () => {
+    const f = draw(new Set(['eea']))
+    // The mixed cell's eea half plus the eea-only cell. The community-only cell
+    // is gone: it has no eea reading to summarise.
+    expect(f).toHaveLength(2)
+    expect(f.map((x) => x.properties.value).sort((a, b) => a - b)).toEqual([40, 100])
+    expect(f.map((x) => x.properties.n).sort((a, b) => a - b)).toEqual([1, 1])
+  })
+
+  it('drops a single-network cell whose network is off', () => {
+    const f = draw(new Set(['sensor.community']))
+    expect(f).toHaveLength(2)
+    expect(f.map((x) => x.properties.value).sort((a, b) => a - b)).toEqual([20, 30])
+    expect(f.map((x) => x.properties.n).sort((a, b) => a - b)).toEqual([2, 3])
+  })
+
+  it('draws nothing when every network is off', () => {
+    expect(draw(new Set())).toEqual([])
+  })
+
+  it('draws the blended numbers when no filter is given', () => {
+    expect(hexFeatures(body, 'P2', bands, '#cccccc', rampColour, 0).map((x) => x.properties.value))
+      .toEqual([25, 30, 40])
+  })
+
+  it('treats a cell with no source at all as sensor.community', () => {
+    const legacy = { resolution_km: 15, hexes: [{ lon: 23.3, lat: 42.7, n: 2, values: { P2: 11 } }] }
+    expect(hexFeatures(legacy, 'P2', bands, '#cccccc', rampColour, 0, new Set(['sensor.community'])))
+      .toHaveLength(1)
+    expect(hexFeatures(legacy, 'P2', bands, '#cccccc', rampColour, 0, new Set(['eea'])))
+      .toHaveLength(0)
+  })
+})

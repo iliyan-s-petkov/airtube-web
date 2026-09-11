@@ -36,10 +36,12 @@ export function resetSourceFilterForTests() {
   listeners.clear()
 }
 
-// A snapshot written before the source column exists carries no source; those
-// rows are all sensor.community.
-function sourceOf(feature) {
-  return feature.properties.source || 'sensor.community'
+// sourceOf names the network behind a hex entry or a GeoJSON feature. One
+// function for both shapes because the same toggle governs both layers, and a
+// payload written before the source column exists carries none — those rows are
+// all sensor.community.
+export function sourceOf(x) {
+  return x?.source || x?.properties?.source || 'sensor.community'
 }
 
 export function filterBySource(features, enabled) {
