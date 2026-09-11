@@ -277,31 +277,78 @@ func (s *Snapshot) PointBody(bb BBox) (Body, error) {
 	return encode(out)
 }
 
-// pointsFrom turns sensors into point-tier entries, ordered by sensor id.
+// pointsFrom turns sensors into point-tier entries, one per STATION, ordered by
+// station id.
 //
-// Ordered so the payload is a function of the readings alone: the source slice
-// arrives in whatever order the query returned, and reordering between cycles
-// would churn every ETag without a single value having changed.
+// A station is every sensor at one pair of coordinates, grouped and identified
+// exactly as stationIDs does it for the sensor catalogue — so the cell a reader
+// reaches by zooming is the same thing, under the same id, as the marker they
+// reach by clicking. Both networks need it: a community site is a dust sensor
+// and its climate twin, and an EEA site is one sensor id per pollutant, which
+// put thirteen entries on two places in Sofia, each holding a single metric.
 //
-// N is 1 on every entry. Not omitted: the client draws both catalogues through
-// one path, and a point is honestly a cell of one sensor.
+// The group key carries the network as well as the position. Two networks at
+// one coordinate to the last digit is not a thing the data does, and if it ever
+// did, an entry naming one network while holding the other's readings is the
+// one outcome the toggles could not survive.
+//
+// Ordered by the station id so the payload is a function of the readings alone:
+// the source slice arrives in whatever order the query returned, and reordering
+// between cycles would churn every ETag without a single value having changed.
+//
+// N is the station's devices, the same count the aggregate tiers report.
 func pointsFrom(sensors []store.SensorReading) []hexEntry {
-	out := make([]hexEntry, 0, len(sensors))
+	type site struct {
+		lon, lat float64
+		source   string
+	}
+	type station struct {
+		entry hexEntry
+		vals  map[string][]float64
+	}
+
+	order := make([]site, 0, len(sensors))
+	stations := make(map[site]*station, len(sensors))
 	for _, sr := range sensors {
-		values := make(map[string]float64, len(sr.Values))
+		k := site{sr.Lon, sr.Lat, sourceOf(sr)}
+		st, seen := stations[k]
+		if !seen {
+			country := sr.Country
+			if country == "" {
+				country = hexCountryUnknown
+			}
+			st = &station{
+				entry: hexEntry{
+					Lon: sr.Lon, Lat: sr.Lat, SensorID: sr.SensorID,
+					Country: country, Source: k.source,
+				},
+				vals: make(map[string][]float64, len(sr.Values)),
+			}
+			stations[k] = st
+			order = append(order, k)
+		}
+		st.entry.N++
+		// The smallest member id, so the station keeps one id whatever order the
+		// rows arrive in and for as long as that member reports.
+		if sr.SensorID < st.entry.SensorID {
+			st.entry.SensorID = sr.SensorID
+		}
+		for m, v := range sr.Values {
+			st.vals[m] = append(st.vals[m], v)
+		}
+	}
+
+	out := make([]hexEntry, 0, len(order))
+	for _, k := range order {
+		st := stations[k]
+		values := make(map[string]float64, len(st.vals))
 		for _, m := range upstream.CanonicalMetrics() {
-			if v, ok := sr.Values[m]; ok {
-				values[m] = round1(v)
+			if vs, ok := st.vals[m]; ok {
+				values[m] = round1(median(vs))
 			}
 		}
-		country := sr.Country
-		if country == "" {
-			country = hexCountryUnknown
-		}
-		out = append(out, hexEntry{
-			Lon: sr.Lon, Lat: sr.Lat, SensorID: sr.SensorID,
-			N: 1, Country: country, Values: values, Source: sourceOf(sr),
-		})
+		st.entry.Values = values
+		out = append(out, st.entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SensorID < out[j].SensorID })
 	return out

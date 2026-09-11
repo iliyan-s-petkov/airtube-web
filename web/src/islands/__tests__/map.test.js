@@ -5,8 +5,9 @@
 // `hashchange`, which the rest of this file's pure-logic tests do not need
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
+import { DIAMOND_RADIUS_PX } from '../../lib/markericon.js'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -2731,7 +2732,9 @@ describe('mount() hands the reading from the dots to the cells', () => {
     const markers = map.addLayer.mock.calls.map((c) => c[0])
       .filter((l) => l.source === 'airbg-data')
 
-    expect(markers).toHaveLength(2)
+    // Circles, official diamonds, labels — every layer the sensor source
+    // feeds, so a fourth one added later has to answer this question too.
+    expect(markers).toHaveLength(3)
     // Mounted on the country tier: those markers are province/municipality
     // circles, and the cells cover the same ground from GRID_MIN_ZOOM up.
     // Held at the point tier they were drawn OVER six zoom levels of hexes —
@@ -2758,6 +2761,9 @@ describe('mount() hands the reading from the dots to the cells', () => {
     applyMarkerZoomRange(map, 'sensors')
     expect(ranges).toEqual([
       ['airbg-markers', 0, POINT_TIER_MIN_ZOOM_FRACTIONAL],
+      // The official diamonds hand over with the circles they stand beside.
+      // Left out, they would have outlived the network they belong to.
+      ['airbg-markers-official', 0, POINT_TIER_MIN_ZOOM_FRACTIONAL],
       ['airbg-marker-labels', 0, POINT_TIER_MIN_ZOOM_FRACTIONAL],
     ])
   })
@@ -3370,5 +3376,44 @@ describe('setSourceViewAvailability', () => {
     setSourceViewAvailability(chrome, 'P1', t, coverage)
 
     expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — 1180 with data')
+  })
+})
+
+// The official stations draw as diamonds, the citizen ones as circles, and no
+// marker is allowed to fall between the two layers or land in both.
+describe('the official marker layer', () => {
+  it('splits the source in two along the network, leaving areas with the dots', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const [circles, diamonds] = map.addLayer.mock.calls.map((c) => c[0])
+      .filter((l) => l.source === 'airbg-data' && l.id !== 'airbg-marker-labels')
+
+    expect(circles.type).toBe('circle')
+    expect(diamonds.type).toBe('symbol')
+    expect(circles.filter).toEqual(NOT_OFFICIAL)
+    expect(diamonds.filter).toEqual(['==', ['get', 'source'], 'eea'])
+  })
+
+  it('registers the diamond as an SDF, which is what lets the ramp colour it', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const [id, image, opts] = map.addImage.mock.calls.find((c) => c[0] === 'airbg-diamond')
+
+    expect(id).toBe('airbg-diamond')
+    expect(image.width).toBe(image.height)
+    expect(opts.sdf).toBe(true)
+  })
+
+  it('draws the diamond at the radius the circles use and in the same colours', () => {
+    const cfg = { markerStrokeColour: '#ffffff' }
+    const size = officialLayout()['icon-size']
+    const radius = layerPaint(cfg)['circle-radius']
+
+    // Both are [interpolate, linear, [zoom], z1, v1, z2, v2]. The zoom stops
+    // must match exactly; the values differ only by the glyph's own unit.
+    expect(size.slice(0, 4)).toEqual(radius.slice(0, 4))
+    expect(size[4] * (DIAMOND_RADIUS_PX / 2)).toBeCloseTo(radius[4])
+    expect(size[6] * (DIAMOND_RADIUS_PX / 2)).toBeCloseTo(radius[6])
+
+    expect(officialPaint(cfg)['icon-color']).toEqual(['get', 'colour'])
+    expect(officialPaint(cfg)['icon-halo-color']).toBe('#ffffff')
   })
 })

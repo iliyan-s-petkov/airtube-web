@@ -7,7 +7,7 @@
 // browser — and they must agree, or the drawn cell sits off the ground its
 // count came from. hexes.test.js pins the two together against values taken
 // from the Go implementation; change one side and that test fails.
-import { sourceOf } from './sourcefilter.svelte.js'
+import { OFFICIAL_SOURCE, sourceOf } from './sourcefilter.svelte.js'
 
 const EARTH_RADIUS_KM = 6371
 const HEX_REF_LAT = 42.75
@@ -197,6 +197,33 @@ export function hexPolygon(lon, lat, resKM) {
 }
 
 /**
+ * diamondPolygon is the point tier's official-station cell: a square on its
+ * corner, inscribed in the hexagon the same station would have drawn.
+ *
+ * The two networks are two different claims — one is a reference instrument the
+ * state operates, the other is a box on somebody's balcony — and on a map where
+ * every cell is the same shape a reader has no way to tell which they are
+ * reading. It matches the diamond the sensor markers draw for the same network,
+ * so the shape means the same thing at every zoom.
+ *
+ * Inscribed rather than circumscribed: the half-diagonal is the hexagon's own
+ * inradius, so the diamond fits inside the lattice cell and can never reach a
+ * neighbour's ground.
+ */
+export function diamondPolygon(lon, lat, resKM) {
+  const r = resKM / 2
+  const dLon = degrees(r / (EARTH_RADIUS_KM * Math.cos(radians(HEX_REF_LAT))))
+  const dLat = degrees(r / EARTH_RADIUS_KM)
+  return [
+    [lon, lat + dLat],
+    [lon + dLon, lat],
+    [lon, lat - dLat],
+    [lon - dLon, lat],
+    [lon, lat + dLat],
+  ]
+}
+
+/**
  * hexFeatures turns a /api/v1/hexes body into coloured polygons.
  *
  * The cell size comes from the RESPONSE's resolution_km, never from the value
@@ -265,12 +292,18 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
   // A stable partition rather than a full sort: two co-located sensors that BOTH
   // report cannot be separated by anything here, and reordering them between
   // refreshes would just move the coin toss around.
-  const raw = points && drawKM > 0 ? snapToLattice(body?.hexes ?? [], drawKM) : (body?.hexes ?? [])
-  const hexes = []
-  for (const h of raw) {
+  // Filtered BEFORE the point tier's merge, never after. A network is a property
+  // of the device, and snapToLattice returns a new cell that no longer has one —
+  // so filtering the merged cells read every one of them as the default network
+  // and emptied the official layer at the one zoom where a station is finally a
+  // thing of its own. Filtering first also makes the merge honest: a cell holding
+  // one station of each network averages only the ones the reader left on.
+  const picked = []
+  for (const h of body?.hexes ?? []) {
     const p = pick(h)
-    if (p) hexes.push({ ...h, values: p.values, n: p.n })
+    if (p) picked.push({ ...h, values: p.values, n: p.n })
   }
+  const hexes = points && drawKM > 0 ? snapToLattice(picked, drawKM) : picked
   const ordered = [
     ...hexes.filter((h) => (h.values?.[metric] ?? null) === null),
     ...hexes.filter((h) => (h.values?.[metric] ?? null) !== null),
@@ -287,18 +320,30 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
       // paints, so the fill and outline skip points and the circle layer skips
       // cells.
       geometry: drawKM > 0
-        ? { type: 'Polygon', coordinates: [hexPolygon(h.lon, h.lat, drawKM)] }
+        ? { type: 'Polygon', coordinates: [ringFor(points, h, drawKM)] }
         : { type: 'Point', coordinates: [h.lon, h.lat] },
       properties: {
         colour: colourOf(value, bands, noDataColour),
         value,
         n: h.n,
+        // The network, carried so the layers can shape and outline a cell by it.
+        // Only the point tier has one to carry: an aggregate cell is a bin, and
+        // a bin under both networks belongs to neither.
+        source: points ? sourceOf(h) : undefined,
         // Undefined on every aggregate tier, so a popup can tell a device from
         // a bin without also having to know which resolution it asked for.
         sensorId: h.sensor_id,
       },
     }
   })
+}
+
+// ringFor picks a cell's outline: a diamond for an official station on the
+// point tier, the lattice hexagon for everything else. An aggregate bin is
+// always a hexagon — it tiles the ground its count came from.
+function ringFor(points, h, drawKM) {
+  if (points && sourceOf(h) === OFFICIAL_SOURCE) return diamondPolygon(h.lon, h.lat, drawKM)
+  return hexPolygon(h.lon, h.lat, drawKM)
 }
 
 // snapToLattice moves each device onto the hex lattice of the size the point
@@ -320,10 +365,15 @@ function snapToLattice(hexes, drawKM) {
   const cells = new Map()
   for (const h of hexes) {
     const at = latticeCell(h.lon, h.lat, drawKM)
-    let cell = cells.get(at.key)
+    // Keyed by network as well as by cell, for the same reason the server groups
+    // its stations that way: a cell drawn as one network's shape while holding
+    // the other's reading is the one merge the toggles could not survive.
+    const source = sourceOf(h)
+    const key = `${at.key}|${source}`
+    let cell = cells.get(key)
     if (!cell) {
-      cell = { lon: at.lon, lat: at.lat, n: 0, sensor_id: h.sensor_id, sums: new Map() }
-      cells.set(at.key, cell)
+      cell = { lon: at.lon, lat: at.lat, n: 0, sensor_id: h.sensor_id, source, sums: new Map() }
+      cells.set(key, cell)
     }
     cell.n += h.n ?? 0
     for (const [metric, value] of Object.entries(h.values ?? {})) {
@@ -339,6 +389,7 @@ function snapToLattice(hexes, drawKM) {
     lat: c.lat,
     n: c.n,
     sensor_id: c.sensor_id,
+    source: c.source,
     values: Object.fromEntries([...c.sums].map(([m, s]) => [m, s.total / s.count])),
   }))
 }

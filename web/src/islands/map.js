@@ -20,8 +20,9 @@ import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales, findSensor, getSensors } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import {
-  filterBySource, getSources, onSourceChange, setSourceEnabled,
+  filterBySource, getSources, onSourceChange, setSourceEnabled, OFFICIAL_SOURCE,
 } from '../lib/sourcefilter.svelte.js'
+import { diamondImage, DIAMOND_RADIUS_PX } from '../lib/markericon.js'
 import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
@@ -93,6 +94,8 @@ const RASTER_LAYER_ID = 'airbg-raster-base'
 
 const SOURCE_ID = 'airbg-data'
 const LAYER_ID = 'airbg-markers'
+const OFFICIAL_LAYER_ID = 'airbg-markers-official'
+const OFFICIAL_IMAGE_ID = 'airbg-diamond'
 const LABEL_LAYER_ID = 'airbg-marker-labels'
 
 export const HEX_SOURCE_ID = 'airbg-hexes'
@@ -354,7 +357,25 @@ export function mount(el) {
       // value is set per tier in refresh() (see markerMaxZoom). This is the
       // starting one, for the tier the map opens on.
       maxzoom: markerMaxZoom('country'),
+      filter: NOT_OFFICIAL,
       paint: layerPaint(cfg),
+    })
+
+    // The official stations, as diamonds. A second layer rather than a second
+    // paint expression because a circle layer draws circles: the shape is the
+    // one thing about a marker MapLibre will not take from a property, and the
+    // shape is what tells a reader which network they are looking at without a
+    // click. Same source, same colour ramp, same outline — only the outline
+    // changes shape, so the reading still reads the same way.
+    map.addImage(OFFICIAL_IMAGE_ID, diamondImage(), { sdf: true, pixelRatio: MARKER_PIXEL_RATIO })
+    map.addLayer({
+      id: OFFICIAL_LAYER_ID,
+      type: 'symbol',
+      source: SOURCE_ID,
+      maxzoom: markerMaxZoom('country'),
+      filter: ['==', ['get', 'source'], OFFICIAL_SOURCE],
+      layout: officialLayout(),
+      paint: officialPaint(cfg),
     })
 
     // The reading, printed on the map. Colour alone carried three different
@@ -1054,7 +1075,7 @@ export async function showArea(map, state, cfg, chrome, area) {
 // every moveend and a style reload can leave a layer briefly absent.
 export function applyMarkerZoomRange(map, tier) {
   const max = markerMaxZoom(tier)
-  for (const id of [LAYER_ID, LABEL_LAYER_ID]) {
+  for (const id of [LAYER_ID, OFFICIAL_LAYER_ID, LABEL_LAYER_ID]) {
     if (map.getLayer?.(id)) map.setLayerZoomRange(id, 0, max)
   }
 }
@@ -1857,10 +1878,45 @@ export function installErrorHandler(map, warn = console.warn) {
 export function layerPaint(cfg) {
   return {
     'circle-color': ['get', 'colour'],
-    'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 5, 12, 9],
-    // Stroke width marks the network; fill stays the reading's scale colour.
-    'circle-stroke-width': ['case', ['==', ['get', 'source'], 'eea'], 3, 1],
+    'circle-radius': MARKER_RADIUS,
+    'circle-stroke-width': 1,
     'circle-stroke-color': cfg.markerStrokeColour,
+  }
+}
+
+// The circle layer draws every marker the diamond layer does not. An area
+// marker carries no source at all, and ['get'] on an absent property is null,
+// which is not the official one — so the areas stay where they were.
+export const NOT_OFFICIAL = ['!=', ['get', 'source'], OFFICIAL_SOURCE]
+
+const MARKER_RADIUS = ['interpolate', ['linear'], ['zoom'], 5, 5, 12, 9]
+
+// The diamond raster is drawn at twice its nominal size, as the wind arrow is,
+// so it stays sharp on a retina screen and when icon-size scales it past 1.
+const MARKER_PIXEL_RATIO = 2
+
+// officialLayout/officialPaint: the diamond drawn at the radius the circles
+// use, so the two networks read as one population at one size and differ only
+// in shape. icon-size 1 puts the glyph's point at DIAMOND_RADIUS_PX image
+// pixels, which pixelRatio 2 halves into CSS px — so the stops are the circle
+// radii over that, and a change to either end stays a change to one number.
+export function officialLayout() {
+  const unit = DIAMOND_RADIUS_PX / MARKER_PIXEL_RATIO
+  return {
+    'icon-image': OFFICIAL_IMAGE_ID,
+    'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 5 / unit, 12, 9 / unit],
+    // Markers may overlap; dropping one would silently hide a station rather
+    // than a label, which is not a trade the label layer's rule was making.
+    'icon-allow-overlap': true,
+    'icon-ignore-placement': true,
+  }
+}
+
+export function officialPaint(cfg) {
+  return {
+    'icon-color': ['get', 'colour'],
+    'icon-halo-color': cfg.markerStrokeColour,
+    'icon-halo-width': 1,
   }
 }
 

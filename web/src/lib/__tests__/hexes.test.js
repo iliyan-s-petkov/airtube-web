@@ -638,3 +638,109 @@ describe('hexFeatures with a network filter', () => {
       .toHaveLength(0)
   })
 })
+
+// The point tier is the one tier that rewrites its own entries before they are
+// drawn: snapToLattice merges the devices sharing a cell and returns a new
+// object. A network is a property of the device, so the filter has to run on
+// the devices, not on what the merge left behind — filtered afterwards, every
+// merged cell had lost its `source` and read as sensor.community, which turned
+// the official layer off at the zoom where individual stations finally appear.
+describe('hexFeatures with a network filter at the point tier', () => {
+  const bands = [{ upper: 1000, colour: '#ff0000' }]
+  // Two EEA devices and one community device, all far enough apart to keep
+  // cells of their own, so only the filtering is under test here.
+  const body = {
+    resolution_km: 0,
+    hexes: [
+      { lon: 23.30, lat: 42.68, sensor_id: 9000000044, n: 1, source: 'eea', values: { P1: 37.5 } },
+      { lon: 23.32, lat: 42.68, sensor_id: 9000000138, n: 1, source: 'eea', values: { P1: 16.2 } },
+      { lon: 23.34, lat: 42.68, sensor_id: 3831, n: 1, source: 'sensor.community', values: { P1: 8 } },
+    ],
+  }
+  const draw = (enabled) => hexFeatures(body, 'P1', bands, '#cccccc', rampColour, 0.02, enabled)
+
+  it('keeps the official devices when only the official network is on', () => {
+    const f = draw(new Set(['eea']))
+    expect(f).toHaveLength(2)
+    expect(f.map((x) => x.properties.value).sort((a, b) => a - b)).toEqual([16.2, 37.5])
+  })
+
+  it('keeps the citizen devices when only the citizen network is on', () => {
+    const f = draw(new Set(['sensor.community']))
+    expect(f).toHaveLength(1)
+    expect(f[0].properties.value).toBe(8)
+  })
+
+  it('draws nothing when every network is off', () => {
+    expect(draw(new Set())).toEqual([])
+  })
+
+  // Two networks never merge into one cell, whichever toggles are on: the cell
+  // names a network and is drawn in that network's shape, so a cell holding one
+  // station of each would have to misreport one of them.
+  const shared = {
+    resolution_km: 0,
+    hexes: [
+      { lon: 23.3200, lat: 42.6800, sensor_id: 11, n: 1, source: 'sensor.community', values: { P1: 10 } },
+      { lon: 23.3203, lat: 42.6801, sensor_id: 12, n: 1, source: 'eea', values: { P1: 30 } },
+    ],
+  }
+  const only = (enabled) => hexFeatures(shared, 'P1', bands, '#cccccc', rampColour, 0.5, enabled)
+
+  it('merges only the devices of the enabled networks', () => {
+    expect(only(new Set(['eea'])).map((f) => f.properties.value)).toEqual([30])
+    expect(only(new Set(['sensor.community'])).map((f) => f.properties.value)).toEqual([10])
+  })
+
+  it('keeps two networks on one lattice cell apart', () => {
+    const f = only(new Set(['sensor.community', 'eea']))
+    expect(f.map((x) => x.properties.value).sort((a, b) => a - b)).toEqual([10, 30])
+    expect(f.map((x) => x.properties.source).sort()).toEqual(['eea', 'sensor.community'])
+  })
+
+  it('names the network on a point-tier cell and on nothing else', () => {
+    expect(only(new Set(['eea']))[0].properties.source).toBe('eea')
+    const bin = { resolution_km: 15, hexes: [{ lon: 23.3, lat: 42.7, n: 2, source: 'eea', values: { P1: 11 } }] }
+    expect(hexFeatures(bin, 'P1', bands, '#cccccc', rampColour, 0.5)[0].properties.source).toBeUndefined()
+  })
+})
+
+// A reader cannot tell a reference instrument the state operates from a box on
+// a balcony when both draw the same hexagon. The official cell is a diamond, the
+// same shape its marker draws, so the shape means one thing at every zoom.
+describe('the official cell shape', () => {
+  const body = {
+    resolution_km: 0,
+    hexes: [
+      { lon: 23.30, lat: 42.68, sensor_id: 1, n: 1, source: 'sensor.community', values: { P1: 10 } },
+      { lon: 23.34, lat: 42.68, sensor_id: 2, n: 1, source: 'eea', values: { P1: 30 } },
+    ],
+  }
+  const draw = (res = 0, pointKM = 0.5) =>
+    hexFeatures({ ...body, resolution_km: res }, 'P1', [], '#ccc', rampColour, pointKM)
+
+  it('draws an official station as a diamond and a citizen one as a hexagon', () => {
+    const [citizen, official] = draw()
+    // A ring is closed, so a diamond is 5 positions and a hexagon 7.
+    expect(citizen.geometry.coordinates[0]).toHaveLength(7)
+    expect(official.geometry.coordinates[0]).toHaveLength(5)
+  })
+
+  it('keeps the diamond inside the cell the station would have had', () => {
+    const [, official] = draw()
+    const hex = hexPolygon(23.34, 42.68, 0.5)
+    const span = (ring, i) => Math.max(...ring.map((c) => c[i])) - Math.min(...ring.map((c) => c[i]))
+    for (const axis of [0, 1]) {
+      expect(span(official.geometry.coordinates[0], axis))
+        .toBeLessThanOrEqual(span(hex, axis) + 1e-12)
+    }
+  })
+
+  // An aggregate bin is the server's own tiling of the ground its count came
+  // from. A cell that stopped covering its own bin would be a different claim.
+  it('leaves the aggregate tiers hexagonal for both networks', () => {
+    for (const f of draw(15, 0.5)) {
+      expect(f.geometry.coordinates[0]).toHaveLength(7)
+    }
+  })
+})

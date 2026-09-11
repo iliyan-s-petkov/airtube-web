@@ -307,6 +307,65 @@ func TestPointEntriesNameTheirNetwork(t *testing.T) {
 	}
 }
 
+// A station is one entry, however many sensor ids stand on it. Both networks
+// register a site as several ids at one pair of coordinates — a community box
+// is a dust sensor and its climate twin, an EEA site is one id per pollutant —
+// and drawn one id per entry the point tier stacked thirteen cells on two
+// places in Sofia, twelve of them blank for whichever metric was selected.
+func TestPointEntriesAreOnePerStation(t *testing.T) {
+	pts := pointsFrom([]store.SensorReading{
+		sensorFrom(9000000044, 23.296786, 42.680558, "eea", map[string]float64{"P1": 37.5}),
+		sensorFrom(9000000138, 23.296786, 42.680558, "eea", map[string]float64{"P2": 16.2}),
+		sensorFrom(9000000069, 23.296786, 42.680558, "eea", map[string]float64{"O3": 74.2}),
+		sensorFrom(3832, 23.28, 42.666, "", map[string]float64{"temperature": 28.1}),
+		sensorFrom(3831, 23.28, 42.666, "", map[string]float64{"P1": 2.6}),
+	})
+
+	if len(pts) != 2 {
+		t.Fatalf("want 2 stations, got %d", len(pts))
+	}
+
+	// The id is the smallest member's, the same rule stationIDs uses, so a
+	// point-tier cell names the station the sensor markers already name.
+	if pts[0].SensorID != 3831 {
+		t.Errorf("community station id = %d, want 3831", pts[0].SensorID)
+	}
+	if pts[1].SensorID != 9000000044 {
+		t.Errorf("official station id = %d, want 9000000044", pts[1].SensorID)
+	}
+
+	// Every member's metrics, on one entry. This is what puts an EEA station's
+	// PM2.5 on the same cell as its ozone instead of on a cell of its own.
+	if got := pts[1].Values; got["P1"] != 37.5 || got["P2"] != 16.2 || got["O3"] != 74.2 {
+		t.Errorf("official station values = %v, want P1 37.5, P2 16.2, O3 74.2", got)
+	}
+	if got := pts[0].Values; got["P1"] != 2.6 || got["temperature"] != 28.1 {
+		t.Errorf("community station values = %v, want P1 2.6, temperature 28.1", got)
+	}
+
+	// N counts the devices standing there, as it does on every aggregate tier.
+	if pts[0].N != 2 || pts[1].N != 3 {
+		t.Errorf("n = %d and %d, want 2 and 3", pts[0].N, pts[1].N)
+	}
+}
+
+// Two sensors of one station reporting the same metric is not a shape either
+// network produces, but the merge still has to answer deterministically rather
+// than on map order, or the payload stops being a function of the readings.
+func TestAStationMedianIsTakenOverItsOwnSensors(t *testing.T) {
+	pts := pointsFrom([]store.SensorReading{
+		sensorFrom(2, 23.3, 42.7, "sensor.community", map[string]float64{"P1": 30}),
+		sensorFrom(1, 23.3, 42.7, "sensor.community", map[string]float64{"P1": 10}),
+	})
+
+	if len(pts) != 1 {
+		t.Fatalf("want 1 station, got %d", len(pts))
+	}
+	if pts[0].Values["P1"] != 20 {
+		t.Errorf("P1 = %v, want 20", pts[0].Values["P1"])
+	}
+}
+
 // Coverage counts SENSORS WITH A USABLE READING per network per metric. It is
 // what the layer menu says about a metric before the reader picks it, so a
 // network that reports nothing for a metric must not appear under it at all.

@@ -3,7 +3,13 @@
 // the sensor tier, and repaintSensors redraws from state.sensorBody without a
 // refetch. Module-level $state, not viewstate.svelte.js — that file mirrors the
 // URL hash and this is not in the hash. Mirrors sensorfilter.svelte.js.
-export const SOURCES = ['sensor.community', 'eea']
+// Named because the shape of a cell and of a marker now depends on one of them:
+// a layer expression matching a bare 'eea' three files away from this list is a
+// literal nobody would think to update.
+export const CITIZEN_SOURCE = 'sensor.community'
+export const OFFICIAL_SOURCE = 'eea'
+
+export const SOURCES = [CITIZEN_SOURCE, OFFICIAL_SOURCE]
 
 export const DEFAULT_SOURCES = SOURCES
 
@@ -41,7 +47,7 @@ export function resetSourceFilterForTests() {
 // payload written before the source column exists carries none — those rows are
 // all sensor.community.
 export function sourceOf(x) {
-  return x?.source || x?.properties?.source || 'sensor.community'
+  return x?.source || x?.properties?.source || CITIZEN_SOURCE
 }
 
 export function filterBySource(features, enabled) {
