@@ -20,7 +20,8 @@ import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales, findSensor, getSensors } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import {
-  filterBySource, getSources, onSourceChange, setSourceEnabled, OFFICIAL_SOURCE,
+  filterBySource, getSources, onSourceChange, setSourceEnabled,
+  CITIZEN_SOURCE, OFFICIAL_SOURCE,
 } from '../lib/sourcefilter.svelte.js'
 import { diamondImage, DIAMOND_RADIUS_PX } from '../lib/markericon.js'
 import { applyLocate } from '../lib/locate.js'
@@ -451,12 +452,18 @@ export function mount(el) {
       {
         id: 'communitySensors',
         label: cfg.t.viewCommunitySensors,
-        apply: (on) => { setSourceEnabled('sensor.community', on); return on },
+        // The shape the map draws this network in, shown beside its name. The
+        // shapes are the only thing telling the two apart on the map itself,
+        // and a key that named them in words would still leave a reader
+        // guessing which of two shapes the words meant.
+        mark: 'circle',
+        apply: (on) => { setSourceEnabled(CITIZEN_SOURCE, on); return on },
       },
       {
         id: 'officialStations',
         label: cfg.t.viewOfficialStations,
-        apply: (on) => { setSourceEnabled('eea', on); return on },
+        mark: 'diamond',
+        apply: (on) => { setSourceEnabled(OFFICIAL_SOURCE, on); return on },
       },
     ]
 

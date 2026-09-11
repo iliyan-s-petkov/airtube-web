@@ -219,6 +219,18 @@ strong, b { font-weight: var(--weight-emphasis); }
    than its button hangs off the left of the page and loses its first column of
    text. Anchored to the start edge it opens into the page instead. */
 .colmenu--start .colmenu__panel { inset-inline-start: 0; inset-inline-end: auto; }
+/* The shape each network is drawn in, beside its name in the layers menu. The
+   map distinguishes the two by shape alone, so without this the reader has two
+   shapes and no key. Filled in the foreground colour rather than a scale band:
+   on the map the fill is the reading, and a swatch that picked one band would
+   be naming a value this row is not about. */
+.colmenu__mark {
+  inline-size: 0.625rem; block-size: 0.625rem;
+  flex: none;
+  background: var(--fg-2); border: 1px solid var(--bg);
+}
+.colmenu__mark--circle { border-radius: 50%; }
+.colmenu__mark--diamond { transform: rotate(45deg); }
 /* What a dot aggregates at this zoom, under the map rather than in the key —
    it answers a different question than the colours do, and the key is now an
    overlay with no room for a paragraph. Colour and type come from the kit's

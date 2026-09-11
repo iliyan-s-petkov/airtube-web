@@ -367,6 +367,41 @@ it('writes only classes the kit defines', () => {
   }
 })
 
+// The map tells the two networks apart by shape alone, so the menu row that
+// switches a network on is the only place that shape is ever named.
+describe('the shape swatch', () => {
+  const markIn = (view) => {
+    const el = frame()
+    const ui = mountLayers(el, { label: 'Layers' })
+    installLayers(fakeMap([layer('water', 'water')]), ui, {
+      labels, caption: 'c', storage: fakeStorage(), views: [view],
+    })
+    return el.querySelector('.colmenu__mark')
+  }
+
+  it('draws the shape a view names, before its label and hidden from the reader', () => {
+    const mark = markIn({ id: 'officialStations', label: 'Official', mark: 'diamond', apply: () => {} })
+    expect(mark.className).toBe('colmenu__mark colmenu__mark--diamond')
+    expect(mark.getAttribute('aria-hidden')).toBe('true')
+    expect(mark.textContent).toBe('')
+    expect(mark.nextElementSibling.textContent).toBe('Official')
+  })
+
+  it('leaves a view that names no shape exactly as it was', () => {
+    expect(markIn({ id: 'legend', label: 'Scale', apply: () => {} })).toBeNull()
+  })
+
+  // The classes live in app.css, not the kit — the kit has no map-network
+  // concept — so the file that styles them is the one asserted against.
+  it('has a rule for every shape it can draw', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(join(here, '..', '..', '..', '..', 'internal', 'web', 'static', 'app.css'), 'utf8')
+    for (const shape of ['circle', 'diamond']) {
+      expect(css, `${shape} swatch unstyled`).toContain(`.colmenu__mark--${shape}`)
+    }
+  })
+})
+
 it('keeps STORAGE_KEY namespaced like every other key this site writes', () => {
   expect(STORAGE_KEY).toBe('airbg:map-layers')
 })

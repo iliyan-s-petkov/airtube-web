@@ -182,7 +182,7 @@ export function installLayers(map, ui, { labels, caption, views = [], storage })
     remember(key, reached)
   }
 
-  const addOption = (key, text, extraClass, apply, { defer = false, defaultOff = false } = {}) => {
+  const addOption = (key, text, extraClass, apply, { defer = false, defaultOff = false, mark = '' } = {}) => {
     const label = document.createElement('label')
     label.className = extraClass ? `colmenu__opt ${extraClass}` : 'colmenu__opt'
     const input = document.createElement('input')
@@ -196,6 +196,16 @@ export function installLayers(map, ui, { labels, caption, views = [], storage })
     const span = document.createElement('span')
     span.textContent = text
     label.appendChild(input)
+    // The shape this option's features are drawn in, between the box and the
+    // name. aria-hidden and empty: it repeats what the name already says for
+    // anyone reading the label, and a screen reader announcing "circle" would
+    // be describing a picture of the map rather than the map.
+    if (mark) {
+      const glyph = document.createElement('span')
+      glyph.className = `colmenu__mark colmenu__mark--${mark}`
+      glyph.setAttribute('aria-hidden', 'true')
+      label.appendChild(glyph)
+    }
     label.appendChild(span)
     ui.fieldset.appendChild(label)
 
@@ -222,6 +232,7 @@ export function installLayers(map, ui, { labels, caption, views = [], storage })
     addOption(`view:${view.id}`, view.label, 'colmenu__opt--view', (on) => view.apply(on, map), {
       defer: true,
       defaultOff: view.defaultOff === true,
+      mark: view.mark || '',
     })
   }
 
