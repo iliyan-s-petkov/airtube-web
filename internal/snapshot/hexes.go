@@ -115,6 +115,30 @@ type hexEntry struct {
 	N        int                `json:"n"`
 	Country  string             `json:"country"`
 	Values   map[string]float64 `json:"values"`
+	// Source names the ONE network behind this entry: every sensor on the point
+	// tier, and an aggregate bin that only one network reaches. Omitted on a bin
+	// fed by both, which carries BySource instead — an entry cannot be both.
+	Source string `json:"source,omitempty"`
+	// BySource carries each network's own count and medians, so the browser can
+	// answer a network toggle from the body it already holds rather than by
+	// asking for a filtered one. Omitted on a single-network entry, where Values
+	// already is that network's numbers.
+	BySource map[string]sourceEntry `json:"by_source,omitempty"`
+}
+
+type sourceEntry struct {
+	N      int                `json:"n"`
+	Values map[string]float64 `json:"values"`
+}
+
+// sourceOf names the network a reading came from. A row written before the
+// source column existed carries an empty Source and is sensor.community; the
+// browser's sourcefilter.svelte.js applies the same rule to features.
+func sourceOf(sr store.SensorReading) string {
+	if sr.Source == "" {
+		return "sensor.community"
+	}
+	return sr.Source
 }
 
 // HexGridOf reduces sensor positions to the distinct hexes they fall in, with
@@ -248,7 +272,7 @@ func pointsFrom(sensors []store.SensorReading) []hexEntry {
 		}
 		out = append(out, hexEntry{
 			Lon: sr.Lon, Lat: sr.Lat, SensorID: sr.SensorID,
-			N: 1, Country: country, Values: values,
+			N: 1, Country: country, Values: values, Source: sourceOf(sr),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SensorID < out[j].SensorID })
@@ -317,6 +341,14 @@ type hexBin struct {
 	// border holds sensors from both, and the bin has to name one; the modal
 	// value names the country most of the bin's data actually came from.
 	countries map[string]int
+	// bySource repeats vals per network. A network's median is not derivable
+	// from the blended one, so a bin fed by both has to keep both sets.
+	bySource map[string]*sourceBin
+}
+
+type sourceBin struct {
+	n    int
+	vals map[string][]float64
 }
 
 // modalCountry returns the most common country in the bin, ties broken by code
@@ -348,16 +380,24 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 		b := bins[c]
 		if b == nil {
 			b = &hexBin{coord: c, vals: map[string][]float64{},
-				countries: map[string]int{}}
+				countries: map[string]int{}, bySource: map[string]*sourceBin{}}
 			bins[c] = b
 		}
 		b.n++
 		if sr.Country != "" {
 			b.countries[sr.Country]++
 		}
+		src := sourceOf(sr)
+		sb := b.bySource[src]
+		if sb == nil {
+			sb = &sourceBin{vals: map[string][]float64{}}
+			b.bySource[src] = sb
+		}
+		sb.n++
 		for _, m := range upstream.CanonicalMetrics() {
 			if v, ok := sr.Values[m]; ok {
 				b.vals[m] = append(b.vals[m], v)
+				sb.vals[m] = append(sb.vals[m], v)
 			}
 		}
 	}
@@ -391,13 +431,30 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 				values[m] = round1(median(vs))
 			}
 		}
-		p.Hexes = append(p.Hexes, hexEntry{
+		e := hexEntry{
 			Lon:     round4(lon),
 			Lat:     round4(lat),
 			N:       b.n,
 			Country: b.modalCountry(),
 			Values:  values,
-		})
+		}
+		if len(b.bySource) == 1 {
+			for src := range b.bySource {
+				e.Source = src
+			}
+		} else {
+			e.BySource = make(map[string]sourceEntry, len(b.bySource))
+			for src, sb := range b.bySource {
+				sv := make(map[string]float64, len(sb.vals))
+				for m, vs := range sb.vals {
+					if len(vs) > 0 {
+						sv[m] = round1(median(vs))
+					}
+				}
+				e.BySource[src] = sourceEntry{N: sb.n, Values: sv}
+			}
+		}
+		p.Hexes = append(p.Hexes, e)
 	}
 	return p
 }
