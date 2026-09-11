@@ -121,6 +121,11 @@ type Snapshot struct {
 	// build once — and deliberately no way to ask for one.
 	points []hexEntry
 
+	// coverage is the per-network per-metric sensor count the hex payloads
+	// publish. Held here as well as on each tier payload because PointBody
+	// builds its envelope from scratch rather than from hexTiers.
+	coverage map[string]map[string]int
+
 	// Wind is the forecast overlay, and is the one Body that is legitimately
 	// empty: the layer is optional, its provider is external, and a zero value
 	// means the handler answers 503 rather than drawing a stale field.

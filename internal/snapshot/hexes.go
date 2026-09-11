@@ -102,6 +102,12 @@ type hexPayload struct {
 	GeneratedAt  time.Time  `json:"generated_at"`
 	ResolutionKM float64    `json:"resolution_km"`
 	Hexes        []hexEntry `json:"hexes"`
+	// Coverage is how many sensors of each network have a usable reading for
+	// each metric, country-wide and identical on every tier. The layer menu
+	// says it about a metric the reader has not picked yet, which no per-cell
+	// number can answer. Omitted when empty so a fixture-built payload does
+	// not serialise a null.
+	Coverage map[string]map[string]int `json:"coverage,omitempty"`
 }
 
 type hexEntry struct {
@@ -139,6 +145,28 @@ func sourceOf(sr store.SensorReading) string {
 		return "sensor.community"
 	}
 	return sr.Source
+}
+
+// coverageFrom counts, per network, how many sensors currently hold a usable
+// reading for each metric. Zero counts are omitted rather than written as 0:
+// the layer menu distinguishes "no station reports this" from "some do", and an
+// explicit zero is the same fact as an absent key with an extra byte per metric.
+func coverageFrom(sensors []store.SensorReading) map[string]map[string]int {
+	cov := make(map[string]map[string]int, 2)
+	for _, sr := range sensors {
+		src := sourceOf(sr)
+		per := cov[src]
+		if per == nil {
+			per = make(map[string]int, len(upstream.CanonicalMetrics()))
+			cov[src] = per
+		}
+		for _, m := range upstream.CanonicalMetrics() {
+			if _, ok := sr.Values[m]; ok {
+				per[m]++
+			}
+		}
+	}
+	return cov
 }
 
 // HexGridOf reduces sensor positions to the distinct hexes they fall in, with
@@ -201,7 +229,7 @@ func (s *Snapshot) HexBody(resKM float64, bb BBox, clip bool) (Body, error) {
 		return encode(p)
 	}
 	out := hexPayload{GeneratedAt: p.GeneratedAt, ResolutionKM: p.ResolutionKM,
-		Hexes: make([]hexEntry, 0, len(p.Hexes))}
+		Coverage: p.Coverage, Hexes: make([]hexEntry, 0, len(p.Hexes))}
 	for _, h := range p.Hexes {
 		if bb.contains(h.Lon, h.Lat) {
 			out.Hexes = append(out.Hexes, h)
@@ -240,7 +268,7 @@ var CellStatChangedAt = time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
 // what is public is the decision that was taken, sharpening it is not.
 func (s *Snapshot) PointBody(bb BBox) (Body, error) {
 	out := hexPayload{GeneratedAt: s.GeneratedAt, ResolutionKM: PointResolutionKM,
-		Hexes: make([]hexEntry, 0, len(s.points))}
+		Coverage: s.coverage, Hexes: make([]hexEntry, 0, len(s.points))}
 	for _, p := range s.points {
 		if bb.contains(p.Lon, p.Lat) {
 			out.Hexes = append(out.Hexes, p)

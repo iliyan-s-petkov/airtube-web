@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -303,5 +304,87 @@ func TestPointEntriesNameTheirNetwork(t *testing.T) {
 	}
 	if pts[0].BySource != nil || pts[1].BySource != nil {
 		t.Error("a point entry carries by_source")
+	}
+}
+
+// Coverage counts SENSORS WITH A USABLE READING per network per metric. It is
+// what the layer menu says about a metric before the reader picks it, so a
+// network that reports nothing for a metric must not appear under it at all.
+func TestCoverageCountsSensorsWithAReadingPerNetwork(t *testing.T) {
+	cov := coverageFrom([]store.SensorReading{
+		sensorFrom(1, 23.32, 42.69, "sensor.community", map[string]float64{"P1": 10, "P2": 5}),
+		sensorFrom(2, 23.33, 42.70, "sensor.community", map[string]float64{"P1": 12}),
+		sensorFrom(3, 24.00, 43.00, "eea", map[string]float64{"P1": 30, "O3": 60}),
+		sensorFrom(4, 24.10, 43.10, "eea", map[string]float64{"O3": 55}),
+	})
+
+	if got := cov["sensor.community"]["P1"]; got != 2 {
+		t.Errorf("community P1 = %d, want 2", got)
+	}
+	if got := cov["sensor.community"]["P2"]; got != 1 {
+		t.Errorf("community P2 = %d, want 1", got)
+	}
+	if got := cov["eea"]["O3"]; got != 2 {
+		t.Errorf("eea O3 = %d, want 2", got)
+	}
+	if _, ok := cov["eea"]["P2"]; ok {
+		t.Errorf("eea carries a P2 entry with no eea P2 reading: %#v", cov["eea"])
+	}
+	if _, ok := cov[""]; ok {
+		t.Errorf("coverage has an empty-string network: %#v", cov)
+	}
+}
+
+// Every tier answers the same question about coverage, so the block survives
+// the viewport clip. Without this a reader who has panned sees the counts
+// vanish from the layer menu.
+func TestClippedHexBodyKeepsCoverage(t *testing.T) {
+	s := &Snapshot{
+		GeneratedAt: time.Now(),
+		coverage:    map[string]map[string]int{"eea": {"P2": 4}},
+		hexTiers: map[float64]hexPayload{
+			HexResolutionKM: {
+				ResolutionKM: HexResolutionKM,
+				Coverage:     map[string]map[string]int{"eea": {"P2": 4}},
+				Hexes: []hexEntry{
+					{Lon: 23.32, Lat: 42.69, N: 1, Values: map[string]float64{"P2": 9}},
+				},
+			},
+		},
+	}
+	b, err := s.HexBody(HexResolutionKM, BBox{W: 23, S: 42, E: 24, N: 43}, true)
+	if err != nil {
+		t.Fatalf("HexBody: %v", err)
+	}
+	var got hexPayload
+	if err := json.Unmarshal(b.JSON, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Coverage["eea"]["P2"] != 4 {
+		t.Errorf("coverage = %#v, want eea P2 = 4", got.Coverage)
+	}
+}
+
+// The point tier is served from its own builder, so it needs the block wired
+// separately or the menu empties out at the deepest zoom.
+func TestPointBodyCarriesCoverage(t *testing.T) {
+	s := &Snapshot{
+		GeneratedAt: time.Now(),
+		coverage:    map[string]map[string]int{"eea": {"P1": 27}},
+		points: []hexEntry{
+			{Lon: 23.32, Lat: 42.69, SensorID: 1, N: 1, Source: "eea",
+				Values: map[string]float64{"P1": 20}},
+		},
+	}
+	b, err := s.PointBody(BBox{W: 23, S: 42, E: 24, N: 43})
+	if err != nil {
+		t.Fatalf("PointBody: %v", err)
+	}
+	var got hexPayload
+	if err := json.Unmarshal(b.JSON, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Coverage["eea"]["P1"] != 27 {
+		t.Errorf("coverage = %#v, want eea P1 = 27", got.Coverage)
 	}
 }
