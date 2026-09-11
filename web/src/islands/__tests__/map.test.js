@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -2140,6 +2140,77 @@ describe('refreshHexes', () => {
     await refreshHexes(map, state, hexCfg, fetchJSON)
     expect(fetchJSON).toHaveBeenCalledTimes(2)
     err.mockRestore()
+  })
+
+  describe('the network toggles and the grid', () => {
+    beforeEach(() => { resetSourceFilterForTests() })
+    afterEach(() => { resetSourceFilterForTests() })
+
+    const cfg = { metric: 'P2', noDataColour: '#cccccc' }
+
+    function fakeMap(zoom = 12) {
+      const sources = {}
+      return {
+        getZoom: () => zoom,
+        getBounds: () => ({ getWest: () => 23.3, getSouth: () => 42.6, getEast: () => 23.4, getNorth: () => 42.7 }),
+        getSource: (id) => (sources[id] ??= { setData: vi.fn() }),
+      }
+    }
+
+    const hexBody = {
+      generated_at: '2026-09-10T09:00:00Z',
+      resolution_km: 15,
+      coverage: { eea: { P2: 4 }, 'sensor.community': { P2: 1180 } },
+      hexes: [
+        {
+          lon: 23.32, lat: 42.69, n: 4, values: { P2: 25 },
+          by_source: {
+            'sensor.community': { n: 3, values: { P2: 20 } },
+            eea: { n: 1, values: { P2: 100 } },
+          },
+        },
+        { lon: 25.0, lat: 43.5, n: 1, source: 'eea', values: { P2: 40 } },
+      ],
+    }
+
+    it('draws one network its own numbers without fetching again', async () => {
+      const map = fakeMap()
+      const state = { scales: null, hexUrl: null, hexBody: null }
+      const fetchJSON = vi.fn(async () => hexBody)
+
+      await refreshHexes(map, state, cfg, fetchJSON)
+      expect(fetchJSON).toHaveBeenCalledTimes(1)
+
+      setSourceEnabled('sensor.community', false)
+      await refreshHexes(map, state, cfg, fetchJSON)
+
+      // Still one call: the URL has not moved, so this was a repaint.
+      expect(fetchJSON).toHaveBeenCalledTimes(1)
+      const drawn = map.getSource(HEX_SOURCE_ID).setData.mock.calls.at(-1)[0]
+      expect(drawn.features.map((f) => f.properties.value).sort((a, b) => a - b)).toEqual([40, 100])
+    })
+
+    it('holds the coverage block from the body it drew', async () => {
+      const map = fakeMap()
+      const state = { scales: null, hexUrl: null, hexBody: null }
+
+      await refreshHexes(map, state, cfg, async () => hexBody)
+
+      expect(state.coverage).toEqual({ eea: { P2: 4 }, 'sensor.community': { P2: 1180 } })
+    })
+
+    it('empties the grid when every network is off', async () => {
+      const map = fakeMap()
+      const state = { scales: null, hexUrl: null, hexBody: null }
+
+      await refreshHexes(map, state, cfg, async () => hexBody)
+      setSourceEnabled('sensor.community', false)
+      setSourceEnabled('eea', false)
+      await refreshHexes(map, state, cfg, async () => hexBody)
+
+      const drawn = map.getSource(HEX_SOURCE_ID).setData.mock.calls.at(-1)[0]
+      expect(drawn.features).toEqual([])
+    })
   })
 })
 

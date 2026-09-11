@@ -95,7 +95,7 @@ const SOURCE_ID = 'airbg-data'
 const LAYER_ID = 'airbg-markers'
 const LABEL_LAYER_ID = 'airbg-marker-labels'
 
-const HEX_SOURCE_ID = 'airbg-hexes'
+export const HEX_SOURCE_ID = 'airbg-hexes'
 const HEX_LAYER_ID = 'airbg-hex-fill'
 const HEX_OUTLINE_LAYER_ID = 'airbg-hex-outline'
 const HEX_POINT_LAYER_ID = 'airbg-hex-point'
@@ -495,7 +495,10 @@ export function mount(el) {
 
     unfilterSource = onSourceChange(() => {
       repaintSensors(map, state, cfg)
-      // Unticking both networks empties the map, and repaintSensors alone would
+      // The grid too: refreshHexes short-circuits the fetch when the URL has not
+      // moved, so this is a repaint, not a call.
+      refreshHexes(map, state, cfg)
+      // Unticking both networks empties the map, and the repaints alone would
       // leave that unexplained. Recomputed here rather than in repaintSensors
       // because the hint is chrome, not paint.
       chrome.showHint(mapHint(cfg.t, { fellBack: state.fellBack, sources: getSources() }))
@@ -1144,6 +1147,10 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
     state.hexUrl = url
     state.hexBody = body
   }
+  // Held for the layer menu, which says how many stations of each network have
+  // data for the selected metric. Read off whichever body was drawn last, so a
+  // window or viewport change updates it without a second request.
+  state.coverage = state.hexBody?.coverage ?? null
   const bands = bandsFor(state.scales, cfg.metric)
   // The point tier is drawn at the size this zoom would have asked the grid for
   // — rounded the same way hexesURL rounds it, so the cell the reader sees is
@@ -1152,7 +1159,7 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
   // sensor markers.
   const features = hexFeatures(
     state.hexBody, cfg.metric, bands, cfg.noDataColour, rampColour,
-    resolutionForZoom(Math.round(map.getZoom())),
+    resolutionForZoom(Math.round(map.getZoom())), getSources(),
   )
   // The same filter the markers answer to. The grid is the tier that covers the
   // country, so leaving it out made "hide inactive sensors" a control with no
@@ -1183,7 +1190,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     const bands = bandsFor(state.scales, cfg.metric)
     const features = hexFeatures(
       frameBody(body, i), cfg.metric, bands, cfg.noDataColour, rampColour,
-      resolutionForZoom(Math.round(map.getZoom())),
+      // No network filter: a frame is folded from reading_hourly, which carries
+      // no source column, so there is nothing to filter it by.
+      resolutionForZoom(Math.round(map.getZoom())), null,
     )
     map.getSource(HEX_SOURCE_ID)?.setData({
       type: 'FeatureCollection',
