@@ -208,9 +208,12 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	// so a coarse bin is not the union of the fine bins under it. What makes
 	// serving several resolutions no more revealing than the finest one is that
 	// the finest one is published outright; see HexResolutionKM.
+	snap.coverage = coverageFrom(sensors)
 	snap.hexTiers = make(map[float64]hexPayload, len(HexTiersKM))
 	for _, res := range HexTiersKM {
-		snap.hexTiers[res] = hexPayloadFrom(now, sensors, res)
+		p := hexPayloadFrom(now, sensors, res)
+		p.Coverage = snap.coverage
+		snap.hexTiers[res] = p
 	}
 	if snap.Hexes, err = encode(snap.hexTiers[HexResolutionKM]); err != nil {
 		return nil, fmt.Errorf("snapshot: encode hexes: %w", err)

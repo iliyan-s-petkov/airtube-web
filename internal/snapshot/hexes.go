@@ -102,6 +102,12 @@ type hexPayload struct {
 	GeneratedAt  time.Time  `json:"generated_at"`
 	ResolutionKM float64    `json:"resolution_km"`
 	Hexes        []hexEntry `json:"hexes"`
+	// Coverage is how many sensors of each network have a usable reading for
+	// each metric, country-wide and identical on every tier. The layer menu
+	// says it about a metric the reader has not picked yet, which no per-cell
+	// number can answer. Omitted when empty so a fixture-built payload does
+	// not serialise a null.
+	Coverage map[string]map[string]int `json:"coverage,omitempty"`
 }
 
 type hexEntry struct {
@@ -115,6 +121,52 @@ type hexEntry struct {
 	N        int                `json:"n"`
 	Country  string             `json:"country"`
 	Values   map[string]float64 `json:"values"`
+	// Source names the ONE network behind this entry: every sensor on the point
+	// tier, and an aggregate bin that only one network reaches. Omitted on a bin
+	// fed by both, which carries BySource instead — an entry cannot be both.
+	Source string `json:"source,omitempty"`
+	// BySource carries each network's own count and medians, so the browser can
+	// answer a network toggle from the body it already holds rather than by
+	// asking for a filtered one. Omitted on a single-network entry, where Values
+	// already is that network's numbers.
+	BySource map[string]sourceEntry `json:"by_source,omitempty"`
+}
+
+type sourceEntry struct {
+	N      int                `json:"n"`
+	Values map[string]float64 `json:"values"`
+}
+
+// sourceOf names the network a reading came from. A row written before the
+// source column existed carries an empty Source and is sensor.community; the
+// browser's sourcefilter.svelte.js applies the same rule to features.
+func sourceOf(sr store.SensorReading) string {
+	if sr.Source == "" {
+		return "sensor.community"
+	}
+	return sr.Source
+}
+
+// coverageFrom counts, per network, how many sensors currently hold a usable
+// reading for each metric. Zero counts are omitted rather than written as 0:
+// the layer menu distinguishes "no station reports this" from "some do", and an
+// explicit zero is the same fact as an absent key with an extra byte per metric.
+func coverageFrom(sensors []store.SensorReading) map[string]map[string]int {
+	cov := make(map[string]map[string]int, 2)
+	for _, sr := range sensors {
+		src := sourceOf(sr)
+		per := cov[src]
+		if per == nil {
+			per = make(map[string]int, len(upstream.CanonicalMetrics()))
+			cov[src] = per
+		}
+		for _, m := range upstream.CanonicalMetrics() {
+			if _, ok := sr.Values[m]; ok {
+				per[m]++
+			}
+		}
+	}
+	return cov
 }
 
 // HexGridOf reduces sensor positions to the distinct hexes they fall in, with
@@ -177,7 +229,7 @@ func (s *Snapshot) HexBody(resKM float64, bb BBox, clip bool) (Body, error) {
 		return encode(p)
 	}
 	out := hexPayload{GeneratedAt: p.GeneratedAt, ResolutionKM: p.ResolutionKM,
-		Hexes: make([]hexEntry, 0, len(p.Hexes))}
+		Coverage: p.Coverage, Hexes: make([]hexEntry, 0, len(p.Hexes))}
 	for _, h := range p.Hexes {
 		if bb.contains(h.Lon, h.Lat) {
 			out.Hexes = append(out.Hexes, h)
@@ -216,7 +268,7 @@ var CellStatChangedAt = time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
 // what is public is the decision that was taken, sharpening it is not.
 func (s *Snapshot) PointBody(bb BBox) (Body, error) {
 	out := hexPayload{GeneratedAt: s.GeneratedAt, ResolutionKM: PointResolutionKM,
-		Hexes: make([]hexEntry, 0, len(s.points))}
+		Coverage: s.coverage, Hexes: make([]hexEntry, 0, len(s.points))}
 	for _, p := range s.points {
 		if bb.contains(p.Lon, p.Lat) {
 			out.Hexes = append(out.Hexes, p)
@@ -248,7 +300,7 @@ func pointsFrom(sensors []store.SensorReading) []hexEntry {
 		}
 		out = append(out, hexEntry{
 			Lon: sr.Lon, Lat: sr.Lat, SensorID: sr.SensorID,
-			N: 1, Country: country, Values: values,
+			N: 1, Country: country, Values: values, Source: sourceOf(sr),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SensorID < out[j].SensorID })
@@ -317,6 +369,14 @@ type hexBin struct {
 	// border holds sensors from both, and the bin has to name one; the modal
 	// value names the country most of the bin's data actually came from.
 	countries map[string]int
+	// bySource repeats vals per network. A network's median is not derivable
+	// from the blended one, so a bin fed by both has to keep both sets.
+	bySource map[string]*sourceBin
+}
+
+type sourceBin struct {
+	n    int
+	vals map[string][]float64
 }
 
 // modalCountry returns the most common country in the bin, ties broken by code
@@ -348,16 +408,24 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 		b := bins[c]
 		if b == nil {
 			b = &hexBin{coord: c, vals: map[string][]float64{},
-				countries: map[string]int{}}
+				countries: map[string]int{}, bySource: map[string]*sourceBin{}}
 			bins[c] = b
 		}
 		b.n++
 		if sr.Country != "" {
 			b.countries[sr.Country]++
 		}
+		src := sourceOf(sr)
+		sb := b.bySource[src]
+		if sb == nil {
+			sb = &sourceBin{vals: map[string][]float64{}}
+			b.bySource[src] = sb
+		}
+		sb.n++
 		for _, m := range upstream.CanonicalMetrics() {
 			if v, ok := sr.Values[m]; ok {
 				b.vals[m] = append(b.vals[m], v)
+				sb.vals[m] = append(sb.vals[m], v)
 			}
 		}
 	}
@@ -391,13 +459,30 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 				values[m] = round1(median(vs))
 			}
 		}
-		p.Hexes = append(p.Hexes, hexEntry{
+		e := hexEntry{
 			Lon:     round4(lon),
 			Lat:     round4(lat),
 			N:       b.n,
 			Country: b.modalCountry(),
 			Values:  values,
-		})
+		}
+		if len(b.bySource) == 1 {
+			for src := range b.bySource {
+				e.Source = src
+			}
+		} else {
+			e.BySource = make(map[string]sourceEntry, len(b.bySource))
+			for src, sb := range b.bySource {
+				sv := make(map[string]float64, len(sb.vals))
+				for m, vs := range sb.vals {
+					if len(vs) > 0 {
+						sv[m] = round1(median(vs))
+					}
+				}
+				e.BySource[src] = sourceEntry{N: sb.n, Values: sv}
+			}
+		}
+		p.Hexes = append(p.Hexes, e)
 	}
 	return p
 }

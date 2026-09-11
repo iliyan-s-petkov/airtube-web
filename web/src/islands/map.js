@@ -20,7 +20,7 @@ import { getViewState } from '../lib/viewstate.svelte.js'
 import { setSensors, setScales, findSensor, getSensors } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import {
-  filterBySource, getSources, measuredBy, onSourceChange, setSourceEnabled,
+  filterBySource, getSources, onSourceChange, setSourceEnabled,
 } from '../lib/sourcefilter.svelte.js'
 import { applyLocate } from '../lib/locate.js'
 import { readFlag, writeFlag } from '../lib/storage.js'
@@ -95,7 +95,7 @@ const SOURCE_ID = 'airbg-data'
 const LAYER_ID = 'airbg-markers'
 const LABEL_LAYER_ID = 'airbg-marker-labels'
 
-const HEX_SOURCE_ID = 'airbg-hexes'
+export const HEX_SOURCE_ID = 'airbg-hexes'
 const HEX_LAYER_ID = 'airbg-hex-fill'
 const HEX_OUTLINE_LAYER_ID = 'airbg-hex-outline'
 const HEX_POINT_LAYER_ID = 'airbg-hex-point'
@@ -424,8 +424,8 @@ export function mount(el) {
     }
 
     // One toggle per network, both on by default (no defaultOff).
-    // setSourceViewAvailability disables the one that has no data for the
-    // selected metric, and both of them away from the sensor tier.
+    // setSourceViewAvailability labels each with its station count for the
+    // selected metric.
     const sourceViews = [
       {
         id: 'communitySensors',
@@ -445,7 +445,7 @@ export function mount(el) {
       views: [...chrome.layerViews, ...sourceViews, windView, boundaryView],
     })
 
-    setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.onSensorTier !== false)
+    setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.coverage)
 
     // Wired here rather than in mount(), for the reason the layers menu is: a
     // pick reloads every data layer, and there is nothing to reload until the
@@ -495,7 +495,10 @@ export function mount(el) {
 
     unfilterSource = onSourceChange(() => {
       repaintSensors(map, state, cfg)
-      // Unticking both networks empties the map, and repaintSensors alone would
+      // The grid too: refreshHexes short-circuits the fetch when the URL has not
+      // moved, so this is a repaint, not a call.
+      refreshHexes(map, state, cfg)
+      // Unticking both networks empties the map, and the repaints alone would
       // leave that unexplained. Recomputed here rather than in repaintSensors
       // because the hint is chrome, not paint.
       chrome.showHint(mapHint(cfg.t, { fellBack: state.fellBack, sources: getSources() }))
@@ -864,7 +867,7 @@ function onMetricChange(map, state, cfg, chrome, metric) {
   // On every call the URL is unchanged, so refreshHexes recolours the body it
   // holds rather than refetching.
   refreshHexes(map, state, cfg)
-  setSourceViewAvailability(chrome, metric, cfg.t, state.onSensorTier !== false)
+  setSourceViewAvailability(chrome, metric, cfg.t, state.coverage)
 }
 
 // The colour half of a metric change: which band table the markers are painted
@@ -911,6 +914,7 @@ export async function initData(map, state, cfg, chrome, place = null, alongside 
     alongside ? alongside() : null,
   ])
   for (const paint of paints) if (typeof paint === 'function') paint()
+  setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.coverage)
 }
 
 // loadScales fetches the band tables once per page load. Cache-Control: public,
@@ -962,10 +966,7 @@ async function refresh(map, state, cfg, chrome, force = false, { defer = false }
   // Held for the source-toggle handler, which recomputes the hint without a
   // refresh and cannot work the fallback out for itself.
   state.fellBack = effective !== tier
-  // The source toggles only govern sensor markers, so they are disabled at the
-  // aggregate tiers rather than left live and inert (see repaintSensors).
-  state.onSensorTier = effective === 'sensors'
-  setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.onSensorTier)
+  setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.coverage)
   chrome.showHint(mapHint(cfg.t, { fellBack: state.fellBack, sources: getSources() }))
 
   // EFFECTIVE, not tier: on an area page opened at the sensor zoom with no slug
@@ -1084,26 +1085,31 @@ export function repaintSensors(map, state, cfg) {
   paintSource(map, SOURCE_ID, features)
 }
 
-// setSourceViewAvailability disables a network's checkbox when it cannot act,
-// and says which of the two reasons it is in the label.
+// setSourceViewAvailability labels each network's checkbox with how many of its
+// stations currently hold a reading for the selected metric.
 //
-// no data for metric: the six gases exist only at EEA stations, the weather
-// metrics only on sensor.community devices.
-//
-// away from the sensor tier: the filter only ever governs sensor markers, and
-// repaintSensors returns early with a null state.sensorBody, so at the country
-// and city tiers the checkbox was a live control with no effect at all.
-export function setSourceViewAvailability(chrome, metric, t, onSensorTier = true) {
+// Never disables. The count is the whole message: with P2 the default metric and
+// four official stations reporting it, a reader who sees an empty official layer
+// needs the number, not a dead control. A network that does not measure the
+// metric at all says so instead of showing a zero.
+export function setSourceViewAvailability(chrome, metric, t, coverage) {
   for (const [id, source] of [['communitySensors', 'sensor.community'], ['officialStations', 'eea']]) {
     const input = chrome.layersUI?.fieldset?.querySelector(`[data-layer-key="view:${id}"]`)
     if (!input) continue
-    const measures = measuredBy(source, metric)
-    input.disabled = !measures || !onSensorTier
-    // Metric coverage first: it is the narrower claim, and it stays true at
-    // whatever tier the reader zooms to.
-    const reason = !measures ? t.notMeasured : (!onSensorTier ? t.sensorTierOnly : '')
     const span = input.parentElement?.querySelector('span')
-    if (span) span.textContent = reason ? `${t[id]} — ${reason}` : t[id]
+    if (!span) continue
+    // No coverage yet — the first paint runs before the grid has answered. The
+    // bare label is the honest thing to show; a "0 with data" would be a claim
+    // about the network rather than about what we have loaded.
+    const per = coverage?.[source]
+    if (!per) {
+      span.textContent = t[id]
+      continue
+    }
+    const n = per[metric] ?? 0
+    // Composed from catalogue parts, as sensorCountLine is: i18n.Catalogue.T
+    // takes no parameters, so a sentence with a number in it is assembled here.
+    span.textContent = n > 0 ? `${t[id]} — ${n} ${t.withData}` : `${t[id]} — ${t.notMeasured}`
   }
 }
 
@@ -1144,6 +1150,10 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
     state.hexUrl = url
     state.hexBody = body
   }
+  // Held for the layer menu, which says how many stations of each network have
+  // data for the selected metric. Read off whichever body was drawn last, so a
+  // window or viewport change updates it without a second request.
+  state.coverage = state.hexBody?.coverage ?? null
   const bands = bandsFor(state.scales, cfg.metric)
   // The point tier is drawn at the size this zoom would have asked the grid for
   // — rounded the same way hexesURL rounds it, so the cell the reader sees is
@@ -1152,7 +1162,7 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
   // sensor markers.
   const features = hexFeatures(
     state.hexBody, cfg.metric, bands, cfg.noDataColour, rampColour,
-    resolutionForZoom(Math.round(map.getZoom())),
+    resolutionForZoom(Math.round(map.getZoom())), getSources(),
   )
   // The same filter the markers answer to. The grid is the tier that covers the
   // country, so leaving it out made "hide inactive sensors" a control with no
@@ -1183,7 +1193,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     const bands = bandsFor(state.scales, cfg.metric)
     const features = hexFeatures(
       frameBody(body, i), cfg.metric, bands, cfg.noDataColour, rampColour,
-      resolutionForZoom(Math.round(map.getZoom())),
+      // No network filter: a frame is folded from reading_hourly, which carries
+      // no source column, so there is nothing to filter it by.
+      resolutionForZoom(Math.round(map.getZoom())), null,
     )
     map.getSource(HEX_SOURCE_ID)?.setData({
       type: 'FeatureCollection',
@@ -1684,7 +1696,7 @@ export function readConfig(el) {
       viewCommunitySensors: d.tViewCommunitySensors || '',
       viewOfficialStations: d.tViewOfficialStations || '',
       notMeasured: d.tNotMeasured || '',
-      sensorTierOnly: d.tSensorTierOnly || '',
+      withData: d.tWithData || '',
       communitySensors: d.tViewCommunitySensors || '',
       officialStations: d.tViewOfficialStations || '',
       // One label per style group, keyed by the group's own name so the menu

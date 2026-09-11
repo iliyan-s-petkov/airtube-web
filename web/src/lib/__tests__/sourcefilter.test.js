@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  SOURCES, filterBySource, getSources, measuredBy, onSourceChange,
-  resetSourceFilterForTests, setSourceEnabled,
+  SOURCES, filterBySource, getSources, onSourceChange,
+  resetSourceFilterForTests, setSourceEnabled, sourceOf,
 } from '../sourcefilter.svelte.js'
 
 beforeEach(() => resetSourceFilterForTests())
@@ -37,30 +37,17 @@ describe('the source filter', () => {
   })
 })
 
-describe('what each network measures', () => {
-  it('knows the gases are official-only', () => {
-    for (const metric of ['SO2', 'O3', 'NO2', 'NOX', 'CO', 'C6H6']) {
-      expect(measuredBy('eea', metric)).toBe(true)
-      expect(measuredBy('sensor.community', metric)).toBe(false)
-    }
+describe('sourceOf', () => {
+  it('reads a hex entry directly', () => {
+    expect(sourceOf({ source: 'eea', n: 1 })).toBe('eea')
   })
 
-  it('knows the weather metrics are citizen-only', () => {
-    for (const metric of ['temperature', 'humidity', 'pressure', 'noise_LAeq', 'noise_LA_max']) {
-      expect(measuredBy('sensor.community', metric)).toBe(true)
-      expect(measuredBy('eea', metric)).toBe(false)
-    }
+  it('reads a GeoJSON feature through properties', () => {
+    expect(sourceOf({ properties: { source: 'eea' } })).toBe('eea')
   })
 
-  it('knows both networks measure particulates', () => {
-    for (const metric of ['P1', 'P2']) {
-      expect(measuredBy('sensor.community', metric)).toBe(true)
-      expect(measuredBy('eea', metric)).toBe(true)
-    }
-  })
-
-  it('assumes an unknown metric is measured by everyone', () => {
-    expect(measuredBy('eea', 'brand_new')).toBe(true)
-    expect(measuredBy('sensor.community', 'brand_new')).toBe(true)
+  it('treats an absent source as sensor.community on either shape', () => {
+    expect(sourceOf({ n: 3 })).toBe('sensor.community')
+    expect(sourceOf({ properties: {} })).toBe('sensor.community')
   })
 })

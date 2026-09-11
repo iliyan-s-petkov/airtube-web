@@ -7,6 +7,8 @@
 // browser — and they must agree, or the drawn cell sits off the ground its
 // count came from. hexes.test.js pins the two together against values taken
 // from the Go implementation; change one side and that test fails.
+import { sourceOf } from './sourcefilter.svelte.js'
+
 const EARTH_RADIUS_KM = 6371
 const HEX_REF_LAT = 42.75
 
@@ -217,7 +219,7 @@ export function hexPolygon(lon, lat, resKM) {
  * is drawn at the size the server binned it to, or the cells stop tiling the
  * ground their counts describe.
  */
-export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointResKM = 0) {
+export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointResKM = 0, enabled = null) {
   // Read as a number rather than coerced with Number(): now that zero is a
   // meaningful tier rather than nonsense, Number(null) and Number('') would
   // both land on it, and a malformed response would be drawn as a street full
@@ -229,6 +231,25 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
   // The size a feature is actually drawn at: the server's bin on every
   // aggregate tier, and the caller's zoom-derived size on the point tier.
   const drawKM = points ? pointResKM : resKM
+
+  // Which numbers a cell reports under the current network toggles. `null`
+  // means no filter is in play (the timelapse, whose frames carry no source) and
+  // takes the blended values the payload leads with. A cell with nothing left to
+  // report is dropped rather than drawn grey: it holds no reading from any
+  // enabled network, which is not the same fact as a silent sensor.
+  const pick = (h) => {
+    if (enabled === null) return { values: h.values, n: h.n }
+    if (enabled.size === 0) return null
+    if (enabled.size > 1 && h.by_source) return { values: h.values, n: h.n }
+    if (h.by_source) {
+      for (const src of enabled) {
+        const part = h.by_source[src]
+        if (part) return { values: part.values, n: part.n }
+      }
+      return null
+    }
+    return enabled.has(sourceOf(h)) ? { values: h.values, n: h.n } : null
+  }
 
   // No-data cells first, and the served order kept within each group.
   //
@@ -244,7 +265,12 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
   // A stable partition rather than a full sort: two co-located sensors that BOTH
   // report cannot be separated by anything here, and reordering them between
   // refreshes would just move the coin toss around.
-  const hexes = points && drawKM > 0 ? snapToLattice(body?.hexes ?? [], drawKM) : (body?.hexes ?? [])
+  const raw = points && drawKM > 0 ? snapToLattice(body?.hexes ?? [], drawKM) : (body?.hexes ?? [])
+  const hexes = []
+  for (const h of raw) {
+    const p = pick(h)
+    if (p) hexes.push({ ...h, values: p.values, n: p.n })
+  }
   const ordered = [
     ...hexes.filter((h) => (h.values?.[metric] ?? null) === null),
     ...hexes.filter((h) => (h.values?.[metric] ?? null) !== null),

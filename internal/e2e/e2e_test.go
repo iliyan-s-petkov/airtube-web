@@ -163,9 +163,8 @@ func seedFixtures(t *testing.T, st *store.Store) {
 		seedReading(t, st, 101, "P2", 10+float64(i%5), "ok", now.Add(-time.Duration(i)*2*time.Hour))
 	}
 
-	// One EEA reference station, inside the same fixture area. O3 is measured
-	// only at EEA stations (sourcefilter.svelte.js's MEASURED table), which is
-	// what makes sources.spec.js's disabled-checkbox case reachable.
+	// One EEA reference station, inside the same fixture area. O3 is seeded only
+	// here so the specs can exercise a metric one network alone reports.
 	station := seedStation(t, st, lon, lat, "BG0050A", "София Дружба")
 	seedReading(t, st, station, "P1", 18, "ok", now)
 	seedReading(t, st, station, "O3", 40, "ok", now)

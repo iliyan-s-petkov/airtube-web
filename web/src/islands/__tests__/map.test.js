@@ -6,7 +6,7 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -317,7 +317,7 @@ describe('readConfig', () => {
         tViewCommunitySensors: 'Citizen sensors',
         tViewOfficialStations: 'Official stations',
         tNotMeasured: 'does not measure this',
-        tSensorTierOnly: 'only when single sensors are shown',
+        tWithData: 'with data',
         // Two of the twelve groups, deliberately: the other ten prove the
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
@@ -366,7 +366,7 @@ describe('readConfig', () => {
       viewCommunitySensors: 'Citizen sensors',
       viewOfficialStations: 'Official stations',
       notMeasured: 'does not measure this',
-      sensorTierOnly: 'only when single sensors are shown',
+      withData: 'with data',
       // communitySensors/officialStations reuse the view labels: setSourceViewAvailability
       // keys the checkbox label lookup by view id, not by a second pair of dataset attributes.
       communitySensors: 'Citizen sensors',
@@ -724,9 +724,9 @@ describe('initData ordering', () => {
     expect(rendered.at(-1)).toBe(cfg.t.noSources)
   })
 
-  // The wiring for the tier half of setSourceViewAvailability. Zoom 7 is the
-  // country tier, where repaintSensors has no payload to repaint from.
-  it('disables the network checkboxes at the country tier', async () => {
+  // The bug: the country tier used to disable both boxes, so the toggle on the
+  // opening map was inert. They stay live at every tier now.
+  it('leaves the network checkboxes live at the country tier', async () => {
     vi.stubGlobal('fetch', stubFetch({ scalesOk: true }))
     const fieldset = document.createElement('fieldset')
     const boxes = ['communitySensors', 'officialStations'].map((id) => {
@@ -742,7 +742,7 @@ describe('initData ordering', () => {
 
     await initData(fakeMap(7), { slug: null, tier: null, scales: null }, cfg, chrome)
 
-    expect(boxes.map((b) => b.disabled)).toEqual([true, true])
+    expect(boxes.map((b) => b.disabled)).toEqual([false, false])
   })
 
   // J3 (review round 2): refresh must call tierFor with cfg.zoomCity and
@@ -2141,6 +2141,77 @@ describe('refreshHexes', () => {
     expect(fetchJSON).toHaveBeenCalledTimes(2)
     err.mockRestore()
   })
+
+  describe('the network toggles and the grid', () => {
+    beforeEach(() => { resetSourceFilterForTests() })
+    afterEach(() => { resetSourceFilterForTests() })
+
+    const cfg = { metric: 'P2', noDataColour: '#cccccc' }
+
+    function fakeMap(zoom = 12) {
+      const sources = {}
+      return {
+        getZoom: () => zoom,
+        getBounds: () => ({ getWest: () => 23.3, getSouth: () => 42.6, getEast: () => 23.4, getNorth: () => 42.7 }),
+        getSource: (id) => (sources[id] ??= { setData: vi.fn() }),
+      }
+    }
+
+    const hexBody = {
+      generated_at: '2026-09-10T09:00:00Z',
+      resolution_km: 15,
+      coverage: { eea: { P2: 4 }, 'sensor.community': { P2: 1180 } },
+      hexes: [
+        {
+          lon: 23.32, lat: 42.69, n: 4, values: { P2: 25 },
+          by_source: {
+            'sensor.community': { n: 3, values: { P2: 20 } },
+            eea: { n: 1, values: { P2: 100 } },
+          },
+        },
+        { lon: 25.0, lat: 43.5, n: 1, source: 'eea', values: { P2: 40 } },
+      ],
+    }
+
+    it('draws one network its own numbers without fetching again', async () => {
+      const map = fakeMap()
+      const state = { scales: null, hexUrl: null, hexBody: null }
+      const fetchJSON = vi.fn(async () => hexBody)
+
+      await refreshHexes(map, state, cfg, fetchJSON)
+      expect(fetchJSON).toHaveBeenCalledTimes(1)
+
+      setSourceEnabled('sensor.community', false)
+      await refreshHexes(map, state, cfg, fetchJSON)
+
+      // Still one call: the URL has not moved, so this was a repaint.
+      expect(fetchJSON).toHaveBeenCalledTimes(1)
+      const drawn = map.getSource(HEX_SOURCE_ID).setData.mock.calls.at(-1)[0]
+      expect(drawn.features.map((f) => f.properties.value).sort((a, b) => a - b)).toEqual([40, 100])
+    })
+
+    it('holds the coverage block from the body it drew', async () => {
+      const map = fakeMap()
+      const state = { scales: null, hexUrl: null, hexBody: null }
+
+      await refreshHexes(map, state, cfg, async () => hexBody)
+
+      expect(state.coverage).toEqual({ eea: { P2: 4 }, 'sensor.community': { P2: 1180 } })
+    })
+
+    it('empties the grid when every network is off', async () => {
+      const map = fakeMap()
+      const state = { scales: null, hexUrl: null, hexBody: null }
+
+      await refreshHexes(map, state, cfg, async () => hexBody)
+      setSourceEnabled('sensor.community', false)
+      setSourceEnabled('eea', false)
+      await refreshHexes(map, state, cfg, async () => hexBody)
+
+      const drawn = map.getSource(HEX_SOURCE_ID).setData.mock.calls.at(-1)[0]
+      expect(drawn.features).toEqual([])
+    })
+  })
 })
 
 // The point tier needs a layer that paints points. The fill and line layers on
@@ -3236,16 +3307,16 @@ describe('mountChrome() announces the hint banner', () => {
   })
 })
 
-// At the country and city tiers repaintSensors returns early on a null
-// state.sensorBody, so the two network checkboxes were live controls that did
-// nothing at all. They get the same disabled-with-a-reason treatment the menu
-// already gives a network that does not measure the selected metric.
 describe('setSourceViewAvailability', () => {
   const t = {
     communitySensors: 'Citizen sensors',
     officialStations: 'Official stations',
     notMeasured: 'does not measure this',
-    sensorTierOnly: 'only when single sensors are shown',
+    withData: 'with data',
+  }
+  const coverage = {
+    'sensor.community': { P1: 1180, P2: 1180 },
+    eea: { P1: 27, P2: 4, O3: 20 },
   }
 
   function menu() {
@@ -3264,39 +3335,40 @@ describe('setSourceViewAvailability', () => {
     return { chrome: { layersUI: { fieldset } }, boxes }
   }
 
-  it('leaves both live on the sensor tier for a metric both networks measure', () => {
+  // The bug this replaces: both boxes were disabled anywhere but the sensor
+  // tier, so unticking a network on the opening map did nothing.
+  it('leaves both live and says how many stations have the metric', () => {
     const { chrome, boxes } = menu()
-    setSourceViewAvailability(chrome, 'P2', t, true)
+    setSourceViewAvailability(chrome, 'P2', t, coverage)
 
     expect(boxes.communitySensors.input.disabled).toBe(false)
     expect(boxes.officialStations.input.disabled).toBe(false)
-    expect(boxes.communitySensors.span.textContent).toBe(t.communitySensors)
+    expect(boxes.officialStations.span.textContent).toBe('Official stations — 4 with data')
+    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — 1180 with data')
   })
 
-  it('disables both away from the sensor tier, and says why', () => {
+  it('names the metric a network does not measure, and still lets it be switched off', () => {
     const { chrome, boxes } = menu()
-    setSourceViewAvailability(chrome, 'P2', t, false)
+    setSourceViewAvailability(chrome, 'O3', t, coverage)
 
-    expect(boxes.communitySensors.input.disabled).toBe(true)
-    expect(boxes.officialStations.input.disabled).toBe(true)
-    expect(boxes.officialStations.span.textContent).toBe(`${t.officialStations} — ${t.sensorTierOnly}`)
+    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — does not measure this')
+    expect(boxes.communitySensors.input.disabled).toBe(false)
+    expect(boxes.officialStations.span.textContent).toBe('Official stations — 20 with data')
   })
 
-  it('still names the narrower reason when the network does not measure the metric', () => {
+  it('falls back to the bare label before any coverage has arrived', () => {
     const { chrome, boxes } = menu()
-    setSourceViewAvailability(chrome, 'O3', t, false)
+    setSourceViewAvailability(chrome, 'P2', t, null)
 
-    // O3 is EEA-only, so this is the one label that must not blame the tier.
-    expect(boxes.communitySensors.span.textContent).toBe(`${t.communitySensors} — ${t.notMeasured}`)
-    expect(boxes.officialStations.span.textContent).toBe(`${t.officialStations} — ${t.sensorTierOnly}`)
-  })
-
-  it('re-enables a network when the map returns to the sensor tier', () => {
-    const { chrome, boxes } = menu()
-    setSourceViewAvailability(chrome, 'P2', t, false)
-    setSourceViewAvailability(chrome, 'P2', t, true)
-
+    expect(boxes.officialStations.span.textContent).toBe('Official stations')
     expect(boxes.officialStations.input.disabled).toBe(false)
-    expect(boxes.officialStations.span.textContent).toBe(t.officialStations)
+  })
+
+  it('follows the metric from one call to the next', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'O3', t, coverage)
+    setSourceViewAvailability(chrome, 'P1', t, coverage)
+
+    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — 1180 with data')
   })
 })
