@@ -144,6 +144,37 @@ func TestWindowSharesTheCountryWideBodies(t *testing.T) {
 	}
 }
 
+// The layer menu names each network's station count from coverage. A window
+// rebuilds its own hex tiers, so a tier that ships without coverage drops both
+// labels to bare text the moment a reader picks "last 24 hours".
+func TestWindowedHexesCarryCoverage(t *testing.T) {
+	ctx, pool := migrated(t)
+	seed(t, ctx, pool)
+	now := time.Now().UTC().Truncate(time.Minute)
+	seedWindowed(t, ctx, pool, now)
+
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), now)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	w := snap.Window("7d")
+	for _, res := range snapshot.HexTiersKM {
+		body, err := w.HexBody(res, snapshot.BBox{}, false)
+		if err != nil {
+			t.Fatalf("HexBody(%v): %v", res, err)
+		}
+		var got struct {
+			Coverage map[string]map[string]int `json:"coverage"`
+		}
+		if err := json.Unmarshal(body.JSON, &got); err != nil {
+			t.Fatalf("unmarshal %v km: %v", res, err)
+		}
+		if len(got.Coverage) == 0 {
+			t.Errorf("windowed %v km tier has no coverage; the layer menu loses its counts", res)
+		}
+	}
+}
+
 // The area detail page draws its markers from AreaSensors, so the window has to
 // reach that payload too — otherwise the province map keeps showing live values
 // under a selector that says "last week".

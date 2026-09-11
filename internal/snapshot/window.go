@@ -129,9 +129,14 @@ func buildWindow(ctx context.Context, s *store.Store, live *Snapshot, now time.T
 		return nil, fmt.Errorf("snapshot: encode %s areas: %w", spec.Name, err)
 	}
 
+	// Counted from this window's own fresh set, not copied from live: a 7d
+	// window sees sensors a 24h one does not.
+	w.coverage = coverageFrom(sensors)
 	w.hexTiers = make(map[float64]hexPayload, len(HexTiersKM))
 	for _, res := range HexTiersKM {
-		w.hexTiers[res] = hexPayloadFrom(now, sensors, res)
+		p := hexPayloadFrom(now, sensors, res)
+		p.Coverage = w.coverage
+		w.hexTiers[res] = p
 	}
 	if w.Hexes, err = encode(w.hexTiers[HexResolutionKM]); err != nil {
 		return nil, fmt.Errorf("snapshot: encode %s hexes: %w", spec.Name, err)
