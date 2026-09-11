@@ -8,33 +8,37 @@ test.describe.serial('the network layers', () => {
   test.beforeAll(async ({ ctx }) => {
     page = await ctx.newPage()
     const grid = page.waitForResponse(/\/api\/v1\/hexes/)
-    // /area/sofia, not '/en/': it opens at zoom_sensor (see redraw.spec.js and
-    // seedFixtures' own comment on area kind "city"), which is what makes the
-    // network toggle below observable at all — repaintSensors is deliberately
-    // a no-op away from the sensor tier (islands/map.js), so a toggle on the
-    // index page's zoom-7 country view would never paint anything to catch.
-    await page.goto('/en/area/sofia')
+    // '/en/', the opening map, deliberately: the toggles used to be disabled
+    // anywhere but the sensor tier, so this is the page where the bug lived.
+    await page.goto('/en/')
     await grid
   })
 
   test.afterAll(async () => { await page.close() })
 
-  test('both networks are offered and both are on', async () => {
+  test('both networks are offered, on, and live on the opening map', async () => {
     await page.getByRole('button', { name: 'Layers' }).click()
-    await expect(page.getByRole('checkbox', { name: 'Citizen sensors' })).toBeChecked()
-    await expect(page.getByRole('checkbox', { name: 'Official stations' })).toBeChecked()
+    await expect(page.getByRole('checkbox', { name: /Citizen sensors/ })).toBeChecked()
+    await expect(page.getByRole('checkbox', { name: /Citizen sensors/ })).toBeEnabled()
+    await expect(page.getByRole('checkbox', { name: /Official stations/ })).toBeChecked()
+    await expect(page.getByRole('checkbox', { name: /Official stations/ })).toBeEnabled()
   })
 
-  test('switching a network off repaints without a request', async () => {
+  test('switching a network off repaints the grid without a request', async () => {
     const requests = []
     page.on('request', (r) => { if (r.url().includes('/api/v1/')) requests.push(r.url()) })
     const painted = page.evaluate(() => new Promise((resolve) => {
       document.querySelector('[data-island="map"]')
         .addEventListener('airbg:paint', (e) => resolve(e.detail.source), { once: true })
     }))
-    await page.getByRole('checkbox', { name: 'Official stations' }).uncheck()
-    expect(await painted).toBe('airbg-data')
+    await page.getByRole('checkbox', { name: /Citizen sensors/ }).uncheck()
+    expect(await painted).toBe('airbg-hexes')
     expect(requests).toHaveLength(0)
+    await page.getByRole('checkbox', { name: /Citizen sensors/ }).check()
+  })
+
+  test('the layer menu counts the stations that have the metric', async () => {
+    await expect(page.getByText(/Official stations — \d+ with data/)).toBeVisible()
   })
 
   test('a metric only one network measures explains itself', async () => {
@@ -42,11 +46,10 @@ test.describe.serial('the network layers', () => {
     await page.getByRole('radio', { name: 'Ozone' }).check()
     // The metric switcher is its own disclosure, outside the layers root, so
     // picking a metric there closes the layers panel (mountLayers' own
-    // outside-mousedown handler) — reopen it to reach the checkbox.
+    // outside-mousedown handler) — reopen it to reach the label.
     await page.getByRole('button', { name: 'Layers' }).click()
-    const citizen = page.getByRole('checkbox', { name: /Citizen sensors/ })
-    await expect(citizen).toBeDisabled()
-    await expect(page.getByText(/does not measure this/)).toBeVisible()
+    await expect(page.getByText(/Citizen sensors — does not measure this/)).toBeVisible()
+    await expect(page.getByRole('checkbox', { name: /Citizen sensors/ })).toBeEnabled()
   })
 })
 
