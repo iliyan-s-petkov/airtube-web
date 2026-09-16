@@ -31,7 +31,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|import-areas|purge-outside-boundary|validate-config>")
+		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|rollup|import-areas|purge-outside-boundary|validate-config>")
 		os.Exit(2)
 	}
 
@@ -156,6 +156,18 @@ func main() {
 		// intend to shrink anything should see a non-zero count here rather
 		// than discover it from a Phase 2 map with sensors missing.
 		slog.Info("areas imported", "areas", n, "assignments", assigned, "revoked", revoked)
+
+	// The ingest loop drains at most 24 buckets a tick and only ever walks
+	// forward from the watermark, so raw readings older than the watermark —
+	// a seeded database, or a host whose watermark starts at deploy time —
+	// are never bucketed and are lost to raw retention. Idempotent.
+	case "rollup":
+		n, err := store.New(pool, cfg.Store, cfg.Database.StatementTimeouts.Operator).RollupAll(ctx)
+		if err != nil {
+			slog.Error("rollup", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("rollup complete", "buckets", n)
 
 	case "purge-outside-boundary":
 		// Deliberately a separate, operator-invoked step (task-17 review

@@ -628,3 +628,90 @@ func TestTruncateHour(t *testing.T) {
 		t.Errorf("TruncateHour = %v, want %v", got, want)
 	}
 }
+
+// A host whose watermark starts at deploy time never rolls up the raw readings
+// that predate it: RollupBacklog only walks forward. RollupAll covers the whole
+// span of raw readings in one pass, so a database seeded with history can be
+// bucketed before raw retention drops it.
+func TestRollupAllCoversBucketsOlderThanTheWatermark(t *testing.T) {
+	ctx, pool, s := newStore(t)
+	old := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	recent := time.Date(2026, 3, 5, 8, 0, 0, 0, time.UTC)
+
+	scored := []quality.Scored{
+		sample(1, "P1", 20, quality.FlagOK, old.Add(1*time.Minute)),
+		sample(1, "P1", 30, quality.FlagOK, old.Add(2*time.Minute)),
+		// Flagged data must stay out of the backfilled average exactly as it
+		// does in the per-hour path.
+		sample(1, "P1", 900, quality.FlagSpatialOutlier, old.Add(3*time.Minute)),
+		sample(1, "P1", 40, quality.FlagOK, recent.Add(1*time.Minute)),
+	}
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
+		t.Fatalf("UpsertSensors: %v", err)
+	}
+	if _, err := s.WriteReadings(ctx, scored); err != nil {
+		t.Fatalf("WriteReadings: %v", err)
+	}
+
+	n, err := s.RollupAll(ctx)
+	if err != nil {
+		t.Fatalf("RollupAll: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("RollupAll wrote %d buckets, want 2", n)
+	}
+
+	var avg float64
+	if err := pool.QueryRow(ctx,
+		`SELECT avg_value FROM reading_hourly
+		 WHERE sensor_id = 1 AND metric = 'P1' AND bucket = $1`, old).Scan(&avg); err != nil {
+		t.Fatalf("read backfilled bucket: %v", err)
+	}
+	if avg != 25 {
+		t.Errorf("avg_value = %v, want 25 — flagged reading contaminated the backfilled average", avg)
+	}
+
+	var buckets int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM reading_hourly`).Scan(&buckets); err != nil {
+		t.Fatalf("count buckets: %v", err)
+	}
+	if buckets != 2 {
+		t.Errorf("reading_hourly holds %d rows, want 2", buckets)
+	}
+}
+
+// Re-running it must not double-count: an operator who is unsure whether the
+// backfill finished has to be able to simply run it again.
+func TestRollupAllIsIdempotent(t *testing.T) {
+	ctx, pool, s := newStore(t)
+	bucket := time.Date(2026, 2, 2, 9, 0, 0, 0, time.UTC)
+
+	scored := []quality.Scored{
+		sample(1, "P1", 10, quality.FlagOK, bucket.Add(1*time.Minute)),
+		sample(1, "P1", 20, quality.FlagOK, bucket.Add(2*time.Minute)),
+	}
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
+		t.Fatalf("UpsertSensors: %v", err)
+	}
+	if _, err := s.WriteReadings(ctx, scored); err != nil {
+		t.Fatalf("WriteReadings: %v", err)
+	}
+
+	for i := range 2 {
+		if _, err := s.RollupAll(ctx); err != nil {
+			t.Fatalf("RollupAll pass %d: %v", i, err)
+		}
+	}
+
+	var rows, count int
+	var avg float64
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) OVER (), sample_count, avg_value FROM reading_hourly
+		 WHERE sensor_id = 1 AND metric = 'P1' AND bucket = $1`, bucket).
+		Scan(&rows, &count, &avg); err != nil {
+		t.Fatalf("read rollup: %v", err)
+	}
+	if rows != 1 || count != 2 || avg != 15 {
+		t.Errorf("after two passes: rows=%d sample_count=%d avg=%v, want 1/2/15", rows, count, avg)
+	}
+}

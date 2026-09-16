@@ -57,6 +57,43 @@ func (s *Store) RollupHour(ctx context.Context, bucket time.Time) (int64, error)
 	return tag.RowsAffected(), nil
 }
 
+// rollupAllSQL is rollupSQL over every hour present in raw readings at once,
+// so it shares the quality filter rather than restating it. Set-based because
+// the alternative is one round trip per hour, and the backfill this exists for
+// spans thousands of them.
+const rollupAllSQL = `INSERT INTO reading_hourly
+	     (bucket, sensor_id, metric, avg_value, min_value, max_value, sample_count)
+	 SELECT time_bucket('1 hour', time), sensor_id, metric,
+	        avg(value), min(value), max(value), count(*)
+	 FROM reading
+	 WHERE quality = ANY($1::quality_flag[])
+	 GROUP BY 1, 2, 3
+	 ON CONFLICT (sensor_id, metric, bucket) DO UPDATE
+	   SET avg_value = EXCLUDED.avg_value,
+	       min_value = EXCLUDED.min_value,
+	       max_value = EXCLUDED.max_value,
+	       sample_count = EXCLUDED.sample_count`
+
+// RollupAll recomputes the hourly aggregate for every bucket that raw readings
+// cover, regardless of the watermark.
+//
+// RollupBacklog only walks forward from the watermark, so raw readings written
+// before the watermark was first set — a database seeded with history, or one
+// whose watermark starts at deploy time — are never bucketed by it and are
+// lost when raw retention drops them. This is the one-shot that covers them.
+//
+// It deliberately leaves the watermark alone: the watermark records how far
+// the ingest loop has drained, and moving it is not this operation's business.
+// Recomputing rather than incrementing makes it idempotent, so it is safe to
+// re-run over a database that is already partly or wholly covered.
+func (s *Store) RollupAll(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, rollupAllSQL, usableQuality)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // Watermark returns the last bucket successfully rolled up and when that
 // happened. found is false on a fresh database where the watermark has never
 // been set — the caller must not interpret the zero time as "rolled up
