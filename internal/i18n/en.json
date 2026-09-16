@@ -130,6 +130,7 @@
   "metric.unscaled": "This metric has no air-quality scale — dots show where readings exist, not how good they are.",
   "nav.about": "About",
   "nav.areas": "Areas",
+  "nav.source": "Source code on GitHub",
   "nav.map": "Map",
   "panel.close": "Close",
   "panel.detail.coords": "Coordinates",
