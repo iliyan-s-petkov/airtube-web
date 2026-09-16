@@ -534,12 +534,26 @@ html:has(> body.embed) { block-size: 100%; }
 .scale__info:focus-visible { box-shadow: var(--focus-ring); }
 
 .scaleinfo {
+  position: relative;
   max-inline-size: 34rem; border: 0; border-radius: var(--radius);
   padding: var(--space-6); background: var(--bg); color: var(--fg);
   box-shadow: var(--elev-raised);
 }
 .scaleinfo::backdrop { background: var(--scrim); }
-.scaleinfo__title { margin: 0 0 var(--space-2); font-size: var(--text-sub); font-weight: var(--weight-display); }
+/* The title runs the full width, so it is inset by the mark's own width. */
+.scaleinfo__title {
+  margin: 0 0 var(--space-2); padding-inline-end: var(--space-6);
+  font-size: var(--text-sub); font-weight: var(--weight-display);
+}
+.scaleinfo__dismiss {
+  position: absolute; inset-block-start: var(--space-2); inset-inline-end: var(--space-2);
+  inline-size: 2rem; block-size: 2rem; border: 0; border-radius: var(--radius-sm);
+  padding: 0; background: none; color: var(--fg-2); cursor: pointer;
+  font: inherit; line-height: 1;
+}
+.scaleinfo__dismiss::before { content: "\00d7"; font-size: var(--text-sub); }
+.scaleinfo__dismiss:hover { color: var(--fg); }
+.scaleinfo__dismiss:focus-visible { box-shadow: var(--focus-ring); }
 .scaleinfo__notes { margin: 0 0 var(--space-4); color: var(--fg-2); }
 .scaleinfo__bands { margin: 0 0 var(--space-4); padding: 0; list-style: none; }
 /* Swatch, name, then the range right-aligned in its own column: the numbers
@@ -552,8 +566,11 @@ html:has(> body.embed) { block-size: 100%; }
 .scaleinfo__swatch { inline-size: 1.25rem; block-size: 1rem; border-radius: var(--radius-sm); }
 .scaleinfo__band-range { color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .scaleinfo__disclaimer { margin: 0 0 var(--space-3); color: var(--muted); font-size: var(--text-compact); }
+/* Both were inline, so they laid out on one line and the button covered the
+   end of the link. The link takes its own line and the button sits under it. */
+.scaleinfo__source { display: block; }
 .scaleinfo__close {
-  margin-block-start: var(--space-4);
+  display: block; margin-inline: auto; margin-block-start: var(--space-4);
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-4);
   background: var(--surface); color: var(--fg); cursor: pointer; font: inherit;

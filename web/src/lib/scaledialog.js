@@ -18,6 +18,16 @@ export function createScaleDialog(doc, { closeLabel, sourceLabel, disclaimer, la
   const el = doc.createElement('dialog')
   el.className = 'scaleinfo'
 
+  // The corner mark, so a reader who has scrolled the table need not scroll
+  // back to the button to leave. Its glyph is CSS content for the reason the
+  // (i) button gives: a character here is announced beside the aria-label.
+  const dismiss = doc.createElement('button')
+  dismiss.type = 'button'
+  dismiss.className = 'scaleinfo__dismiss'
+  dismiss.setAttribute('aria-label', closeLabel || '')
+  dismiss.addEventListener('click', () => el.close())
+  el.appendChild(dismiss)
+
   const heading = doc.createElement('h2')
   heading.className = 'scaleinfo__title'
   el.appendChild(heading)

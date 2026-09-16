@@ -2,6 +2,9 @@
 //
 // jsdom for the dialog half: showModal, the <a rel> and the SVG fill are real
 // DOM behaviour, and a string of markup would assert none of them.
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, it, expect, vi } from 'vitest'
 import { bandRange, scaleFor, scaleInfo } from '../scaleinfo.js'
 import { createScaleDialog } from '../scaledialog.js'
@@ -116,6 +119,38 @@ describe('createScaleDialog', () => {
     expect(open(EAQI).querySelector('.scaleinfo__disclaimer').textContent).toBe('Индикативни данни')
   })
 
+  // The guideline link and the close button shared a line and overlapped, so
+  // the end of the link sat underneath the button and could not be clicked.
+  it('puts the close button last, after the guideline link', () => {
+    const el = open(EAQI)
+    const close = el.querySelector('.scaleinfo__close')
+    expect(el.lastElementChild).toBe(close)
+    expect(close.compareDocumentPosition(el.querySelector('.scaleinfo__source')))
+      .toBe(Node.DOCUMENT_POSITION_PRECEDING)
+  })
+
+  // A modal that can only be dismissed from the bottom of a long table makes
+  // the reader scroll to leave it; the corner mark is where one is looked for.
+  it('offers a named dismiss mark in the corner, before anything else', () => {
+    const el = open(EAQI)
+    const dismiss = el.querySelector('.scaleinfo__dismiss')
+    expect(el.firstElementChild).toBe(dismiss)
+    expect(dismiss.type).toBe('button')
+    expect(dismiss.getAttribute('aria-label')).toBe('Затвори')
+    // The glyph is CSS content: a character in the markup is read out beside
+    // the label, which is the same rule the (i) button follows.
+    expect(dismiss.textContent).toBe('')
+  })
+
+  it('closes from the corner mark as well as from the button', () => {
+    for (const sel of ['.scaleinfo__dismiss', '.scaleinfo__close']) {
+      const el = open(EAQI)
+      el.close = vi.fn(() => { el.open = false })
+      el.querySelector(sel).click()
+      expect(el.close, `${sel} did not close the dialog`).toHaveBeenCalled()
+    }
+  })
+
   // Repainting an already-open dialog is what a metric switch behind it does,
   // and showModal throws on an open dialog.
   it('repaints in place rather than reopening', () => {
@@ -126,5 +161,42 @@ describe('createScaleDialog', () => {
     d.show(METEO)
     expect(d.el.showModal).toHaveBeenCalledTimes(1)
     expect(d.el.querySelectorAll('.scaleinfo__band')).toHaveLength(0)
+  })
+})
+
+// The DOM order alone did not separate them: an <a> and a <button> are both
+// inline, so they laid out on one line however they were ordered.
+describe('the dialog footer', () => {
+  const appCSS = () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    return readFileSync(join(here, '..', '..', '..', '..', 'internal', 'web', 'static', 'app.css'), 'utf8')
+  }
+  const rule = (css, selector) => {
+    const at = css.indexOf(`${selector} {`)
+    return at < 0 ? '' : css.slice(at, css.indexOf('}', at))
+  }
+
+  it('gives the guideline link its own line', () => {
+    expect(rule(appCSS(), '.scaleinfo__source'), 'link still inline beside the button')
+      .toContain('display: block')
+  })
+
+  it('centres the close button under everything', () => {
+    const r = rule(appCSS(), '.scaleinfo__close')
+    expect(r, 'button still inline').toContain('display: block')
+    expect(r, 'button not centred').toContain('margin-inline: auto')
+  })
+
+  it('anchors the dismiss mark to the dialog corner', () => {
+    const css = appCSS()
+    expect(rule(css, '.scaleinfo'), 'dialog is not the positioning ancestor')
+      .toContain('position: relative')
+    const r = rule(css, '.scaleinfo__dismiss')
+    expect(r, 'mark not taken out of flow').toContain('position: absolute')
+    expect(r, 'mark not in the top-right corner').toContain('inset-inline-end')
+    expect(css, 'mark has no glyph').toContain('.scaleinfo__dismiss::before')
+    // The title runs the full width and would slide under the mark.
+    expect(rule(css, '.scaleinfo__title'), 'title can run under the mark')
+      .toContain('padding-inline-end')
   })
 })
