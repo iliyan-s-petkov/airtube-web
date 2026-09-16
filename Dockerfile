@@ -2,7 +2,7 @@
 # npm-sourced code other than the built bundle reaches the runtime image.
 # node:26 is the current Node major as of this writing; track it rather than
 # an older LTS pin the way the Go and distroless bases are tracked below.
-FROM node:26-alpine AS web
+FROM --platform=$BUILDPLATFORM node:26-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 # `ci` not `install`: it installs exactly the committed lockfile and fails if
@@ -21,7 +21,10 @@ COPY design-kit /src/design-kit
 # web/web/ and the Go embed below would find nothing.
 RUN npm run build
 
-FROM golang:1.26 AS build
+# Native builder, cross-compiled binary. Building with --platform instead would
+# run the whole toolchain under emulation: slow, and `go mod download` fails.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -30,7 +33,7 @@ COPY . .
 # repo. Without this the embed picks up an empty tree and the image serves
 # the no-JavaScript site — the exact failure the .keep design makes silent.
 COPY --from=web /src/internal/web/dist ./internal/web/dist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/airbg ./cmd/airbg
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/airbg ./cmd/airbg
 
 # Distroless: no shell, no package manager, no writable document root. Nothing
 # dropped into the container can be executed the way anything in the legacy

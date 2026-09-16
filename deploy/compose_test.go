@@ -720,3 +720,23 @@ func keysOf(m map[string]string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// The prod host is amd64 and the machine that builds is not. A Dockerfile that
+// pins no architecture produced an arm64 image that Docker loaded and refused
+// to run; cross-compiling in a native builder is what keeps that from shipping.
+func TestTheGoStageCrossCompilesForTheTargetArch(t *testing.T) {
+	b, err := os.ReadFile("../Dockerfile")
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+	df := string(b)
+	for _, want := range []string{
+		"FROM --platform=$BUILDPLATFORM golang:",
+		"ARG TARGETARCH",
+		"GOARCH=$TARGETARCH",
+	} {
+		if !strings.Contains(df, want) {
+			t.Errorf("Dockerfile is missing %q; a --platform build would emulate the whole builder instead of cross-compiling", want)
+		}
+	}
+}
