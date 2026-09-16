@@ -27,6 +27,19 @@ airbg.org {
 	reverse_proxy app:8080
 }
 
+# Proxied at Cloudflare like the apex, so it arrives through the edge and is
+# closed the same way. The certificate above already carries this name.
+www.airbg.org {
+	tls /etc/caddy/tls/origin.pem /etc/caddy/tls/origin.key {
+		client_auth {
+			mode require_and_verify
+			trust_pool file /etc/caddy/tls/cloudflare-origin-pull-ca.pem
+		}
+	}
+
+	redir https://airbg.org{uri} permanent
+}
+
 tiles.airbg.org {
 	# DNS-only (grey cloud) per docs/tiles.md: browsers connect straight here,
 	# so this must NOT require a client certificate. It is served the same

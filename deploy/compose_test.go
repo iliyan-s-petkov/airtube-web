@@ -391,6 +391,25 @@ func TestOnlyTheSiteVhostRequiresCloudflaresCertificate(t *testing.T) {
 	}
 }
 
+// www.airbg.org is in the certificate and proxied at Cloudflare, so requests
+// for it arrive here. Without a block of its own Caddy answers nothing and the
+// name is dead. It comes through the edge like the apex, so it needs the same
+// client certificate.
+func TestTheWwwVhostRedirectsAndIsEquallyClosed(t *testing.T) {
+	blocks := caddyBlocks(t, "Caddyfile")
+
+	www, ok := blocks["www.airbg.org"]
+	if !ok {
+		t.Fatalf("Caddyfile has no www.airbg.org site block; the name resolves at Cloudflare and would answer nothing, found %v", keysOf(blocks))
+	}
+	if !strings.Contains(www, "require_and_verify") {
+		t.Error("the www.airbg.org block does not require a client certificate; it reaches the origin through the edge exactly as the apex does")
+	}
+	if !strings.Contains(www, "redir https://airbg.org") {
+		t.Error("the www.airbg.org block does not redirect to the apex, so the site would serve on two names")
+	}
+}
+
 // Caddyfile.dev deliberately drops the enforcement above so a LAN browser can
 // reach an airgapped host. That makes it dangerous by design, and the danger is
 // only acceptable while it is impossible to install by accident and impossible
