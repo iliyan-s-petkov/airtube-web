@@ -144,14 +144,12 @@ func TestEveryScaleForOneMetricAgreesOnItsUnit(t *testing.T) {
 // Every stated edge, not just the first: a shifted interior edge would
 // misclassify a reading as silently as a shifted first one.
 func TestGasScalesCiteTheEAQI(t *testing.T) {
-	want := map[string][5]float64{
-		"NO2": {40, 90, 120, 230, 340},
-		"O3":  {50, 100, 130, 240, 380},
-		"SO2": {100, 200, 350, 500, 750},
-	}
+	// The edges themselves are pinned in eaqi_bands_test.go against the
+	// published table, for every EAQI metric at once. Restated here they were a
+	// second copy that agreed with the code and not with the EEA.
+	want := map[string]bool{"NO2": true, "O3": true, "SO2": true}
 	for _, s := range api.Scales() {
-		edges, ok := want[s.Metric]
-		if !ok || s.Name != "eaqi" {
+		if !want[s.Metric] || s.Name != "eaqi" {
 			continue
 		}
 		if s.Source != "https://airindex.eea.europa.eu/" {
@@ -163,11 +161,6 @@ func TestGasScalesCiteTheEAQI(t *testing.T) {
 		if len(s.Bands) != 6 {
 			t.Errorf("%s eaqi has %d bands, want 6", s.Metric, len(s.Bands))
 			continue
-		}
-		for i, edge := range edges {
-			if s.Bands[i].Upper == nil || *s.Bands[i].Upper != edge {
-				t.Errorf("%s band %d edge is not %v", s.Metric, i, edge)
-			}
 		}
 		if s.Bands[5].Upper != nil {
 			t.Errorf("%s top band is not open", s.Metric)

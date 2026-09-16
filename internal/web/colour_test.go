@@ -25,10 +25,10 @@ func TestBandColourPicksTheBandTheValueFallsIn(t *testing.T) {
 		{"exactly on a boundary stays below it", "P2", 5, "#50f0e6"},
 		{"just past a boundary moves up", "P2", 5.1, "#50ccaa"},
 		{"the open top band", "P2", 10000, "#7d2181"},
-		// PM10's table is not PM2.5's: 25 is "Fair" for PM10 and "Poor" for
+		// PM10's table is not PM2.5's: 25 is "Fair" for PM10 and "Moderate" for
 		// PM2.5. A lookup that ignored the metric would paint both the same.
 		{"the metric picks the table", "P1", 25, "#50ccaa"},
-		{"and the same value bands differently for PM2.5", "P2", 25, "#ff5050"},
+		{"and the same value bands differently for PM2.5", "P2", 25, "#f0e641"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

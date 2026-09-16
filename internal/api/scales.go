@@ -6,9 +6,13 @@ package api
 //
 // Sources:
 //   - EAQI: European Environment Agency, European Air Quality Index bands for
-//     PM10, PM2.5, NO2, O3 and SO2. The particulate bands are 24-hour running
-//     means; the gas bands are hourly means, which is exactly the cadence the
-//     official stations publish (internal/upstream/eea).
+//     PM10, PM2.5, NO2, O3 and SO2, transcribed from the index's own "Legend
+//     explained" panel at https://airindex.eea.europa.eu/AQI/index.html and
+//     pinned by TestTheEAQITablesMatchThePublishedBands. Every band is an hourly
+//     mean, which is the cadence the official stations publish
+//     (internal/upstream/eea); the particulates were 24-hour running means under
+//     the superseded bands, and the revision moved them to the hourly footing
+//     the gases were already on.
 //   - EU limit values: Directive 2008/50/EC — PM10 50 µg/m³ daily,
 //     PM2.5 25 µg/m³ annual.
 //   - WHO: 2021 Global Air Quality Guidelines — PM10 45 µg/m³ 24-hour,
@@ -71,18 +75,18 @@ const pmCeiling = 500
 func Scales() []Scale {
 	eaqiPM25 := []Band{
 		{Label: "Good", LabelBG: "Добро", Upper: upper(5), Colour: "#50f0e6"},
-		{Label: "Fair", LabelBG: "Задоволително", Upper: upper(10), Colour: "#50ccaa"},
-		{Label: "Moderate", LabelBG: "Умерено", Upper: upper(20), Colour: "#f0e641"},
-		{Label: "Poor", LabelBG: "Лошо", Upper: upper(25), Colour: "#ff5050"},
-		{Label: "Very poor", LabelBG: "Много лошо", Upper: upper(50), Colour: "#960032"},
+		{Label: "Fair", LabelBG: "Задоволително", Upper: upper(15), Colour: "#50ccaa"},
+		{Label: "Moderate", LabelBG: "Умерено", Upper: upper(50), Colour: "#f0e641"},
+		{Label: "Poor", LabelBG: "Лошо", Upper: upper(90), Colour: "#ff5050"},
+		{Label: "Very poor", LabelBG: "Много лошо", Upper: upper(140), Colour: "#960032"},
 		{Label: "Extremely poor", LabelBG: "Изключително лошо", Upper: nil, Colour: "#7d2181"},
 	}
 	eaqiPM10 := []Band{
-		{Label: "Good", LabelBG: "Добро", Upper: upper(20), Colour: "#50f0e6"},
-		{Label: "Fair", LabelBG: "Задоволително", Upper: upper(40), Colour: "#50ccaa"},
-		{Label: "Moderate", LabelBG: "Умерено", Upper: upper(50), Colour: "#f0e641"},
-		{Label: "Poor", LabelBG: "Лошо", Upper: upper(100), Colour: "#ff5050"},
-		{Label: "Very poor", LabelBG: "Много лошо", Upper: upper(150), Colour: "#960032"},
+		{Label: "Good", LabelBG: "Добро", Upper: upper(15), Colour: "#50f0e6"},
+		{Label: "Fair", LabelBG: "Задоволително", Upper: upper(45), Colour: "#50ccaa"},
+		{Label: "Moderate", LabelBG: "Умерено", Upper: upper(120), Colour: "#f0e641"},
+		{Label: "Poor", LabelBG: "Лошо", Upper: upper(195), Colour: "#ff5050"},
+		{Label: "Very poor", LabelBG: "Много лошо", Upper: upper(270), Colour: "#960032"},
 		{Label: "Extremely poor", LabelBG: "Изключително лошо", Upper: nil, Colour: "#7d2181"},
 	}
 
@@ -174,13 +178,13 @@ func Scales() []Scale {
 	}
 
 	gases := []Scale{
-		gasEAQI("NO2", [5]float64{40, 90, 120, 230, 340},
+		gasEAQI("NO2", [5]float64{10, 25, 60, 100, 150},
 			"European Air Quality Index bands for nitrogen dioxide, hourly mean.",
 			"Класове на Европейския индекс за качество на въздуха за азотен диоксид, часова средна стойност."),
-		gasEAQI("O3", [5]float64{50, 100, 130, 240, 380},
+		gasEAQI("O3", [5]float64{60, 100, 120, 160, 180},
 			"European Air Quality Index bands for ozone, hourly mean.",
 			"Класове на Европейския индекс за качество на въздуха за озон, часова средна стойност."),
-		gasEAQI("SO2", [5]float64{100, 200, 350, 500, 750},
+		gasEAQI("SO2", [5]float64{20, 40, 125, 190, 275},
 			"European Air Quality Index bands for sulphur dioxide, hourly mean.",
 			"Класове на Европейския индекс за качество на въздуха за серен диоксид, часова средна стойност."),
 	}

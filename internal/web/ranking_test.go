@@ -137,8 +137,10 @@ func TestReadingsCarryTheirBandColour(t *testing.T) {
 	// Pinned, not merely different: these are the EAQI colours the map paints
 	// for the same two readings, and the point of colouring server-side is that
 	// the row and the dot agree.
-	if want := "#7d2181"; high != want {
-		t.Errorf("88.5 painted %q, want the open top band %q", high, want)
+	// 88.5 is "Poor" on the revised EAQI table, not the open top band: the
+	// revision moved PM2.5's top edge from 50 to 140.
+	if want := "#ff5050"; high != want {
+		t.Errorf("88.5 painted %q, want the poor band %q", high, want)
 	}
 	if want := "#50f0e6"; low != want {
 		t.Errorf("4.2 painted %q, want the first band %q", low, want)
