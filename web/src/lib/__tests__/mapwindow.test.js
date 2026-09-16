@@ -2,6 +2,9 @@
 //
 // jsdom for the two halves that touch the platform: a real <select> and the
 // real localStorage chooseWindow writes through. Everything else here is pure.
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   WINDOW_STORAGE_KEY, LIVE_WINDOW, WINDOWS, WINDOW_CHOICES,
@@ -254,5 +257,25 @@ describe('mountWindow', () => {
     const { ui } = mount()
     expect(ui.root.getAttribute('style')).toBe(null)
     expect(ui.button.getAttribute('style')).toBe(null)
+  })
+})
+
+// The panel had a 12rem floor and no ceiling on its own content, so the
+// Bulgarian window names ("Последните 24 часа") wrapped onto two lines each and
+// the popup came out a narrow column. Sized to its widest option instead, the
+// same way the layers menu is.
+describe('the panel width', () => {
+  const appCSS = () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    return readFileSync(join(here, '..', '..', '..', '..', 'internal', 'web', 'static', 'app.css'), 'utf8')
+  }
+
+  it('sizes the panel to its content and keeps each option on one line', () => {
+    const css = appCSS()
+    const rule = css.slice(css.indexOf('.map-window__panel'), css.indexOf('.map-window__panel') + 400)
+
+    expect(rule, 'panel still sized by a floor alone').toContain('max-content')
+    expect(rule, 'panel uncapped on a narrow viewport').toContain('max-inline-size')
+    expect(css, 'window options still allowed to wrap').toContain('.map-window__panel .colmenu__opt { white-space: nowrap; }')
   })
 })

@@ -289,3 +289,30 @@ describe('the scale info button', () => {
   })
 })
 
+
+// The legend and the refresh cluster both sit in the map's bottom-left corner.
+// The cluster wins on z-index, so collapsed — when the legend is only its
+// summary, 16px off the bottom — the fold control disappeared underneath it and
+// there was no way left to open the legend again. The legend clears the cluster
+// instead of sharing its band.
+describe('the on-map legend and the refresh cluster', () => {
+  const appCSS = () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    return readFileSync(join(here, '..', '..', '..', '..', 'internal', 'web', 'static', 'app.css'), 'utf8')
+  }
+
+  // The cluster's own height, read from the sheet rather than restated: a
+  // button grown taller than this rule allows would swallow the legend again.
+  it('lifts the legend above the full height of the refresh cluster', () => {
+    const css = appCSS()
+
+    const lift = /\.map-shell \.scale--onmap \{[^}]*inset-block-end:\s*([\d.]+)rem/.exec(css)
+    expect(lift, '.map-shell .scale--onmap sets no inset-block-end').not.toBeNull()
+
+    const btn = /\.data-refresh__auto, \.data-refresh__btn--icon \{[^}]*block-size:\s*([\d.]+)rem/.exec(css)
+    expect(btn, 'refresh button height is no longer declared in rem').not.toBeNull()
+
+    expect(Number(lift[1]), 'legend still overlaps the refresh cluster')
+      .toBeGreaterThan(Number(btn[1]))
+  })
+})

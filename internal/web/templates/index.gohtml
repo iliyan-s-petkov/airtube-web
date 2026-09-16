@@ -194,8 +194,10 @@
      one sentence and a link, not a copy of the list: the list is a whole tab of
      its own, and duplicating it here is what made the two tabs the same page.
      A link rather than prose alone because this is the ONLY route a reader who
-     cannot use the map has to the numbers — and it is what a crawler follows. */}}
-<p id="map-alt">{{.T "map.text_alternative.areas"}}
+     cannot use the map has to the numbers — and it is what a crawler follows.
+     Not painted: a sighted reader has the Areas tab in the nav already, and
+     under the map the sentence only pointed at what was next to it. */}}
+<p id="map-alt" class="visually-hidden">{{.T "map.text_alternative.areas"}}
   <a class="link" href="{{.Path "/areas"}}">{{.T "nav.areas"}}</a></p>
 {{end}}
 
