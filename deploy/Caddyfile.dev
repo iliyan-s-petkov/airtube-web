@@ -1,14 +1,18 @@
 # DEVELOPMENT ONLY — NOT FOR AN EXPOSED HOST.
 # Caddyfile without the client-certificate requirement, so a LAN browser can
 # reach the site while the host is airgapped. README.md, "the dev Caddyfile".
+#
+# The names are staging.* because production answers for the bare ones. Their A
+# records live in unbound only; the certificate is still a real one, issued over
+# DNS-01 against a TXT record at Cloudflare.
 
 {
 	email admin@airbg.org
 }
 
-airbg.org {
-	# Same certificate as production, without the client_auth block: anything
-	# that can reach port 443 is served. Acceptable only with no route in.
+staging.airbg.org {
+	# Same certificate shape as production, without the client_auth block:
+	# anything that can reach port 443 is served. Acceptable only with no route in.
 	tls /etc/caddy/tls/origin.pem /etc/caddy/tls/origin.key
 
 	# X-Forwarded-For becomes the rate-limit bucket key here, since no
@@ -16,13 +20,13 @@ airbg.org {
 	reverse_proxy app:8080
 }
 
-tiles.airbg.org {
+tiles.staging.airbg.org {
 	reverse_proxy app:8082
 }
 
 # www is not a vhost in production either; declared here so LAN testing of the
 # name does not hit Caddy's empty unmatched-host response.
-www.airbg.org {
+www.staging.airbg.org {
 	tls /etc/caddy/tls/origin.pem /etc/caddy/tls/origin.key
-	redir https://airbg.org{uri} permanent
+	redir https://staging.airbg.org{uri} permanent
 }

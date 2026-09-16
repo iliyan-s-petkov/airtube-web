@@ -396,9 +396,9 @@ func TestTheDevCaddyfileIsUnmistakableAndOpen(t *testing.T) {
 	}
 
 	blocks := caddyBlocks(t, "Caddyfile.dev")
-	site, ok := blocks["airbg.org"]
+	site, ok := blocks["staging.airbg.org"]
 	if !ok {
-		t.Fatalf("Caddyfile.dev has no airbg.org site block; found %v", keysOf(blocks))
+		t.Fatalf("Caddyfile.dev has no staging.airbg.org site block; found %v", keysOf(blocks))
 	}
 	if strings.Contains(site, "client_auth") {
 		t.Error("Caddyfile.dev requires a client certificate, which is the one thing it exists not to do")
@@ -406,10 +406,18 @@ func TestTheDevCaddyfileIsUnmistakableAndOpen(t *testing.T) {
 	if !strings.Contains(site, "reverse_proxy app:8080") {
 		t.Error("Caddyfile.dev does not proxy the app; it would serve nothing")
 	}
-	if tiles, ok := blocks["tiles.airbg.org"]; !ok {
-		t.Errorf("Caddyfile.dev has no tiles.airbg.org site block; the map renders empty without it, found %v", keysOf(blocks))
+	if tiles, ok := blocks["tiles.staging.airbg.org"]; !ok {
+		t.Errorf("Caddyfile.dev has no tiles.staging.airbg.org site block; the map renders empty without it, found %v", keysOf(blocks))
 	} else if !strings.Contains(tiles, "reverse_proxy app:8082") {
 		t.Error("Caddyfile.dev tiles block does not proxy the tiles listener")
+	}
+	// The open file must not answer for a production name. Staging resolves
+	// only inside the LAN, so a bare airbg.org block here would be a vhost with
+	// no client_auth waiting for whatever reaches port 443.
+	for _, name := range []string{"airbg.org", "www.airbg.org", "tiles.airbg.org"} {
+		if _, ok := blocks[name]; ok {
+			t.Errorf("Caddyfile.dev serves the production name %s with no client certificate required", name)
+		}
 	}
 }
 
