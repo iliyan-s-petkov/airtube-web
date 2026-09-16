@@ -1113,13 +1113,12 @@ export function repaintSensors(map, state, cfg) {
   paintSource(map, SOURCE_ID, features)
 }
 
-// setSourceViewAvailability labels each network's checkbox with how many of its
-// stations currently hold a reading for the selected metric.
+// setSourceViewAvailability notes a network that does not measure the selected
+// metric at all, so an empty layer says why rather than looking broken.
 //
-// Never disables. The count is the whole message: with P2 the default metric and
-// four official stations reporting it, a reader who sees an empty official layer
-// needs the number, not a dead control. A network that does not measure the
-// metric at all says so instead of showing a zero.
+// Never disables, and never counts. A per-metric station count used to be
+// appended here; it wrapped the option onto three lines and pushed the menu out
+// of shape, and the network total is already reported below the map.
 export function setSourceViewAvailability(chrome, metric, t, coverage) {
   for (const [id, source] of [['communitySensors', 'sensor.community'], ['officialStations', 'eea']]) {
     const input = chrome.layersUI?.fieldset?.querySelector(`[data-layer-key="view:${id}"]`)
@@ -1137,9 +1136,9 @@ export function setSourceViewAvailability(chrome, metric, t, coverage) {
       continue
     }
     const n = per[metric] ?? 0
-    // Composed from catalogue parts, as sensorCountLine is: i18n.Catalogue.T
-    // takes no parameters, so a sentence with a number in it is assembled here.
-    span.textContent = n > 0 ? `${t[id]} — ${n} ${t.withData}` : `${t[id]} — ${t.notMeasured}`
+    // Composed from catalogue parts: i18n.Catalogue.T takes no parameters, so a
+    // sentence built from two strings is assembled here.
+    span.textContent = n > 0 ? t[id] : `${t[id]} — ${t.notMeasured}`
   }
 }
 
@@ -1726,7 +1725,6 @@ export function readConfig(el) {
       viewCommunitySensors: d.tViewCommunitySensors || '',
       viewOfficialStations: d.tViewOfficialStations || '',
       notMeasured: d.tNotMeasured || '',
-      withData: d.tWithData || '',
       communitySensors: d.tViewCommunitySensors || '',
       officialStations: d.tViewOfficialStations || '',
       // One label per style group, keyed by the group's own name so the menu

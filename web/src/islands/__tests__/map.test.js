@@ -318,7 +318,6 @@ describe('readConfig', () => {
         tViewCommunitySensors: 'Citizen sensors',
         tViewOfficialStations: 'Official stations',
         tNotMeasured: 'does not measure this',
-        tWithData: 'with data',
         // Two of the twelve groups, deliberately: the other ten prove the
         // point below, that an unrendered group arrives as '' rather than as
         // undefined or as a missing key.
@@ -367,7 +366,6 @@ describe('readConfig', () => {
       viewCommunitySensors: 'Citizen sensors',
       viewOfficialStations: 'Official stations',
       notMeasured: 'does not measure this',
-      withData: 'with data',
       // communitySensors/officialStations reuse the view labels: setSourceViewAvailability
       // keys the checkbox label lookup by view id, not by a second pair of dataset attributes.
       communitySensors: 'Citizen sensors',
@@ -3318,7 +3316,6 @@ describe('setSourceViewAvailability', () => {
     communitySensors: 'Citizen sensors',
     officialStations: 'Official stations',
     notMeasured: 'does not measure this',
-    withData: 'with data',
   }
   const coverage = {
     'sensor.community': { P1: 1180, P2: 1180 },
@@ -3347,26 +3344,17 @@ describe('setSourceViewAvailability', () => {
     return { chrome: { layersUI: { fieldset } }, boxes }
   }
 
-  // Prod showed "Citizen sensors — 901 with data" inside the glyph span, drawn
-  // rotated by .colmenu__mark--diamond, with the name repeated beside it.
-  it('writes the count on the name, not on the shape glyph', () => {
+  // The count used to be appended here. It wrapped the option onto three lines
+  // and pushed the menu out of shape, and the number it reported is already in
+  // the network figure below the map.
+  it('leaves the name alone when the network measures the metric', () => {
     const { chrome, boxes } = menu()
     setSourceViewAvailability(chrome, 'P2', t, coverage)
 
-    expect(boxes.officialStations.glyph.textContent).toBe('')
-    expect(boxes.officialStations.span.textContent).toBe('Official stations — 4 with data')
-  })
-
-  // The bug this replaces: both boxes were disabled anywhere but the sensor
-  // tier, so unticking a network on the opening map did nothing.
-  it('leaves both live and says how many stations have the metric', () => {
-    const { chrome, boxes } = menu()
-    setSourceViewAvailability(chrome, 'P2', t, coverage)
-
+    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors')
+    expect(boxes.officialStations.span.textContent).toBe('Official stations')
     expect(boxes.communitySensors.input.disabled).toBe(false)
     expect(boxes.officialStations.input.disabled).toBe(false)
-    expect(boxes.officialStations.span.textContent).toBe('Official stations — 4 with data')
-    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — 1180 with data')
   })
 
   it('names the metric a network does not measure, and still lets it be switched off', () => {
@@ -3375,7 +3363,7 @@ describe('setSourceViewAvailability', () => {
 
     expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — does not measure this')
     expect(boxes.communitySensors.input.disabled).toBe(false)
-    expect(boxes.officialStations.span.textContent).toBe('Official stations — 20 with data')
+    expect(boxes.officialStations.span.textContent).toBe('Official stations')
   })
 
   it('falls back to the bare label before any coverage has arrived', () => {
@@ -3386,12 +3374,20 @@ describe('setSourceViewAvailability', () => {
     expect(boxes.officialStations.input.disabled).toBe(false)
   })
 
-  it('follows the metric from one call to the next', () => {
+  it('drops the not-measured note when the metric changes to one it does measure', () => {
     const { chrome, boxes } = menu()
     setSourceViewAvailability(chrome, 'O3', t, coverage)
     setSourceViewAvailability(chrome, 'P1', t, coverage)
 
-    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors — 1180 with data')
+    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors')
+  })
+
+  it('never writes on the shape glyph', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'O3', t, coverage)
+
+    expect(boxes.communitySensors.glyph.textContent).toBe('')
+    expect(boxes.officialStations.glyph.textContent).toBe('')
   })
 })
 
