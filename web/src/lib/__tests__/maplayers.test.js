@@ -387,6 +387,19 @@ describe('the shape swatch', () => {
     expect(mark.nextElementSibling.textContent).toBe('Official')
   })
 
+  // The Bulgarian labels are longer than the English ones, and the kit's 15rem
+  // panel floor wrapped two of them onto three lines each, pushing the menu out
+  // of shape. The panel sizes to its widest option instead.
+  it('sizes the panel to its content and keeps each option on one line', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(join(here, '..', '..', '..', '..', 'internal', 'web', 'static', 'app.css'), 'utf8')
+    const rule = css.slice(css.indexOf('.map__layers .colmenu__panel'))
+    expect(css, 'layers panel not sized to content').toContain('.map__layers .colmenu__panel')
+    expect(rule.slice(0, 400), 'panel does not grow past the kit floor').toContain('max-content')
+    expect(rule.slice(0, 400), 'panel uncapped on a narrow viewport').toContain('max-inline-size')
+    expect(css, 'options still allowed to wrap').toContain('.map__layers .colmenu__opt { white-space: nowrap; }')
+  })
+
   it('leaves a view that names no shape exactly as it was', () => {
     expect(markIn({ id: 'legend', label: 'Scale', apply: () => {} })).toBeNull()
   })

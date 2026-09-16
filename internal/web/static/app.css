@@ -219,6 +219,15 @@ strong, b { font-weight: var(--weight-emphasis); }
    than its button hangs off the left of the page and loses its first column of
    text. Anchored to the start edge it opens into the page instead. */
 .colmenu--start .colmenu__panel { inset-inline-start: 0; inset-inline-end: auto; }
+/* The kit's panel floor is 15rem, set against the table's one-word column
+   names. The layer names are sentences, and in Bulgarian two of them wrapped
+   onto three lines each. Sized to the widest option instead, capped so it
+   cannot outgrow a phone. */
+.map__layers .colmenu__panel {
+  inline-size: max-content;
+  max-inline-size: calc(100vw - var(--space-6));
+}
+.map__layers .colmenu__opt { white-space: nowrap; }
 /* The shape each network is drawn in, beside its name in the layers menu. The
    map distinguishes the two by shape alone, so without this the reader has two
    shapes and no key. Filled in the foreground colour rather than a scale band:
