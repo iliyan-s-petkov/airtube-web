@@ -26,6 +26,12 @@ body {
    contrast floor outranks a colour convention (DESIGN.md makes it too, for map
    labels on --surface-2). Same selector as the kit's, later in the cascade. */
 .footer p { color: var(--fg-2); }
+/* The kit sets footer lines at the 12px caption. A donor credit nobody can read
+   is not a credit, so this one takes the body size the disclaimer already uses. */
+.footer .footer__sponsor {
+  font: var(--weight-body) var(--text-body)/1.5 var(--font-body);
+  letter-spacing: 0; margin-block: var(--space-4) var(--space-2);
+}
 
 /* A <button> inside the theme list where the language list has links: choosing
    a theme is not navigation. It needs the type reset a link does not. */
