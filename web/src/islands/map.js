@@ -1124,7 +1124,9 @@ export function setSourceViewAvailability(chrome, metric, t, coverage) {
   for (const [id, source] of [['communitySensors', 'sensor.community'], ['officialStations', 'eea']]) {
     const input = chrome.layersUI?.fieldset?.querySelector(`[data-layer-key="view:${id}"]`)
     if (!input) continue
-    const span = input.parentElement?.querySelector('span')
+    // Not the first span: the shape glyph is one too, and it sits ahead of the
+    // name. Writing the label into it printed the count rotated 45 degrees.
+    const span = input.parentElement?.querySelector('span:not(.colmenu__mark)')
     if (!span) continue
     // No coverage yet — the first paint runs before the grid has answered. The
     // bare label is the honest thing to show; a "0 with data" would be a claim

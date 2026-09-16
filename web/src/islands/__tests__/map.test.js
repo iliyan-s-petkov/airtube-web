@@ -3333,13 +3333,29 @@ describe('setSourceViewAvailability', () => {
       const input = document.createElement('input')
       input.type = 'checkbox'
       input.dataset.layerKey = `view:${id}`
+      // The shape glyph maplayers.addOption puts between the box and the name.
+      // It is a <span> too, and it comes first — a helper that leaves it out
+      // cannot catch a writer that picks the wrong one.
+      const glyph = document.createElement('span')
+      glyph.className = 'colmenu__mark colmenu__mark--diamond'
+      glyph.setAttribute('aria-hidden', 'true')
       const span = document.createElement('span')
-      label.append(input, span)
+      label.append(input, glyph, span)
       fieldset.appendChild(label)
-      boxes[id] = { input, span }
+      boxes[id] = { input, span, glyph }
     }
     return { chrome: { layersUI: { fieldset } }, boxes }
   }
+
+  // Prod showed "Citizen sensors — 901 with data" inside the glyph span, drawn
+  // rotated by .colmenu__mark--diamond, with the name repeated beside it.
+  it('writes the count on the name, not on the shape glyph', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'P2', t, coverage)
+
+    expect(boxes.officialStations.glyph.textContent).toBe('')
+    expect(boxes.officialStations.span.textContent).toBe('Official stations — 4 with data')
+  })
 
   // The bug this replaces: both boxes were disabled anywhere but the sensor
   // tier, so unticking a network on the opening map did nothing.
