@@ -86,7 +86,7 @@ describe('writeTheme', () => {
   })
 
   // Removing the attribute is the whole mechanism: the kit's dark block is
-  // `:root:not([data-theme="light"])` under prefers-color-scheme, so an
+  // `:root:not([data-pick="light"])` under prefers-color-scheme, so an
   // attribute left behind would pin the theme and "auto" would never return.
   it('removes the attribute and the stored value for auto', () => {
     const store = fakeStore({ [STORAGE_KEY]: 'dark' })
@@ -123,8 +123,8 @@ describe('render', () => {
   it('offers every state, marking the current one', () => {
     const el = render(picker(), 'dark')
     const opts = [...el.querySelectorAll('.langpick__opt')]
-    expect(opts.map((o) => o.dataset.theme)).toEqual(THEMES)
-    expect(opts.filter((o) => o.hasAttribute('aria-current')).map((o) => o.dataset.theme))
+    expect(opts.map((o) => o.dataset.pick)).toEqual(THEMES)
+    expect(opts.filter((o) => o.hasAttribute('aria-current')).map((o) => o.dataset.pick))
       .toEqual(['dark'])
   })
 
@@ -172,10 +172,10 @@ describe('mount', () => {
     mount(el)
     el.open = true
 
-    el.querySelector('[data-theme="dark"]').click()
+    el.querySelector('[data-pick="dark"]').click()
 
     expect(document.documentElement.dataset.theme).toBe('dark')
-    expect(el.querySelector('[aria-current]').dataset.theme).toBe('dark')
+    expect(el.querySelector('[aria-current]').dataset.pick).toBe('dark')
     expect(el.open).toBe(false)
     el.remove()
   })
@@ -187,8 +187,8 @@ describe('mount', () => {
     document.body.appendChild(el)
     mount(el)
 
-    el.querySelector('[data-theme="dark"]').click()
-    el.querySelector('[data-theme="auto"]').click()
+    el.querySelector('[data-pick="dark"]').click()
+    el.querySelector('[data-pick="auto"]').click()
 
     expect(document.documentElement.dataset.theme).toBeUndefined()
     el.remove()
@@ -200,6 +200,31 @@ describe('mount', () => {
     mount(el)
     el.querySelector('summary').click()
     expect(document.documentElement.dataset.theme).toBeUndefined()
+    el.remove()
+  })
+})
+
+// data-theme on <html> is what the design kit's palette block keys off, and the
+// selector is unscoped. An option button carrying it painted itself in the
+// palette it offers — the dark choice came out dark-on-light and read as
+// disabled. The options carry data-pick instead; only the root gets data-theme.
+describe('the option buttons and the page palette', () => {
+  it('marks options with data-pick, leaving data-theme to the root', () => {
+    const el = render(picker(), 'auto')
+
+    expect(el.querySelectorAll('[data-theme]')).toHaveLength(0)
+    expect([...el.querySelectorAll('[data-pick]')].map((o) => o.dataset.pick)).toEqual(THEMES)
+  })
+
+  it('still applies the choice a data-pick option carries', () => {
+    const el = picker()
+    document.body.appendChild(el)
+    mount(el)
+
+    el.querySelector('[data-pick="dark"]').click()
+
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(el.querySelector('[aria-current]').dataset.pick).toBe('dark')
     el.remove()
   })
 })

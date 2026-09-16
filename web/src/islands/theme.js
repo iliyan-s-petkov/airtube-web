@@ -132,7 +132,7 @@ export function render(el, current) {
     const opt = document.createElement('button')
     opt.type = 'button'
     opt.className = 'langpick__opt'
-    opt.dataset.theme = theme
+    opt.dataset.pick = theme
     if (theme === current) opt.setAttribute('aria-current', 'true')
     opt.appendChild(mark(theme))
     opt.append(names[theme] ?? theme)
@@ -150,9 +150,9 @@ export function mount(el) {
   // listeners — and so the listener survives the replaceChildren() inside
   // render().
   el.addEventListener('click', (event) => {
-    const opt = event.target.closest?.('[data-theme]')
+    const opt = event.target.closest?.('[data-pick]')
     if (!opt || !el.contains(opt)) return
-    writeTheme(opt.dataset.theme)
+    writeTheme(opt.dataset.pick)
     render(el, readTheme())
     el.open = false
   })
