@@ -90,6 +90,9 @@ services:
     image: tecnativa/docker-socket-proxy:0.3.0
     restart: unless-stopped
     environment:
+      # The image otherwise binds [::]:2375, which cannot start on a host
+      # booted with ipv6.disable=1. The IPv4 wildcard works on either.
+      - DISABLE_IPV6=1
       - CONTAINERS=1
       - POST=1
       - EXEC=0

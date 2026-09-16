@@ -250,6 +250,22 @@ func TestSocketProxyGrantsOnlyContainerCreation(t *testing.T) {
 	}
 }
 
+// Without DISABLE_IPV6 the image binds `[::]:2375 v4v6`, which fails outright
+// on a host booted with ipv6.disable=1 — the production VPS is. Binding IPv4
+// only works on either kind of host, so it is set for both tiers.
+func TestSocketProxyBindsIPv4Only(t *testing.T) {
+	proxy := service(t, loadCompose(t), "socket-proxy")
+	for _, e := range proxy.Environment {
+		if k, v, ok := strings.Cut(e, "="); ok && k == "DISABLE_IPV6" {
+			if v != "1" {
+				t.Errorf("socket-proxy sets DISABLE_IPV6=%q, want \"1\"", v)
+			}
+			return
+		}
+	}
+	t.Error("socket-proxy does not set DISABLE_IPV6; it crash-loops on a host with IPv6 disabled at the kernel")
+}
+
 // app is internet-facing and stays read_only. socket-proxy cannot be — it
 // writes haproxy.cfg at every start — so the exception is pinned here to stop
 // the hardening being re-added in good faith. See README.md.
