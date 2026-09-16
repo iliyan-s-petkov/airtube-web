@@ -5,6 +5,11 @@
 // the chart chunk. A `for` loop over [data-island] rather than per-page entry
 // points, because the server stays ignorant of which bundles exist — it only
 // emits the attributes.
+//
+// Static, unlike the islands below: the masthead is on every page and this is
+// a few lines, so a chunk boundary would cost a request to save nothing.
+import { soleOpen } from './lib/disclosure.js'
+
 const ISLANDS = {
   map: () => import('./islands/map.js'),
   chart: () => import('./islands/chart.js'),
@@ -50,6 +55,11 @@ export async function runIsland(el, load, log = console.error) {
 }
 
 function init() {
+  // The masthead's two pickers are independent <details> and would otherwise
+  // open on top of each other. Wired before the islands: the theme picker's
+  // element is already in the DOM, empty, and soleOpen re-queries on each event.
+  soleOpen(document.querySelector('.masthead__nav') ?? document.body)
+
   for (const el of document.querySelectorAll('[data-island]')) {
     const load = resolveLoader(el.dataset.island)
     if (!load) continue // unknown island: leave the server-rendered fallback
