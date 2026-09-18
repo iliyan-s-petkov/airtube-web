@@ -9,9 +9,9 @@ import { DIAMOND_RADIUS_PX } from '../../lib/markericon.js'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
-import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
+import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM, resolutionForZoom } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
-import { mountPlayer } from '../../lib/timelapse.js'
+import { mountPlayer, FRAME_MS } from '../../lib/timelapse.js'
 import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte.js'
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
 import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
@@ -37,8 +37,13 @@ vi.mock('maplibre-gl', () => {
       this.options = options
       this.handlers = {}
       this.setPaintProperty = vi.fn()
+      this.setFilter = vi.fn()
       this.addSource = vi.fn()
       this.addLayer = vi.fn()
+      // Backed by addLayer's own call log, not a separate list: a real map
+      // knows about a layer once addLayer has been called for it, which is
+      // exactly what map.js's beforeId guard (map.getLayer?.(id)) checks.
+      this.getLayer = vi.fn((id) => (this.addLayer.mock.calls.some((c) => c[0]?.id === id) ? { id } : undefined))
       this.addImage = vi.fn()
       this.setLayoutProperty = vi.fn()
       this.setLayerZoomRange = vi.fn()
@@ -856,10 +861,16 @@ describe('installTimelapse', () => {
 
   function harness(fetchJSON) {
     const painted = []
+    let zoom = 12
+    const zoomHandlers = []
     const map = {
-      getZoom: () => 12,
+      getZoom: () => zoom,
+      // Fires the same handlers a real MapLibreMap would, so a test can move
+      // the map the way a reader's pinch or scroll does.
+      setZoom: (z) => { zoom = z; for (const fn of zoomHandlers) fn() },
       getBounds: () => ({ getWest: () => 23, getSouth: () => 42, getEast: () => 24, getNorth: () => 43 }),
       getSource: () => ({ setData: (d) => painted.push(d) }),
+      on: (evt, fn) => { if (evt === 'zoom') zoomHandlers.push(fn) },
     }
     const ui = mountPlayer(document.createElement('div'), { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now' })
     const state = { scales: null, hexUrl: null, window: '24h' }
@@ -984,6 +995,135 @@ describe('installTimelapse', () => {
     ui.button.click()
     await vi.waitFor(() => expect(asked.filter((u) => u.includes('timelapse'))).toHaveLength(2))
     ui.button.click()
+  })
+
+  // The live grid asks for the tier its zoom draws at; the replay must ask for
+  // the same one, or the hexes it swaps in are a different size from the ones
+  // still on screen a moment before.
+  it('asks for the tier matching the current zoom', async () => {
+    const asked = []
+    const { ui } = harness(async (url) => { asked.push(url); return BODY })
+
+    ui.button.click()
+    await vi.waitFor(() => expect(asked).toHaveLength(1))
+    const url = new URL(asked[0], 'http://x')
+    expect(Number(url.searchParams.get('resolution_km'))).toBeCloseTo(resolutionForZoom(12), 4)
+    ui.button.click()
+  })
+
+  // A zoom-to-street flight fires many zoom events on the way; only the tier
+  // it lands on is worth a request.
+  it('follows the reader onto the tier for the new zoom', async () => {
+    const asked = []
+    const { ui, painted, map } = harness(async (url) => { asked.push(url); return BODY })
+
+    ui.button.click()
+    // Waits on the paint, not the fetch: the paint happens after the player
+    // is marked open, and it is openness the zoom handler below needs.
+    await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+    const before = painted.length
+
+    map.setZoom(2)
+    await vi.waitFor(() => expect(asked).toHaveLength(2))
+    const url = new URL(asked[1], 'http://x')
+    expect(Number(url.searchParams.get('resolution_km'))).toBeCloseTo(resolutionForZoom(2), 4)
+    await vi.waitFor(() => expect(painted.length).toBeGreaterThan(before))
+    ui.button.click()
+  })
+
+  // Rounded the same way hexesURL rounds it: a fraction of a zoom level is not
+  // a new tier, and refetching for it would turn a smooth zoom into a burst.
+  it('does not refetch or repaint when zooming within the same tier', async () => {
+    const asked = []
+    const { ui, painted, map } = harness(async (url) => { asked.push(url); return BODY })
+
+    ui.button.click()
+    // On the paint, not the fetch: the fetch resolves before the player is
+    // marked open, and a zoom while it is still closed proves nothing.
+    await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+    const before = painted.length
+
+    map.setZoom(12.4)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(asked).toHaveLength(1)
+    // Still playing here, so this is what pins the same-tier dedup itself
+    // rather than the paused guard: FRAME_MS is far longer than two microtasks.
+    expect(painted).toHaveLength(before)
+    ui.button.click()
+  })
+
+  // Nor repaint. A flyTo fires a zoom event per frame; feeding the source the
+  // body it already holds sixty times a second is the jank the dedup prevents.
+  it('does not repaint when zooming within the same tier', async () => {
+    const { ui, painted, map } = harness(async () => BODY)
+
+    ui.button.click()
+    await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+    // Pause restores the live grid, which is itself a paint — settle it first,
+    // or the repaint being measured is that one.
+    ui.button.click()
+    await vi.waitFor(() => expect(painted.length).toBeGreaterThan(1))
+    const before = painted.length
+
+    map.setZoom(12.4)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(painted).toHaveLength(before)
+  })
+
+  // A reader watching the animation should not be thrown back to the first
+  // hour because the tier under them changed.
+  // Fake timers, because the assertion is about a specific frame: with the real
+  // interval the playhead would have stepped on before the zoom was measured.
+  it('keeps the playhead where it was when the tier changes', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ui, painted, map } = harness(async () => BODY)
+
+      ui.button.click()
+      await vi.advanceTimersByTimeAsync(FRAME_MS)
+      expect(ui.slider.value).toBe('1')
+      const before = painted.length
+
+      map.setZoom(2)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(painted.length).toBeGreaterThan(before)
+      expect(ui.slider.value).toBe('1')
+      ui.button.click()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Pause puts the live grid back on screen. A zoom is not a press of play, so
+  // it must not drag a replay frame back over it — the new tier is fetched and
+  // held, and the next press of play or drag of the scrubber draws it.
+  it('does not redraw a frame over the live grid while paused', async () => {
+    const asked = []
+    const { ui, painted, map } = harness(async (url) => { asked.push(url); return BODY })
+
+    ui.button.click()
+    await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+    ui.button.click()
+    await vi.waitFor(() => expect(painted.length).toBeGreaterThan(1))
+    const before = painted.length
+
+    map.setZoom(2)
+    await vi.waitFor(() => expect(asked.filter((u) => u.includes('timelapse'))).toHaveLength(2))
+    await Promise.resolve()
+    expect(painted).toHaveLength(before)
+  })
+
+  // A zoom event before the button has ever been pressed must not fetch —
+  // that is the live grid's job, not the replay's.
+  it('ignores a zoom before the player has ever been opened', async () => {
+    const asked = []
+    const { map } = harness(async (url) => { asked.push(url); return BODY })
+
+    map.setZoom(2)
+    await Promise.resolve()
+    expect(asked).toEqual([])
   })
 })
 
@@ -2573,6 +2713,18 @@ describe('mount() registers the wind arrow before the layer that draws it', () =
     expect(map.addLayer.mock.calls[at][0].layout['icon-image']).toBe(ARROW_IMAGE_ID)
     expect(map.addImage.mock.invocationCallOrder[0])
       .toBeLessThan(map.addLayer.mock.invocationCallOrder[at])
+  })
+})
+
+// The wind layer used to be appended last, drawing over the hex value labels
+// and hiding the digits — icon-allow-overlap/icon-ignore-placement keep the
+// arrows from yielding, so stacking order is the only thing that decides this.
+describe('mount() draws the wind arrows beneath the hex labels', () => {
+  it('adds the wind layer before the hex label layer', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+
+    const wind = map.addLayer.mock.calls.find((c) => c[0]?.id === WIND_LAYER_ID)
+    expect(wind[1]).toBe(HEX_LABEL_LAYER_ID)
   })
 })
 

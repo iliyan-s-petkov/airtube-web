@@ -407,13 +407,15 @@ export function mount(el) {
     // pixelRatio 2: the raster is drawn at twice its nominal size so it stays
     // sharp on a retina screen and when icon-size scales it past 1.
     map.addImage(ARROW_IMAGE_ID, arrowImage(cfg), { pixelRatio: 2 })
+    // Under the hex labels, or icon-allow-overlap paints the arrows straight
+    // over the digits — see arrowLayout for why the arrows cannot yield instead.
     map.addLayer({
       id: WIND_LAYER_ID,
       type: 'symbol',
       source: WIND_SOURCE_ID,
       layout: { ...arrowLayout(), visibility: 'none' },
       paint: arrowPaint(cfg),
-    })
+    }, map.getLayer?.(HEX_LABEL_LAYER_ID) ? HEX_LABEL_LAYER_ID : undefined)
 
     // Wind is an overlay, so it belongs with the other overlays rather than in
     // a button of its own in the corner. Assembled here and not in mountChrome
@@ -1213,6 +1215,10 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   let body = null
   let loaded = ''
   let timer = null
+  // Open once the button has been pressed, closed again by exit or reset —
+  // NOT by pause, which leaves the scrubber on screen. A zoom before this is
+  // true is the live grid's business, not the replay's.
+  let open = false
 
   const clock = new Intl.DateTimeFormat(cfg.lang || 'bg', {
     weekday: 'short', hour: '2-digit', minute: '2-digit',
@@ -1244,10 +1250,18 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     if (restore) await refreshHexes(map, state, cfg, fetchJSON)
   }
 
-  const load = async () => {
-    const url = timelapseURL(cfg.metric, state.window)
+  // Rounded the same way hexesURL rounds it (see its own comment): a
+  // fractional zoom mid-flyTo must not earn its own request.
+  const wantedURL = () => timelapseURL(cfg.metric, state.window, resolutionForZoom(Math.round(map.getZoom())))
+
+  // keepPlayhead is true only for a zoom-driven refetch: a fresh press of play
+  // starts the story over, but a reader mid-animation should not be thrown
+  // back to frame 0 just because the tier under them changed.
+  const load = async (keepPlayhead = false) => {
+    const url = wantedURL()
     // show() again on the held body: leaving the animation hides the scrubber,
-    // and this is the path that brings it back without a second fetch.
+    // and this is the path that brings it back without a second fetch. Also
+    // the dedup that keeps a zoom within the same tier from refetching.
     if (url === loaded && body) {
       ui.show(head.count)
       return head.count > 0
@@ -1261,7 +1275,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     }
     loaded = url
     head.count = frameCount(body)
-    head.i = 0
+    head.i = keepPlayhead ? seek(head, head.i) : 0
     ui.show(head.count)
     return head.count > 0
   }
@@ -1272,10 +1286,27 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
       return
     }
     if (!await load()) return
+    open = true
     head.playing = true
     ui.playing(true)
     paint(head.i)
     timer = setInterval(() => paint(step(head)), FRAME_MS)
+  })
+
+  // Follows the reader onto the tier the new zoom would ask the live grid
+  // for. Only while the player is open, and only once wantedURL() actually
+  // names a different tier — load()'s own url === loaded check is what turns
+  // a run of zoom events during a flyTo into at most one request.
+  map.on('zoom', () => {
+    if (!open) return
+    // Refetch always, repaint only when the body actually changed AND the
+    // animation is running: a flyTo fires a zoom event per frame, and pause
+    // has already put the live grid back — redrawing a frame over it would
+    // undo the reader's own press of pause.
+    const was = loaded
+    load(true).then((ok) => {
+      if (ok && loaded !== was && head.playing) paint(head.i)
+    })
   })
 
   // A drag is a request to look at one hour: leaving the timer going would move
@@ -1295,6 +1326,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   // control that puts the live grid back. It collapses the scrubber too: the
   // held body stays, so the next press of play repaints without a refetch.
   ui.onexit(async () => {
+    open = false
     ui.show(0)
     await stop()
   })
@@ -1302,6 +1334,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   // A different window or metric is a different animation; what is held is stale.
   return {
     async reset() {
+      open = false
       body = null
       loaded = ''
       head.count = 0

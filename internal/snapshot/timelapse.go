@@ -3,7 +3,9 @@ package snapshot
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"airbg.org/internal/store"
@@ -45,11 +47,38 @@ func ringDur() time.Duration {
 	return d
 }
 
+// TimelapseTiersKM are the resolutions the animation is published at, coarsest
+// first — a deliberate subset of HexTiersKM.
+//
+// The live grid answers the national view with 100 km bins; a replay fixed at
+// 15 km drew a third of that size, so pressing play visibly shrank every cell.
+// The fine tiers are withheld instead: a replay carries every cell for every
+// frame of a week, so the payload grows with the cell count where a live body
+// pays it once.
+var TimelapseTiersKM = []float64{100, 50, 25, 15, 5}
+
+// SnapTimelapseKM maps a requested resolution onto the nearest published
+// timelapse tier, by the same geometric rule and for the same reasons as
+// SnapResolutionKM — including that nonsense lands on the default rather than
+// erroring.
+func SnapTimelapseKM(want float64) float64 {
+	best, bestErr := HexResolutionKM, math.Inf(1)
+	for _, t := range TimelapseTiersKM {
+		if e := math.Abs(math.Log(want / t)); e < bestErr {
+			best, bestErr = t, e
+		}
+	}
+	return best
+}
+
 // hourCells is one rollup hour reduced to the grid, kept reduced: the ring
 // lives in memory across cycles.
 type hourCells struct {
 	bucket time.Time
-	cells  map[axial]float64
+	// One reduction per published tier, each folded from the hour's readings.
+	// A coarse tier is NOT derived from a finer one's cells: averaging cell
+	// medians would weight a bin holding one sensor like a bin holding twenty.
+	tiers map[float64]map[axial]float64
 }
 
 // frameRing is one metric's recent hours, oldest first, carried between cycles:
@@ -75,16 +104,25 @@ type timelapseFrame struct {
 	V []*float64 `json:"v"`
 }
 
-// TimelapseBody returns the prepared body for one metric and span, if there is one.
-func (s *Snapshot) TimelapseBody(metric, span string) (Body, bool) {
+// TimelapseBody returns the prepared body for one metric, span and resolution,
+// if there is one.
+//
+// Snapped here rather than in the handler, for the reason HexBody gives: this
+// package owns the tier list, so it is the only place that can guarantee the
+// key it looks up is one a build wrote.
+func (s *Snapshot) TimelapseBody(metric, span string, resKM float64) (Body, bool) {
 	if s == nil {
 		return Body{}, false
 	}
-	b, ok := s.Timelapse[timelapseKey(metric, span)]
+	b, ok := s.Timelapse[timelapseKey(metric, span, SnapTimelapseKM(resKM))]
 	return b, ok
 }
 
-func timelapseKey(metric, span string) string { return metric + "|" + span }
+func timelapseKey(metric, span string, resKM float64) string {
+	return metric + "|" + span + "|" + formatTier(resKM)
+}
+
+func formatTier(resKM float64) string { return strconv.FormatFloat(resKM, 'g', -1, 64) }
 
 // buildTimelapse extends the previous cycle's rings and re-encodes the bodies.
 // prev is nil only on the first build after a restart, which reads a whole week.
@@ -94,7 +132,8 @@ func buildTimelapse(ctx context.Context, st *store.Store, prev, snap *Snapshot, 
 	oldest := end.Add(-ringDur())
 
 	snap.frames = make(map[string]*frameRing, len(upstream.CanonicalMetrics()))
-	snap.Timelapse = make(map[string]Body, len(upstream.CanonicalMetrics())*len(FrameSpecs))
+	snap.Timelapse = make(map[string]Body,
+		len(upstream.CanonicalMetrics())*len(FrameSpecs)*len(TimelapseTiersKM))
 
 	for _, metric := range upstream.CanonicalMetrics() {
 		var carried *frameRing
@@ -108,11 +147,14 @@ func buildTimelapse(ctx context.Context, st *store.Store, prev, snap *Snapshot, 
 		snap.frames[metric] = ring
 
 		for _, spec := range FrameSpecs {
-			body, err := encode(timelapseFrom(now, metric, spec, ring, end))
-			if err != nil {
-				return fmt.Errorf("snapshot: encode timelapse %s/%s: %w", metric, spec.Name, err)
+			for _, res := range TimelapseTiersKM {
+				body, err := encode(timelapseFrom(now, metric, spec, ring, end, res))
+				if err != nil {
+					return fmt.Errorf("snapshot: encode timelapse %s/%s at %v km: %w",
+						metric, spec.Name, res, err)
+				}
+				snap.Timelapse[timelapseKey(metric, spec.Name, res)] = body
 			}
-			snap.Timelapse[timelapseKey(metric, spec.Name)] = body
 		}
 	}
 	return nil
@@ -148,34 +190,45 @@ func extendRing(ctx context.Context, st *store.Store, metric string, carried *fr
 // foldHours bins each hour's readings onto the grid, in bucket order — which is
 // what lets extendRing resume from the last one.
 func foldHours(readings []store.FrameReading) []hourCells {
-	byHour := map[time.Time]map[axial][]float64{}
+	byHour := map[time.Time]map[float64]map[axial][]float64{}
 	var order []time.Time
 	for _, r := range readings {
-		vals := byHour[r.Bucket]
-		if vals == nil {
-			vals = map[axial][]float64{}
-			byHour[r.Bucket] = vals
+		tiers := byHour[r.Bucket]
+		if tiers == nil {
+			tiers = make(map[float64]map[axial][]float64, len(TimelapseTiersKM))
+			for _, res := range TimelapseTiersKM {
+				tiers[res] = map[axial][]float64{}
+			}
+			byHour[r.Bucket] = tiers
 			order = append(order, r.Bucket)
 		}
-		c := hexOf(r.Lon, r.Lat, HexResolutionKM)
-		vals[c] = append(vals[c], r.Value)
+		// Every tier bins the same reading independently, so each cell's median
+		// is taken over the sensors actually inside it.
+		for _, res := range TimelapseTiersKM {
+			c := hexOf(r.Lon, r.Lat, res)
+			tiers[res][c] = append(tiers[res][c], r.Value)
+		}
 	}
 	sort.Slice(order, func(i, j int) bool { return order[i].Before(order[j]) })
 
 	out := make([]hourCells, 0, len(order))
 	for _, b := range order {
-		cells := make(map[axial]float64, len(byHour[b]))
-		for c, vs := range byHour[b] {
-			cells[c] = median(vs)
+		tiers := make(map[float64]map[axial]float64, len(byHour[b]))
+		for res, vals := range byHour[b] {
+			cells := make(map[axial]float64, len(vals))
+			for c, vs := range vals {
+				cells[c] = median(vs)
+			}
+			tiers[res] = cells
 		}
-		out = append(out, hourCells{bucket: b, cells: cells})
+		out = append(out, hourCells{bucket: b, tiers: tiers})
 	}
 	return out
 }
 
-// timelapseFrom folds the ring into one span's frames; a step wider than an hour
-// takes the median of the hours in it, per cell.
-func timelapseFrom(now time.Time, metric string, spec FrameSpec, ring *frameRing, end time.Time) timelapsePayload {
+// timelapseFrom folds the ring into one span's frames at one published tier; a
+// step wider than an hour takes the median of the hours in it, per cell.
+func timelapseFrom(now time.Time, metric string, spec FrameSpec, ring *frameRing, end time.Time, resKM float64) timelapsePayload {
 	start := end.Add(-spec.Dur)
 
 	// By step index, so the frames tile the span exactly and the last ends at end.
@@ -190,7 +243,7 @@ func timelapseFrom(now time.Time, metric string, spec FrameSpec, ring *frameRing
 			g = map[axial][]float64{}
 			groups[i] = g
 		}
-		for c, v := range h.cells {
+		for c, v := range h.tiers[resKM] {
 			g[c] = append(g[c], v)
 		}
 	}
@@ -215,7 +268,7 @@ func timelapseFrom(now time.Time, metric string, spec FrameSpec, ring *frameRing
 	index := make(map[axial]int, len(coords))
 	cells := make([][2]float64, 0, len(coords))
 	for i, c := range coords {
-		lon, lat := hexCentre(c, HexResolutionKM)
+		lon, lat := hexCentre(c, resKM)
 		cells = append(cells, [2]float64{round4(lon), round4(lat)})
 		index[c] = i
 	}
@@ -239,7 +292,7 @@ func timelapseFrom(now time.Time, metric string, spec FrameSpec, ring *frameRing
 		Metric:       metric,
 		Span:         spec.Name,
 		StepSeconds:  int(spec.Step / time.Second),
-		ResolutionKM: HexResolutionKM,
+		ResolutionKM: resKM,
 		Cells:        cells,
 		Frames:       frames,
 	}

@@ -40,6 +40,18 @@ describe('the span vocabulary', () => {
     expect(timelapseURL('P2', '48h')).toBe('/api/v1/timelapse?metric=P2&span=24h')
     expect(timelapseURL('P1', '7d')).toBe('/api/v1/timelapse?metric=P1&span=7d')
   })
+
+  // A caller that names no resolution must still produce today's URL, so
+  // existing callers and cached URLs are unaffected.
+  it('omits the resolution when none is named', () => {
+    expect(timelapseURL('P2', '24h')).toBe('/api/v1/timelapse?metric=P2&span=24h')
+  })
+
+  // The server snaps whatever it is sent onto a published replay tier; the
+  // client's job is only to say what it wants.
+  it('carries the wanted cell size as resolution_km', () => {
+    expect(timelapseURL('P2', '24h', 45)).toBe('/api/v1/timelapse?metric=P2&span=24h&resolution_km=45')
+  })
 })
 
 describe('reading a frame', () => {

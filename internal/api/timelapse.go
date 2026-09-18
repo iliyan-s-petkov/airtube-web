@@ -2,15 +2,17 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/upstream"
 )
 
-// handleTimelapse serves one animation: a metric's grid over a published span.
-// No bounding box and no arbitrary start or end — both parameters name a member
-// of a closed list, so every URL is one of a few dozen prepared bodies.
+// handleTimelapse serves one animation: a metric's grid over a published span,
+// at a published resolution. No bounding box and no arbitrary start or end —
+// every parameter names a member of a closed list, so every URL is one of a few
+// dozen prepared bodies.
 func (d Deps) handleTimelapse(w http.ResponseWriter, r *http.Request) {
 	snap := d.Snapshots.Load()
 	if snap == nil {
@@ -38,8 +40,16 @@ func (d Deps) handleTimelapse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A published pair with no body is a cycle that has not built one: 503, not 400.
-	body, ok := snap.TimelapseBody(metric, span)
+	// Parsed, not validated, exactly as handleHexes does it: TimelapseBody snaps
+	// whatever it is given onto a published tier, so an unparseable value just
+	// means the caller named no resolution and gets the default.
+	res := snapshot.HexResolutionKM
+	if f, err := strconv.ParseFloat(r.URL.Query().Get("resolution_km"), 64); err == nil {
+		res = f
+	}
+
+	// A published triple with no body is a cycle that has not built one: 503, not 400.
+	body, ok := snap.TimelapseBody(metric, span, res)
 	if !ok {
 		writeUnavailable(w)
 		return

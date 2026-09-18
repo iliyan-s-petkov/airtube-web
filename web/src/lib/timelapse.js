@@ -17,8 +17,21 @@ export function spanFor(window) {
   return knownSpan(window) ? window : SPANS[0]
 }
 
-export function timelapseURL(metric, span) {
-  return `/api/v1/timelapse?metric=${encodeURIComponent(metric)}&span=${encodeURIComponent(spanFor(span))}`
+// resolutionKm is the wanted cell size; the server snaps it onto a published
+// replay tier, which is a subset of the hex tiers (see hexes.js). Omitted, a
+// caller gets today's URL unchanged, so existing callers and cached URLs are
+// unaffected.
+export function timelapseURL(metric, span, resolutionKm) {
+  const params = new URLSearchParams({ metric, span: spanFor(span) })
+  if (typeof resolutionKm === 'number' && Number.isFinite(resolutionKm)) {
+    params.set('resolution_km', String(round(resolutionKm, 4)))
+  }
+  return `/api/v1/timelapse?${params}`
+}
+
+function round(v, places) {
+  const f = 10 ** places
+  return Math.round(v * f) / f
 }
 
 // The one place the cell list and a frame's numbers are paired. No `n`: a frame
