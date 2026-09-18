@@ -9,12 +9,12 @@ import (
 )
 
 func TestKnownSpanAcceptsOnlyThePublishedSpans(t *testing.T) {
-	for _, name := range []string{"24h", "7d"} {
+	for _, name := range []string{"24h", "48h", "7d"} {
 		if !KnownSpan(name) {
 			t.Errorf("KnownSpan(%q) = false, want true", name)
 		}
 	}
-	for _, name := range []string{"", "48h", "1h", "365d", "24H"} {
+	for _, name := range []string{"", "12h", "1h", "365d", "24H"} {
 		if KnownSpan(name) {
 			t.Errorf("KnownSpan(%q) = true; the span list is closed", name)
 		}
@@ -205,6 +205,25 @@ func TestFoldHoursReturnsHoursInBucketOrder(t *testing.T) {
 	}
 }
 
+// Every span runs for about the same number of frames, whatever stretch of time
+// it covers. The frame count is both the length of the animation and the size of
+// the body — a span that stepped hourly over two days would play for twice as
+// long and cost twice as much as the day beside it, for the same story.
+func TestEveryPublishedSpanTilesIntoAComparableNumberOfFrames(t *testing.T) {
+	for _, s := range FrameSpecs {
+		if s.Step <= 0 || s.Dur <= 0 {
+			t.Fatalf("span %s: step %v over %v", s.Name, s.Step, s.Dur)
+		}
+		if s.Dur%s.Step != 0 {
+			t.Errorf("span %s: %v does not tile into steps of %v; the last frame would be short",
+				s.Name, s.Dur, s.Step)
+		}
+		if n := s.Dur / s.Step; n < 20 || n > 30 {
+			t.Errorf("span %s emits %d frames; every span should run for 20-30", s.Name, n)
+		}
+	}
+}
+
 func TestRingHoldsTheLongestSpanAndNoMore(t *testing.T) {
 	want := time.Duration(0)
 	for _, s := range FrameSpecs {
@@ -234,7 +253,7 @@ func TestTimelapseTiersAreAPublishedSubsetOfTheHexTiers(t *testing.T) {
 		t.Errorf("timelapse publishes %d tiers against the grid's %d; the fine tiers are deliberately withheld",
 			len(TimelapseTiersKM), len(HexTiersKM))
 	}
-	for _, fine := range []float64{2, 1, 0.5, 0.25} {
+	for _, fine := range []float64{1, 0.5, 0.25} {
 		for _, r := range TimelapseTiersKM {
 			if r == fine {
 				t.Errorf("tier %v km is published; a nationwide replay at that size is too large", fine)
@@ -255,9 +274,9 @@ func TestSnapTimelapseKMAlwaysLandsOnAPublishedTier(t *testing.T) {
 	}
 	// A tier the grid publishes but the replay does not snaps onto the finest
 	// one published here rather than being served at a size we never built.
-	for _, v := range []float64{2, 1, 0.5, 0.25} {
-		if got := SnapTimelapseKM(v); got != 5 {
-			t.Errorf("SnapTimelapseKM(%v) = %v, want the finest published tier 5", v, got)
+	for _, v := range []float64{1, 0.5, 0.25} {
+		if got := SnapTimelapseKM(v); got != 2 {
+			t.Errorf("SnapTimelapseKM(%v) = %v, want the finest published tier 2", v, got)
 		}
 	}
 	for _, v := range []float64{0, -1, math.NaN(), math.Inf(1), math.Inf(-1)} {
@@ -357,7 +376,7 @@ func TestTimelapseBodySnapsTheRequestedResolution(t *testing.T) {
 	for _, res := range TimelapseTiersKM {
 		s.Timelapse[timelapseKey("P2", "24h", res)] = Body{ETag: `"` + formatTier(res) + `"`}
 	}
-	cases := map[float64]float64{15: 15, 100: 100, 5: 5, 0.25: 5, 2: 5, 4000: 100, 0: 15, -1: 15}
+	cases := map[float64]float64{15: 15, 100: 100, 5: 5, 2: 2, 0.25: 2, 4000: 100, 0: 15, -1: 15}
 	for want, tier := range cases {
 		b, ok := s.TimelapseBody("P2", "24h", want)
 		if !ok {

@@ -23,6 +23,7 @@ type FrameSpec struct {
 // Closed like WindowSpecs: each entry is a precomputed body per metric.
 var FrameSpecs = []FrameSpec{
 	{Name: "24h", Step: time.Hour, Dur: 24 * time.Hour},
+	{Name: "48h", Step: 2 * time.Hour, Dur: 48 * time.Hour},
 	{Name: "7d", Step: 6 * time.Hour, Dur: 7 * 24 * time.Hour},
 }
 
@@ -52,10 +53,10 @@ func ringDur() time.Duration {
 //
 // The live grid answers the national view with 100 km bins; a replay fixed at
 // 15 km drew a third of that size, so pressing play visibly shrank every cell.
-// The fine tiers are withheld instead: a replay carries every cell for every
+// Only the three finest are withheld: a replay carries every cell for every
 // frame of a week, so the payload grows with the cell count where a live body
-// pays it once.
-var TimelapseTiersKM = []float64{100, 50, 25, 15, 5}
+// pays it once, and below 2 km the bins hold one sensor each anyway.
+var TimelapseTiersKM = []float64{100, 50, 25, 15, 5, 2}
 
 // SnapTimelapseKM maps a requested resolution onto the nearest published
 // timelapse tier, by the same geometric rule and for the same reasons as

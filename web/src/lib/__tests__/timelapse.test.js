@@ -17,27 +17,31 @@ const BODY = {
 
 describe('the span vocabulary', () => {
   it('is the list the server publishes', () => {
-    expect(SPANS).toEqual(['24h', '7d'])
+    expect(SPANS).toEqual(['24h', '48h', '7d'])
     expect(knownSpan('24h')).toBe(true)
-    expect(knownSpan('48h')).toBe(false)
+    expect(knownSpan('48h')).toBe(true)
   })
 
   // A reader looking at a week and pressing play means the week.
   it('follows the map window when the server animates it', () => {
     expect(spanFor('7d')).toBe('7d')
     expect(spanFor('24h')).toBe('24h')
+    // Every window the map offers is animated now; none of them silently
+    // plays back a different stretch of time from the one on the button.
+    expect(spanFor('48h')).toBe('48h')
   })
 
-  // Live and 48h have no animation. Falling back to the day rather than sending
-  // a span the server refuses: a 400 on the first press of play is not a feature.
+  // Live has no animation of its own. Falling back to the day rather than
+  // sending a span the server refuses: a 400 on the first press of play is not
+  // a feature.
   it('falls back to the day for a window with no animation', () => {
     expect(spanFor('')).toBe('24h')
-    expect(spanFor('48h')).toBe('24h')
     expect(spanFor('nonsense')).toBe('24h')
   })
 
   it('never puts an unpublished span on the URL', () => {
-    expect(timelapseURL('P2', '48h')).toBe('/api/v1/timelapse?metric=P2&span=24h')
+    expect(timelapseURL('P2', 'nonsense')).toBe('/api/v1/timelapse?metric=P2&span=24h')
+    expect(timelapseURL('P2', '48h')).toBe('/api/v1/timelapse?metric=P2&span=48h')
     expect(timelapseURL('P1', '7d')).toBe('/api/v1/timelapse?metric=P1&span=7d')
   })
 

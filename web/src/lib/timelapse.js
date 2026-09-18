@@ -2,7 +2,7 @@
 // the map already draws. Nothing here fetches or paints; the island owns both.
 
 // A deliberate duplicate of snapshot.FrameSpecs, like mapwindow.js's WindowSpecs.
-export const SPANS = ['24h', '7d']
+export const SPANS = ['24h', '48h', '7d']
 
 // A day passes in about eight seconds.
 export const FRAME_MS = 320

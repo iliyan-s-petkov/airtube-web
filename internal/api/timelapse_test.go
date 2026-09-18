@@ -66,7 +66,7 @@ func TestEveryPublishedSpanIsAccepted(t *testing.T) {
 func TestUnknownSpanIsRejected(t *testing.T) {
 	for i, p := range []string{
 		"/api/v1/timelapse?span=1y",
-		"/api/v1/timelapse?span=48h",
+		"/api/v1/timelapse?span=12h",
 		"/api/v1/timelapse?span=3h",
 		"/api/v1/timelapse?metric=P2&span=2026-09-01T00:00Z/2026-09-08T00:00Z",
 	} {
@@ -174,13 +174,14 @@ func TestTimelapseWithNoResolutionServesTheDefaultTier(t *testing.T) {
 // one it is. What it must never do is answer at a size we do not publish.
 func TestTimelapseSnapsAnUnpublishedResolution(t *testing.T) {
 	cases := map[string]float64{
-		// Tiers the live grid publishes and the replay deliberately does not.
-		"0.25": 5, "1": 5, "2": 5,
 		// Nonsense, in every shape a query string can carry it.
 		"0": snapshot.HexResolutionKM, "-1": snapshot.HexResolutionKM,
 		"abc": snapshot.HexResolutionKM, "": snapshot.HexResolutionKM,
 		"NaN": snapshot.HexResolutionKM, "Inf": snapshot.HexResolutionKM,
 		"1e9": 100, "12": snapshot.HexResolutionKM,
+		// Tiers the live grid publishes and the replay deliberately does not:
+		// the finest one published here is 2 km, not the grid's 0.25.
+		"1": 2, "0.25": 2,
 	}
 	i := 0
 	for param, want := range cases {
