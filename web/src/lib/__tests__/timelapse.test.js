@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SPANS, knownSpan, spanFor, timelapseURL, frameBody, frameCount, frameTime,
-  cursor, step, seek, mountPlayer,
+  cursor, step, seek, mountPlayer, frameCoverage, hasHistory, thinFrames,
 } from '../timelapse.js'
 
 const BODY = {
@@ -249,5 +249,98 @@ describe('mountPlayer', () => {
     for (const el of [ui.root, ui.button, ui.slider, ui.clock, ui.exit]) {
       expect(el.getAttribute('style')).toBeNull()
     }
+  })
+})
+
+// Coverage guard. The numbers in these bodies are the shapes production actually
+// serves — measured 2026-09-18 at the 15 km tier.
+describe('coverage', () => {
+  const frames = (...counts) => ({
+    metric: 'NO2',
+    cells: Array.from({ length: Math.max(0, ...counts) }, (_, i) => [23 + i, 42]),
+    frames: counts.map((n, i) => ({
+      t: `2026-09-18T${String(i).padStart(2, '0')}:00:00Z`,
+      v: Array.from({ length: Math.max(0, ...counts) }, (_, j) => (j < n ? 5 : null)),
+    })),
+  })
+
+  it('counts the cells in a frame that carry a reading', () => {
+    expect(frameCoverage(frames(3, 0, 1))).toEqual([3, 0, 1])
+  })
+
+  // A cell reading exactly 0 µg/m³ is a measurement, not an absence — the same
+  // distinction the payload draws by making V a pointer.
+  it('counts a zero reading as covered', () => {
+    const body = { cells: [[23, 42]], frames: [{ t: 'x', v: [0] }] }
+    expect(frameCoverage(body)).toEqual([1])
+  })
+
+  it('reports no history when every frame is empty', () => {
+    // noise_LAeq on production: 0 cells, 28 frames, all of them blank.
+    expect(hasHistory(frames(...Array(28).fill(0)))).toBe(false)
+    expect(hasHistory({ cells: [], frames: [] })).toBe(false)
+  })
+
+  it('reports history when any frame carries a reading', () => {
+    expect(hasHistory(frames(0, 0, 1))).toBe(true)
+  })
+
+  // NO2 over 24h: the EEA hours land irregularly, so most frames are empty and
+  // a few are partial. The empty ones are thin; 7 against a best of 20 is not.
+  it('marks a frame thin only below a quarter of the body its own best hour', () => {
+    const thin = thinFrames(frames(0, 0, 7, 20, 10, 15, 0, 4))
+    expect([...thin].sort((a, b) => a - b)).toEqual([0, 1, 6, 7])
+  })
+
+  // A small network is not a broken one. NOX publishes one cell nationwide, and
+  // an animation of its one honest cell must not be captioned as defective.
+  it('marks no frame thin when every frame carries the same coverage', () => {
+    expect(thinFrames(frames(1, 1, 1, 1)).size).toBe(0)
+    expect(thinFrames(frames(280, 277, 284)).size).toBe(0)
+  })
+
+  // hasHistory is what speaks for this body; captioning all 28 frames as thin
+  // would put a "partial data" note on an animation that is not playing at all.
+  it('marks no frame thin when there is no history to compare against', () => {
+    expect(thinFrames(frames(0, 0, 0)).size).toBe(0)
+  })
+
+  it('survives a body with no frames', () => {
+    expect(frameCoverage(undefined)).toEqual([])
+    expect(hasHistory(undefined)).toBe(false)
+    expect(thinFrames(undefined).size).toBe(0)
+  })
+})
+
+describe('mountPlayer note', () => {
+  const mountNote = () => {
+    const host = document.createElement('div')
+    return mountPlayer(host, { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now' })
+  }
+
+  it('starts with nothing to say', () => {
+    const ui = mountNote()
+    expect(ui.note.hidden).toBe(true)
+    expect(ui.note.textContent).toBe('')
+  })
+
+  it('shows and clears a note', () => {
+    const ui = mountNote()
+    ui.say('Partial data for this hour')
+    expect(ui.note.hidden).toBe(false)
+    expect(ui.note.textContent).toBe('Partial data for this hour')
+
+    ui.say('')
+    expect(ui.note.hidden).toBe(true)
+  })
+
+  // It appears mid-animation, so a reader whose attention is on the map rather
+  // than the control gets told the frame is thin rather than shown a bare gap.
+  it('announces itself politely', () => {
+    expect(mountNote().note.getAttribute('aria-live')).toBe('polite')
+  })
+
+  it('writes no inline style', () => {
+    expect(mountNote().note.getAttribute('style')).toBeNull()
   })
 })

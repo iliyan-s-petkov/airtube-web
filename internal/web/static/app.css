@@ -189,6 +189,12 @@ strong, b { font-weight: var(--weight-emphasis); }
   font-size: var(--text-caption); letter-spacing: var(--track-caption);
   color: var(--meta); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
+/* Wraps rather than widening the row: this sits over the map and the sentence
+   is longer than the clock beside it. */
+.map-play__note {
+  font-size: var(--text-caption); letter-spacing: var(--track-caption);
+  color: var(--meta); max-inline-size: 11rem;
+}
 /* Muted until hovered: it sits at the end of the row and must not compete with
    the play button for the first glance. */
 .map-play__exit { color: var(--meta); }

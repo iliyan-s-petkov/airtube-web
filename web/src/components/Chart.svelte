@@ -90,7 +90,10 @@
       if (cancelled) return
 
       const data = mergeSeries(bodies, lines.map((s) => s.column ?? 'v'))
-      if (data[0].length === 0) { status = 'empty'; return }
+      // Two points, not one: uPlot draws a single reading as a full plot with
+      // axes and a legend, which reads as a trend the reader can follow. One
+      // point is a number, and the empty state says so honestly.
+      if (data[0].length < 2) { status = 'empty'; return }
       status = 'ok'
 
       // One axis per distinct scale, in the order the lines name them: the

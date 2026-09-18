@@ -84,13 +84,26 @@ describe('Chart.svelte', () => {
     await vi.waitFor(() => expect(target.textContent).toContain(props.empty))
   })
 
+  // uPlot draws one reading as a full plot: axes, legend, a lone dot. On an
+  // air-quality page that reads as a trend the reader can follow, when all the
+  // page knows is a single number. The empty state says which it is.
+  it('says the window is empty rather than plotting a single reading as a trend', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+    )
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    const target = render({ url: '/api/v1/area/thin/series' })
+    await vi.waitFor(() => expect(target.textContent).toContain(props.empty))
+    expect(uplotCalls).toHaveLength(0)
+  })
+
   // Ported from the old island suite's "reaches uPlot construction" case
   // (J5, review round 2): lineColour must land on the series stroke and
   // title on the chart title — not swapped. Deliberately distinct values so
   // a mutation swapping them fails this instead of coincidentally matching.
   it('passes lineColour as the series stroke and title as the chart title, not swapped', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] }), { status: 200 }),
     )
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
     render({ title: 'PM2.5, Sofia', lineColour: '#2563eb' })
@@ -106,7 +119,7 @@ describe('Chart.svelte', () => {
   // string this site shows its readers, so it comes from the catalogue.
   it('labels the time axis from the catalogue rather than letting uPlot default to English', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] }), { status: 200 }),
     )
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
     render({ timeLabel: 'Време' })
@@ -122,8 +135,8 @@ describe('Chart.svelte', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
       Promise.resolve(new Response(JSON.stringify(
         String(input).includes('temperature')
-          ? { t: ['2026-08-14T00:00:00Z'], v: [21] }
-          : { t: ['2026-08-14T00:00:00Z'], v: [12.3] },
+          ? { t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [21, 22] }
+          : { t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] },
       ), { status: 200 })))
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
     render({
@@ -142,7 +155,7 @@ describe('Chart.svelte', () => {
     expect(opts.series[2].scale).toBe('y2')
     expect(opts.series[2].stroke).toBe('#f90')
     // x, then one y column per source — and the values not swapped between them.
-    expect(data).toEqual([[1786665600], [12.3], [21]])
+    expect(data).toEqual([[1786665600, 1786669200], [12.3, 13.1], [21, 22]])
     // A second axis on the right, so the second unit has its own numbers.
     expect(opts.axes.map((a) => a.side)).toEqual([undefined, 3, 1])
   })
@@ -152,8 +165,8 @@ describe('Chart.svelte', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
       Promise.resolve(new Response(JSON.stringify(
         String(input).includes('temperature')
-          ? { t: ['2026-08-14T00:00:00Z'], v: [21] }
-          : { t: ['2026-08-14T00:00:00Z'], v: [12.3] },
+          ? { t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [21, 22] }
+          : { t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] },
       ), { status: 200 })))
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
     render({
@@ -174,7 +187,7 @@ describe('Chart.svelte', () => {
   // The area page's path: its unit arrives as a prop, not in a sources list.
   it('labels the y axis of a one-line chart from valueUnit', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] }), { status: 200 }),
     )
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
     render({ valueUnit: 'µg/m³', lineColour: '#2563eb' })
@@ -187,7 +200,7 @@ describe('Chart.svelte', () => {
   // No unit in the scales table must not print an empty label box.
   it('leaves the axis unlabelled when the metric has no unit', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] }), { status: 200 }),
     )
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
     render({ valueUnit: '' })
@@ -226,7 +239,7 @@ describe('Chart.svelte', () => {
   // the hook, or inverting the idx test, fails this.
   it('shows the hover readout only while the cursor is on the plot', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 }),
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] }), { status: 200 }),
     )
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
     render()
@@ -255,7 +268,7 @@ describe('Chart.svelte', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
       fetched.push(String(url))
       return Promise.resolve(new Response(JSON.stringify({
-        t: ['2026-08-14T00:00:00Z'], v: [12.3], lo: [4], hi: [40],
+        t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1], lo: [4, 5], hi: [40, 41],
       }), { status: 200 }))
     })
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })

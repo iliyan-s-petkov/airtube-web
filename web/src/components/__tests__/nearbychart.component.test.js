@@ -77,7 +77,7 @@ function render(slug = 'ovcha-kupel') {
   vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
     fetched.push(String(url))
     return Promise.resolve(new Response(JSON.stringify({
-      t: ['2026-08-14T00:00:00Z'], v: [12.3], lo: [4], hi: [40],
+      t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1], lo: [4, 5], hi: [40, 41],
     }), { status: 200 }))
   })
   const target = document.createElement('div')

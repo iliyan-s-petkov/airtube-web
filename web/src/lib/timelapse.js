@@ -120,6 +120,13 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, ho
   clock.className = 'map-play__clock'
   clock.hidden = true
 
+  // What the clock cannot say: that the hour on screen is thinner than the rest,
+  // or that there is no history to play. Live, because it appears mid-animation.
+  const note = doc.createElement('span')
+  note.className = 'map-play__note'
+  note.setAttribute('aria-live', 'polite')
+  note.hidden = true
+
   // Its own button rather than a second meaning for the play button: pressing
   // play from a scrubbed frame replays, so without this there is no control that
   // returns the map to the live readings.
@@ -169,12 +176,17 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, ho
   root.appendChild(button)
   root.appendChild(slider)
   root.appendChild(clock)
+  root.appendChild(note)
   root.appendChild(exit)
   host.appendChild(root)
 
   return {
-    root, button, slider, clock, exit,
+    root, button, slider, clock, note, exit,
     playing,
+    say: (text) => {
+      note.textContent = text ?? ''
+      note.hidden = !text
+    },
     // All three together: any one of them on screen alone reads as a bug.
     show: (count) => {
       slider.max = String(Math.max(0, count - 1))
@@ -190,4 +202,36 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, ho
     onscrub: (fn) => scrubs.push(fn),
     onexit: (fn) => exits.push(fn),
   }
+}
+
+// A frame is thin below a quarter of the best hour in the same body. Relative,
+// not absolute: the networks differ by two orders of magnitude in size, so an
+// absolute floor would caption every hour of a small-but-complete network.
+export const THIN_COVERAGE = 0.25
+
+// Cells per frame that actually carry a reading. Not a sensor count — the
+// payload carries none — so this measures breadth of the map, not depth.
+export function frameCoverage(body) {
+  return (body?.frames ?? []).map(
+    (f) => (f?.v ?? []).reduce((n, v) => n + (v === null || v === undefined ? 0 : 1), 0),
+  )
+}
+
+// Whether this body is worth animating at all. A metric with no history plays
+// as a blank country under a running clock, which reads as clean air.
+export function hasHistory(body) {
+  return frameCoverage(body).some((n) => n > 0)
+}
+
+// The frames to caption as partial, judged against the body's own best hour.
+// A body with no history yields nothing here — its best hour is 0, so no frame
+// is under a quarter of it — and hasHistory speaks for that body instead.
+export function thinFrames(body) {
+  const cov = frameCoverage(body)
+  const floor = Math.max(0, ...cov) * THIN_COVERAGE
+  const thin = new Set()
+  cov.forEach((n, i) => {
+    if (n < floor) thin.add(i)
+  })
+  return thin
 }

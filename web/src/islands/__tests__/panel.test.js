@@ -565,7 +565,7 @@ describe('the island hands the chart both line colours', () => {
     setSensors(null)
     // A fresh Response per call: a body can only be read once.
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(
-      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12] }), { status: 200 }),
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12, 13] }), { status: 200 }),
     ))
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   })

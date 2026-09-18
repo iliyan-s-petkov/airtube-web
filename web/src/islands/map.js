@@ -31,7 +31,8 @@ import {
   chooseWindow, mountWindow, readWindow, windowOptions, withWindow,
 } from '../lib/mapwindow.js'
 import {
-  FRAME_MS, cursor, frameBody, frameCount, frameTime, mountPlayer, seek, step, timelapseURL,
+  FRAME_MS, cursor, frameBody, frameCount, frameTime, hasHistory, mountPlayer, seek, step,
+  thinFrames, timelapseURL,
 } from '../lib/timelapse.js'
 import { setMapAreas, provideAreaSelect } from '../lib/mapareas.svelte.js'
 import { stationsOf, readingAt } from '../lib/stations.js'
@@ -1215,6 +1216,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   let body = null
   let loaded = ''
   let timer = null
+  // Recomputed per body, not per frame: which hours are thin depends on the
+  // best hour in the same body, so it cannot be decided one frame at a time.
+  let thin = new Set()
   // Open once the button has been pressed, closed again by exit or reset —
   // NOT by pause, which leaves the scrubber on screen. A zoom before this is
   // true is the live grid's business, not the replay's.
@@ -1238,6 +1242,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     })
     const t = frameTime(body, i)
     ui.at(i, t ? clock.format(t) : '')
+    // The frame still draws. A near-empty map under a confident clock reads as
+    // clean air, so the gap is captioned rather than skipped or frozen over.
+    ui.say(thin.has(i) ? (cfg.t?.replayThin || '') : '')
   }
 
   const stop = async (restore = true) => {
@@ -1274,6 +1281,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
       return false
     }
     loaded = url
+    thin = thinFrames(body)
     head.count = frameCount(body)
     head.i = keepPlayhead ? seek(head, head.i) : 0
     ui.show(head.count)
@@ -1286,6 +1294,12 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
       return
     }
     if (!await load()) return
+    // Two of the published metrics carry no history at all. Animating them
+    // plays a blank country for nine seconds under a running clock.
+    if (!hasHistory(body)) {
+      ui.say(cfg.t?.replayNoHistory || '')
+      return
+    }
     open = true
     head.playing = true
     ui.playing(true)
@@ -1328,6 +1342,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   ui.onexit(async () => {
     open = false
     ui.show(0)
+    ui.say('')
     await stop()
   })
 
@@ -1338,7 +1353,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
       body = null
       loaded = ''
       head.count = 0
+      thin = new Set()
       ui.show(0)
+      ui.say('')
       await stop(false)
     },
   }
@@ -1745,6 +1762,10 @@ export function readConfig(el) {
       pauseLabel: d.tPauseLabel || '',
       timeLabel: d.tTimeLabel || '',
       exitLabel: d.tExitLabel || '',
+      // The coverage guard's two sentences: one hour thinner than the rest of
+      // the animation, and a measurement with no history to animate at all.
+      replayThin: d.tReplayThin || '',
+      replayNoHistory: d.tReplayNoHistory || '',
       layersButton: d.tLayersButton || '',
       layersCaption: d.tLayersCaption || '',
       viewLegend: d.tViewLegend || '',

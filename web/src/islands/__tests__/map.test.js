@@ -341,6 +341,8 @@ describe('readConfig', () => {
         tWindowLabel: 'Averaging period',
         tPlayLabel: 'Play the animation', tPauseLabel: 'Pause the animation',
         tTimeLabel: 'Hour shown', tExitLabel: 'Back to the current readings',
+        tReplayThin: 'Few readings for this hour',
+        tReplayNoHistory: 'Not enough history yet to animate this measurement',
         tWindToggle: 'Wind',
         tWindAbout: 'About the wind layer',
         tWindNote: 'Arrows show where the wind blows.',
@@ -364,6 +366,8 @@ describe('readConfig', () => {
       layersButton: 'Layers', layersCaption: 'Show on the map',
       playLabel: 'Play the animation', pauseLabel: 'Pause the animation',
       timeLabel: 'Hour shown', exitLabel: 'Back to the current readings',
+      replayThin: 'Few readings for this hour',
+      replayNoHistory: 'Not enough history yet to animate this measurement',
       viewLegend: 'Scale', viewBasemap: 'OpenStreetMap basemap',
       viewCellValues: 'Cell values',
       viewInactiveSensors: 'Inactive sensors',
@@ -859,7 +863,7 @@ describe('installTimelapse', () => {
     frames: [{ t: '2026-09-08T06:00:00Z', v: [10] }, { t: '2026-09-08T07:00:00Z', v: [20] }],
   }
 
-  function harness(fetchJSON) {
+  function harness(fetchJSON, t) {
     const painted = []
     let zoom = 12
     const zoomHandlers = []
@@ -874,9 +878,71 @@ describe('installTimelapse', () => {
     }
     const ui = mountPlayer(document.createElement('div'), { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now' })
     const state = { scales: null, hexUrl: null, window: '24h' }
-    const ctl = installTimelapse(map, state, cfg, { player: ui }, fetchJSON)
+    const ctl = installTimelapse(map, state, { ...cfg, t: { ...cfg.t, ...t } }, { player: ui }, fetchJSON)
     return { painted, ui, state, ctl, map }
   }
+
+  // The two shapes production actually serves that the guard exists for,
+  // measured 2026-09-18: noise_LAeq has no history at all, and NO2 over 24h
+  // lands in bursts, leaving most hours blank between them.
+  const NO_HISTORY = {
+    metric: 'noise_LAeq', resolution_km: 15, cells: [],
+    frames: [{ t: '2026-09-08T06:00:00Z', v: [] }, { t: '2026-09-08T07:00:00Z', v: [] }],
+  }
+  const PATCHY = {
+    metric: 'NO2', resolution_km: 15, cells: [[23, 42], [23.2, 42], [23.4, 42], [23.6, 42]],
+    frames: [
+      { t: '2026-09-08T06:00:00Z', v: [1, 2, 3, 4] },
+      { t: '2026-09-08T07:00:00Z', v: [null, null, null, null] },
+      { t: '2026-09-08T08:00:00Z', v: [1, 2, 3, 4] },
+    ],
+  }
+  const T = { replayThin: 'Partial data for this hour', replayNoHistory: 'Not enough history yet' }
+
+  // Twenty-eight blank frames under a running clock read as clean air, not as
+  // missing data. Saying so is the whole point of the guard.
+  it('refuses to animate a metric with no history, and says why', async () => {
+    const { painted, ui } = harness(async () => NO_HISTORY, T)
+
+    ui.button.click()
+    await vi.waitFor(() => expect(ui.note.textContent).toBe('Not enough history yet'))
+    expect(painted).toEqual([])
+    expect(ui.button.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  // Not skipped and not frozen: the gap is the story, so the frame draws and
+  // the caption says the hour is thin rather than letting it read as clean air.
+  it('captions a thin frame and clears the caption on a full one', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ui } = harness(async () => PATCHY, T)
+      ui.button.click()
+      await vi.waitFor(() => expect(ui.clock.textContent).not.toBe(''))
+      expect(ui.note.textContent).toBe('')
+
+      await vi.advanceTimersByTimeAsync(FRAME_MS)
+      expect(ui.note.textContent).toBe('Partial data for this hour')
+
+      await vi.advanceTimersByTimeAsync(FRAME_MS)
+      expect(ui.note.textContent).toBe('')
+      ui.exit.click()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the caption on the way out', async () => {
+    const { ui } = harness(async () => PATCHY, T)
+    ui.button.click()
+    await vi.waitFor(() => expect(ui.clock.textContent).not.toBe(''))
+    ui.onscrub.length
+    ui.slider.value = '1'
+    ui.slider.dispatchEvent(new Event('input'))
+    expect(ui.note.textContent).toBe('Partial data for this hour')
+
+    ui.exit.click()
+    await vi.waitFor(() => expect(ui.note.textContent).toBe(''))
+  })
 
   // A visitor who never presses play must not pay for the history.
   it('fetches nothing until the button is pressed', async () => {

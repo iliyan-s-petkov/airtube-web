@@ -64,7 +64,7 @@ afterEach(() => {
 })
 
 function seriesResponse() {
-  return new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z'], v: [12.3] }), { status: 200 })
+  return new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] }), { status: 200 })
 }
 
 function render(extra) {
