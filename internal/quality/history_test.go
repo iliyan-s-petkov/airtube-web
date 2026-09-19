@@ -51,6 +51,31 @@ func TestExemptValuesNeverStick(t *testing.T) {
 	}
 }
 
+// TestHistoryEvictsOldestSensorOverCap proves History does not grow without
+// bound as the upstream sensor population churns: once the tracked-sensor
+// cap is exceeded, the oldest untouched sensor's state is dropped.
+func TestHistoryEvictsOldestSensorOverCap(t *testing.T) {
+	restore := SetHistoryMaxTrackedSensorsForTesting(2)
+	defer restore()
+
+	h := NewHistory(3)
+	h.Observe(1, "P1", 10)
+	h.Observe(1, "P1", 10)
+	h.Observe(1, "P1", 10)
+	if !h.IsStuck(1, "P1") {
+		t.Fatal("sensor 1 should be stuck before eviction")
+	}
+
+	// Sensors 2 and 3 push the tracked set to 3, one over the cap of 2, so
+	// sensor 1 — the oldest — must be evicted.
+	h.Observe(2, "P1", 20)
+	h.Observe(3, "P1", 30)
+
+	if h.IsStuck(1, "P1") {
+		t.Error("sensor 1's state should have been evicted once the cap was exceeded, so it reports not stuck (state was discarded, not that it is actually healthy)")
+	}
+}
+
 func TestSensorsAreIndependent(t *testing.T) {
 	h := NewHistory(12)
 	for i := 0; i < 12; i++ {

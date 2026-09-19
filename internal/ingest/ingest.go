@@ -3,6 +3,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -27,19 +28,25 @@ const (
 	// backlogAlertThreshold is the gap, in hours, between the rollup
 	// watermark and the current hour that triggers an ERROR log. Raw
 	// readings are retained for RawRetentionHours before TimescaleDB deletes
-	// them; alerting at 168 hours (7 days) leaves roughly 23 days of margin,
+	// them; alerting at 168 hours (7 days) leaves roughly 25 days of margin,
 	// so an operator gets days of warning to notice and fix a stalled
 	// rollup, not hours.
 	backlogAlertThreshold = 168
 
 	// RawRetentionHours mirrors the `reading` hypertable's retention policy
-	// (internal/db/migrations/00003_rollup_retention.sql: drop_after => 30
+	// (internal/db/migrations/00003_rollup_retention.sql: drop_after => 32
 	// days). It is exported so a test can assert it still matches the live
 	// policy in timescaledb_information.jobs — an edit to that migration's
 	// drop_after that forgets this constant would otherwise silently widen
 	// (or shrink) the alert's actual margin without anyone noticing
 	// (task-16 review finding 4).
-	RawRetentionHours = 30 * 24
+	//
+	// 32, not 30: the widest raw-table series window (airbg.yaml's "30d"
+	// period) is 30 days, and retention must outlive it by a margin, or a
+	// rollup that falls behind that window can be asked to read rows this
+	// policy already dropped (task 2.7). See
+	// TestRawRetentionExceedsSeriesRawWindow.
+	RawRetentionHours = 32 * 24
 )
 
 type Fetcher interface {
@@ -206,7 +213,7 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 		}
 		switch {
 		case filterErr != nil:
-			pipelineErr = fmt.Errorf("ingest: boundary filter: %w", filterErr)
+			pipelineErr = fmt.Errorf("boundary filter: %w", filterErr)
 
 		case !boundaryPresent:
 			// Fail closed: the national boundary (area.kind = "country") has
@@ -278,9 +285,9 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 
 			if len(scored) > 0 {
 				if err := i.store.UpsertSensors(ctx, scored, res.Country); err != nil {
-					pipelineErr = fmt.Errorf("ingest: upsert sensors: %w", err)
+					pipelineErr = fmt.Errorf("upsert sensors: %w", err)
 				} else if written, err := i.store.WriteReadings(ctx, scored); err != nil {
-					pipelineErr = fmt.Errorf("ingest: write readings: %w", err)
+					pipelineErr = fmt.Errorf("write readings: %w", err)
 				} else {
 					stats.Written = int(written)
 				}
@@ -294,13 +301,10 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 	// present (task-16 review finding 2).
 	rollupErr := i.rollupBacklog(ctx, i.now())
 
-	switch {
-	case fetchErr != nil:
-		return Stats{}, fmt.Errorf("ingest: fetch: %w", fetchErr)
-	case pipelineErr != nil:
-		return stats, pipelineErr
-	case rollupErr != nil:
-		return stats, fmt.Errorf("ingest: rollup: %w", rollupErr)
+	// fetchErr, pipelineErr and rollupErr are independent failures — joined
+	// so none is silently dropped when more than one fires the same cycle.
+	if joined := errors.Join(wrapStage("fetch", fetchErr), pipelineErr, wrapStage("rollup", rollupErr)); joined != nil {
+		return stats, fmt.Errorf("ingest: %w", joined)
 	}
 
 	var assigned, revoked int64
@@ -388,6 +392,15 @@ func (i *Ingester) rollupBacklog(ctx context.Context, now time.Time) error {
 	}
 
 	return rollupErr
+}
+
+// wrapStage labels err with which pipeline stage produced it, so a joined
+// error still tells an operator which step failed. nil passes through.
+func wrapStage(stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", stage, err)
 }
 
 // BacklogHours returns the whole number of hours between the watermark

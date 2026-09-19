@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -151,6 +152,75 @@ func TestWriteReadingsIsIdempotent(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("reading count = %d, want 1", n)
+	}
+}
+
+// TestWriteReadingsSkipsIdenticalResubmit proves a conflict that the WHERE
+// guard resolves to a no-op (byte-identical resubmit) is not counted as
+// written — the earlier bug returned len(input) regardless of what the
+// database actually did.
+func TestWriteReadingsSkipsIdenticalResubmit(t *testing.T) {
+	ctx, _, s := newStore(t)
+	ts := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	scored := []quality.Scored{sample(1, "P1", 24.3, quality.FlagOK, ts)}
+
+	if err := s.UpsertSensors(ctx, scored, nil); err != nil {
+		t.Fatalf("UpsertSensors: %v", err)
+	}
+
+	n, err := s.WriteReadings(ctx, scored)
+	if err != nil {
+		t.Fatalf("WriteReadings first: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("first write returned %d, want 1", n)
+	}
+
+	n, err = s.WriteReadings(ctx, scored)
+	if err != nil {
+		t.Fatalf("WriteReadings resubmit: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("resubmitting an identical reading returned %d, want 0 — a skipped conflict must not be counted as written", n)
+	}
+}
+
+// TestWriteReadingsChunksLargeBatches proves a payload larger than
+// writeBatchLimit is still written in full and persisted correctly, split
+// across chunked SendBatch calls rather than one unbounded call. The exact
+// chunk boundaries (how many flushes, and their sizes) are a pure function
+// of writeBatchLimit and are pinned separately, without a DB, by
+// TestWriteBatchRanges in batching_internal_test.go.
+func TestWriteReadingsChunksLargeBatches(t *testing.T) {
+	for _, total := range []int{1000, 1001} {
+		t.Run(fmt.Sprintf("total=%d", total), func(t *testing.T) {
+			ctx, pool, s := newStore(t)
+			ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+			scored := make([]quality.Scored, 0, total)
+			for i := 0; i < total; i++ {
+				scored = append(scored, sample(1, "P1", 20.0, quality.FlagOK, ts.Add(time.Duration(i)*time.Second)))
+			}
+			if err := s.UpsertSensors(ctx, scored[:1], nil); err != nil {
+				t.Fatalf("UpsertSensors: %v", err)
+			}
+
+			n, err := s.WriteReadings(ctx, scored)
+			if err != nil {
+				t.Fatalf("WriteReadings: %v", err)
+			}
+			if n != int64(total) {
+				t.Errorf("wrote %d rows, want %d", n, total)
+			}
+
+			var got int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM reading`).Scan(&got); err != nil {
+				t.Fatalf("count: %v", err)
+			}
+			if got != total {
+				t.Errorf("reading count = %d, want %d", got, total)
+			}
+		})
 	}
 }
 

@@ -45,3 +45,19 @@ Config lives in `airbg.yaml` under `quality.clamp_sentinels`, and validation
 rejects a sentinel equal to its metric's range ceiling — the flag would then
 depend on which check ran first. The database enum value is added by migration
 00009.
+
+## History's tracked-sensor cap
+
+`History` is in-memory and empty after a restart, so stuck detection needs
+`depth` cycles (about one hour at a five-minute cadence) to warm back up.
+That is acceptable: a stuck sensor stays stuck, so it is detected on the
+next warm window rather than missed.
+
+`History.Observe` adds state and never removes it on its own, so without a
+cap the map leaks for the life of the process as the upstream device
+population churns. `historyMaxTrackedSensors` bounds it well above the
+largest observed network, and eviction is FIFO by first-seen order (`order`
+is append-only, never reordered on later Observe calls) — not LRU. A
+continuously-reporting sensor can therefore be evicted while still active,
+costing it `depth` cycles to rebuild stuck-detection state. That is
+acceptable: the cap only exists to bound growth, and the recovery is short.
