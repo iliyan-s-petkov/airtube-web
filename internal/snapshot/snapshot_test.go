@@ -14,7 +14,7 @@ import (
 // airbg.yaml's "P2". A holder built from a config naming a different metric
 // must report that metric back, not "P2".
 func TestNewHolderTakesDefaultMetricFromConfig(t *testing.T) {
-	h := snapshot.NewHolder(config.Series{DefaultMetric: "temperature", DefaultWindow: time.Hour})
+	h := snapshot.NewHolder(config.Series{DefaultMetric: "temperature", DefaultWindow: time.Hour}, config.Wind{})
 	if got := h.DefaultMetric(); got != "temperature" {
 		t.Errorf("DefaultMetric() = %q, want %q", got, "temperature")
 	}
@@ -59,4 +59,28 @@ func TestHolderIsRaceFree(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+}
+
+// TestNewHolderRespectesWindArgument proves NewHolder actually uses the wind
+// argument passed to it. The constructor argument must be load-bearing, not
+// ignored. This test fails if NewHolder ignores the wind argument and always
+// uses config.Wind{}.
+func TestNewHolderRespectesWindArgument(t *testing.T) {
+	series := config.Series{DefaultMetric: "P2", DefaultWindow: time.Hour}
+
+	// Holder with wind disabled
+	disabledWind := snapshot.NewHolder(series, config.Wind{Enabled: false})
+	if got := disabledWind.WindForTesting(); got.Enabled {
+		t.Errorf("NewHolder with Enabled=false resulted in wind.Enabled=%v, want false", got.Enabled)
+	}
+
+	// Holder with wind enabled and a specific resolution
+	enabledConfig := config.Wind{
+		Enabled:       true,
+		ResolutionDeg: 0.25,
+	}
+	enabledWind := snapshot.NewHolder(series, enabledConfig)
+	if got := enabledWind.WindForTesting(); !got.Enabled || got.ResolutionDeg != 0.25 {
+		t.Errorf("NewHolder with wind enabled resulted in %+v, want %+v", got, enabledConfig)
+	}
 }

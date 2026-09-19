@@ -53,7 +53,7 @@ func testStore(t *testing.T, pool *pgxpool.Pool) *store.Store {
 // combination, for the h argument Build takes.
 func testHolder(t *testing.T) *snapshot.Holder {
 	t.Helper()
-	return snapshot.NewHolder(testConfig(t).Series)
+	return snapshot.NewHolder(testConfig(t).Series, config.Wind{})
 }
 
 func migrated(t *testing.T) (context.Context, *pgxpool.Pool) {

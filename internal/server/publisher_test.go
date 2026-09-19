@@ -49,7 +49,7 @@ func brokenPool(t *testing.T) *pgxpool.Pool {
 // user-visible outage across every subsequent request, instead of the
 // intended "keep serving the last good snapshot" behaviour.
 func TestPublishNeverStoresOnBuildFailure(t *testing.T) {
-	holder := snapshot.NewHolder(testSeries)
+	holder := snapshot.NewHolder(testSeries, config.Wind{})
 	good := &snapshot.Snapshot{
 		GeneratedAt: time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
 		KnownSlugs:  map[string]snapshot.AreaMeta{},

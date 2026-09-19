@@ -230,10 +230,11 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	apiStore := store.New(apiPool, cfg.Store, cfg.Database.StatementTimeouts.Series)
 	collectorStore := store.New(collectorPool, cfg.Store, cfg.Database.StatementTimeouts.Series)
 
-	holder := snapshot.NewHolder(cfg.Series)
+	windCfg := config.Wind{}
 	if cfg.Wind.Enabled {
-		holder.SetWind(cfg.Wind)
+		windCfg = cfg.Wind
 	}
+	holder := snapshot.NewHolder(cfg.Series, windCfg)
 	pub := server.NewPublisher(collectorStore, holder, log)
 
 	cat, err := i18n.LoadWithOverrides(cfg.I18n.Dir)

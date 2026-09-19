@@ -214,9 +214,9 @@ type Holder struct {
 	// chart changes shape depending on whether the snapshot was warm.
 	bucket time.Duration
 
-	// wind is zero until SetWind, and a zero value is a disabled overlay. A
-	// setter rather than a NewHolder argument so the seventeen existing call
-	// sites keep meaning "no wind". See docs/wind-overlay.md.
+	// wind is set at construction and is write-once: the field is immutable
+	// after NewHolder returns. A disabled overlay is the zero value.
+	// See docs/wind-overlay.md.
 	wind config.Wind
 }
 
@@ -224,8 +224,11 @@ type Holder struct {
 // default window without touching the database. That window must equal the one
 // api.parsePeriod derives from the configured periods — config.Validate
 // enforces it, which is why this constructor can simply trust it.
-func NewHolder(cfg config.Series) *Holder {
-	h := &Holder{metric: cfg.DefaultMetric, window: cfg.DefaultWindow}
+//
+// The wind configuration is set here as well, making the field immutable
+// after construction.
+func NewHolder(cfg config.Series, wind config.Wind) *Holder {
+	h := &Holder{metric: cfg.DefaultMetric, window: cfg.DefaultWindow, wind: wind}
 	// Matched on window rather than on the DefaultSeriesPeriod name, because
 	// the window is what config.Validate guarantees a period exists for.
 	for _, p := range cfg.Periods {
@@ -237,13 +240,14 @@ func NewHolder(cfg config.Series) *Holder {
 	return h
 }
 
-// SetWind enables the forecast overlay in subsequent builds.
-func (h *Holder) SetWind(cfg config.Wind) { h.wind = cfg }
-
 // DefaultMetric is the metric of the one series combination Build precomputes.
 // Exported so api.handleAreaSeries can decide, without importing config
 // itself, whether a request's metric matches the precomputed one.
 func (h *Holder) DefaultMetric() string { return h.metric }
+
+// WindForTesting returns h.wind for testing purposes only.
+// This method is not part of the stable API and should not be called in production code.
+func (h *Holder) WindForTesting() config.Wind { return h.wind }
 
 // Load returns the current snapshot, or nil if none has been built yet.
 // Callers must treat nil as "not ready" and answer 503 — never as an empty
