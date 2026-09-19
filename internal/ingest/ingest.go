@@ -34,13 +34,19 @@ const (
 	backlogAlertThreshold = 168
 
 	// RawRetentionHours mirrors the `reading` hypertable's retention policy
-	// (internal/db/migrations/00003_rollup_retention.sql: drop_after => 30
+	// (internal/db/migrations/00003_rollup_retention.sql: drop_after => 32
 	// days). It is exported so a test can assert it still matches the live
 	// policy in timescaledb_information.jobs — an edit to that migration's
 	// drop_after that forgets this constant would otherwise silently widen
 	// (or shrink) the alert's actual margin without anyone noticing
 	// (task-16 review finding 4).
-	RawRetentionHours = 30 * 24
+	//
+	// 32, not 30: the widest raw-table series window (airbg.yaml's "30d"
+	// period) is 30 days, and retention must outlive it by a margin, or a
+	// rollup that falls behind that window can be asked to read rows this
+	// policy already dropped (task 2.7). See
+	// TestRawRetentionExceedsSeriesRawWindow.
+	RawRetentionHours = 32 * 24
 )
 
 type Fetcher interface {
