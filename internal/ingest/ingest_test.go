@@ -510,9 +510,8 @@ func (p *observingPublisher) Publish(ctx context.Context, _ time.Time) error {
 // all look healthy, and nothing but a direct comparison against upstream
 // would ever reveal it).
 func TestPublishSeesThisCyclesWrites(t *testing.T) {
-	// Inside the 32-day raw retention window (migration 00003): a fixed past
-	// date puts the row in a chunk the retention worker drops, and it fires
-	// seconds after the container starts — between the write and Publish.
+	// Inside the 32-day raw retention window (migration 00003); an older date
+	// races the retention worker.
 	ts := time.Now().UTC().Truncate(time.Hour)
 	f := stubFetcher{readings: []upstream.Reading{
 		reading(42, "temperature", 22, 0, ts),
