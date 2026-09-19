@@ -160,6 +160,12 @@ type hexEntry struct {
 // assuming any of them are whole. See clip.
 type bboxIndex struct {
 	buckets map[[2]int][]int // bucket -> ascending indices into the source slice
+	// minCol/maxCol/minRow/maxRow bound the occupied buckets. clip compares a
+	// box's own bucket range against them to recognise a box that covers the
+	// whole index — a country-sized viewport, say — and skip straight to a
+	// linear walk, since every bucket would be touched anyway. Zero when
+	// buckets is empty, which len(buckets) == 0 guards clip from trusting.
+	minCol, maxCol, minRow, maxRow int
 }
 
 func bucketOf(lon, lat float64) [2]int {
@@ -172,11 +178,34 @@ func bucketOf(lon, lat float64) [2]int {
 // same Snapshot.
 func buildBBoxIndex(entries []hexEntry) *bboxIndex {
 	idx := &bboxIndex{buckets: make(map[[2]int][]int)}
+	first := true
 	for i, e := range entries {
 		k := bucketOf(e.Lon, e.Lat)
 		idx.buckets[k] = append(idx.buckets[k], i)
+		if first {
+			idx.minCol, idx.maxCol, idx.minRow, idx.maxRow = k[0], k[0], k[1], k[1]
+			first = false
+			continue
+		}
+		idx.minCol, idx.maxCol = min(idx.minCol, k[0]), max(idx.maxCol, k[0])
+		idx.minRow, idx.maxRow = min(idx.minRow, k[1]), max(idx.maxRow, k[1])
 	}
 	return idx
+}
+
+// clipLinear walks entries in their original order, checking each against
+// bb directly. What an unindexed clip does, and what clip itself falls back
+// to once a box's bucket range covers the whole index: at that point the
+// bucket bookkeeping — building idxs, sorting it — is pure overhead on top
+// of a walk that touches every entry regardless.
+func clipLinear(entries []hexEntry, bb BBox) []hexEntry {
+	out := make([]hexEntry, 0, len(entries))
+	for _, e := range entries {
+		if bb.contains(e.Lon, e.Lat) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // clip returns the entries bb.contains, in their original order.
@@ -196,6 +225,14 @@ func (idx *bboxIndex) clip(entries []hexEntry, bb BBox) []hexEntry {
 	e0 := int(math.Floor(bb.E / q))
 	s0 := int(math.Floor(bb.S / q))
 	n0 := int(math.Floor(bb.N / q))
+
+	// The box's own bucket range covers every occupied bucket: the walk
+	// below would touch all of them anyway, so building and sorting idxs
+	// only adds cost. A country-sized viewport takes this path.
+	if len(idx.buckets) > 0 &&
+		w0 <= idx.minCol && e0 >= idx.maxCol && s0 <= idx.minRow && n0 >= idx.maxRow {
+		return clipLinear(entries, bb)
+	}
 
 	var idxs []int
 	for i := w0; i <= e0; i++ {
@@ -421,12 +458,7 @@ func (s *Snapshot) HexBody(resKM float64, bb BBox, clip bool) (Body, error) {
 		if p.idx != nil {
 			hexes = p.idx.clip(p.Hexes, bb)
 		} else {
-			hexes = make([]hexEntry, 0, len(p.Hexes))
-			for _, h := range p.Hexes {
-				if bb.contains(h.Lon, h.Lat) {
-					hexes = append(hexes, h)
-				}
-			}
+			hexes = clipLinear(p.Hexes, bb)
 		}
 		out = hexPayload{GeneratedAt: p.GeneratedAt, ResolutionKM: p.ResolutionKM,
 			Coverage: p.Coverage, Hexes: hexes}
@@ -479,12 +511,7 @@ func (s *Snapshot) PointBody(bb BBox) (Body, error) {
 	if s.pointsIndex != nil {
 		hexes = s.pointsIndex.clip(s.points, bb)
 	} else {
-		hexes = make([]hexEntry, 0, len(s.points))
-		for _, p := range s.points {
-			if bb.contains(p.Lon, p.Lat) {
-				hexes = append(hexes, p)
-			}
-		}
+		hexes = clipLinear(s.points, bb)
 	}
 	out := hexPayload{GeneratedAt: s.GeneratedAt, ResolutionKM: PointResolutionKM,
 		Coverage: s.coverage, Hexes: hexes}

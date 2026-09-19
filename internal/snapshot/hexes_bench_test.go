@@ -33,6 +33,13 @@ func benchSensors(n int) []store.SensorReading {
 // leave it.
 var benchViewport = BBox{W: 23.0, S: 42.5, E: 23.75, N: 43.0}
 
+// A box wide enough to cover the whole of benchSensors' spread — the case
+// the index gives up nothing on, and the reason clip short-circuits to a
+// linear walk once a box's bucket range covers the whole index. Only the
+// point tier guards against this box size in production (overview.go's
+// MaxPointBBoxDegrees); a country-sized hex request takes this path.
+var benchCountryViewport = BBox{W: 22.25, S: 41.0, E: 28.75, N: 44.25}
+
 func BenchmarkHexBodyClip(b *testing.B) {
 	now := time.Now()
 	sensors := benchSensors(20000)
@@ -64,6 +71,26 @@ func BenchmarkPointBodyClip(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := s.PointBody(bb); err != nil {
+			b.Fatal(err)
+		}
+		s.bodies = nil
+	}
+}
+
+// The country-sized case: no bucket the index built is outside the box, so
+// clip's short-circuit takes over and this should track the linear-walk
+// cost rather than pay for bucket bookkeeping on top of it.
+func BenchmarkHexBodyClipCountryBox(b *testing.B) {
+	now := time.Now()
+	sensors := benchSensors(20000)
+	p := hexPayloadFrom(now, sensors, 0.25)
+
+	s := &Snapshot{GeneratedAt: now, hexTiers: map[float64]hexPayload{0.25: p}}
+	bb := benchCountryViewport
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.HexBody(0.25, bb, true); err != nil {
 			b.Fatal(err)
 		}
 		s.bodies = nil
