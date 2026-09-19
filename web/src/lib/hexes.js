@@ -100,12 +100,6 @@ export const POINT_TIER_MIN_ZOOM_FRACTIONAL = POINT_TIER_MIN_ZOOM - TIER_HANDOVE
 // on a grid finer than the one the server actually stored under.
 const BBOX_QUANTUM_DEG = contract.hex.bbox_quantum_deg
 
-// The largest viewport, before quantising, the point tier's /api/v1/hexes
-// guard will accept. Below FINEST_TIER_KM (point tier) hexesURL checks the
-// box against this before sending, so an oversized viewport falls back to a
-// grid request instead of a request known to 400.
-const MAX_POINT_BBOX_DEG = contract.hex.max_point_bbox_deg
-
 /**
  * resolutionForZoom returns the cell size, in km, that draws at about
  * TARGET_HEX_PX at this zoom.
@@ -145,14 +139,7 @@ export function hexesURL(zoom, bounds) {
   // cannot become a national device registry — and a request we know will 400
   // is not worth sending. Without a box we ask for the finest grid instead,
   // which is still a map.
-  //
-  // Also conditional on the box being within MAX_POINT_BBOX_DEG, checked on
-  // bounds directly, before quantising — the server's own guard measures the
-  // box it was asked for, not the one it widens to (see
-  // TestPointTierMeasuresTheBoxBeforeWideningIt). A wide-screen point-tier
-  // viewport past the limit falls back to the grid request below instead of a
-  // request the server would answer with bbox_too_large.
-  if (res < FINEST_TIER_KM && bbox && withinMaxPointBBox(bounds)) {
+  if (res < FINEST_TIER_KM && bbox) {
     return `/api/v1/hexes?${new URLSearchParams({
       resolution_km: String(POINT_RESOLUTION_KM), bbox,
     })}`
@@ -161,18 +148,6 @@ export function hexesURL(zoom, bounds) {
   const params = new URLSearchParams({ resolution_km: String(round(res, 4)) })
   if (bbox) params.set('bbox', bbox)
   return `/api/v1/hexes?${params}`
-}
-
-/**
- * withinMaxPointBBox reports whether a viewport, UNQUANTISED, is within the
- * point tier's guard — the same comparison the server makes in overview.go
- * before it widens anything.
- */
-function withinMaxPointBBox(bounds) {
-  if (!bounds) return true
-  const lon = bounds.getEast() - bounds.getWest()
-  const lat = bounds.getNorth() - bounds.getSouth()
-  return lon <= MAX_POINT_BBOX_DEG && lat <= MAX_POINT_BBOX_DEG
 }
 
 /**
