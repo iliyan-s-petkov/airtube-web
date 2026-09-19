@@ -70,6 +70,14 @@ type SeriesPayload struct {
 	High []float64 `json:"hi,omitempty"`
 }
 
+// withoutGeneratedAt returns the payload unchanged: it carries no build
+// timestamp — Times is the series' own data, not a build time. The method
+// still exists so SeriesPayload satisfies canonicalisable and encode can
+// accept it.
+func (p SeriesPayload) withoutGeneratedAt() any { return p }
+
+var _ canonicalisable = SeriesPayload{}
+
 // AreaMeta is the non-payload metadata a handler needs about an area: enough to
 // validate a slug, resolve /locate, and render a page header, without going to
 // the database.

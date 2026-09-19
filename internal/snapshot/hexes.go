@@ -111,6 +111,15 @@ type hexPayload struct {
 	Coverage map[string]map[string]int `json:"coverage,omitempty"`
 }
 
+// withoutGeneratedAt clears the build timestamp so identical bins hash
+// identically across builds.
+func (p hexPayload) withoutGeneratedAt() any {
+	p.GeneratedAt = time.Time{}
+	return p
+}
+
+var _ canonicalisable = hexPayload{}
+
 type hexEntry struct {
 	Lon float64 `json:"lon"`
 	Lat float64 `json:"lat"`

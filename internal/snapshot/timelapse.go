@@ -99,6 +99,16 @@ type timelapsePayload struct {
 	Frames       []timelapseFrame `json:"frames"`
 }
 
+// withoutGeneratedAt clears the build timestamp — but not each frame's T,
+// which is the frame's own moment in the animation, not the build time — so
+// an unchanged history hashes identically across builds.
+func (p timelapsePayload) withoutGeneratedAt() any {
+	p.GeneratedAt = time.Time{}
+	return p
+}
+
+var _ canonicalisable = timelapsePayload{}
+
 type timelapseFrame struct {
 	T time.Time `json:"t"`
 	// Pointers: an absent cell is null, and 0 µg/m³ is a reading.
