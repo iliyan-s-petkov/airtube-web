@@ -159,3 +159,21 @@ func TestPointTierAcceptsABoxUpToTheLimit(t *testing.T) {
 		}
 	}
 }
+
+// The extent guard judges the box the CALLER asked for, not the widened one the
+// snapshot is queried with. This box is exactly 2.0 degrees per axis and its
+// edges are off the quantum grid, so quantising it first would measure 2.25 and
+// refuse a request that is inside the published limit.
+func TestPointTierMeasuresTheBoxBeforeWideningIt(t *testing.T) {
+	mux := api.NewRouter(deps(t, fixture(t)))
+
+	// 22.125 and 24.125 are exact in binary, so the extent is exactly 2.0 and
+	// the assertion is about ordering rather than about float slack.
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+		"/api/v1/hexes?resolution_km=0&bbox=22.125,41.125,24.125,43.125", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+}

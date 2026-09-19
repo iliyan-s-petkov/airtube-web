@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"airbg.org/internal/store"
@@ -204,6 +205,64 @@ func HexGridOf(sensors []store.SensorReading) []HexCell {
 	return cells
 }
 
+// bodyKey identifies one encoded answer: the snapped tier, the quantised box,
+// and which of the two builders produced it. Comparable, so it is the map key
+// itself rather than a string somebody has to keep in sync with it.
+//
+// An unclipped request leaves the box zero, which cannot collide with a clipped
+// one: ParseBBox refuses a box whose west is not strictly left of its east.
+type bodyKey struct {
+	resKM      float64
+	w, s, e, n float64
+	point      bool
+}
+
+// bodyCacheMax is the entry bound. On overflow the map is cleared whole rather
+// than evicted one entry at a time: a snapshot lives about five minutes, and a
+// caller who fills this many distinct quantised boxes inside one is already
+// past the point where an eviction policy is what protects us.
+const bodyCacheMax = 256
+
+// bodyCache memoises the per-viewport encodes HexBody and PointBody would
+// otherwise repeat on every request — a json.Marshal, a second marshal, a
+// SHA-256 and a gzip at BestCompression each time.
+//
+// Safe because a *Snapshot is immutable once built and is replaced wholesale by
+// the ingest cycle, so an entry computed from one can never go stale. Window
+// returns a distinct *Snapshot per window, so the window needs no place in the
+// key either.
+type bodyCache struct {
+	mu sync.Mutex
+	m  map[bodyKey]Body
+}
+
+// A nil cache means "do not cache" and never a panic: a Snapshot built by a
+// struct literal, as the tests build them, has none.
+func (c *bodyCache) get(k bodyKey) (Body, bool) {
+	if c == nil {
+		return Body{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b, ok := c.m[k]
+	return b, ok
+}
+
+func (c *bodyCache) put(k bodyKey, b Body) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = make(map[bodyKey]Body)
+	}
+	if len(c.m) >= bodyCacheMax {
+		clear(c.m)
+	}
+	c.m[k] = b
+}
+
 // HexBody answers a hex request at a given tier, optionally clipped to a
 // viewport.
 //
@@ -225,17 +284,34 @@ func (s *Snapshot) HexBody(resKM float64, bb BBox, clip bool) (Body, error) {
 	if !ok {
 		return s.Hexes, nil
 	}
-	if !clip {
-		return encode(p)
+	// Everything from here is encoded per request, and every such answer is a
+	// pure function of (snapshot, tier, box) — so it is worth memoising. The
+	// handler quantises the box before it arrives, which is what keeps the set
+	// of keys finite.
+	k := bodyKey{resKM: resKM}
+	if clip {
+		k.w, k.s, k.e, k.n = bb.W, bb.S, bb.E, bb.N
 	}
-	out := hexPayload{GeneratedAt: p.GeneratedAt, ResolutionKM: p.ResolutionKM,
-		Coverage: p.Coverage, Hexes: make([]hexEntry, 0, len(p.Hexes))}
-	for _, h := range p.Hexes {
-		if bb.contains(h.Lon, h.Lat) {
-			out.Hexes = append(out.Hexes, h)
+	if b, ok := s.bodies.get(k); ok {
+		return b, nil
+	}
+
+	out := p
+	if clip {
+		out = hexPayload{GeneratedAt: p.GeneratedAt, ResolutionKM: p.ResolutionKM,
+			Coverage: p.Coverage, Hexes: make([]hexEntry, 0, len(p.Hexes))}
+		for _, h := range p.Hexes {
+			if bb.contains(h.Lon, h.Lat) {
+				out.Hexes = append(out.Hexes, h)
+			}
 		}
 	}
-	return encode(out)
+	b, err := encode(out)
+	if err != nil {
+		return Body{}, err
+	}
+	s.bodies.put(k, b)
+	return b, nil
 }
 
 // PointResolutionKM is the resolution a caller names to ask for individual
@@ -270,6 +346,10 @@ var CellStatChangedAt = time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
 // upstream already applies its own fuzzing (exact_location: 0); republishing
 // what is public is the decision that was taken, sharpening it is not.
 func (s *Snapshot) PointBody(bb BBox) (Body, error) {
+	k := bodyKey{resKM: PointResolutionKM, w: bb.W, s: bb.S, e: bb.E, n: bb.N, point: true}
+	if b, ok := s.bodies.get(k); ok {
+		return b, nil
+	}
 	out := hexPayload{GeneratedAt: s.GeneratedAt, ResolutionKM: PointResolutionKM,
 		Coverage: s.coverage, Hexes: make([]hexEntry, 0, len(s.points))}
 	for _, p := range s.points {
@@ -277,7 +357,12 @@ func (s *Snapshot) PointBody(bb BBox) (Body, error) {
 			out.Hexes = append(out.Hexes, p)
 		}
 	}
-	return encode(out)
+	b, err := encode(out)
+	if err != nil {
+		return Body{}, err
+	}
+	s.bodies.put(k, b)
+	return b, nil
 }
 
 // pointsFrom turns sensors into point-tier entries, one per STATION, ordered by
@@ -385,6 +470,28 @@ func ParseBBox(s string) (BBox, bool) {
 		return BBox{}, false
 	}
 	return b, true
+}
+
+// BBoxQuantumDegrees is the grid a clipped viewport is snapped to, in degrees.
+const BBoxQuantumDegrees = 0.25
+
+// Quantise widens the box to the enclosing quantum-grid cell.
+//
+// Widening and never narrowing: a narrowed box would drop bins the caller can
+// see on their screen. The point is cardinality — the client sends raw float
+// degrees, so without this every pan is a distinct URL that misses the edge
+// cache and costs a fresh encode.
+//
+// The quantum is a power of two, so v/q and v*q only shift the exponent and an
+// edge already on a grid line stays exactly where it is.
+func (b BBox) Quantise() BBox {
+	const q = BBoxQuantumDegrees
+	return BBox{
+		W: math.Floor(b.W/q) * q,
+		S: math.Floor(b.S/q) * q,
+		E: math.Ceil(b.E/q) * q,
+		N: math.Ceil(b.N/q) * q,
+	}
 }
 
 // contains reports whether a bin centre falls in the box.

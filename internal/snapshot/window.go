@@ -116,6 +116,10 @@ func buildWindow(ctx context.Context, s *store.Store, live *Snapshot, now time.T
 	w := *live
 	w.Windows = nil
 
+	// Its own cache, not the live snapshot's: the assignment above copied the
+	// pointer, and a window's bodies are not the live ones under the same key.
+	w.bodies = &bodyCache{}
+
 	if w.Overview, err = encode(areaPayloadFrom(now, countryAggs)); err != nil {
 		return nil, fmt.Errorf("snapshot: encode %s overview: %w", spec.Name, err)
 	}

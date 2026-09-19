@@ -145,7 +145,9 @@ func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 				`A "bbox" may span at most 2 degrees per axis at resolution_km=0.`)
 			return
 		}
-		body, err := snap.PointBody(bb)
+		// Quantised only AFTER the guard: the limit is on the box a caller may
+		// ask for, and widening first would measure a box the caller never sent.
+		body, err := snap.PointBody(bb.Quantise())
 		if err != nil {
 			writeUnavailable(w)
 			return
@@ -154,6 +156,12 @@ func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Same order as the point tier above, and the same reason the box is
+	// snapped to a grid at all: a viewport arriving as raw float degrees is an
+	// unbounded set of URLs, each one a cache miss and a fresh encode.
+	if clip {
+		bb = bb.Quantise()
+	}
 	body, err := snap.HexBody(res, bb, clip)
 	if err != nil {
 		writeUnavailable(w)

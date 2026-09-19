@@ -463,3 +463,139 @@ func TestBBoxExtentIsMeasuredPerAxis(t *testing.T) {
 		t.Errorf("lat extent = %v, want 0.5", lat)
 	}
 }
+
+// Quantise must only ever widen. A narrowed viewport drops bins the caller can
+// see on their screen, which reads as "no sensors here" rather than "you asked
+// for a box we rounded".
+//
+// The table mixes values that are exactly representable in binary (22.25,
+// 41.75) with ones that are not (22.1, 42.87): the quantum is a power of two,
+// so v/q and v*q are exact shifts of the exponent, and a value already sitting
+// on a grid line must stay on it rather than gain a whole spurious quantum.
+func TestQuantiseWidensAndNeverNarrows(t *testing.T) {
+	boxes := []BBox{
+		{W: 22.1, S: 41.1, E: 23.9, N: 42.9},
+		{W: 22.25, S: 41.75, E: 23.25, N: 42.75},
+		{W: 22.0, S: 41.0, E: 24.0, N: 43.0},
+		{W: 22.87, S: 41.03, E: 22.88, N: 41.04},
+		{W: -0.3, S: -0.3, E: 0.3, N: 0.3},
+		{W: 23.3219, S: 42.6977, E: 23.3260, N: 42.7001},
+	}
+	q := BBoxQuantumDegrees
+	for _, b := range boxes {
+		got := b.Quantise()
+		if got.W > b.W || got.S > b.S || got.E < b.E || got.N < b.N {
+			t.Errorf("Quantise(%+v) = %+v, which narrows the box", b, got)
+		}
+		for name, v := range map[string]float64{"W": got.W, "S": got.S, "E": got.E, "N": got.N} {
+			if math.Mod(v, q) != 0 {
+				t.Errorf("Quantise(%+v).%s = %v, not a multiple of %v", b, name, v, q)
+			}
+		}
+		// At most one quantum per side, or the widening is not a bound.
+		if got.W < b.W-q || got.S < b.S-q || got.E > b.E+q || got.N > b.N+q {
+			t.Errorf("Quantise(%+v) = %+v, widened by more than one quantum", b, got)
+		}
+	}
+}
+
+// An edge already on a grid line must not move at all. This is the ULP case:
+// math.Floor(v/q)*q landing a hair below v would widen a box that needed no
+// widening, and every such box is a second cache entry for one viewport.
+func TestQuantiseLeavesAnAlignedBoxAlone(t *testing.T) {
+	b := BBox{W: 22.25, S: 41.75, E: 24.0, N: 43.5}
+	if got := b.Quantise(); got != b {
+		t.Errorf("Quantise(%+v) = %+v, want it unchanged", b, got)
+	}
+}
+
+func pointFixture() *Snapshot {
+	return &Snapshot{
+		GeneratedAt: time.Unix(1_800_000_000, 0).UTC(),
+		coverage:    map[string]map[string]int{"community": {"P1": 2}},
+		points: []hexEntry{
+			{Lon: 23.32, Lat: 42.69, SensorID: 1, N: 1, Source: "community",
+				Values: map[string]float64{"P1": 20}},
+			{Lon: 23.41, Lat: 42.77, SensorID: 2, N: 1, Source: "community",
+				Values: map[string]float64{"P1": 30}},
+		},
+		bodies: &bodyCache{},
+	}
+}
+
+// Two raw viewports inside one quantum cell must answer with the same bytes and
+// the same ETag. This is the cardinality bound: a client jittering the sixth
+// decimal place otherwise mints a distinct URL, and a distinct encode, per pan.
+func TestViewportsInOneQuantumShareAnETag(t *testing.T) {
+	s := pointFixture()
+
+	a, err := s.PointBody(BBox{W: 23.01, S: 42.01, E: 23.9, N: 42.9}.Quantise())
+	if err != nil {
+		t.Fatalf("PointBody: %v", err)
+	}
+	b, err := s.PointBody(BBox{W: 23.24, S: 42.24, E: 23.76, N: 42.8}.Quantise())
+	if err != nil {
+		t.Fatalf("PointBody: %v", err)
+	}
+	if a.ETag != b.ETag {
+		t.Errorf("ETags differ inside one quantum cell: %s vs %s", a.ETag, b.ETag)
+	}
+	if string(a.JSON) != string(b.JSON) {
+		t.Errorf("bodies differ inside one quantum cell:\n%s\n%s", a.JSON, b.JSON)
+	}
+}
+
+// The second call must come from the cache rather than be recomputed into an
+// equal answer. Byte equality cannot tell those apart, so this asserts on the
+// identity of the gzip buffer: encode allocates a fresh one every time.
+func TestClippedBodyIsMemoisedPerSnapshot(t *testing.T) {
+	s := pointFixture()
+	bb := BBox{W: 23.0, S: 42.0, E: 24.0, N: 43.0}
+
+	a, err := s.PointBody(bb)
+	if err != nil {
+		t.Fatalf("PointBody: %v", err)
+	}
+	b, err := s.PointBody(bb)
+	if err != nil {
+		t.Fatalf("PointBody: %v", err)
+	}
+	if len(a.Gzip) == 0 || len(b.Gzip) == 0 {
+		t.Fatal("a body came back without gzip bytes")
+	}
+	if &a.Gzip[0] != &b.Gzip[0] {
+		t.Error("the second call re-encoded the body instead of reading the cache")
+	}
+}
+
+// A snapshot built by a struct literal has no cache, and that must mean "do not
+// cache" rather than a nil map panic: the existing tests build snapshots that
+// way, and so does any future one.
+func TestBodyCacheIsOptional(t *testing.T) {
+	s := pointFixture()
+	s.bodies = nil
+	if _, err := s.PointBody(BBox{W: 23, S: 42, E: 24, N: 43}); err != nil {
+		t.Fatalf("PointBody without a cache: %v", err)
+	}
+}
+
+// The bound is a wholesale clear, not an eviction policy — but it must still be
+// a bound, and the entry that tripped it must be the one left behind.
+func TestBodyCacheStaysBounded(t *testing.T) {
+	s := pointFixture()
+	for i := range bodyCacheMax + 1 {
+		w := 20.0 + float64(i)*BBoxQuantumDegrees
+		if _, err := s.PointBody(BBox{W: w, S: 42, E: w + 1, N: 43}); err != nil {
+			t.Fatalf("PointBody: %v", err)
+		}
+	}
+	s.bodies.mu.Lock()
+	n := len(s.bodies.m)
+	s.bodies.mu.Unlock()
+	if n > bodyCacheMax {
+		t.Errorf("cache holds %d entries, want at most %d", n, bodyCacheMax)
+	}
+	if n == 0 {
+		t.Error("cache emptied itself and kept nothing")
+	}
+}

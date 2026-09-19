@@ -168,6 +168,7 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 		AreaSensors: make(map[string]Body, len(all)),
 		AreaSeries:  make(map[string]Body, len(all)),
 		KnownSlugs:  make(map[string]AreaMeta, len(all)),
+		bodies:      &bodyCache{},
 	}
 
 	for _, a := range all {
