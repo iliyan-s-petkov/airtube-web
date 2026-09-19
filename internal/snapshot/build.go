@@ -417,17 +417,16 @@ func measuresOf(sr store.SensorReading, canonical []string) []string {
 // on the order rows arrive in, and so the same site keeps the same id from one
 // snapshot to the next for as long as that member reports.
 func stationIDs(sensors []store.SensorReading) []int64 {
-	type site struct{ lon, lat float64 }
-	lowest := make(map[site]int64, len(sensors))
+	lowest := make(map[stationKey]int64, len(sensors))
 	for _, sr := range sensors {
-		k := site{sr.Lon, sr.Lat}
+		k := stationKeyOf(sr)
 		if id, seen := lowest[k]; !seen || sr.SensorID < id {
 			lowest[k] = sr.SensorID
 		}
 	}
 	out := make([]int64, 0, len(sensors))
 	for _, sr := range sensors {
-		out = append(out, lowest[site{sr.Lon, sr.Lat}])
+		out = append(out, lowest[stationKeyOf(sr)])
 	}
 	return out
 }
