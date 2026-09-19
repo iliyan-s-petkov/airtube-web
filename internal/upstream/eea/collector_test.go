@@ -1,11 +1,14 @@
 package eea_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,6 +195,11 @@ func TestRunOnceCountsUnmodifiedFiles(t *testing.T) {
 				w.WriteHeader(http.StatusNotModified)
 				return
 			}
+			// A real download API answers with its own Last-Modified; the
+			// collector must carry it forward as If-Modified-Since on the
+			// next cycle rather than a locally-clocked timestamp, so this
+			// fixture stands in for that contract.
+			w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
 			_, _ = w.Write(parquet)
 		}
 	}))
@@ -364,5 +372,112 @@ func TestRunOnceFlagsAnImplausibleReadingAndKeepsItOutOfAggregates(t *testing.T)
 	}
 	if len(pts) != 0 {
 		t.Errorf("SensorSeries returned %d points, want none: an implausible reading reached an average", len(pts))
+	}
+}
+
+// TestRunOnceNeverLogsAURLQueryString covers the SAS-token leak: EEA download
+// URLs carry a SAS token in the query string, so a log line built from the
+// raw URL would put a credential in the log stream. A failed fetch is the
+// path that logs the URL, so the fixture serves one query-carrying URL and
+// then fails every request for it.
+func TestRunOnceNeverLogsAURLQueryString(t *testing.T) {
+	metadata, err := os.ReadFile("testdata/metadata_extract.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ParquetFile/urls":
+			_, _ = w.Write([]byte(srv.URL + "/a.parquet?sig=SUPERSECRETTOKEN\n"))
+		case "/metadata.csv":
+			_, _ = w.Write(metadata)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	ctx, s := newStoreForCollector(t)
+
+	cfg := testConfig(srv.URL, srv.URL+"/metadata.csv")
+	cfg.MetadataCache = t.TempDir()
+	cfg.MaxPayloadBytes = 64 << 20
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	if _, err := eea.NewCollector(cfg, s, shippedScorer(t)).RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	logged := buf.String()
+	if !strings.Contains(logged, "eea file fetch failed") {
+		t.Fatalf("expected a fetch-failed log line, got:\n%s", logged)
+	}
+	if strings.Contains(logged, "?") {
+		t.Errorf("a logged line carries a query string, which can hold a SAS token:\n%s", logged)
+	}
+	if strings.Contains(logged, "SUPERSECRETTOKEN") {
+		t.Errorf("the SAS token itself was logged:\n%s", logged)
+	}
+}
+
+// TestLastFileFetchStaysBoundedAcrossRotatingURLs covers fileFetchTTL: the
+// upstream file list rotates daily (dated file names, rotated SAS tokens), so
+// a collector that never forgets a URL grows lastFileFetch by one entry per
+// day forever. Three simulated days of a one-file-per-day rotation must not
+// leave three entries behind.
+func TestLastFileFetchStaysBoundedAcrossRotatingURLs(t *testing.T) {
+	parquet, err := os.ReadFile("testdata/spo_bg0070a_06001_100.parquet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := os.ReadFile("testdata/metadata_extract.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	day := 0
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ParquetFile/urls":
+			_, _ = w.Write([]byte(srv.URL + "/day" + strings.Repeat("x", day) + ".parquet\n"))
+		case "/metadata.csv":
+			_, _ = w.Write(metadata)
+		default:
+			w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+			_, _ = w.Write(parquet)
+		}
+	}))
+	defer srv.Close()
+
+	ctx, s := newStoreForCollector(t)
+
+	cfg := testConfig(srv.URL, srv.URL+"/metadata.csv")
+	cfg.MetadataCache = t.TempDir()
+	cfg.MaxPayloadBytes = 64 << 20
+
+	c := eea.NewCollector(cfg, s, shippedScorer(t))
+	clockNow := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	c.SetClockForTesting(func() time.Time { return clockNow })
+
+	for d := 0; d < 6; d++ {
+		day = d
+		if _, err := c.RunOnce(ctx); err != nil {
+			t.Fatalf("RunOnce day %d: %v", d, err)
+		}
+		clockNow = clockNow.Add(24 * time.Hour)
+	}
+
+	// fileFetchTTL is 48h and prunes strictly-older entries, so at most the
+	// last 3 days' URLs (today, and the two whose age is <= 48h) survive —
+	// never all 6 simulated days.
+	if got := c.LastFileFetchCountForTesting(); got > 3 {
+		t.Errorf("lastFileFetch has %d entries after 6 simulated days of a rotating file, want at most 3 (48h retention over daily rotation)", got)
 	}
 }

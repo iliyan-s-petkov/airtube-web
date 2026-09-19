@@ -29,6 +29,16 @@ func metadataCachePath(dir string) string {
 
 const userAgent = "airbg.org collector (+https://airbg.org)"
 
+// urlWithoutQuery strips a URL's query string before it is used anywhere
+// that might end up in a log line. EEA download URLs carry a SAS token in the
+// query, so logging one whole would leak a credential into the log stream.
+func urlWithoutQuery(raw string) string {
+	if i := strings.IndexByte(raw, '?'); i >= 0 {
+		return raw[:i]
+	}
+	return raw
+}
+
 // datasetUTD is the near-real-time set, ~1h behind. Datasets 2 and 3 are the
 // verified archives and lag by years.
 const datasetUTD = 1
@@ -156,10 +166,17 @@ func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err
 
 // FetchFile downloads one Parquet file. modified is false on a 304, where the
 // body is empty and the caller keeps what it already stored.
-func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) ([]byte, bool, error) {
+//
+// lastModified is the server's own Last-Modified response header, parsed if
+// present and zero otherwise. The caller sends it back as If-Modified-Since on
+// the next call instead of a locally-clocked timestamp: this host's clock and
+// the upstream's are two different clocks, and any skew between them means
+// either an unchanged file is refetched every cycle or a genuinely changed one
+// is skipped as if it were not.
+func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) (body []byte, modified bool, lastModified time.Time, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, false, err
+		return nil, false, time.Time{}, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	if !since.IsZero() {
@@ -168,22 +185,28 @@ func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) ([]
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("eea: fetch file: %w", err)
+		return nil, false, time.Time{}, fmt.Errorf("eea: fetch file: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotModified {
-		return nil, false, nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("eea: fetch file: status %d", resp.StatusCode)
+	if lm := resp.Header.Get("Last-Modified"); lm != "" {
+		if t, parseErr := http.ParseTime(lm); parseErr == nil {
+			lastModified = t.UTC()
+		}
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, c.cfg.MaxPayloadBytes))
-	if err != nil {
-		return nil, false, fmt.Errorf("eea: fetch file: read body: %w", err)
+	if resp.StatusCode == http.StatusNotModified {
+		return nil, false, lastModified, nil
 	}
-	return body, true, nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, lastModified, fmt.Errorf("eea: fetch file: status %d", resp.StatusCode)
+	}
+
+	body, err = io.ReadAll(io.LimitReader(resp.Body, c.cfg.MaxPayloadBytes))
+	if err != nil {
+		return nil, false, lastModified, fmt.Errorf("eea: fetch file: read body: %w", err)
+	}
+	return body, true, lastModified, nil
 }
 
 // FetchMetadata downloads and parses the coordinate CSV. It is 26 MB, so

@@ -92,7 +92,7 @@ func TestFetchFileReportsNotModified(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body, modified, err := eea.New(testConfig(srv.URL, srv.URL)).
+	body, modified, _, err := eea.New(testConfig(srv.URL, srv.URL)).
 		FetchFile(context.Background(), srv.URL+"/a.parquet", time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestFetchFileBoundsTheBody(t *testing.T) {
 
 	cfg := testConfig(srv.URL, srv.URL)
 	cfg.MaxPayloadBytes = 1024
-	body, modified, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{})
+	body, modified, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestFetchFileRespectsRequestTimeout(t *testing.T) {
 
 	cfg := testConfig(srv.URL, srv.URL)
 	cfg.RequestTimeout = 20 * time.Millisecond
-	if _, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{}); err == nil {
+	if _, _, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{}); err == nil {
 		t.Error("FetchFile succeeded past RequestTimeout; want a timeout error")
 	}
 }
@@ -283,7 +283,7 @@ func TestClientStopsASameHostRedirectLoop(t *testing.T) {
 	// Long enough that the timeout cannot be what ends the loop; the hop count
 	// below is the assertion, since any stop produces an error.
 	cfg.RequestTimeout = 30 * time.Second
-	if _, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/loop", time.Time{}); err == nil {
+	if _, _, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/loop", time.Time{}); err == nil {
 		t.Error("FetchFile followed a redirect loop without stopping")
 	}
 	if n := hits.Load(); n > 11 {
@@ -307,7 +307,7 @@ func TestClientRefusesACrossHostRedirect(t *testing.T) {
 	defer srv.Close()
 
 	cfg := testConfig(srv.URL, srv.URL)
-	if _, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{}); err == nil {
+	if _, _, _, err := eea.New(cfg).FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{}); err == nil {
 		t.Error("FetchFile followed a cross-host redirect; want an error")
 	}
 	if _, err := eea.New(cfg).FetchMetadata(context.Background()); err == nil {
@@ -327,7 +327,7 @@ func TestClientFollowsASameHostRedirect(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body, _, err := eea.New(testConfig(srv.URL, srv.URL)).
+	body, _, _, err := eea.New(testConfig(srv.URL, srv.URL)).
 		FetchFile(context.Background(), srv.URL+"/a.parquet", time.Time{})
 	if err != nil {
 		t.Fatalf("a same-host redirect was refused: %v", err)
