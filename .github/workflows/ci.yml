@@ -20,6 +20,13 @@ jobs:
       - run: npm run build
         working-directory: web
       - run: go build ./...
+      # contract.json is generated from Go and committed; a stale copy is what
+      # let BBoxQuantumDegrees and BBOX_QUANTUM_DEG disagree for two commits.
+      # git ls-files fails a build where the file has been gitignored, which
+      # would make the diff check below pass on nothing to compare.
+      - run: git ls-files --error-unmatch web/src/lib/contract.json
+      - run: go run ./cmd/airbg contract
+      - run: git diff --exit-code -- web/src/lib/contract.json
       - run: go vet ./...
       # go vet does not compile files behind a build tag, so the
       # integration- and e2e-tagged test files are otherwise invisible to it.

@@ -117,6 +117,58 @@ func TestTaggedAnalyserRunsSurvive(t *testing.T) {
 	}
 }
 
+// wantContractSteps is the positive control for
+// TestContractIsRegeneratedAndDiffed, for the same reason wantToolSteps is
+// one: a scan that matches zero steps would pass identically whether the
+// contract check is missing or merely unrecognised.
+const wantContractSteps = 2
+
+// TestContractIsRegeneratedAndDiffed pins the CI half of the contract that
+// stops web/src/lib/contract.json from going stale the way BBOX_QUANTUM_DEG
+// did: a run of `go run ./cmd/airbg contract` and a `git diff --exit-code`
+// against the committed file, the build regenerated it, both present and the
+// diff step reachable after the build.
+func TestContractIsRegeneratedAndDiffed(t *testing.T) {
+	raw := readWorkflow(t)
+	lines := strings.Split(raw, "\n")
+
+	regenIdx, diffIdx, buildIdx, vetIdx := -1, -1, -1, -1
+	for i, line := range lines {
+		switch {
+		case containsAll(line, []string{"go run ./cmd/airbg contract"}):
+			regenIdx = i
+		case containsAll(line, []string{"git diff", "--exit-code", "contract.json"}):
+			diffIdx = i
+		case buildIdx == -1 && containsAll(line, []string{"run: go build ./..."}):
+			buildIdx = i
+		case vetIdx == -1 && containsAll(line, []string{"run: go vet ./..."}):
+			vetIdx = i
+		}
+	}
+
+	found := 0
+	if regenIdx >= 0 {
+		found++
+	}
+	if diffIdx >= 0 {
+		found++
+	}
+	if found != wantContractSteps {
+		t.Fatalf("found %d of %d contract-check steps in %s (regen=%v diff=%v); "+
+			"if a step was added or removed deliberately, update wantContractSteps",
+			found, wantContractSteps, workflowPath, regenIdx >= 0, diffIdx >= 0)
+	}
+
+	if buildIdx == -1 || vetIdx == -1 {
+		t.Fatalf("could not locate the `go build ./...` / `go vet ./...` steps in %s to check ordering against", workflowPath)
+	}
+	if !(buildIdx < regenIdx && regenIdx < diffIdx && diffIdx < vetIdx) {
+		t.Errorf("contract regenerate+diff steps are out of order in %s: want go build (%d) < regenerate (%d) < diff (%d) < go vet (%d); "+
+			"regenerating before the build compiles cmd/airbg would run a stale binary, and diffing after go vet would let an unrelated failure mask a stale contract",
+			workflowPath, buildIdx, regenIdx, diffIdx, vetIdx)
+	}
+}
+
 func containsAll(s string, parts []string) bool {
 	for _, p := range parts {
 		if !strings.Contains(s, p) {
