@@ -9,8 +9,18 @@ import (
 	"testing"
 )
 
-// TestAppCSSUsesLogicalProperties ensures the stylesheet uses CSS logical
-// properties instead of physical ones for future RTL language support.
+// A declaration only starts at the beginning of a line or just after `{` or
+// `;`. Anchoring there is what keeps `line-height`, `stroke-width`,
+// `font-weight` and `border-width` out of the match: \b would not, because a
+// hyphen is a non-word character and \bheight matches inside `line-height`.
+var forbiddenDeclaration = regexp.MustCompile(
+	`(?i)(?:^|[{;])\s*((?:min-|max-)?(?:width|height)|margin-(?:left|right)|padding-(?:left|right))\s*:`)
+
+// Media features have no logical spelling, so a prelude is not a declaration.
+var mediaPrelude = regexp.MustCompile(`@media[^{]*`)
+
+// TestAppCSSUsesLogicalProperties keeps the stylesheet on logical properties so
+// a right-to-left language stays a translation rather than a second stylesheet.
 func TestAppCSSUsesLogicalProperties(t *testing.T) {
 	cssPath := filepath.Join("static", "app.css")
 	data, err := os.ReadFile(cssPath)
@@ -18,41 +28,13 @@ func TestAppCSSUsesLogicalProperties(t *testing.T) {
 		t.Fatalf("could not read %s: %v", cssPath, err)
 	}
 
-	content := string(data)
-
-	// Skip @media (max-width: ...) prelude — media features have no logical spelling.
-	content = regexp.MustCompile(`@media\s*\([^)]*max-width:[^)]*\)`).ReplaceAllString(content, "")
-
-	scanner := bufio.NewScanner(strings.NewReader(content))
-
-	// Physical properties that should not appear in rule bodies. Match both
-	// standalone lines (`  width: ...;`) and inline rules (`{ width: ... }`).
-	forbiddenPatterns := map[string]*regexp.Regexp{
-		"width":        regexp.MustCompile(`(?i)\bwidth\s*:`),
-		"height":       regexp.MustCompile(`(?i)\bheight\s*:`),
-		"min-width":    regexp.MustCompile(`(?i)\bmin-width\s*:`),
-		"max-width":    regexp.MustCompile(`(?i)\bmax-width\s*:`),
-		"min-height":   regexp.MustCompile(`(?i)\bmin-height\s*:`),
-		"max-height":   regexp.MustCompile(`(?i)\bmax-height\s*:`),
-		"margin-left":  regexp.MustCompile(`(?i)\bmargin-left\s*:`),
-		"margin-right": regexp.MustCompile(`(?i)\bmargin-right\s*:`),
-		"padding-left": regexp.MustCompile(`(?i)\bpadding-left\s*:`),
-		"padding-right": regexp.MustCompile(`(?i)\bpadding-right\s*:`),
-	}
-
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
-
-		// Check for forbidden properties.
-		for prop, re := range forbiddenPatterns {
-			if re.MatchString(line) {
-				t.Errorf("app.css:%d: physical property %q found, use logical equivalent instead", lineNum, prop)
-			}
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for lineNum := 1; scanner.Scan(); lineNum++ {
+		line := mediaPrelude.ReplaceAllString(scanner.Text(), "")
+		for _, m := range forbiddenDeclaration.FindAllStringSubmatch(line, -1) {
+			t.Errorf("app.css:%d: physical property %q — use the logical equivalent (inline-size/block-size, margin-inline-*, padding-inline-*)", lineNum, m[1])
 		}
 	}
-
 	if err := scanner.Err(); err != nil {
 		t.Fatalf("error scanning %s: %v", cssPath, err)
 	}

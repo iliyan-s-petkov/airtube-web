@@ -43,9 +43,9 @@ body {
   text-align: start;
 }
 
-h1 { font-size: var(--text-page); font-weight: var(--weight-display); line-block-size: 1.19; }
-h2 { font-size: var(--text-section); font-weight: var(--weight-body); line-block-size: 1.25; }
-h3 { font-size: var(--text-sub); font-weight: var(--weight-body); line-block-size: 1.33; }
+h1 { font-size: var(--text-page); font-weight: var(--weight-display); line-height: 1.19; }
+h2 { font-size: var(--text-section); font-weight: var(--weight-body); line-height: 1.25; }
+h3 { font-size: var(--text-sub); font-weight: var(--weight-body); line-height: 1.33; }
 a { color: var(--accent); }
 :focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
@@ -343,7 +343,7 @@ strong, b { font-weight: var(--weight-emphasis); }
 }
 .panel-close { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
 .panel-close__ico { flex: none; }
-.sensor-panel h2 { font-size: var(--text-card); font-weight: var(--weight-emphasis); line-block-size: 1.4; margin: 0; }
+.sensor-panel h2 { font-size: var(--text-card); font-weight: var(--weight-emphasis); line-height: 1.4; margin: 0; }
 .panel-flag { color: var(--muted); margin: 0 0 var(--space-2); }
 .sensor-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space-2); margin: 0; }
 .sensor-panel dt { color: var(--fg-2); }
@@ -462,10 +462,10 @@ strong, b { font-weight: var(--weight-emphasis); }
    forbids the inline custom properties this would otherwise use. */
 .gauge { position: relative; display: grid; place-items: center; inline-size: 108px; block-size: 108px; }
 .gauge__dial { inline-size: 100%; block-size: 100%; }
-.gauge__track { stroke: var(--border-faint); stroke-inline-size: 3; }
-.gauge__arc { stroke-inline-size: 3; stroke-linecap: round; }
+.gauge__track { stroke: var(--border-faint); stroke-width: 3; }
+.gauge__arc { stroke-width: 3; stroke-linecap: round; }
 .gauge__figure { position: absolute; display: grid; justify-items: center; gap: 0; }
-.gauge__figure .readout__value { line-block-size: 1; }
+.gauge__figure .readout__value { line-height: 1; }
 
 /* Available to a screen reader, absent from the screen. Used for the map's
    text alternative, which aria-describedby points at: the sighted reader
@@ -545,7 +545,7 @@ html:has(> body.embed) { block-size: 100%; }
   inline-size: 1.5rem; block-size: 1.5rem; padding: 0;
   border: 1px solid var(--border); border-radius: var(--radius-pill);
   background: var(--overlay-bg); color: var(--fg); cursor: pointer;
-  font: inherit; font-size: var(--text-caption); line-block-size: 1;
+  font: inherit; font-size: var(--text-caption); line-height: 1;
 }
 /* The glyph is content, not text: the button is named by aria-label, and a
    letter in the markup would be read out twice. */
@@ -568,7 +568,7 @@ html:has(> body.embed) { block-size: 100%; }
   position: absolute; inset-block-start: var(--space-2); inset-inline-end: var(--space-2);
   inline-size: 2rem; block-size: 2rem; border: 0; border-radius: var(--radius-sm);
   padding: 0; background: none; color: var(--fg-2); cursor: pointer;
-  font: inherit; line-block-size: 1;
+  font: inherit; line-height: 1;
 }
 .scaleinfo__dismiss::before { content: "\00d7"; font-size: var(--text-sub); }
 .scaleinfo__dismiss:hover { color: var(--fg); }
