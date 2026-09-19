@@ -128,7 +128,7 @@ strong, b { font-weight: var(--weight-emphasis); }
    are the key, the attribution and the zoom stack. 12px is the layers button's
    own inset, so the two share a top edge and read as a row. */
 .map-note {
-  position: absolute; z-index: 1; left: calc(12px + 32px + var(--space-2)); top: 12px;
+  position: absolute; z-index: 1; inset-inline-start: calc(12px + 32px + var(--space-2)); top: 12px;
   background: var(--overlay-bg); border: 0; border-radius: var(--radius); box-shadow: var(--elev-raised);
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--muted);
 }
@@ -283,7 +283,7 @@ strong, b { font-weight: var(--weight-emphasis); }
    full-screen button and zoom stack — bottom-right is the one spot nothing
    else claims. */
 .map-locate {
-  position: absolute; z-index: 3; bottom: var(--space-2); right: var(--space-2);
+  position: absolute; z-index: 3; bottom: var(--space-2); inset-inline-end: var(--space-2);
   display: inline-flex; align-items: center; justify-content: center;
   inline-size: 2rem; block-size: 2rem;
   background: var(--overlay-bg); border: 0; border-radius: 999px; box-shadow: var(--elev-raised);
@@ -301,7 +301,7 @@ strong, b { font-weight: var(--weight-emphasis); }
    the whole reason the layer is allowed on a map of measurements. Its control
    is a checkbox in the layers menu, so this corner holds only .map-locate. */
 .map-wind-label {
-  position: absolute; z-index: 1; bottom: 3.5rem; right: var(--space-2); max-inline-size: 18rem;
+  position: absolute; z-index: 1; bottom: 3.5rem; inset-inline-end: var(--space-2); max-inline-size: 18rem;
   background: var(--overlay-bg); border: 0; border-radius: var(--radius); box-shadow: var(--elev-raised);
   padding: var(--space-1) var(--space-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); color: var(--fg-2);
 }
@@ -419,7 +419,7 @@ strong, b { font-weight: var(--weight-emphasis); }
    the positioned ancestor; the kit's margins are the standalone line's and would
    push it off the corner here. */
 .map-freshness {
-  position: absolute; z-index: 3; left: 12px; bottom: 12px;
+  position: absolute; z-index: 3; inset-inline-start: 12px; bottom: 12px;
   display: flex; align-items: center; gap: var(--space-2);
 }
 /* Above the cluster, not beside it. Both sit in the same corner and the cluster
@@ -492,17 +492,17 @@ html:has(> body.embed) { block-size: 100%; }
    from the only thing the host asked for. It joins the layers button's row —
    same 12px top inset — and the note steps right past both. */
 .embed__switcher {
-  position: absolute; z-index: 3; top: 12px; left: calc(12px + 32px + var(--space-2));
+  position: absolute; z-index: 3; top: 12px; inset-inline-start: calc(12px + 32px + var(--space-2));
   background: var(--overlay-bg); border-radius: var(--radius); box-shadow: var(--elev-raised);
   padding: var(--space-1) var(--space-2);
 }
-.embed .map-note { left: auto; right: calc(2rem + var(--space-2) + var(--space-2)); }
+.embed .map-note { inset-inline-start: auto; inset-inline-end: calc(2rem + var(--space-2) + var(--space-2)); }
 /* Whose map this is, whose data it is, and the only way out of the frame.
    Bottom-left, because the other three corners are the switcher row, the zoom
    stack and MapLibre's own attribution. Capped at 70% and wrapping so a long
    translation grows upwards rather than under that attribution. */
 .embed__footline {
-  position: absolute; z-index: 4; bottom: var(--space-2); left: var(--space-2);
+  position: absolute; z-index: 4; bottom: var(--space-2); inset-inline-start: var(--space-2);
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
   max-inline-size: 70%;
 }

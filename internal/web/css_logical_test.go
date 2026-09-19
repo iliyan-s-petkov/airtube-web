@@ -13,8 +13,12 @@ import (
 // `;`. Anchoring there is what keeps `line-height`, `stroke-width`,
 // `font-weight` and `border-width` out of the match: \b would not, because a
 // hyphen is a non-word character and \bheight matches inside `line-height`.
+// The same anchoring is what lets bare `left`/`right` be listed without also
+// matching `margin-left` or the `-right` in a MapLibre control class name.
+// `top`/`bottom` are block-axis and have no inline-logical equivalent, so they
+// stay physical and are deliberately absent.
 var forbiddenDeclaration = regexp.MustCompile(
-	`(?i)(?:^|[{;])\s*((?:min-|max-)?(?:width|height)|margin-(?:left|right)|padding-(?:left|right))\s*:`)
+	`(?i)(?:^|[{;])\s*((?:min-|max-)?(?:width|height)|(?:margin|padding|inset)-(?:left|right)|left|right)\s*:`)
 
 // Media features have no logical spelling, so a prelude is not a declaration.
 var mediaPrelude = regexp.MustCompile(`@media[^{]*`)
@@ -32,7 +36,7 @@ func TestAppCSSUsesLogicalProperties(t *testing.T) {
 	for lineNum := 1; scanner.Scan(); lineNum++ {
 		line := mediaPrelude.ReplaceAllString(scanner.Text(), "")
 		for _, m := range forbiddenDeclaration.FindAllStringSubmatch(line, -1) {
-			t.Errorf("app.css:%d: physical property %q — use the logical equivalent (inline-size/block-size, margin-inline-*, padding-inline-*)", lineNum, m[1])
+			t.Errorf("app.css:%d: physical property %q — use the logical equivalent (inline-size/block-size, margin-inline-*, padding-inline-*, inset-inline-*)", lineNum, m[1])
 		}
 	}
 	if err := scanner.Err(); err != nil {
