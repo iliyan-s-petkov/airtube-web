@@ -247,4 +247,12 @@ func TestShippedValuesMatchPhase2Behaviour(t *testing.T) {
 			t.Errorf("listen.csp =\n  %q\nwant\n  %q", cfg.Listen.CSP, want)
 		}
 	})
+
+	// CF-Connecting-IP is trusted as the rate-limit bucket key only for peers
+	// inside this list. A non-empty committed value hands every limiter's key
+	// to whoever the CIDR admits, so this is a security invariant, not a
+	// style pin.
+	if got := cfg.Listen.TrustedProxyCIDRs; len(got) != 0 {
+		t.Errorf("listen.trusted_proxy_cidrs = %q, want empty", got)
+	}
 }
