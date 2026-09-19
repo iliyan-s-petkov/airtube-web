@@ -105,10 +105,10 @@ func TestBBoxIndexClipPinsFloorNotTruncate(t *testing.T) {
 	}
 }
 
-// The same comparison one level up, through HexBody and PointBody, so the
-// wiring — not just the bucket algorithm — is covered: a hexPayload built the
-// normal way carries an idx, and a Snapshot built the normal way carries a
-// pointsIndex.
+// The same comparison one level up: a hexPayload built the normal way carries
+// an idx. The point tier here is compared against an index this test builds
+// itself, so it says nothing about what buildHexes assigns — see
+// TestBuiltSnapshotPointBodyMatchesUnindexedWalk for that wiring.
 func TestClippedBodiesMatchUnindexedWalk(t *testing.T) {
 	now := time.Now()
 	var sensors []store.SensorReading
@@ -258,5 +258,51 @@ func TestBBoxIndexShortCircuitTakesTheRightPath(t *testing.T) {
 	if !shortCircuits(whole) {
 		t.Fatalf("country-sized box %v takes the bucket walk; want clipLinear (index bounds col[%d,%d] row[%d,%d])",
 			whole, idx.minCol, idx.maxCol, idx.minRow, idx.maxRow)
+	}
+}
+
+// The wiring TestClippedBodiesMatchUnindexedWalk does not reach: it builds its
+// own index beside the payload, so buildHexes' assignment of snap.pointsIndex
+// is unpinned and PointBody can be served an index of the wrong entries.
+// Proved by mutation: buildBBoxIndex(snap.points[:0]) makes PointBody return no
+// sensors for any viewport, and without this the whole package stays green.
+func TestBuiltSnapshotPointBodyMatchesUnindexedWalk(t *testing.T) {
+	now := time.Now()
+	var sensors []store.SensorReading
+	id := int64(1)
+	for lon := 22.0; lon <= 25.0; lon += 0.3 {
+		for lat := 41.0; lat <= 43.0; lat += 0.3 {
+			sensors = append(sensors, sensorAt(id, lon, lat, map[string]float64{"P1": float64(id % 50)}))
+			id++
+		}
+	}
+
+	indexed := &Snapshot{GeneratedAt: now}
+	if err := buildHexes(indexed, sensors, now); err != nil {
+		t.Fatalf("buildHexes: %v", err)
+	}
+	if indexed.pointsIndex == nil {
+		t.Fatal("buildHexes left pointsIndex nil: PointBody would silently take the linear fallback")
+	}
+	// Same points, no index, so PointBody takes clipLinear — the walk the
+	// index replaces, compared here through the real body encoder.
+	linear := &Snapshot{GeneratedAt: now, coverage: indexed.coverage, points: indexed.points}
+
+	for _, bb := range []BBox{
+		{W: 40.0, S: 40.0, E: 40.25, N: 40.25},
+		{W: 23.0, S: 42.0, E: 23.25, N: 42.25},
+		{W: 21.75, S: 40.75, E: 25.25, N: 43.25},
+	} {
+		want, err := linear.PointBody(bb)
+		if err != nil {
+			t.Fatalf("PointBody without an index: %v", err)
+		}
+		got, err := indexed.PointBody(bb)
+		if err != nil {
+			t.Fatalf("PointBody: %v", err)
+		}
+		if !bytes.Equal(want.JSON, got.JSON) {
+			t.Errorf("PointBody(%v) on a built snapshot diverges from the unindexed walk", bb)
+		}
 	}
 }
