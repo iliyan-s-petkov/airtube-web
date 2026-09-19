@@ -1156,6 +1156,80 @@ describe('installTimelapse', () => {
     })
   })
 
+  // A single rAF tick can carry an arbitrary delta — a long GC pause, a bfcache
+  // restore — and the fake clock cannot produce one, since its rAF fires on its
+  // own 16ms grid. Driving the callback by hand is the only way to hand the
+  // clock one enormous tick.
+  function manualClock(start = 100000) {
+    const realRAF = globalThis.requestAnimationFrame
+    const realCAF = globalThis.cancelAnimationFrame
+    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(start)
+    let at = start
+    let cb = null
+    globalThis.requestAnimationFrame = (fn) => { cb = fn; return 1 }
+    globalThis.cancelAnimationFrame = () => { cb = null }
+    return {
+      tick(delta) {
+        at += delta
+        const fn = cb
+        cb = null
+        fn?.(at)
+      },
+      restore() {
+        globalThis.requestAnimationFrame = realRAF
+        globalThis.cancelAnimationFrame = realCAF
+        nowSpy.mockRestore()
+      },
+    }
+  }
+
+  describe('the catch-up clamp', () => {
+    const LONG = {
+      metric: 'P2', resolution_km: 15, cells: [[23, 42]],
+      frames: Array.from({ length: 40 }, (_, i) => ({
+        t: new Date(Date.UTC(2026, 8, 8, 6 + i)).toISOString(), v: [i + 1],
+      })),
+    }
+
+    const playing = async () => {
+      const h = harness(async () => LONG, T)
+      h.ui.button.click()
+      await vi.waitFor(() => expect(h.painted.length).toBe(1))
+      return h
+    }
+
+    it('replays at most four frames after a long stall', async () => {
+      const clock = manualClock()
+      try {
+        const { painted, ui } = await playing()
+        const after = painted.length
+        clock.tick(FRAME_MS * 30)
+        expect(painted.length - after, 'a 30-frame backlog must not replay whole').toBe(4)
+        ui.exit.click()
+      } finally {
+        clock.restore()
+      }
+    })
+
+    // The near miss: the clamp must not cost a normally-paced tick its frame,
+    // and a tick landing exactly on the limit is still a tick the reader saw.
+    it('leaves a normal tick and an exactly-four-frame tick alone', async () => {
+      const clock = manualClock()
+      try {
+        const { painted, ui } = await playing()
+        let after = painted.length
+        clock.tick(FRAME_MS)
+        expect(painted.length - after, 'a normal tick advances one frame').toBe(1)
+        after = painted.length
+        clock.tick(FRAME_MS * 4)
+        expect(painted.length - after, 'exactly at the limit still advances four').toBe(4)
+        ui.exit.click()
+      } finally {
+        clock.restore()
+      }
+    })
+  })
+
   // Twenty-eight blank frames under a running clock read as clean air, not as
   // missing data. Saying so is the whole point of the guard.
   it('refuses to animate a metric with no history, and says why', async () => {
