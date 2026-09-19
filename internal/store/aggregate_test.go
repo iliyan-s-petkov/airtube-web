@@ -2,9 +2,12 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"airbg.org/internal/area"
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/store"
 	"airbg.org/internal/testsupport"
@@ -1105,5 +1109,72 @@ func TestAreaSeriesBandExcludesFlaggedReadings(t *testing.T) {
 	}
 	if bands[0].High != 14 {
 		t.Errorf("high = %v, want 14 — the flagged 900 reading is not a sensor", bands[0].High)
+	}
+}
+
+// geojsonFeatureCount reports the number of features in a committed boundary
+// file — the real source of an area's existence, not a hardcoded guess.
+func geojsonFeatureCount(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var doc struct {
+		Features []json.RawMessage `json:"features"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("unmarshal %s: %v", path, err)
+	}
+	return len(doc.Features)
+}
+
+// TestAllAreaSeriesRowLimitCoversRealConfig is the structural killing test for
+// fix-round-1 item 1: AllAreaSeriesRowLimit must stay comfortably above the
+// worst case AllAreaSeries can actually be asked for, computed from the real
+// airbg.yaml and the real committed boundary files rather than a hardcoded
+// number that rots the moment either changes.
+//
+// Area count is city + oblast + neighbourhood boundaries only: AssignSensers
+// excludes area.kind = NationalBoundaryKind ("country") from area_sensor, so
+// the country boundary can never contribute a row to AllAreaSeries no matter
+// how many features bulgaria.geojson has.
+func TestAllAreaSeriesRowLimitCoversRealConfig(t *testing.T) {
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+
+	var maxBuckets int
+	for name, pd := range cfg.Series.Periods {
+		if pd.Bucket <= 0 {
+			t.Fatalf("period %q has no bucket duration; this test proves nothing", name)
+		}
+		buckets := int((pd.Window + pd.Bucket - 1) / pd.Bucket) // ceil
+		if buckets > maxBuckets {
+			maxBuckets = buckets
+		}
+	}
+	if maxBuckets == 0 {
+		t.Fatal("no series period found in airbg.yaml; this test proves nothing")
+	}
+
+	areaCount := 0
+	for _, f := range []string{"oblasti.geojson", "cities.geojson", "sofia-districts.geojson"} {
+		areaCount += geojsonFeatureCount(t, filepath.Join("..", "..", "data", "boundaries", f))
+	}
+	if areaCount == 0 {
+		t.Fatal("no boundary features found; this test proves nothing")
+	}
+
+	worst := maxBuckets * areaCount
+	// "Comfortably below": the limit must be at least 4x the worst case, not
+	// just barely above it — a limit sized to exactly today's worst case is
+	// exactly what silently broke in fix-round-1 item 1 once the area count
+	// grew a little.
+	if worst*4 > store.AllAreaSeriesRowLimit {
+		t.Errorf("worst case = %d buckets x %d areas = %d rows; want AllAreaSeriesRowLimit (%d) at least 4x that, got %.1fx",
+			maxBuckets, areaCount, worst, store.AllAreaSeriesRowLimit, float64(store.AllAreaSeriesRowLimit)/float64(worst))
 	}
 }
