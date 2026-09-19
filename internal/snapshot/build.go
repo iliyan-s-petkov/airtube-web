@@ -156,6 +156,69 @@ func (c sensorColumns) MarshalJSON() ([]byte, error) {
 // on the same combination the holder was constructed with, and passing the
 // holder itself is the only way that agreement cannot drift apart.
 func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snapshot, error) {
+	sensors, err := s.LatestSensors(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: sensors: %w", err)
+	}
+
+	snap := &Snapshot{
+		GeneratedAt: now,
+		bodies:      &bodyCache{},
+	}
+
+	seriesBySlug, err := buildAreas(ctx, s, h, snap, now)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := buildHexes(snap, sensors, now); err != nil {
+		return nil, err
+	}
+
+	// The forecast overlay, read from our own table rather than fetched here:
+	// the met model updates hourly and the ingest cycle runs every five
+	// minutes. A failure is logged and leaves Wind empty rather than failing
+	// the build — the PM map is the site, and an optional layer must not be
+	// able to take it down. See docs/wind-overlay.md.
+	if h.wind.Enabled {
+		vectors, validAt, model, err := s.CurrentWind(ctx, now, HexResolutionKM)
+		switch {
+		case err != nil:
+			slog.Warn("snapshot: wind unavailable", "error", err)
+		case len(vectors) == 0:
+			slog.Warn("snapshot: no wind forecast for the current hour", "valid_at", validAt)
+		default:
+			if snap.Wind, err = encode(windPayloadFrom(now, validAt, model, h.wind.ResolutionDeg, vectors)); err != nil {
+				return nil, fmt.Errorf("snapshot: encode wind: %w", err)
+			}
+		}
+	}
+
+	if err := buildSensors(snap, h, sensors, seriesBySlug, now); err != nil {
+		return nil, err
+	}
+
+	// The animation history extends the snapshot currently being served, which
+	// is what h holds until this build replaces it. On the first build after a
+	// restart there is none, and the whole ring is read.
+	if err := buildTimelapse(ctx, s, h.Load(), snap, now); err != nil {
+		return nil, err
+	}
+
+	// Last, because a window is the live snapshot with some bodies replaced and
+	// therefore needs the live one finished first.
+	if err := buildWindows(ctx, s, snap, now); err != nil {
+		return nil, err
+	}
+
+	return snap, nil
+}
+
+// buildAreas computes the two choropleth tiers (country, city), the combined
+// area list, and the boundaries overlay, and populates snap.KnownSlugs. It
+// returns the per-area series this cycle read, so buildSensors can reuse it
+// rather than querying again.
+func buildAreas(ctx context.Context, s *store.Store, h *Holder, snap *Snapshot, now time.Time) (map[string][]store.Point, error) {
 	countryAggs, err := s.AreaAggregates(ctx, countryKinds)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: country tier: %w", err)
@@ -163,10 +226,6 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	cityAggs, err := s.AreaAggregates(ctx, cityKinds)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: city tier: %w", err)
-	}
-	sensors, err := s.LatestSensors(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("snapshot: sensors: %w", err)
 	}
 
 	// One query for every area, not one per area: Build runs on the collector
@@ -181,13 +240,9 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	all = append(all, countryAggs...)
 	all = append(all, cityAggs...)
 
-	snap := &Snapshot{
-		GeneratedAt: now,
-		AreaSensors: make(map[string]Body, len(all)),
-		AreaSeries:  make(map[string]Body, len(all)),
-		KnownSlugs:  make(map[string]AreaMeta, len(all)),
-		bodies:      &bodyCache{},
-	}
+	snap.AreaSensors = make(map[string]Body, len(all))
+	snap.AreaSeries = make(map[string]Body, len(all))
+	snap.KnownSlugs = make(map[string]AreaMeta, len(all))
 
 	for _, a := range all {
 		snap.KnownSlugs[a.Slug] = AreaMeta{
@@ -216,11 +271,16 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 		return nil, fmt.Errorf("snapshot: encode boundaries: %w", err)
 	}
 
-	// Binned from the sensors already read above, not from a second fetch: the
-	// grid is a different view of the same cycle's readings, and a separate
-	// poller would both double the upstream load and let the two views disagree
-	// about what "now" means.
-	//
+	return seriesBySlug, nil
+}
+
+// buildHexes bins sensors into every published hex tier and the point tier.
+//
+// sensors is the one fetch Build made, not a second query: the grid is a
+// different view of the same cycle's readings, and a separate poller would
+// both double the upstream load and let the two views disagree about what
+// "now" means.
+func buildHexes(snap *Snapshot, sensors []store.SensorReading, now time.Time) error {
 	// Every tier is binned from the same sensors in the same cycle, so the
 	// tiers agree about the ground rather than describing two different
 	// moments. They are NOT nested — hexagons do not subdivide into hexagons,
@@ -234,35 +294,23 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 		p.Coverage = snap.coverage
 		snap.hexTiers[res] = p
 	}
+	var err error
 	if snap.Hexes, err = encode(snap.hexTiers[HexResolutionKM]); err != nil {
-		return nil, fmt.Errorf("snapshot: encode hexes: %w", err)
+		return fmt.Errorf("snapshot: encode hexes: %w", err)
 	}
 	snap.points = pointsFrom(sensors)
 	snap.pointsIndex = buildBBoxIndex(snap.points)
-	snap.SensorLocations = sensorLocationsFrom(sensors, snap.KnownSlugs)
+	return nil
+}
 
-	// The forecast overlay, read from our own table rather than fetched here:
-	// the met model updates hourly and the ingest cycle runs every five
-	// minutes. A failure is logged and leaves Wind empty rather than failing
-	// the build — the PM map is the site, and an optional layer must not be
-	// able to take it down. See docs/wind-overlay.md.
-	if h.wind.Enabled {
-		vectors, validAt, model, err := s.CurrentWind(ctx, now, HexResolutionKM)
-		switch {
-		case err != nil:
-			slog.Warn("snapshot: wind unavailable", "error", err)
-		case len(vectors) == 0:
-			slog.Warn("snapshot: no wind forecast for the current hour", "valid_at", validAt)
-		default:
-			if snap.Wind, err = encode(windPayloadFrom(now, validAt, model, h.wind.ResolutionDeg, vectors)); err != nil {
-				return nil, fmt.Errorf("snapshot: encode wind: %w", err)
-			}
-		}
-	}
-
+// buildSensors groups the cycle's sensors by area and encodes the per-area
+// sensor list and series. sensors and seriesBySlug are both read once in
+// Build (sensors by Build itself, seriesBySlug by buildAreas) and passed in
+// rather than re-fetched, for the same reason buildHexes does not re-query.
+func buildSensors(snap *Snapshot, h *Holder, sensors []store.SensorReading, seriesBySlug map[string][]store.Point, now time.Time) error {
 	// Group sensors by area. A sensor in three nested areas appears in three
 	// entries; that is correct, since each is a separate response.
-	bySlug := make(map[string][]store.SensorReading, len(all))
+	bySlug := make(map[string][]store.SensorReading, len(snap.KnownSlugs))
 	for _, sr := range sensors {
 		for _, slug := range sr.AreaSlugs {
 			bySlug[slug] = append(bySlug[slug], sr)
@@ -273,31 +321,18 @@ func Build(ctx context.Context, s *store.Store, h *Holder, now time.Time) (*Snap
 	for slug := range snap.KnownSlugs {
 		body, err := encode(sensorPayloadFrom(now, bySlug[slug]))
 		if err != nil {
-			return nil, fmt.Errorf("snapshot: encode sensors for %q: %w", slug, err)
+			return fmt.Errorf("snapshot: encode sensors for %q: %w", slug, err)
 		}
 		snap.AreaSensors[slug] = body
 
 		seriesBody, err := encode(seriesPayloadFrom(slug, h.metric, seriesBySlug[slug]))
 		if err != nil {
-			return nil, fmt.Errorf("snapshot: encode series for %q: %w", slug, err)
+			return fmt.Errorf("snapshot: encode series for %q: %w", slug, err)
 		}
 		snap.AreaSeries[slug] = seriesBody
 	}
-
-	// The animation history extends the snapshot currently being served, which
-	// is what h holds until this build replaces it. On the first build after a
-	// restart there is none, and the whole ring is read.
-	if err := buildTimelapse(ctx, s, h.Load(), snap, now); err != nil {
-		return nil, err
-	}
-
-	// Last, because a window is the live snapshot with some bodies replaced and
-	// therefore needs the live one finished first.
-	if err := buildWindows(ctx, s, snap, now); err != nil {
-		return nil, err
-	}
-
-	return snap, nil
+	snap.SensorLocations = sensorLocationsFrom(sensors, snap.KnownSlugs)
+	return nil
 }
 
 func areaPayloadFrom(now time.Time, aggs []store.AreaAggregate) areaPayload {
