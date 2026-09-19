@@ -1235,6 +1235,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   // scheduled.
   let timer = false
   let raf = null
+  // Frames one tick may advance after a stall. Above this the animation is
+  // catching up on time nobody watched, which reads as a jump, not motion.
+  const MAX_CATCHUP_FRAMES = 4
   let acc = 0
   let last = 0
   // Read once, at install: the speed is a preference, and re-reading storage
@@ -1356,6 +1359,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     acc += now - last
     last = now
     const delay = effectiveDelay()
+    // A stall that visibilitychange does not cover — a long GC pause, a bfcache
+    // restore — would otherwise replay the whole gap as one synchronous burst.
+    if (acc > delay * MAX_CATCHUP_FRAMES) acc = delay * MAX_CATCHUP_FRAMES
     while (acc >= delay) {
       paint(step(head))
       acc -= delay
