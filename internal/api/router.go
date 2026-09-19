@@ -196,11 +196,16 @@ func serveBody(w http.ResponseWriter, r *http.Request, b snapshot.Body, visibili
 	_, _ = w.Write(b.JSON)
 }
 
+// maxHeaderParts bounds the list-valued headers this file parses. Total header
+// bytes are already capped (server.maxHeaderBytes), so this only bounds the
+// slice a comma-packed header can force.
+const maxHeaderParts = 64
+
 func matchesETag(ifNoneMatch, etag string) bool {
 	if ifNoneMatch == "" {
 		return false
 	}
-	for _, candidate := range strings.Split(ifNoneMatch, ",") {
+	for _, candidate := range strings.SplitN(ifNoneMatch, ",", maxHeaderParts) {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "*" {
 			return true
@@ -219,8 +224,14 @@ func matchesETag(ifNoneMatch, etag string) bool {
 // q=0 refusal. "gzip;q=0" means "do not send me gzip", and a naive
 // strings.Contains check reads it as consent.
 func acceptsGzip(header string) bool {
-	for _, part := range strings.Split(header, ",") {
-		fields := strings.Split(strings.TrimSpace(part), ";")
+	parts := strings.SplitN(header, ",", maxHeaderParts)
+	// The cap was hit, so the tail is unparsed: refuse rather than gzip past a
+	// q=0 this never read.
+	if len(parts) == maxHeaderParts {
+		return false
+	}
+	for _, part := range parts {
+		fields := strings.SplitN(strings.TrimSpace(part), ";", maxHeaderParts)
 		coding := strings.ToLower(strings.TrimSpace(fields[0]))
 		if coding != "gzip" && coding != "*" {
 			continue

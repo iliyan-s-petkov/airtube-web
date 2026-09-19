@@ -16,7 +16,7 @@ import (
 // it was removed rather than renamed.
 var rateLimited = metrics.CounterVec(
 	"airbg_http_rate_limited_total",
-	"Requests refused by the origin token buckets, by route pattern.",
+	"Requests refused by the origin token buckets. RateLimit runs outside the mux, so pattern is always unmatched.",
 	"pattern")
 
 // orderProbe, when non-nil, is called by name at each middleware's entry, in

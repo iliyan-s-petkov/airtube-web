@@ -78,3 +78,24 @@ func seedAreaWithRadius(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s
 		t.Fatalf("seed area %s: %v", slug, err)
 	}
 }
+
+// TestAreaAtPointBreaksSizeTiesDeterministically: two areas of identical size
+// over the same point leave ST_Area with nothing to order by, so which one a
+// visitor lands in becomes a planner decision that can change between runs.
+func TestAreaAtPointBreaksSizeTiesDeterministically(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedAreaWithRadius(t, ctx, pool, "zzz-tied", "city", 23.3219, 42.6977, 5000)
+	seedAreaWithRadius(t, ctx, pool, "aaa-tied", "city", 23.3219, 42.6977, 5000)
+
+	for i := 0; i < 5; i++ {
+		got, err := s.AreaAtPoint(ctx, 23.3219, 42.6977)
+		if err != nil {
+			t.Fatalf("AreaAtPoint: %v", err)
+		}
+		if got != "aaa-tied" {
+			t.Fatalf("AreaAtPoint = %q on run %d, want %q: equal-size areas must resolve by slug", got, i, "aaa-tied")
+		}
+	}
+}

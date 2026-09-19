@@ -19,6 +19,10 @@ type statusRecorder struct {
 	wroteHeader bool
 }
 
+// Unwrap lets http.ResponseController reach the wrapped writer, so wrapping
+// here does not quietly cost a handler its Flush or its write deadline.
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
 func (s *statusRecorder) WriteHeader(code int) {
 	s.wroteHeader = true
 	s.ResponseWriter.WriteHeader(code)

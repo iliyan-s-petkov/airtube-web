@@ -18,12 +18,13 @@ import (
 // municipal line should get a map, not the national default.
 //
 // LIMIT 1 after the ordering, not instead of it — without the ORDER BY, which
-// row comes back is whatever the planner produces.
+// row comes back is whatever the planner produces. slug breaks ties between
+// areas of equal size, which would otherwise be planner-dependent too.
 const areaAtPointSQL = `
 SELECT a.slug
   FROM area a
  WHERE ST_Covers(a.geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)
- ORDER BY ST_Area(a.geom)
+ ORDER BY ST_Area(a.geom), a.slug
  LIMIT 1`
 
 // AreaAtPoint returns the slug of the smallest area containing (lon, lat), or

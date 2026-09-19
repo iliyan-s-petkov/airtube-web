@@ -144,9 +144,9 @@ func headerCoords(r *http.Request) (lon, lat float64, ok bool) {
 	if errLat != nil || errLon != nil {
 		return 0, 0, false
 	}
-	// NaN and ±Inf parse successfully from "nan"/"inf" and pass a naive range
-	// check, because every comparison against NaN is false.
-	if math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0) {
+	// NaN parses successfully from "nan" and passes the range check below,
+	// because every comparison against NaN is false. ±Inf does not.
+	if math.IsNaN(lat) || math.IsNaN(lon) {
 		return 0, 0, false
 	}
 	if lat < -90 || lat > 90 || lon < -180 || lon > 180 {

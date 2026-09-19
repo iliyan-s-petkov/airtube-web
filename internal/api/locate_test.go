@@ -118,6 +118,8 @@ func TestLocateFallsBackToTheNationalView(t *testing.T) {
 func TestLocateRejectsOutOfRangeHeaderValues(t *testing.T) {
 	for _, c := range []struct{ lat, lon string }{
 		{"999", "23.3"}, {"42.7", "999"}, {"nan", "23.3"}, {"", "23.3"}, {"42.7", ""},
+		// ±Inf parses, and the range check below is what rejects it.
+		{"inf", "23.3"}, {"42.7", "-inf"}, {"nan", "nan"},
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/locate", nil)
 		req.RemoteAddr = "173.245.48.1:41000"
