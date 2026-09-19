@@ -525,6 +525,56 @@ func insertSensor(ctx context.Context, t *testing.T, pool *pgxpool.Pool, id int6
 // TestCheckSensorInBoundaryAcceptsKnownBulgarianSensor is the positive control
 // for the three rejection tests below: the guard must not make legitimate
 // backfill impossible.
+// TestParseCSVRejectsMismatchedSensorIDColumn covers the case where the
+// archive CSV carries its own sensor_id column that disagrees with the
+// sensor_id given on the command line. Silently trusting one over the other
+// would write one sensor's history onto a different sensor's row; ParseCSV
+// must abort — and return no buckets — before the caller ever reaches
+// WriteBuckets.
+func TestParseCSVRejectsMismatchedSensorIDColumn(t *testing.T) {
+	const csvData = "sensor_id;timestamp;P1\n123;2025-08-07T10:05:00;20.00\n"
+
+	buckets, _, err := backfill.ParseCSV(strings.NewReader(csvData), 456, testQualityConfig())
+	if err == nil {
+		t.Fatal("ParseCSV accepted a CSV sensor_id column that disagrees with the CLI sensor_id")
+	}
+	if buckets != nil {
+		t.Errorf("ParseCSV returned %d buckets on a sensor_id mismatch, want none", len(buckets))
+	}
+}
+
+// TestParseCSVAcceptsMatchingSensorIDColumn is the positive control: a CSV
+// sensor_id column that agrees with the CLI argument must still import.
+func TestParseCSVAcceptsMatchingSensorIDColumn(t *testing.T) {
+	const csvData = "sensor_id;timestamp;P1\n123;2025-08-07T10:05:00;20.00\n"
+
+	buckets, _, err := backfill.ParseCSV(strings.NewReader(csvData), 123, testQualityConfig())
+	if err != nil {
+		t.Fatalf("ParseCSV rejected a matching sensor_id column: %v", err)
+	}
+	if len(buckets) != 1 {
+		t.Fatalf("len(buckets) = %d, want 1", len(buckets))
+	}
+}
+
+// TestCheckNotOfficialRejectsOfficialSensorID covers the EEA reserved range:
+// official station readings come only from the EEA collector, so a
+// hand-backfilled row under one of those ids would be indistinguishable from
+// real official data.
+func TestCheckNotOfficialRejectsOfficialSensorID(t *testing.T) {
+	if err := backfill.CheckNotOfficial(9_000_000_001); err == nil {
+		t.Fatal("CheckNotOfficial accepted a sensor_id in the official EEA range")
+	}
+}
+
+// TestCheckNotOfficialAcceptsOrdinarySensorID is the positive control: an
+// ordinary sensor.community id below the floor must still be backfillable.
+func TestCheckNotOfficialAcceptsOrdinarySensorID(t *testing.T) {
+	if err := backfill.CheckNotOfficial(12345); err != nil {
+		t.Errorf("CheckNotOfficial rejected an ordinary sensor_id: %v", err)
+	}
+}
+
 func TestCheckSensorInBoundaryAcceptsKnownBulgarianSensor(t *testing.T) {
 	ctx, pool := migrated(t)
 	insertBoundary(ctx, t, pool)

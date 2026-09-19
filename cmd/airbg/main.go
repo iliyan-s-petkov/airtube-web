@@ -102,6 +102,14 @@ func main() {
 			slog.Error("backfill", "error", err)
 			os.Exit(1)
 		}
+		// Refuse an official-range sensor_id before touching the database at
+		// all: official readings reach reading_hourly only through the EEA
+		// collector, and a hand-backfilled row under one of those ids would
+		// be indistinguishable from real official data.
+		if err := backfill.CheckNotOfficial(sensorID); err != nil {
+			slog.Error("backfill", "error", err)
+			os.Exit(1)
+		}
 		// Refuse before reading the file: a backfill for an unknown or
 		// out-of-boundary sensor_id creates reading_hourly rows that the
 		// documented cleanup command cannot reach by sensor.
