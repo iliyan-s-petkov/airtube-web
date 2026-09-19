@@ -193,3 +193,154 @@ it.each([
   await expect(pending).resolves.toEqual({ areas: [6] })
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
+
+// The cache is bounded. A reader panning across the country would otherwise
+// accumulate one entry per distinct URL for the page's lifetime.
+describe('the LRU cache cap', () => {
+  const url = (n) => `/api/v1/hex?n=${n}`
+
+  async function fill(count) {
+    for (let n = 1; n <= count; n += 1) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ n }))
+      await getJSON(url(n))
+    }
+  }
+
+  // Exactly at the cap nothing is evicted. The near-miss guard: an off-by-one
+  // ceiling would drop entry #1 here and this test would catch it.
+  it('keeps all 64 entries when the cache is exactly full', async () => {
+    await fill(64)
+    const before = fetchMock.mock.calls.length
+
+    for (let n = 1; n <= 64; n += 1) {
+      await expect(getJSON(url(n))).resolves.toEqual({ n })
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(before)
+  })
+
+  it('evicts the first inserted entry, and only it, on the 65th URL', async () => {
+    await fill(64)
+    fetchMock.mockResolvedValueOnce(jsonResponse({ n: 65 }))
+    await getJSON(url(65))
+
+    // #1 is gone: asking again costs a request.
+    fetchMock.mockResolvedValueOnce(jsonResponse({ n: 1 }))
+    await expect(getJSON(url(1))).resolves.toEqual({ n: 1 })
+    expect(fetchMock).toHaveBeenCalledTimes(66)
+
+    // ...and nothing else was: #2..#65 all still answer from memory. (#1 has
+    // just been re-inserted, which evicted #2 — so check from #3.)
+    for (let n = 3; n <= 65; n += 1) {
+      await expect(getJSON(url(n))).resolves.toEqual({ n })
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(66)
+  })
+
+  // The test that separates LRU from FIFO: a plain insertion-order Map passes
+  // the eviction test above and fails this one.
+  it('a cache HIT refreshes recency, so the next eviction takes #2 and not #1', async () => {
+    await fill(64)
+
+    await expect(getJSON(url(1))).resolves.toEqual({ n: 1 }) // hit: #1 is now newest
+    expect(fetchMock).toHaveBeenCalledTimes(64)
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ n: 65 }))
+    await getJSON(url(65))
+
+    // #1 survived...
+    await expect(getJSON(url(1))).resolves.toEqual({ n: 1 })
+    expect(fetchMock).toHaveBeenCalledTimes(65)
+
+    // ...and #2, the least recently used, is the one that went.
+    fetchMock.mockResolvedValueOnce(jsonResponse({ n: 2 }))
+    await expect(getJSON(url(2))).resolves.toEqual({ n: 2 })
+    expect(fetchMock).toHaveBeenCalledTimes(66)
+  })
+})
+
+// Cancellation. A pan superseded by another pan should stop its request rather
+// than finish and have its answer thrown away.
+describe('the optional signal', () => {
+  function deferred() {
+    let settle
+    const promise = new Promise((resolve) => { settle = resolve })
+    return { promise, resolve: (body) => settle(jsonResponse(body)) }
+  }
+
+  it('lets a shared in-flight request finish for the callers that did not abort', async () => {
+    const d = deferred()
+    fetchMock.mockReturnValue(d.promise)
+
+    const controller = new AbortController()
+    const aborting = getJSON('/api/v1/hex', { signal: controller.signal })
+    const other = getJSON('/api/v1/hex')
+
+    controller.abort()
+    await expect(aborting).rejects.toMatchObject({ name: 'AbortError' })
+
+    d.resolve({ hexes: [1] })
+    await expect(other).resolves.toEqual({ hexes: [1] })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('aborts the underlying fetch when the aborting caller was the last waiter', async () => {
+    const d = deferred()
+    fetchMock.mockReturnValueOnce(d.promise)
+
+    const controller = new AbortController()
+    const only = getJSON('/api/v1/hex', { signal: controller.signal })
+    const passed = fetchMock.mock.calls[0][1].signal
+
+    controller.abort()
+    await expect(only).rejects.toMatchObject({ name: 'AbortError' })
+    expect(passed.aborted).toBe(true)
+  })
+
+  it('does not cache an aborted response, and a later fetch of the URL is fresh', async () => {
+    const d = deferred()
+    fetchMock.mockReturnValueOnce(d.promise)
+
+    const controller = new AbortController()
+    const aborted = getJSON('/api/v1/hex', { signal: controller.signal })
+    controller.abort()
+    await expect(aborted).rejects.toMatchObject({ name: 'AbortError' })
+
+    // The transport answering anyway must not populate the cache.
+    d.resolve({ hexes: [1] })
+    await vi.advanceTimersByTimeAsync(0)
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ hexes: [2] }))
+    await expect(getJSON('/api/v1/hex')).resolves.toEqual({ hexes: [2] })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  // The near-miss guard: a caller that is given a signal and never aborts must
+  // behave exactly like one that passed no options at all.
+  it('resolves and caches normally when a signal is passed but never aborted', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ hexes: [3] }))
+    const controller = new AbortController()
+
+    await expect(getJSON('/api/v1/hex', { signal: controller.signal })).resolves.toEqual({ hexes: [3] })
+    expect(controller.signal.aborted).toBe(false)
+
+    await expect(getJSON('/api/v1/hex')).resolves.toEqual({ hexes: [3] })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// clearCache is the refresh button's invalidation. A request already on the
+// wire when it runs must not land afterwards and seed the cache back: the
+// refresh would then be a control that visibly does nothing.
+it('does not let a request in flight during clearCache() re-seed the cache', async () => {
+  let settle
+  fetchMock.mockReturnValueOnce(new Promise((resolve) => { settle = resolve }))
+
+  const pending = getJSON('/api/v1/overview').catch(() => 'aborted')
+  clearCache()
+  settle(jsonResponse({ areas: ['stale'] }))
+  expect(await pending).toBe('aborted')
+
+  fetchMock.mockResolvedValueOnce(jsonResponse({ areas: ['fresh'] }))
+  expect(await getJSON('/api/v1/overview')).toEqual({ areas: ['fresh'] })
+  expect(fetchMock, 'the second call really went to the network').toHaveBeenCalledTimes(2)
+})

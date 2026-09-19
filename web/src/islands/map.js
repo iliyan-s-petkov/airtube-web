@@ -25,7 +25,7 @@ import {
 } from '../lib/sourcefilter.svelte.js'
 import { diamondImage, DIAMOND_RADIUS_PX } from '../lib/markericon.js'
 import { applyLocate } from '../lib/locate.js'
-import { readChoice, readFlag, writeChoice, writeFlag } from '../lib/storage.js'
+import { readChoice, readFlag, writeChoice, writeFlag, safeStorage } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
 import {
   chooseWindow, mountWindow, readWindow, windowOptions, withWindow,
@@ -124,6 +124,12 @@ const MAX_ZOOM_CEILING = 24
 // stay legible over every band.
 export const CARRIED_OPACITY = 0.55
 
+// The two steps a newly arrived cell climbs before it is drawn like any other.
+// Both sit above CARRIED_OPACITY so a fading-in reading never reads as a held
+// one, which is a different fact about the same cell.
+export const FRESH_OPACITY = 0.6
+export const SETTLING_OPACITY = 0.8
+
 export function mount(el) {
   const cfg = readConfig(el)
   registerProtocols()
@@ -177,7 +183,7 @@ export function mount(el) {
   // sensors over area dots is the failure that distinction prevents.
   const state = {
     slug: cfg.slug, tier: null, scales: null, areas: null,
-    hexUrl: null, hexBody: null, sensorBody: null,
+    hexUrl: null, hexBody: null, hexAbort: null, sensorBody: null,
     // Read from storage rather than defaulting to live: a reader who picked a
     // week's average is asking a question about this map, not about this visit,
     // and re-picking it on every page is the map disagreeing with its own
@@ -1175,10 +1181,17 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
   // different URL, and therefore a fetch rather than a repaint.
   const url = withWindow(hexesURL(map.getZoom(), map.getBounds?.()), state.window)
   if (url !== state.hexUrl) {
+    // A pan superseded by another pan is answering a viewport the reader has
+    // already left: cancel it rather than let it finish and be discarded.
+    state.hexAbort?.abort()
+    const controller = new AbortController()
+    state.hexAbort = controller
     let body
     try {
-      body = await fetchJSON(url)
+      body = await fetchJSON(url, { signal: controller.signal })
     } catch (err) {
+      // A pan we cancelled ourselves is not a failure to report.
+      if (err?.name === 'AbortError') return
       // Deliberately quiet, unlike refresh()'s own failure. The hex grid is a
       // background layer over a working map: the markers, the panel and the
       // legend are all unaffected, so a hint claiming the data is unavailable
@@ -1223,7 +1236,16 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   const head = cursor(0)
   let body = null
   let loaded = ''
-  let timer = null
+  // true while a play session is active (paused-for-hidden counts as active);
+  // raf is the actual requestAnimationFrame handle, null whenever none is
+  // scheduled.
+  let running = false
+  let raf = null
+  // Frames one tick may advance after a stall. Above this the animation is
+  // catching up on time nobody watched, which reads as a jump, not motion.
+  const MAX_CATCHUP_FRAMES = 4
+  let acc = 0
+  let last = 0
   // Read once, at install: the speed is a preference, and re-reading storage
   // per frame would let another tab change the rate mid-animation.
   let speed = readChoice(PLAY_SPEED_KEY, SPEEDS, DEFAULT_SPEED, chrome.storage)
@@ -1239,6 +1261,55 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     weekday: 'short', hour: '2-digit', minute: '2-digit',
   })
 
+  // Which cells carried a digit in the frame drawn before this one, and which
+  // of those had only just arrived. null means there is no previous frame to
+  // compare against, so nothing in the first frame drawn counts as an arrival
+  // and nothing in it fades in.
+  let prevValued = null
+  let justArrived = new Set()
+  // Called on entering and leaving replay and on a metric or tier change, NOT
+  // on a scrub or a speed change: those stay inside one run, where the previous
+  // frame is still the frame the reader was just looking at.
+  const forgetFrames = () => {
+    prevValued = null
+    justArrived = new Set()
+  }
+
+  // Keyed on the drawn geometry, not on the cell index: hexFeatures reorders
+  // its output and may merge cells, so a frame's own index does not survive
+  // into the feature.
+  const cellKey = (f) => (f.geometry.type === 'Point'
+    ? f.geometry.coordinates
+    : f.geometry.coordinates[0][0]).join(',')
+
+  // A digit appearing where there was none pulls the eye to the arrival rather
+  // than to the value, so a new cell climbs two steps to full strength. Reuses
+  // the replay clock's own reducedMotion(): under it the end state is drawn at
+  // once, since a slower ramp is still motion.
+  const markArrivals = (features) => {
+    const valued = new Set()
+    const arrived = new Set()
+    const ramp = prevValued !== null && !reducedMotion()
+    for (const f of features) {
+      const p = f.properties
+      if (p.value === null || p.value === undefined) continue
+      const key = cellKey(f)
+      valued.add(key)
+      // A carried cell is excluded before anything else, matching the paint
+      // expression: it is holding a value it already had.
+      if (!ramp || p.carried === true) continue
+      if (!prevValued.has(key)) {
+        p.fresh = 0
+        arrived.add(key)
+      } else if (justArrived.has(key)) {
+        p.fresh = 1
+      }
+    }
+    prevValued = valued
+    justArrived = arrived
+    return features
+  }
+
   const paint = (i) => {
     const bands = bandsFor(state.scales, cfg.metric)
     const features = hexFeatures(
@@ -1249,7 +1320,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     )
     map.getSource(HEX_SOURCE_ID)?.setData({
       type: 'FeatureCollection',
-      features: filterByStatus(features, getSensorStatus()),
+      features: markArrivals(filterByStatus(features, getSensorStatus())),
     })
     const t = frameTime(body, i)
     ui.at(i, t ? clock.format(t) : '')
@@ -1259,10 +1330,16 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   }
 
   const stop = async (restore = true) => {
-    if (timer) clearInterval(timer)
-    timer = null
+    pauseClock()
+    // The live grid goes back up here, so the next press of play opens on a
+    // screen the replay did not draw — its first frame is not an arrival.
+    forgetFrames()
     head.playing = false
     ui.playing(false)
+    // open is already false by the time exit/reset call this — a plain pause
+    // (ontoggle) never touches it, so the zoom follow-along above keeps
+    // working while paused.
+    if (!open) map.off('zoom', onZoom)
     // No refetch: refreshHexes' dedup skips a URL it holds and repaints from the
     // live body it kept, which this never wrote over.
     if (restore) await refreshHexes(map, state, cfg, fetchJSON)
@@ -1296,6 +1373,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     // readings actually taken, so filling gaps in before thinFrames saw them
     // would report every hour as complete and silence the guard.
     body = fillForward(measured)
+    // A new tier redraws every cell at a new size, so nothing on screen carries
+    // over and the whole map would otherwise read as one mass arrival.
+    forgetFrames()
     loaded = url
     thin = thinFrames(measured)
     head.count = frameCount(body)
@@ -1305,15 +1385,93 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     return head.count > 0
   }
 
-  // The one place the timer is started, so a speed change mid-animation and a
-  // fresh press of play cannot disagree about the delay.
+  // Follows the reader onto the tier the new zoom would ask the live grid
+  // for. Attached only while the player is open (see ontoggle/stop), not for
+  // the page's whole life — load()'s url === loaded check is what turns
+  // a run of zoom events during a flyTo into at most one request.
+  const onZoom = () => {
+    // Refetch always, repaint only when the body actually changed AND the
+    // animation is running: a flyTo fires a zoom event per frame, and pause
+    // has already put the live grid back — redrawing a frame over it would
+    // undo the reader's own press of pause.
+    const was = loaded
+    load(true).then((ok) => {
+      if (ok && loaded !== was && head.playing) paint(head.i)
+    })
+  }
+
+  // matchMedia is missing under jsdom and some old browsers — absent means
+  // "no preference", not "reduced".
+  const reducedMotion = () => typeof matchMedia === 'function'
+    && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // Read per run(), not cached at module load: a reader can flip the OS
+  // setting mid-session, and a cached value would need a reload to take
+  // effect. No speed can outrun the 0.25x floor while reduced motion is on.
+  const effectiveDelay = () => {
+    const base = frameDelay(speed)
+    return reducedMotion() ? Math.max(base, frameDelay(0.25)) : base
+  }
+
+  // setInterval keeps firing in a background tab and coalesces under load —
+  // wrong for an animation. rAF plus an accumulator advances exactly one
+  // frame per elapsed delay, however the ticks themselves land.
+  const tick = (now) => {
+    acc += now - last
+    last = now
+    const delay = effectiveDelay()
+    // A stall that visibilitychange does not cover — a long GC pause, a bfcache
+    // restore — would otherwise replay the whole gap as one synchronous burst.
+    if (acc > delay * MAX_CATCHUP_FRAMES) acc = delay * MAX_CATCHUP_FRAMES
+    // Advance the playhead over every elapsed frame, then paint once. Painting
+    // each of them would build and setData up to four frames only the last of
+    // which ever composites, and would spend the late-joiner fade on frames
+    // nobody sees — a cell arriving mid-catch-up would be drawn already settled.
+    let advanced = 0
+    while (acc >= delay) {
+      step(head)
+      acc -= delay
+      advanced++
+    }
+    if (advanced > 0) paint(head.i)
+    raf = requestAnimationFrame(tick)
+  }
+
+  // Backgrounding drops the rAF handle rather than letting it run unseen.
+  // Resuming resets the accumulator instead of catching up, so the elapsed
+  // background time is not replayed as a burst of frames.
+  const onVisibility = () => {
+    if (document.hidden) {
+      if (raf) cancelAnimationFrame(raf)
+      raf = null
+    } else if (running && !raf) {
+      acc = 0
+      last = performance.now()
+      raf = requestAnimationFrame(tick)
+    }
+  }
+
+  const pauseClock = () => {
+    if (raf) cancelAnimationFrame(raf)
+    raf = null
+    running = false
+    document.removeEventListener('visibilitychange', onVisibility)
+  }
+
+  // The one place the clock is (re)started, so a speed change mid-animation
+  // and a fresh press of play cannot disagree about the delay.
   const run = () => {
-    if (timer) clearInterval(timer)
-    timer = setInterval(() => paint(step(head)), frameDelay(speed))
+    if (raf) cancelAnimationFrame(raf)
+    document.removeEventListener('visibilitychange', onVisibility)
+    running = true
+    acc = 0
+    last = performance.now()
+    document.addEventListener('visibilitychange', onVisibility)
+    raf = document.hidden ? null : requestAnimationFrame(tick)
   }
 
   ui.ontoggle(async () => {
-    if (timer) {
+    if (running) {
       await stop()
       return
     }
@@ -1324,7 +1482,10 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
       ui.say(cfg.t?.replayNoHistory || '')
       return
     }
-    open = true
+    if (!open) {
+      open = true
+      map.on('zoom', onZoom)
+    }
     head.playing = true
     ui.playing(true)
     paint(head.i)
@@ -1332,36 +1493,19 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   })
 
   // A press while paused is a question about the next play, not a request to
-  // start one — so the timer is only rebuilt if there already was one.
+  // start one — so the clock is only rebuilt if it was already running.
   ui.onspeed(() => {
     speed = nextSpeed(speed)
     writeChoice(PLAY_SPEED_KEY, speed, chrome.storage)
     ui.atSpeed(speed)
-    if (timer) run()
+    if (running) run()
   })
 
-  // Follows the reader onto the tier the new zoom would ask the live grid
-  // for. Only while the player is open, and only once wantedURL() actually
-  // names a different tier — load()'s own url === loaded check is what turns
-  // a run of zoom events during a flyTo into at most one request.
-  map.on('zoom', () => {
-    if (!open) return
-    // Refetch always, repaint only when the body actually changed AND the
-    // animation is running: a flyTo fires a zoom event per frame, and pause
-    // has already put the live grid back — redrawing a frame over it would
-    // undo the reader's own press of pause.
-    const was = loaded
-    load(true).then((ok) => {
-      if (ok && loaded !== was && head.playing) paint(head.i)
-    })
-  })
-
-  // A drag is a request to look at one hour: leaving the timer going would move
+  // A drag is a request to look at one hour: leaving the clock going would move
   // the map off that frame a third of a second later.
   ui.onscrub((i) => {
-    if (timer) {
-      clearInterval(timer)
-      timer = null
+    if (running) {
+      pauseClock()
       head.playing = false
       ui.playing(false)
     }
@@ -1963,11 +2107,21 @@ export function installErrorHandler(map, warn = console.warn) {
 // paint values it reads from cfg can be proven directly.
 // hexLabelPaint mutes a held reading. During replay a cell that went silent for
 // an hour is drawn at its last reading rather than dropping its digit, and the
-// fade is what keeps a held number from reading as a measured one.
+// fade is what keeps a held number from reading as a measured one. A cell that
+// has just joined ramps up instead of popping in at full strength.
 export function hexLabelPaint(cfg) {
   return {
     ...labelPaint(cfg),
-    'text-opacity': ['case', ['==', ['get', 'carried'], true], CARRIED_OPACITY, 1],
+    // carried is tested first so the mute wins outright rather than by
+    // evaluation luck: a held reading has a previous value by definition, so it
+    // can never also be an arrival.
+    'text-opacity': [
+      'case',
+      ['==', ['get', 'carried'], true], CARRIED_OPACITY,
+      ['==', ['get', 'fresh'], 0], FRESH_OPACITY,
+      ['==', ['get', 'fresh'], 1], SETTLING_OPACITY,
+      1,
+    ],
   }
 }
 
@@ -2184,6 +2338,10 @@ export function debounce(fn, ms) {
 // in the DOM is checkable without a WebGL context — and that placement is
 // load-bearing (see the shell comments below), not decoration.
 export function mountChrome(el, cfg) {
+  // Resolve storage once for threaded access to player and legend prefs. Must
+  // be called before any caller can access chrome.storage.
+  const storage = cfg.storage ?? safeStorage()
+
   // The key and the tier line go on the SHELL, not on #map, and they are the
   // only two things here that do. The kit turns .scale--onmap static below
   // 672px so the key sits under the map on a phone — and inside .map, "under
@@ -2419,6 +2577,7 @@ export function mountChrome(el, cfg) {
 
   return {
     ...hintCtl,
+    storage,
     showNote(text) {
       note.textContent = text
       note.hidden = !text

@@ -1,5 +1,5 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte'
-import { copyFileSync, mkdirSync } from 'node:fs'
+import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 // MapLibre GL JS ships its tiling/parsing work in a SEPARATE worker script
@@ -42,6 +42,20 @@ function copyMapLibreWorker() {
   }
 }
 
+// internal/web/dist/.keep is the only tracked file under dist/, and it is what
+// makes `go:embed dist/*` compile on a fresh clone that has never run a build.
+// `emptyOutDir: true` wipes it, so a contributor who builds and commits deletes
+// it and breaks the Go build. Re-created here rather than turning off
+// emptyOutDir, which would leave stale hashed bundles piling up in the tree.
+function keepDistTracked() {
+  return {
+    name: 'keep-dist-tracked',
+    closeBundle() {
+      writeFileSync(path.resolve('../internal/web/dist/.keep'), '')
+    },
+  }
+}
+
 export default {
   // '.' rather than 'web': vite.config.js already lives inside web/, and every
   // script in package.json runs with npm's cwd there (`cd web && npm run
@@ -59,7 +73,7 @@ export default {
   // hand verification: the browser asked for /assets/map-*.css, got Go's
   // catch-all 404 page back as text/html, and the map island failed to mount).
   base: '/static/build/',
-  plugins: [svelte(), copyMapLibreWorker()],
+  plugins: [svelte(), copyMapLibreWorker(), keepDistTracked()],
   build: {
     outDir: '../internal/web/dist',
     emptyOutDir: true,

@@ -5,9 +5,13 @@
 // `hashchange`, which the rest of this file's pure-logic tests do not need
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
+// node:fs, not a fixture: the translation-key rule test below reads
+// internal/web/templates/ off disk so the template stays the single source.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { DIAMOND_RADIUS_PX } from '../../lib/markericon.js'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, hexLabelPaint, CARRIED_OPACITY, PLAY_SPEED_KEY, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, hexLabelPaint, CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY, PLAY_SPEED_KEY, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM, resolutionForZoom } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -17,6 +21,7 @@ import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
 import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
 import { setSourceEnabled, resetSourceFilterForTests } from '../../lib/sourcefilter.svelte.js'
 import { getMapAreas, setMapAreas } from '../../lib/mapareas.svelte.js'
+import { LAYER_ORDER } from '../../lib/maplayers.js'
 
 // mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
 // out of reach under jsdom (see the "no jsdom" rule respected everywhere else
@@ -85,6 +90,10 @@ vi.mock('maplibre-gl', () => {
       if (event !== 'click') { this.handlers[event] = a; return }
       this.handlers.click ??= b
       this.clickHandlers[a] = b
+    }
+
+    off(event, handler) {
+      if (this.handlers[event] === handler) delete this.handlers[event]
     }
   }
   return { Map: FakeMap, addProtocol: vi.fn() }
@@ -303,108 +312,99 @@ describe('readConfig', () => {
     expect(cfg.basemap).toBe('')
   })
 
-  // toEqual, not toMatchObject: cfg.t must contain exactly these keys. A field
-  // read from an attribute no template renders any more (t.noData, dropped with
-  // data-t-no-data) is the same "written but never read" asymmetry pointing the
-  // other way, and it silently resolves to ''.
-  it('carries every server-rendered translation string through to cfg.t, and no others', () => {
+  // The attribute names the server actually renders on the map island, read
+  // off the template rather than kept as a list here: index.gohtml's open tag
+  // with its {{template}} partials (mapLayerLabels) spliced in, which is the
+  // attribute set the browser hands readConfig.
+  function mapIslandAttributes() {
+    // import.meta.dirname, not cwd: vitest is run from web/, but this rule is
+    // about a file four levels up and must not move when the cwd does.
+    const dir = join(import.meta.dirname, '../../../../internal/web/templates')
+    const base = readFileSync(join(dir, 'base.gohtml'), 'utf8')
+    const page = readFileSync(join(dir, 'index.gohtml'), 'utf8')
+    const marker = page.indexOf('data-island="map"')
+    expect(marker).toBeGreaterThan(-1)
+    const start = page.lastIndexOf('<', marker)
+    // Quote-aware: stop at the '>' that closes the open tag, never at one
+    // inside a translated string.
+    let end = start
+    for (let quoted = false; end < page.length; end++) {
+      if (page[end] === '"') quoted = !quoted
+      else if (page[end] === '>' && !quoted) break
+    }
+    const tag = page.slice(start, end).replace(/\{\{template\s+"([^"]+)"[^}]*\}\}/g, (_, name) => {
+      const define = base.match(new RegExp(`\\{\\{define "${name}"\\}\\}([\\s\\S]*?)\\{\\{end\\}\\}`))
+      expect(define, `{{define "${name}"}} in base.gohtml`).not.toBeNull()
+      return define[1]
+    })
+    // The leading (?<![\w-]) is what keeps this off `my-data-t-x`; requiring a
+    // trailing [a-z0-9] before the '=' keeps it off a bare `data-t-`.
+    return new Set([...tag.matchAll(/(?<![\w-])data-t-([a-z0-9-]*[a-z0-9])=/g)].map((m) => m[1]))
+  }
+
+  // The DOM's own attribute-to-dataset rule: a hyphen before an ASCII lowercase
+  // letter uppercases it, a hyphen before a digit stays (data-t-window-24h is
+  // tWindow-24h, which is why that one is positional instead).
+  function datasetKey(attr) {
+    const camel = attr.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+    return 't' + camel[0].toUpperCase() + camel.slice(1)
+  }
+
+  // Which dataset properties readConfig actually touches, recorded rather than
+  // restated: the alias (communitySensors) and the two nested shapes (tier,
+  // layers) mean cfg.t's key names are not the attribute names, so the
+  // comparison has to happen on the dataset side of readConfig, not after it.
+  function datasetKeysReadConfigReads() {
+    const seen = new Set()
+    const dataset = new Proxy({}, {
+      get(_, prop) {
+        if (typeof prop === 'string') seen.add(prop)
+        return ''
+      },
+    })
+    readConfig({ dataset })
+    return seen
+  }
+
+  const sorted = (set) => [...set].sort()
+
+  // A rule, not a snapshot. The exact-object toEqual this replaced passed only
+  // for one frozen list: it proved someone had edited two literals in step, not
+  // that the template and the reader agree. Set equality both ways fails the
+  // moment either side gains or loses a string.
+  it('reads exactly the data-t-* attributes the template renders on the map island', () => {
+    const rendered = new Set([...mapIslandAttributes()].map(datasetKey))
+    // t followed by a non-lowercase char: the dataset spelling of data-t-*,
+    // and never 'then'/'toString'/'title' that a Proxy also sees.
+    const read = new Set(sorted(datasetKeysReadConfigReads()).filter((k) => /^t[^a-z]/.test(k)))
+    expect(rendered.size).toBeGreaterThan(40)
+    expect(sorted(rendered)).toEqual(sorted(read))
+  })
+
+  // The three places where one attribute is not one flat key, which the set
+  // comparison above deliberately cannot see.
+  it('nests and aliases the translations the lookups index by', () => {
     const cfg = readConfig({
       dataset: {
-        tLegend: 'Air quality', tHint: 'Select an area',
-        tNoSources: 'No networks are shown',
-        tLegendToggle: 'Legend', tLegendNoData: 'Not enough data',
-        tFullscreen: 'Full screen', tFullscreenExit: 'Exit full screen',
-        tZoomIn: 'Zoom in', tZoomOut: 'Zoom out', tZoomReset: 'Reset view',
-        tLayersButton: 'Layers', tLayersCaption: 'Show on the map',
-        tViewLegend: 'Scale', tViewBasemap: 'OpenStreetMap basemap',
-        tViewCellValues: 'Cell values',
-        tViewInactiveSensors: 'Inactive sensors',
-        tViewBoundaries: 'Province outlines',
+        tLayerBase: 'Terrain and parks', tLayerStreetNames: 'Street names',
+        tTierCountry: 'Each dot is an oblast average',
         tViewCommunitySensors: 'Citizen sensors',
         tViewOfficialStations: 'Official stations',
-        tNotMeasured: 'does not measure this',
-        // Two of the twelve groups, deliberately: the other ten prove the
-        // point below, that an unrendered group arrives as '' rather than as
-        // undefined or as a missing key.
-        tLayerBase: 'Terrain and parks', tLayerStreetNames: 'Street names',
-        tLegendAbout: 'What the colours mean',
-        tLegendSource: 'Read the official guideline',
-        tDisclaimer: 'Indicative data.',
-        tClose: 'Close',
-        tTierCountry: 'Each dot is an oblast average',
-        tTierCity: 'Each dot is a city average',
-        tTierSensors: 'Each dot is a single sensor',
-        tRateLimited: 'Retrying', tUnavailable: 'Unavailable',
-        tUnscaled: 'No air-quality scale for this metric',
-        tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
-        tLocateFailed: 'We could not determine your location.',
-        tWindowLabel: 'Averaging period',
-        tPlayLabel: 'Play the animation', tPauseLabel: 'Pause the animation',
-        tSpeedLabel: 'Playback speed',
-        tTimeLabel: 'Hour shown', tExitLabel: 'Back to the current readings',
-        tReplayThin: 'Few readings for this hour',
-        tReplayNoHistory: 'Not enough history yet to animate this measurement',
-        tWindToggle: 'Wind',
-        tWindAbout: 'About the wind layer',
-        tWindNote: 'Arrows show where the wind blows.',
-        tWindAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
-        // Neither is rendered any more; toEqual below is what keeps them from
-        // reappearing in cfg.t. tLocateOutside went with the unreachable
-        // outside-coverage branch (nearestArea has no distance cutoff).
-        tLocateOutside: 'You appear to be outside the mapped area.',
-        tNoData: 'Not enough data',
       },
     })
-    expect(cfg.t).toEqual({
-      legend: 'Air quality', hint: 'Select an area',
-      noSources: 'No networks are shown',
-      legendToggle: 'Legend', legendNoData: 'Not enough data',
-      legendAbout: 'What the colours mean',
-      legendSource: 'Read the official guideline',
-      disclaimer: 'Indicative data.', close: 'Close',
-      fullscreen: 'Full screen', fullscreenExit: 'Exit full screen',
-      zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomReset: 'Reset view',
-      layersButton: 'Layers', layersCaption: 'Show on the map',
-      playLabel: 'Play the animation', pauseLabel: 'Pause the animation',
-      speedLabel: 'Playback speed',
-      timeLabel: 'Hour shown', exitLabel: 'Back to the current readings',
-      replayThin: 'Few readings for this hour',
-      replayNoHistory: 'Not enough history yet to animate this measurement',
-      viewLegend: 'Scale', viewBasemap: 'OpenStreetMap basemap',
-      viewCellValues: 'Cell values',
-      viewInactiveSensors: 'Inactive sensors',
-      viewBoundaries: 'Province outlines',
-      viewCommunitySensors: 'Citizen sensors',
-      viewOfficialStations: 'Official stations',
-      notMeasured: 'does not measure this',
-      // communitySensors/officialStations reuse the view labels: setSourceViewAvailability
-      // keys the checkbox label lookup by view id, not by a second pair of dataset attributes.
-      communitySensors: 'Citizen sensors',
-      officialStations: 'Official stations',
-      // One entry per group in LAYER_ORDER, always: the menu looks a label up
-      // by the group the STYLE reports, so a key that is simply absent here
-      // would be a group that renders under its own slug the day the style
-      // starts carrying it.
-      layers: {
-        base: 'Terrain and parks', water: '', roads: '', 'street-names': 'Street names',
-        buildings: '', places: '', boundaries: '', 'poi-education': '',
-        'poi-health': '', 'poi-shop': '', 'poi-transport': '', 'poi-other': '',
-      },
-      tier: {
-        country: 'Each dot is an oblast average',
-        city: 'Each dot is a city average',
-        sensors: 'Each dot is a single sensor',
-      },
-      rateLimited: 'Retrying', unavailable: 'Unavailable',
-      unscaled: 'No air-quality scale for this metric',
-      locateButton: 'Find me', locateDenied: 'Location access was denied.',
-      locateFailed: 'We could not determine your location.',
-      windowLabel: 'Averaging period',
-      windToggle: 'Wind',
-      windAbout: 'About the wind layer',
-      windNote: 'Arrows show where the wind blows.',
-      windAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
-    })
+    // One entry per LAYER_ORDER group, always: the menu looks a label up by the
+    // group the STYLE reports, so an absent key is a group rendering under its
+    // own slug the day the style starts carrying it.
+    expect(Object.keys(cfg.t.layers)).toEqual(LAYER_ORDER)
+    expect(cfg.t.layers.base).toBe('Terrain and parks')
+    expect(cfg.t.layers['street-names']).toBe('Street names')
+    expect(cfg.t.layers.water).toBe('')
+    // Keyed by the names tierFor returns, so showLegend indexes rather than branches.
+    expect(cfg.t.tier).toEqual({ country: 'Each dot is an oblast average', city: '', sensors: '' })
+    // setSourceViewAvailability keys the checkbox label by view id, so the two
+    // source labels are read a second time under a second name.
+    expect(cfg.t.communitySensors).toBe('Citizen sensors')
+    expect(cfg.t.officialStations).toBe('Official stations')
   })
 
   // One comma-separated attribute, positional against WINDOW_CHOICES, because
@@ -877,6 +877,11 @@ describe('installTimelapse', () => {
       getBounds: () => ({ getWest: () => 23, getSouth: () => 42, getEast: () => 24, getNorth: () => 43 }),
       getSource: () => ({ setData: (d) => painted.push(d) }),
       on: (evt, fn) => { if (evt === 'zoom') zoomHandlers.push(fn) },
+      off: (evt, fn) => {
+        if (evt !== 'zoom') return
+        const i = zoomHandlers.indexOf(fn)
+        if (i >= 0) zoomHandlers.splice(i, 1)
+      },
     }
     const ui = mountPlayer(document.createElement('div'), { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now', speedLabel: 'Speed' })
     const state = { scales: null, hexUrl: null, window: '24h' }
@@ -921,7 +926,7 @@ describe('installTimelapse', () => {
     }
 
     it('opens at full speed and cycles on each press', async () => {
-      const { ui } = harness(async () => BODY, T, storageFor())
+      const { ui } = harness(async () => BODY, T)
       ui.button.click()
       await vi.waitFor(() => expect(ui.speed.hidden).toBe(false))
       expect(ui.speed.textContent).toBe('1\u00d7')
@@ -973,14 +978,17 @@ describe('installTimelapse', () => {
     it('applies a speed change to a running animation', async () => {
       vi.useFakeTimers()
       try {
-        const { painted, ui } = harness(async () => BODY, T, storageFor())
+        const { painted, ui } = harness(async () => BODY, T)
         ui.button.click()
         await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
         ui.speed.click()
         const after = painted.length
         await vi.advanceTimersByTimeAsync(FRAME_MS)
         expect(painted.length, 'still on the old fast timer').toBe(after)
-        await vi.advanceTimersByTimeAsync(FRAME_MS)
+        // +16: the fake clock's rAF ticks land on its own 16ms grid, not on
+        // this delay's boundary, so the tick that crosses it can be up to one
+        // frame later than the exact millisecond.
+        await vi.advanceTimersByTimeAsync(FRAME_MS + 16)
         expect(painted.length).toBeGreaterThan(after)
         ui.exit.click()
       } finally {
@@ -991,7 +999,7 @@ describe('installTimelapse', () => {
     // A reader who has paused and pressed the speed button is asking what the
     // next play will look like, not for the animation to start again.
     it('does not start the animation when paused', async () => {
-      const { painted, ui } = harness(async () => BODY, T, storageFor())
+      const { painted, ui } = harness(async () => BODY, T)
       ui.button.click()
       await vi.waitFor(() => expect(ui.speed.hidden).toBe(false))
       ui.button.click()
@@ -1000,6 +1008,409 @@ describe('installTimelapse', () => {
       ui.speed.click()
       expect(ui.button.getAttribute('aria-pressed')).toBe('false')
       expect(painted.length).toBe(after)
+    })
+  })
+
+  // Pressing play is user-initiated, so replay must still run under reduced
+  // motion — only the pace changes, floored at the 0.25x delay.
+  describe('reduced motion', () => {
+    const mockReducedMotion = (matches) => {
+      globalThis.matchMedia = vi.fn((q) => ({ media: q, matches }))
+    }
+
+    it('floors the delay at 0.25x even at full speed', async () => {
+      vi.useFakeTimers()
+      try {
+        mockReducedMotion(true)
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+        const after = painted.length
+        // Full speed's own delay (FRAME_MS) is nowhere near the 0.25x floor
+        // (4 * FRAME_MS) — three of it must still produce nothing.
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 3)
+        expect(painted.length, 'reduced motion must floor the delay').toBe(after)
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 2 + 16)
+        expect(painted.length).toBeGreaterThan(after)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+        delete globalThis.matchMedia
+      }
+    })
+
+    // matchMedia is read fresh on every run(), not cached at install, so a
+    // reader flipping the OS setting mid-session takes effect on the very
+    // next play without a reload.
+    it('re-reads the preference on every run(), not once at install', async () => {
+      vi.useFakeTimers()
+      try {
+        mockReducedMotion(false)
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+
+        mockReducedMotion(true)
+        ui.speed.click()
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 3)
+        expect(painted.length, 'now floored, mid-session').toBe(after)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+        delete globalThis.matchMedia
+      }
+    })
+
+    // jsdom, like some old browsers, has no matchMedia at all — that must
+    // read as "no preference", not throw.
+    it('treats a missing matchMedia as no preference', async () => {
+      expect(typeof matchMedia).toBe('undefined')
+      vi.useFakeTimers()
+      try {
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS + 16)
+        expect(painted.length).toBeGreaterThan(after)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  describe('the rAF clock', () => {
+    // The point of the accumulator: a naive "paint on every rAF tick" bug
+    // would paint far more than 3 times across a span this long, since the
+    // fake clock's rAF fires roughly every 16ms.
+    it('advances one frame per elapsed delay, not once per rAF tick', async () => {
+      vi.useFakeTimers()
+      try {
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 3 + 16)
+        expect(painted.length - after).toBe(3)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('pauses while the tab is hidden, and resumes without a catch-up burst', async () => {
+      vi.useFakeTimers()
+      const setHidden = (v) => Object.defineProperty(document, 'hidden', { configurable: true, value: v })
+      try {
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+
+        setHidden(true)
+        document.dispatchEvent(new Event('visibilitychange'))
+        const hiddenSince = painted.length
+        // Ten frame-delays of background time: a clock that keeps ticking
+        // while hidden would paint several frames across this span.
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 10)
+        expect(painted.length, 'no paint while hidden').toBe(hiddenSince)
+
+        setHidden(false)
+        document.dispatchEvent(new Event('visibilitychange'))
+        // Immediately on resume — the elapsed background time must not be
+        // replayed as a burst of frames.
+        await vi.advanceTimersByTimeAsync(16)
+        expect(painted.length, 'no catch-up burst on resume').toBe(hiddenSince)
+
+        await vi.advanceTimersByTimeAsync(FRAME_MS + 16)
+        expect(painted.length).toBeGreaterThan(hiddenSince)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+        setHidden(false)
+      }
+    })
+
+    it('is fully torn down on exit: no further paints, and the zoom listener is gone', async () => {
+      vi.useFakeTimers()
+      try {
+        const asked = []
+        const { ui, painted, map } = harness(async (url) => { asked.push(url); return BODY })
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+
+        ui.exit.click()
+        await vi.advanceTimersByTimeAsync(0)
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 5)
+        expect(painted.length, 'no further paints after exit').toBe(after)
+
+        const askedBefore = asked.length
+        map.setZoom(2)
+        await vi.advanceTimersByTimeAsync(0)
+        expect(asked.length, 'zoom listener removed on exit').toBe(askedBefore)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  // A single rAF tick can carry an arbitrary delta — a long GC pause, a bfcache
+  // restore — and the fake clock cannot produce one, since its rAF fires on its
+  // own 16ms grid. Driving the callback by hand is the only way to hand the
+  // clock one enormous tick.
+  function manualClock(start = 100000) {
+    const realRAF = globalThis.requestAnimationFrame
+    const realCAF = globalThis.cancelAnimationFrame
+    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(start)
+    let at = start
+    let cb = null
+    globalThis.requestAnimationFrame = (fn) => { cb = fn; return 1 }
+    globalThis.cancelAnimationFrame = () => { cb = null }
+    return {
+      tick(delta) {
+        at += delta
+        const fn = cb
+        cb = null
+        fn?.(at)
+      },
+      restore() {
+        globalThis.requestAnimationFrame = realRAF
+        globalThis.cancelAnimationFrame = realCAF
+        nowSpy.mockRestore()
+      },
+    }
+  }
+
+  describe('the catch-up clamp', () => {
+    const LONG = {
+      metric: 'P2', resolution_km: 15, cells: [[23, 42]],
+      frames: Array.from({ length: 40 }, (_, i) => ({
+        t: new Date(Date.UTC(2026, 8, 8, 6 + i)).toISOString(), v: [i + 1],
+      })),
+    }
+
+    const playing = async () => {
+      const h = harness(async () => LONG, T)
+      h.ui.button.click()
+      await vi.waitFor(() => expect(h.painted.length).toBe(1))
+      return h
+    }
+
+    // The playhead, not the paint count: one tick advances as many frames as
+    // elapsed but paints only the frame that composites, so counting setData
+    // would no longer measure the clamp.
+    const at = (ui) => Number(ui.slider.value)
+
+    it('replays at most four frames after a long stall', async () => {
+      const clock = manualClock()
+      try {
+        const { ui } = await playing()
+        const after = at(ui)
+        clock.tick(FRAME_MS * 30)
+        expect(at(ui) - after, 'a 30-frame backlog must not replay whole').toBe(4)
+        ui.exit.click()
+      } finally {
+        clock.restore()
+      }
+    })
+
+    // The near miss: the clamp must not cost a normally-paced tick its frame,
+    // and a tick landing exactly on the limit is still a tick the reader saw.
+    it('leaves a normal tick and an exactly-four-frame tick alone', async () => {
+      const clock = manualClock()
+      try {
+        const { ui } = await playing()
+        let after = at(ui)
+        clock.tick(FRAME_MS)
+        expect(at(ui) - after, 'a normal tick advances one frame').toBe(1)
+        after = at(ui)
+        clock.tick(FRAME_MS * 4)
+        expect(at(ui) - after, 'exactly at the limit still advances four').toBe(4)
+        ui.exit.click()
+      } finally {
+        clock.restore()
+      }
+    })
+
+    // Four synchronous paints in one animation frame are four hexFeatures
+    // builds and four setData calls, of which only the last ever composites.
+    it('paints once however many frames one tick swallows', async () => {
+      const clock = manualClock()
+      try {
+        const { painted, ui } = await playing()
+        const wasAt = at(ui)
+        const wasPainted = painted.length
+        clock.tick(FRAME_MS * 30)
+        expect(at(ui) - wasAt, 'the playhead still advanced four').toBe(4)
+        expect(painted.length - wasPainted, 'one setData for the one frame shown').toBe(1)
+        ui.exit.click()
+      } finally {
+        clock.restore()
+      }
+    })
+  })
+
+  // A digit that appears where there was none pulls the eye to the arrival
+  // rather than to the value. It must ramp up instead of popping.
+  describe('late joiners', () => {
+    // A always reports, B joins at frame 1, C goes silent at frame 1 and so is
+    // held (carried) there before reporting again.
+    const JOINERS = {
+      metric: 'P2', resolution_km: 15, cells: [[23, 42], [23.2, 42], [23.4, 42]],
+      frames: [
+        { t: '2026-09-08T06:00:00Z', v: [10, null, 30] },
+        { t: '2026-09-08T07:00:00Z', v: [10, 20, null] },
+        { t: '2026-09-08T08:00:00Z', v: [10, 20, 30] },
+        { t: '2026-09-08T09:00:00Z', v: [10, 20, 30] },
+      ],
+    }
+    const A = 10
+    const B = 20
+    const C = 30
+
+    const cell = (frame, value) => frame.features.find((f) => f.properties.value === value)?.properties
+
+    // Evaluates the layer's own 'case' expression: these tests are about what a
+    // cell is DRAWN at, not only about what it is tagged with.
+    const opacityOf = (expr, props) => {
+      for (let i = 1; i < expr.length - 1; i += 2) {
+        const [, [, key], want] = expr[i]
+        if ((props[key] ?? null) === want) return expr[i + 1]
+      }
+      return expr[expr.length - 1]
+    }
+
+    // delay is the tick size: reduced motion floors the frame delay at 0.25x,
+    // so a FRAME_MS tick would advance nothing there.
+    const play = async (frames, delay = FRAME_MS) => {
+      const clock = manualClock()
+      const { painted, ui } = harness(async () => JOINERS, T)
+      ui.button.click()
+      await vi.waitFor(() => expect(painted.length).toBe(1))
+      for (let i = 1; i < frames; i += 1) clock.tick(delay)
+      // Snapshot before exit: leaving the player repaints the live grid, and
+      // that paint is not one of the replay's frames.
+      const replayed = painted.slice()
+      ui.exit.click()
+      clock.restore()
+      return replayed
+    }
+
+    it('ramps a newly arrived cell up over two frames, then settles it', async () => {
+      const painted = await play(4)
+      expect(cell(painted[1], B).fresh, 'the frame B arrives on').toBe(0)
+      expect(cell(painted[2], B).fresh, 'one frame later, no longer freshly arrived').toBe(1)
+      expect(cell(painted[3], B).fresh, 'settled').toBeUndefined()
+    })
+
+    // A catch-up tick advances several frames and paints one. The arrival
+    // tracking has to describe that painted frame: a cell whose first reading
+    // fell in the swallowed span is new to the reader, who never saw the frames
+    // it arrived on.
+    it('fades a cell in that first appeared inside a skipped span', async () => {
+      const LATE = {
+        metric: 'P2', resolution_km: 15, cells: [[23, 42], [23.2, 42]],
+        frames: [
+          { t: '2026-09-08T06:00:00Z', v: [10, null] },
+          { t: '2026-09-08T07:00:00Z', v: [10, 20] },
+          { t: '2026-09-08T08:00:00Z', v: [10, 20] },
+          { t: '2026-09-08T09:00:00Z', v: [10, 20] },
+        ],
+      }
+      const clock = manualClock()
+      try {
+        const { painted, ui } = harness(async () => LATE, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBe(1))
+        // One tick worth three frames: frames 1 and 2 are never composited.
+        clock.tick(FRAME_MS * 3)
+        expect(Number(ui.slider.value), 'the playhead is on frame 3').toBe(3)
+        expect(cell(painted.at(-1), B).fresh, 'new to the reader on the frame shown').toBe(0)
+        ui.exit.click()
+      } finally {
+        clock.restore()
+      }
+    })
+
+    it('never marks a cell that reported in both frames', async () => {
+      const painted = await play(4)
+      for (const frame of painted) expect(cell(frame, A).fresh).toBeUndefined()
+    })
+
+    // The opening frame is the start of the story, not an arrival: fading the
+    // whole map in on every press of play is the pop this task is about, moved.
+    it('treats the opening frame as settled, not as a mass arrival', async () => {
+      const painted = await play(1)
+      expect(cell(painted[0], A).fresh).toBeUndefined()
+      expect(cell(painted[0], C).fresh).toBeUndefined()
+    })
+
+    it('keeps a carried cell muted and never treats it as fresh', async () => {
+      const painted = await play(3)
+      const held = cell(painted[1], C)
+      expect(held.carried, 'C is held on frame 1').toBe(true)
+      expect(held.fresh).toBeUndefined()
+      expect(opacityOf(hexLabelPaint({})['text-opacity'], held)).toBe(CARRIED_OPACITY)
+      expect(cell(painted[2], C).fresh, 'a held cell reporting again is not an arrival').toBeUndefined()
+    })
+
+    // Scrubbing back to before a cell's first reading and forward past its gap
+    // is the one way a held cell can meet a previous frame that never drew it.
+    // Without the guard it would be tagged as an arrival and drawn brighter
+    // than the held reading it is.
+    it('keeps a held cell held when the reader scrubs back past its first hour', async () => {
+      const LATE = {
+        metric: 'P2', resolution_km: 15, cells: [[23, 42], [23.2, 42]],
+        frames: [
+          { t: '2026-09-08T06:00:00Z', v: [10, null] },
+          { t: '2026-09-08T07:00:00Z', v: [10, 7] },
+          { t: '2026-09-08T08:00:00Z', v: [10, null] },
+        ],
+      }
+      const { painted, ui } = harness(async () => LATE, T)
+      ui.button.click()
+      await vi.waitFor(() => expect(painted.length).toBe(1))
+      const scrub = (i) => {
+        ui.slider.value = String(i)
+        ui.slider.dispatchEvent(new Event('input'))
+      }
+      scrub(0)
+      scrub(2)
+      const held = cell(painted.at(-1), 7)
+      expect(held.carried, 'the late cell is held on the last hour').toBe(true)
+      expect(held.fresh).toBeUndefined()
+      expect(opacityOf(hexLabelPaint({})['text-opacity'], held)).toBe(CARRIED_OPACITY)
+    })
+
+    // Belt and braces with the guard above: even handed a feature tagged both
+    // ways, the expression must draw it as held rather than as an arrival.
+    it('draws a cell tagged both ways as held', () => {
+      expect(opacityOf(hexLabelPaint({})['text-opacity'], { carried: true, fresh: 0 })).toBe(CARRIED_OPACITY)
+    })
+
+    it('ramps through the opacities the layer draws', async () => {
+      const painted = await play(3)
+      const expr = hexLabelPaint({})['text-opacity']
+      expect(opacityOf(expr, cell(painted[1], B))).toBe(FRESH_OPACITY)
+      expect(opacityOf(expr, cell(painted[2], B))).toBe(SETTLING_OPACITY)
+      expect(opacityOf(expr, cell(painted[1], A))).toBe(1)
+    })
+
+    // Reduced motion gets the end state at once — a slower ramp is still a
+    // ramp, and app.css suppresses transitions outright under the same query.
+    it('draws an arrival at full opacity under reduced motion', async () => {
+      globalThis.matchMedia = vi.fn((q) => ({ media: q, matches: true }))
+      try {
+        const painted = await play(3, FRAME_MS * 4)
+        for (const frame of painted) {
+          for (const f of frame.features) expect(f.properties.fresh).toBeUndefined()
+        }
+        expect(opacityOf(hexLabelPaint({})['text-opacity'], cell(painted[1], B))).toBe(1)
+      } finally {
+        delete globalThis.matchMedia
+      }
     })
   })
 
@@ -2456,6 +2867,39 @@ describe('refreshHexes', () => {
     expect(map.painted[1].features[0].properties.value).toBe(40)
   })
 
+  // A pan superseded by another pan is answering a viewport the reader has
+  // already left. It cancels itself rather than finishing and being discarded.
+  it('aborts the previous pan when a new one starts', async () => {
+    const state = { scales, hexUrl: null, hexBody: null }
+    const fetchJSON = vi.fn(async () => body)
+
+    await refreshHexes(hexMap(12), state, hexCfg, fetchJSON)
+    const first = fetchJSON.mock.calls[0][1].signal
+    expect(first.aborted).toBe(false)
+
+    await refreshHexes(hexMap(15), state, hexCfg, fetchJSON)
+
+    expect(first.aborted).toBe(true)
+    // The near miss: the pan in flight is not aborted by its own start.
+    expect(fetchJSON.mock.calls[1][1].signal.aborted).toBe(false)
+  })
+
+  // An abort is the caller's own doing, not a failure: no console noise, and
+  // no stale-grid hint. The last good grid simply stays on screen.
+  it('stays quiet and paints nothing when its fetch is aborted', async () => {
+    const map = hexMap()
+    const state = { scales, hexUrl: null, hexBody: null }
+    const fetchJSON = vi.fn(async () => { throw new DOMException('aborted', 'AbortError') })
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await refreshHexes(map, state, hexCfg, fetchJSON)
+
+    expect(map.painted).toHaveLength(0)
+    expect(err).not.toHaveBeenCalled()
+    expect(state.hexUrl).toBe(null)
+    err.mockRestore()
+  })
+
   it('leaves the map untouched and caches nothing when the fetch fails', async () => {
     const map = hexMap()
     const state = { scales, hexUrl: null, hexBody: null }
@@ -2916,8 +3360,13 @@ describe('mount() fades the held readings on the hex label layer', () => {
 
     const labels = map.addLayer.mock.calls.find((c) => c[0]?.id === HEX_LABEL_LAYER_ID)
     expect(labels, 'no hex label layer added').toBeDefined()
-    expect(labels[0].paint['text-opacity'])
-      .toEqual(['case', ['==', ['get', 'carried'], true], CARRIED_OPACITY, 1])
+    expect(labels[0].paint['text-opacity']).toEqual([
+      'case',
+      ['==', ['get', 'carried'], true], CARRIED_OPACITY,
+      ['==', ['get', 'fresh'], 0], FRESH_OPACITY,
+      ['==', ['get', 'fresh'], 1], SETTLING_OPACITY,
+      1,
+    ])
   })
 })
 
@@ -3791,9 +4240,13 @@ describe('hexLabelPaint', () => {
   const cfg = { labelColour: '#222', markerStrokeColour: '#fff' }
 
   it('fades a carried reading and leaves a measured one alone', () => {
-    expect(hexLabelPaint(cfg)['text-opacity']).toEqual(
-      ['case', ['==', ['get', 'carried'], true], CARRIED_OPACITY, 1],
-    )
+    expect(hexLabelPaint(cfg)['text-opacity']).toEqual([
+      'case',
+      ['==', ['get', 'carried'], true], CARRIED_OPACITY,
+      ['==', ['get', 'fresh'], 0], FRESH_OPACITY,
+      ['==', ['get', 'fresh'], 1], SETTLING_OPACITY,
+      1,
+    ])
   })
 
   it('is faded enough to tell apart from a measured reading', () => {
@@ -3801,8 +4254,59 @@ describe('hexLabelPaint', () => {
     expect(CARRIED_OPACITY).toBeGreaterThan(0)
   })
 
+  // A cell fading in is not a cell holding an old number. Keeping the whole
+  // ramp above the held mute is what stops the two from ever looking alike.
+  it('never draws an arriving cell as faint as a held one', () => {
+    expect(FRESH_OPACITY).toBeGreaterThan(CARRIED_OPACITY)
+    expect(SETTLING_OPACITY).toBeGreaterThan(FRESH_OPACITY)
+    expect(SETTLING_OPACITY).toBeLessThan(1)
+  })
+
   it('keeps the colour and halo the measured labels use', () => {
     expect(hexLabelPaint(cfg)['text-color']).toBe('#222')
     expect(hexLabelPaint(cfg)['text-halo-color']).toBe('#fff')
+  })
+})
+
+// mountChrome returns a storage handle so player and legend prefs can thread
+// through injected storage in tests and use the same handle in production.
+describe('mountChrome storage handle', () => {
+  it('threads the injected storage handle through to the player', async () => {
+    const store = new Map()
+    store.set(PLAY_SPEED_KEY, '0.5') // Set initial speed
+    const fakeStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, v),
+    }
+
+    const { map } = mountTestMap({ metric: 'P2' })
+
+    // The whole point of the task: chrome, built by mountChrome, is the object
+    // installTimelapse is handed. Hand-building `{player, storage}` here would
+    // pass whether or not mountChrome returns a storage handle at all.
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const chrome = mountChrome(el, chromeCfg({ storage: fakeStorage }))
+    const ui = chrome.player
+
+    installTimelapse(map, {}, { metric: 'P2', lang: 'en', t: {} }, chrome, async () => ({
+      metric: 'P2', resolution_km: 15, cells: [[23, 42]],
+      frames: [{ t: '2026-09-08T06:00:00Z', v: [10] }],
+    }))
+
+    ui.button.click()
+    await vi.waitFor(() => expect(ui.speed.textContent).not.toBe(''))
+
+    // Verify the initial speed was read from the fake storage
+    expect(ui.speed.textContent).toBe('0.5×')
+
+    // Change the speed
+    ui.speed.click()
+    expect(ui.speed.textContent).toBe('0.25×')
+
+    // Verify it was written to the fake storage
+    expect(store.get(PLAY_SPEED_KEY)).toBe('0.25')
+
+    ui.button.click() // close player
   })
 })

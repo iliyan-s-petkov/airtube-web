@@ -36,7 +36,7 @@ test('the map is a named region, described, and every control shows a focus ring
   // using display:none, which would hide it from the screen readers it exists
   // for — so it must NOT be hidden in the accessibility sense.
   await expect(alt).toHaveCount(1)
-  await expect(alt).not.toBeHidden({ timeout: 1000 }).catch(() => {})
+  await expect(alt).not.toBeHidden({ timeout: 1000 })
   const text = (await alt.textContent()) ?? ''
   expect(text.trim().length).toBeGreaterThan(0)
 

@@ -440,8 +440,8 @@ func TestTheSiteSwatchesFollowTheHexagonMotif(t *testing.T) {
 	if n := strings.Count(clip, ",") + 1; n != 6 {
 		t.Errorf(".legend-swatch clip-path has %d points, want 6: %s", n, clip)
 	}
-	if got := app[".legend-swatch"]["height"]; got != "14px" {
-		t.Errorf(".legend-swatch height = %q, want 14px so the pointy-top hexagon is not squashed", got)
+	if got := app[".legend-swatch"]["block-size"]; got != "14px" {
+		t.Errorf(".legend-swatch block-size = %q, want 14px so the pointy-top hexagon is not squashed", got)
 	}
 
 	for sel, decls := range app {
