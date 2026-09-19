@@ -304,9 +304,9 @@ func buildHexes(snap *Snapshot, sensors []store.SensorReading, now time.Time) er
 }
 
 // buildSensors groups the cycle's sensors by area and encodes the per-area
-// sensor list and series. sensors and seriesBySlug are both read once in
-// Build (sensors by Build itself, seriesBySlug by buildAreas) and passed in
-// rather than re-fetched, for the same reason buildHexes does not re-query.
+// sensor list and series. It is handed the readings rather than querying for
+// its own: a second fetch would let this view and the grid's disagree about
+// what "now" means.
 func buildSensors(snap *Snapshot, h *Holder, sensors []store.SensorReading, seriesBySlug map[string][]store.Point, now time.Time) error {
 	// Group sensors by area. A sensor in three nested areas appears in three
 	// entries; that is correct, since each is a separate response.
