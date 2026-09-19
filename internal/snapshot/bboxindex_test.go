@@ -51,8 +51,11 @@ func TestBBoxIndexClipMatchesUnindexedWalk(t *testing.T) {
 	boxes := map[string]BBox{
 		"empty region":          {W: 40.0, S: 40.0, E: 40.25, N: 40.25},
 		"box on bucket bound":   {W: 23.0, S: 42.0, E: 23.25, N: 42.25},
-		"box inside one bucket": {W: 23.0, S: 42.0, E: 23.25, N: 42.25},
+		"box inside one bucket": {W: 24.0, S: 41.5, E: 24.25, N: 41.75},
 		"whole span":            {W: 21.75, S: 40.75, E: 25.25, N: 43.25},
+		// Not on the BBoxQuantumDegrees grid on any edge — the case clip must
+		// still get right without a prior Quantise().
+		"non-quantised box": {W: 22.3, S: 41.3, E: 22.8, N: 41.8},
 	}
 	for name, bb := range boxes {
 		t.Run(name, func(t *testing.T) {
@@ -63,6 +66,32 @@ func TestBBoxIndexClipMatchesUnindexedWalk(t *testing.T) {
 					bb, len(want), len(got))
 			}
 		})
+	}
+}
+
+// TestBBoxIndexClipPinsFloorNotTruncate pins bucketOf's use of math.Floor
+// (hexes.go:168) against plain truncation. Bulgaria is all-positive, so
+// every other fixture in this file passes under either — this is the one
+// case a negative coordinate is load-bearing.
+//
+// The entry sits just outside the box's west/south edge, in the bucket that
+// Floor assigns it (an edge bucket, always re-checked, so it is correctly
+// excluded). Truncation shifts a negative, non-integer quotient one bucket
+// towards zero, landing this entry in an INTERIOR bucket instead — one
+// clip takes whole, with no per-entry contains() check — so a truncating
+// bucketOf would wrongly include it.
+func TestBBoxIndexClipPinsFloorNotTruncate(t *testing.T) {
+	entries := []hexEntry{
+		{Lon: -0.9, Lat: -0.9, SensorID: 1, N: 1, Country: "??", Values: map[string]float64{"P1": 1}},
+	}
+	bb := BBox{W: -0.8, S: -0.8, E: -0.25, N: -0.25}
+	idx := buildBBoxIndex(entries)
+
+	want := naiveClip(entries, bb)
+	got := idx.clip(entries, bb)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("clip(%v) diverges from the unindexed walk: want %d entries, got %d",
+			bb, len(want), len(got))
 	}
 }
 

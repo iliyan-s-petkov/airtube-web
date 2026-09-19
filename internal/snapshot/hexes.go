@@ -152,13 +152,12 @@ type hexEntry struct {
 // entry. Unexported and carried alongside the source slice it indexes, never
 // serialised.
 //
-// Every box HexBody and PointBody see has already been through BBox.Quantise
-// (see internal/api/overview.go), so a bucket's own lon/lat range is either
-// wholly inside the box or wholly outside it — with one exception: BBox.contains
-// is closed on E and N, but a bucket's own range is closed only on its low
-// edge, so an entry sitting exactly on the box's east or north line shares a
-// bucket with entries just past it. clip re-checks only the buckets on those
-// two edges; every other touched bucket is taken whole.
+// clip is correct for ANY box, quantised or not — HexBody and PointBody carry
+// no precondition on the caller. A bucket's own range is closed only on its
+// low edge, so an edge bucket can hold entries the box does not actually
+// contain (or, off the quantum grid, miss entries it does); clip re-derives
+// its bucket bounds with math.Floor and re-checks all four edges rather than
+// assuming any of them are whole. See clip.
 type bboxIndex struct {
 	buckets map[[2]int][]int // bucket -> ascending indices into the source slice
 }
@@ -180,27 +179,33 @@ func buildBBoxIndex(entries []hexEntry) *bboxIndex {
 	return idx
 }
 
-// clip returns the entries bb.contains, in their original order. w0/s0 need
-// no re-check: BBox.Quantise leaves W and S strictly below E and N by at
-// least one bucket, so the west and south edge buckets are always whole
-// inside the box regardless of its width. Only e0/n0 — the box's own upper
-// edges — can hold entries the walk must re-check individually; see bboxIndex.
+// clip returns the entries bb.contains, in their original order.
+//
+// w0/s0/e0/n0 are the bucket columns/rows the box can touch, derived with
+// the same math.Floor bucketOf keys entries with — so the walk visits every
+// bucket bucketOf could have placed an entry in, on all four sides. Bucket
+// bounds and box bounds agree only when the box is already on the quantum
+// grid (what BBox.Quantise produces); off it, a bucket's range can extend
+// past any of the box's four edges, so all four — not just the box's own
+// upper ones — get a per-entry re-check rather than being taken whole. Only
+// the strictly interior buckets, wholly inside the box on every axis, skip
+// it.
 func (idx *bboxIndex) clip(entries []hexEntry, bb BBox) []hexEntry {
 	const q = BBoxQuantumDegrees
-	w0 := int(math.Round(bb.W / q))
-	e0 := int(math.Round(bb.E / q))
-	s0 := int(math.Round(bb.S / q))
-	n0 := int(math.Round(bb.N / q))
+	w0 := int(math.Floor(bb.W / q))
+	e0 := int(math.Floor(bb.E / q))
+	s0 := int(math.Floor(bb.S / q))
+	n0 := int(math.Floor(bb.N / q))
 
 	var idxs []int
 	for i := w0; i <= e0; i++ {
-		edgeCol := i == e0
+		edgeCol := i == w0 || i == e0
 		for j := s0; j <= n0; j++ {
 			bucket, ok := idx.buckets[[2]int{i, j}]
 			if !ok {
 				continue
 			}
-			if edgeCol || j == n0 {
+			if edgeCol || j == s0 || j == n0 {
 				for _, pos := range bucket {
 					if bb.contains(entries[pos].Lon, entries[pos].Lat) {
 						idxs = append(idxs, pos)
