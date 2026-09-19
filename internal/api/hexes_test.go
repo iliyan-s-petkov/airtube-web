@@ -197,7 +197,8 @@ func clientQuantise(w, s, e, n, q float64) (float64, float64, float64, float64) 
 // 2*0.05, before the box ever reaches the "bbox_too_large" guard — which
 // measures the box AS SENT, deliberately before the server's own Quantise.
 //
-// 1.5 degrees is the true, unsnapped extent under test: the design's own
+// 1.5 degrees is the base unsnapped extent under test (the box carries a small
+// kick past it, see below): the design's own
 // pixel-geometry estimate puts the largest viewport the point tier's zoom
 // range can produce (even on an 8K-wide screen) under 1 degree, so 1.5 is a
 // deliberately generous upper bound on "the largest viewport the point tier

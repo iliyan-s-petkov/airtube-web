@@ -35,7 +35,7 @@ const contractConsumers = [
   'src/lib/mapwindow.js',
   'src/islands/wind.js',
 ]
-const bannedLiterals = [/["'`]24h["'`]/, /["'`]48h["'`]/, /["'`]7d["'`]/, /42\.75/, /\b6371\b/]
+const bannedLiterals = [/["'`]24h["'`]/, /["'`]48h["'`]/, /["'`]7d["'`]/, /\b42\.7\d*\b/, /\b6371\b/]
 
 describe('no restated contract literals in the generated contract\'s consumers', () => {
   for (const path of contractConsumers) {
