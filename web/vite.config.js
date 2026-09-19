@@ -57,30 +57,52 @@ function keepDistTracked() {
   }
 }
 
-// 300 KB gz is this plan's Task 5.4 trigger for lazy-loading wind/timelapse out
-// of the map chunk. Today's measurement is 288.89 KB gz — under the trigger,
-// so nothing is split, but close enough that this needs to fail loudly later.
-const MAP_CHUNK_GZIP_BUDGET_BYTES = 300 * 1024
+// The plan's Task 5.4 trigger is 300 KB gz, set against 288.84 KB gz as
+// measured by Vite/rolldown's own built-in reporter (build.reportCompressedSize
+// below) — ~11 KB of headroom. This plugin measures with node:zlib's
+// gzipSync instead: rolldown computes its reporter's gzip size natively (Rust,
+// no JS-inspectable code path), with compression parameters this plugin
+// cannot see or reproduce, so the two numbers never agree bit-for-bit (node
+// zlib measured 278.68 KB gz on the same file that the reporter called 288.89).
+// build.reportCompressedSize is turned off below so only this number appears
+// in the log. Budget recalibrated to this plugin's own measurement basis,
+// preserving the plan's ~11 KB headroom: 278.68 + 11 ≈ 290 KB.
+// This is a build-side proxy for bundle weight, not a wire-byte prediction —
+// internal/web serves these assets uncompressed; a CDN edge does the real
+// compression at its own settings.
+const MAP_CHUNK_GZIP_BUDGET_BYTES = 290 * 1024
 
 // writeBundle sees the real written bytes, unlike a test that reads
 // internal/web/dist after the fact and would pass vacuously on a stale or
 // missing build. The map chunk is found by facadeModuleId — the source file
 // Rollup split off — rather than by its hashed output filename, which changes
-// every build.
+// every build. If no chunk's facadeModuleId matches, the budget is unenforced
+// with nothing to show for it, so that is a build failure too, not a silent
+// no-op — distinct from the over-budget failure so the two causes read
+// differently in CI output.
 function checkMapChunkSize() {
   return {
     name: 'check-map-chunk-size',
     writeBundle(options, bundle) {
+      let mapChunkFound = false
       for (const chunk of Object.values(bundle)) {
         if (chunk.type !== 'chunk') continue
         const bytes = readFileSync(path.join(options.dir, chunk.fileName))
         const gzipKB = gzipSync(bytes).length / 1024
         console.log(`[chunk size] ${chunk.fileName}: ${gzipKB.toFixed(2)} KB gz`)
-        if (chunk.facadeModuleId?.endsWith('/islands/map.js') && gzipKB * 1024 > MAP_CHUNK_GZIP_BUDGET_BYTES) {
-          throw new Error(
-            `map chunk is ${gzipKB.toFixed(2)} KB gzipped, over the ${(MAP_CHUNK_GZIP_BUDGET_BYTES / 1024).toFixed(0)} KB budget (Task 5.4) — lazy-load wind/timelapse out of it`,
-          )
+        if (chunk.facadeModuleId?.endsWith('/islands/map.js')) {
+          mapChunkFound = true
+          if (gzipKB * 1024 > MAP_CHUNK_GZIP_BUDGET_BYTES) {
+            throw new Error(
+              `map chunk is ${gzipKB.toFixed(2)} KB gzipped, over the ${(MAP_CHUNK_GZIP_BUDGET_BYTES / 1024).toFixed(0)} KB budget (Task 5.4) — lazy-load wind/timelapse out of it`,
+            )
+          }
         }
+      }
+      if (!mapChunkFound) {
+        throw new Error(
+          'Task 5.4 size guard found no chunk with facadeModuleId ending in /islands/map.js — the map chunk-identifying assumption broke (chunking change, map.js rename/merge) and the gzip budget is no longer enforced; update checkMapChunkSize in vite.config.js',
+        )
       }
     },
   }
@@ -111,6 +133,10 @@ export default {
     // `Cache-Control: immutable` without ever serving a stale bundle.
     // Without the manifest, Go cannot know the hashed name.
     manifest: true,
+    // Off so the build log carries one gzip figure per chunk, not two: this
+    // reporter's own native (rolldown) gzip and checkMapChunkSize's node:zlib
+    // gzip disagree on the same bytes (see MAP_CHUNK_GZIP_BUDGET_BYTES above).
+    reportCompressedSize: false,
     // 'theme' is a CSS-only entry: it exists so the design kit's tokens are
     // inlined into the build instead of restated in internal/web/static.
     rollupOptions: { input: { main: 'src/main.js', theme: 'src/styles/theme.css' } },
