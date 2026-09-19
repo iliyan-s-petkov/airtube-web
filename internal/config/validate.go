@@ -101,7 +101,7 @@ func (c Config) validateListen(p *problems) {
 	// Sharing the address means /metrics is reachable from the public chain,
 	// which hands an attacker the counters that show whether their probing is
 	// being rate limited.
-	if c.Listen.Addr == c.Listen.MetricsAddr {
+	if sameListenAddr(c.Listen.Addr, c.Listen.MetricsAddr) {
 		p.addf("listen.addr and listen.metrics_addr are both %q; the private listener must be separate", c.Listen.Addr)
 	}
 	if u, err := url.Parse(c.Listen.BaseURL); err != nil {
@@ -591,10 +591,10 @@ func (c Config) validateTiles(p *problems) {
 	}
 	// A third listener that shares an address with either of the other two is
 	// the "three listeners simplified back to two" mistake, in configuration.
-	if c.Tiles.Addr == c.Listen.Addr {
+	if sameListenAddr(c.Tiles.Addr, c.Listen.Addr) {
 		p.addf("tiles.addr and listen.addr are both %q; the tiles listener must be separate", c.Tiles.Addr)
 	}
-	if c.Tiles.Addr == c.Listen.MetricsAddr {
+	if sameListenAddr(c.Tiles.Addr, c.Listen.MetricsAddr) {
 		p.addf("tiles.addr and listen.metrics_addr are both %q; the tiles listener must be separate", c.Tiles.Addr)
 	}
 
@@ -786,3 +786,30 @@ func connectSrc(csp string) string {
 	}
 	return fallback
 }
+
+// sameListenAddr reports whether two validated host:port strings would bind the
+// same socket. String equality misses 0.0.0.0 covering a specific address and
+// localhost naming 127.0.0.1, both of which put two listeners on one port.
+func sameListenAddr(a, b string) bool {
+	ha, pa := splitListenAddr(a)
+	hb, pb := splitListenAddr(b)
+	if pa != pb {
+		return false
+	}
+	if ha == hb {
+		return true
+	}
+	if ha == "0.0.0.0" || hb == "0.0.0.0" {
+		return true
+	}
+	return loopbackHost(ha) && loopbackHost(hb)
+}
+
+func splitListenAddr(addr string) (host, port string) {
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		return addr[:i], addr[i+1:]
+	}
+	return addr, ""
+}
+
+func loopbackHost(h string) bool { return h == "localhost" || h == "127.0.0.1" }

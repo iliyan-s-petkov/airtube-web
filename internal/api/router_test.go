@@ -294,3 +294,36 @@ func TestPostIsMethodNotAllowed(t *testing.T) {
 		t.Errorf("status = %d, want 405", rec.Code)
 	}
 }
+
+// TestListHeadersAreBoundedAndFailClosed. Both list-valued headers this router
+// parses are capped at a fixed number of parts, so a comma-packed header cannot
+// force an unbounded slice. Past the cap the answer must be the conservative
+// one: no 304, and no gzip.
+func TestListHeadersAreBoundedAndFailClosed(t *testing.T) {
+	mux := api.NewRouter(deps(t, fixture(t)))
+
+	first := httptest.NewRecorder()
+	mux.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil))
+	etag := first.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag on the first response")
+	}
+
+	// The real tag sits past the cap, so it is never read.
+	padded := strings.Repeat(`"x", `, 200) + etag
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil)
+	req.Header.Set("If-None-Match", padded)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200: a tag past the cap must not produce a 304", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil)
+	req.Header.Set("Accept-Encoding", strings.Repeat("identity, ", 200)+"gzip")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if enc := rec.Header().Get("Content-Encoding"); enc != "" {
+		t.Errorf("Content-Encoding = %q; past the cap the tail is unparsed, so a q=0 refusal there would be missed", enc)
+	}
+}

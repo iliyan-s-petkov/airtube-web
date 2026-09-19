@@ -30,6 +30,20 @@ func TestValidateRejects(t *testing.T) {
 		want   string
 	}{
 		{"metrics addr equal to public addr", func(c *Config) { c.Listen.MetricsAddr = c.Listen.Addr }, "must be separate"},
+		// A wildcard public listener already holds the metrics port, and
+		// localhost is 127.0.0.1 by another name: both bind one socket while
+		// comparing unequal as strings.
+		{"public wildcard covers the metrics port", func(c *Config) {
+			c.Listen.Addr = "0.0.0.0:9090"
+			c.Listen.MetricsAddr = "127.0.0.1:9090"
+		}, "must be separate"},
+		{"tiles addr names the public port as localhost", func(c *Config) {
+			c.Listen.Addr = "127.0.0.1:8081"
+			c.Tiles.Addr = "localhost:8081"
+			c.Tiles.Dir = "/tmp"
+			c.Tiles.PublicURL = "http://localhost:8081"
+			c.Tiles.Archive = "bulgaria-20260815.pmtiles"
+		}, "must be separate"},
 		// The metrics listener must never be reachable off-host: it is not
 		// behind the public chain's rate limiter or CSP, so anything that can
 		// bind it to a non-loopback address can read every counter directly.
