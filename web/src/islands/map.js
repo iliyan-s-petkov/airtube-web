@@ -124,6 +124,12 @@ const MAX_ZOOM_CEILING = 24
 // stay legible over every band.
 export const CARRIED_OPACITY = 0.55
 
+// The two steps a newly arrived cell climbs before it is drawn like any other.
+// Both sit above CARRIED_OPACITY so a fading-in reading never reads as a held
+// one, which is a different fact about the same cell.
+export const FRESH_OPACITY = 0.6
+export const SETTLING_OPACITY = 0.8
+
 export function mount(el) {
   const cfg = readConfig(el)
   registerProtocols()
@@ -1255,6 +1261,52 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     weekday: 'short', hour: '2-digit', minute: '2-digit',
   })
 
+  // Which cells carried a digit in the frame drawn before this one, and which
+  // of those had only just arrived. null means there is no previous frame — an
+  // opening frame is the start of the story, not an arrival, so nothing in it
+  // fades in.
+  let prevValued = null
+  let justArrived = new Set()
+  const forgetFrames = () => {
+    prevValued = null
+    justArrived = new Set()
+  }
+
+  // Keyed on the drawn geometry, not on the cell index: hexFeatures reorders
+  // its output and may merge cells, so a frame's own index does not survive
+  // into the feature.
+  const cellKey = (f) => (f.geometry.type === 'Point'
+    ? f.geometry.coordinates
+    : f.geometry.coordinates[0][0]).join(',')
+
+  // A digit appearing where there was none pulls the eye to the arrival rather
+  // than to the value, so a new cell climbs two steps to full strength. Reuses
+  // the replay clock's own reducedMotion(): under it the end state is drawn at
+  // once, since a slower ramp is still motion.
+  const markArrivals = (features) => {
+    const valued = new Set()
+    const arrived = new Set()
+    const ramp = prevValued !== null && !reducedMotion()
+    for (const f of features) {
+      const p = f.properties
+      if (p.value === null || p.value === undefined) continue
+      const key = cellKey(f)
+      valued.add(key)
+      // A carried cell is excluded before anything else, matching the paint
+      // expression: it is holding a value it already had.
+      if (!ramp || p.carried === true) continue
+      if (!prevValued.has(key)) {
+        p.fresh = 0
+        arrived.add(key)
+      } else if (justArrived.has(key)) {
+        p.fresh = 1
+      }
+    }
+    prevValued = valued
+    justArrived = arrived
+    return features
+  }
+
   const paint = (i) => {
     const bands = bandsFor(state.scales, cfg.metric)
     const features = hexFeatures(
@@ -1265,7 +1317,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     )
     map.getSource(HEX_SOURCE_ID)?.setData({
       type: 'FeatureCollection',
-      features: filterByStatus(features, getSensorStatus()),
+      features: markArrivals(filterByStatus(features, getSensorStatus())),
     })
     const t = frameTime(body, i)
     ui.at(i, t ? clock.format(t) : '')
@@ -1276,6 +1328,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
 
   const stop = async (restore = true) => {
     pauseClock()
+    // The live grid goes back up here, so the next press of play opens on a
+    // screen the replay did not draw — its first frame is not an arrival.
+    forgetFrames()
     head.playing = false
     ui.playing(false)
     // open is already false by the time exit/reset call this — a plain pause
@@ -1315,6 +1370,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     // readings actually taken, so filling gaps in before thinFrames saw them
     // would report every hour as complete and silence the guard.
     body = fillForward(measured)
+    // A new tier redraws every cell at a new size, so nothing on screen carries
+    // over and the whole map would otherwise read as one mass arrival.
+    forgetFrames()
     loaded = url
     thin = thinFrames(measured)
     head.count = frameCount(body)
@@ -2039,11 +2097,21 @@ export function installErrorHandler(map, warn = console.warn) {
 // paint values it reads from cfg can be proven directly.
 // hexLabelPaint mutes a held reading. During replay a cell that went silent for
 // an hour is drawn at its last reading rather than dropping its digit, and the
-// fade is what keeps a held number from reading as a measured one.
+// fade is what keeps a held number from reading as a measured one. A cell that
+// has just joined ramps up instead of popping in at full strength.
 export function hexLabelPaint(cfg) {
   return {
     ...labelPaint(cfg),
-    'text-opacity': ['case', ['==', ['get', 'carried'], true], CARRIED_OPACITY, 1],
+    // carried is tested first so the mute wins outright rather than by
+    // evaluation luck: a held reading has a previous value by definition, so it
+    // can never also be an arrival.
+    'text-opacity': [
+      'case',
+      ['==', ['get', 'carried'], true], CARRIED_OPACITY,
+      ['==', ['get', 'fresh'], 0], FRESH_OPACITY,
+      ['==', ['get', 'fresh'], 1], SETTLING_OPACITY,
+      1,
+    ],
   }
 }
 

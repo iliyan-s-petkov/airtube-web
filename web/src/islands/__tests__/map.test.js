@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DIAMOND_RADIUS_PX } from '../../lib/markericon.js'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, hexLabelPaint, CARRIED_OPACITY, PLAY_SPEED_KEY, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, hexLabelPaint, CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY, PLAY_SPEED_KEY, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM, resolutionForZoom } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -1226,6 +1226,139 @@ describe('installTimelapse', () => {
         ui.exit.click()
       } finally {
         clock.restore()
+      }
+    })
+  })
+
+  // A digit that appears where there was none pulls the eye to the arrival
+  // rather than to the value. It must ramp up instead of popping.
+  describe('late joiners', () => {
+    // A always reports, B joins at frame 1, C goes silent at frame 1 and so is
+    // held (carried) there before reporting again.
+    const JOINERS = {
+      metric: 'P2', resolution_km: 15, cells: [[23, 42], [23.2, 42], [23.4, 42]],
+      frames: [
+        { t: '2026-09-08T06:00:00Z', v: [10, null, 30] },
+        { t: '2026-09-08T07:00:00Z', v: [10, 20, null] },
+        { t: '2026-09-08T08:00:00Z', v: [10, 20, 30] },
+        { t: '2026-09-08T09:00:00Z', v: [10, 20, 30] },
+      ],
+    }
+    const A = 10
+    const B = 20
+    const C = 30
+
+    const cell = (frame, value) => frame.features.find((f) => f.properties.value === value)?.properties
+
+    // Evaluates the layer's own 'case' expression: these tests are about what a
+    // cell is DRAWN at, not only about what it is tagged with.
+    const opacityOf = (expr, props) => {
+      for (let i = 1; i < expr.length - 1; i += 2) {
+        const [, [, key], want] = expr[i]
+        if ((props[key] ?? null) === want) return expr[i + 1]
+      }
+      return expr[expr.length - 1]
+    }
+
+    // delay is the tick size: reduced motion floors the frame delay at 0.25x,
+    // so a FRAME_MS tick would advance nothing there.
+    const play = async (frames, delay = FRAME_MS) => {
+      const clock = manualClock()
+      const { painted, ui } = harness(async () => JOINERS, T)
+      ui.button.click()
+      await vi.waitFor(() => expect(painted.length).toBe(1))
+      for (let i = 1; i < frames; i += 1) clock.tick(delay)
+      // Snapshot before exit: leaving the player repaints the live grid, and
+      // that paint is not one of the replay's frames.
+      const replayed = painted.slice()
+      ui.exit.click()
+      clock.restore()
+      return replayed
+    }
+
+    it('ramps a newly arrived cell up over two frames, then settles it', async () => {
+      const painted = await play(4)
+      expect(cell(painted[1], B).fresh, 'the frame B arrives on').toBe(0)
+      expect(cell(painted[2], B).fresh, 'one frame later, no longer freshly arrived').toBe(1)
+      expect(cell(painted[3], B).fresh, 'settled').toBeUndefined()
+    })
+
+    it('never marks a cell that reported in both frames', async () => {
+      const painted = await play(4)
+      for (const frame of painted) expect(cell(frame, A).fresh).toBeUndefined()
+    })
+
+    // The opening frame is the start of the story, not an arrival: fading the
+    // whole map in on every press of play is the pop this task is about, moved.
+    it('treats the opening frame as settled, not as a mass arrival', async () => {
+      const painted = await play(1)
+      expect(cell(painted[0], A).fresh).toBeUndefined()
+      expect(cell(painted[0], C).fresh).toBeUndefined()
+    })
+
+    it('keeps a carried cell muted and never treats it as fresh', async () => {
+      const painted = await play(3)
+      const held = cell(painted[1], C)
+      expect(held.carried, 'C is held on frame 1').toBe(true)
+      expect(held.fresh).toBeUndefined()
+      expect(opacityOf(hexLabelPaint({})['text-opacity'], held)).toBe(CARRIED_OPACITY)
+      expect(cell(painted[2], C).fresh, 'a held cell reporting again is not an arrival').toBeUndefined()
+    })
+
+    // Scrubbing back to before a cell's first reading and forward past its gap
+    // is the one way a held cell can meet a previous frame that never drew it.
+    // Without the guard it would be tagged as an arrival and drawn brighter
+    // than the held reading it is.
+    it('keeps a held cell held when the reader scrubs back past its first hour', async () => {
+      const LATE = {
+        metric: 'P2', resolution_km: 15, cells: [[23, 42], [23.2, 42]],
+        frames: [
+          { t: '2026-09-08T06:00:00Z', v: [10, null] },
+          { t: '2026-09-08T07:00:00Z', v: [10, 7] },
+          { t: '2026-09-08T08:00:00Z', v: [10, null] },
+        ],
+      }
+      const { painted, ui } = harness(async () => LATE, T)
+      ui.button.click()
+      await vi.waitFor(() => expect(painted.length).toBe(1))
+      const scrub = (i) => {
+        ui.slider.value = String(i)
+        ui.slider.dispatchEvent(new Event('input'))
+      }
+      scrub(0)
+      scrub(2)
+      const held = cell(painted.at(-1), 7)
+      expect(held.carried, 'the late cell is held on the last hour').toBe(true)
+      expect(held.fresh).toBeUndefined()
+      expect(opacityOf(hexLabelPaint({})['text-opacity'], held)).toBe(CARRIED_OPACITY)
+    })
+
+    // Belt and braces with the guard above: even handed a feature tagged both
+    // ways, the expression must draw it as held rather than as an arrival.
+    it('draws a cell tagged both ways as held', () => {
+      expect(opacityOf(hexLabelPaint({})['text-opacity'], { carried: true, fresh: 0 })).toBe(CARRIED_OPACITY)
+    })
+
+    it('ramps through the opacities the layer draws', async () => {
+      const painted = await play(3)
+      const expr = hexLabelPaint({})['text-opacity']
+      expect(opacityOf(expr, cell(painted[1], B))).toBe(FRESH_OPACITY)
+      expect(opacityOf(expr, cell(painted[2], B))).toBe(SETTLING_OPACITY)
+      expect(opacityOf(expr, cell(painted[1], A))).toBe(1)
+    })
+
+    // Reduced motion gets the end state at once — a slower ramp is still a
+    // ramp, and app.css suppresses transitions outright under the same query.
+    it('draws an arrival at full opacity under reduced motion', async () => {
+      globalThis.matchMedia = vi.fn((q) => ({ media: q, matches: true }))
+      try {
+        const painted = await play(3, FRAME_MS * 4)
+        for (const frame of painted) {
+          for (const f of frame.features) expect(f.properties.fresh).toBeUndefined()
+        }
+        expect(opacityOf(hexLabelPaint({})['text-opacity'], cell(painted[1], B))).toBe(1)
+      } finally {
+        delete globalThis.matchMedia
       }
     })
   })
@@ -3176,8 +3309,13 @@ describe('mount() fades the held readings on the hex label layer', () => {
 
     const labels = map.addLayer.mock.calls.find((c) => c[0]?.id === HEX_LABEL_LAYER_ID)
     expect(labels, 'no hex label layer added').toBeDefined()
-    expect(labels[0].paint['text-opacity'])
-      .toEqual(['case', ['==', ['get', 'carried'], true], CARRIED_OPACITY, 1])
+    expect(labels[0].paint['text-opacity']).toEqual([
+      'case',
+      ['==', ['get', 'carried'], true], CARRIED_OPACITY,
+      ['==', ['get', 'fresh'], 0], FRESH_OPACITY,
+      ['==', ['get', 'fresh'], 1], SETTLING_OPACITY,
+      1,
+    ])
   })
 })
 
@@ -4051,14 +4189,26 @@ describe('hexLabelPaint', () => {
   const cfg = { labelColour: '#222', markerStrokeColour: '#fff' }
 
   it('fades a carried reading and leaves a measured one alone', () => {
-    expect(hexLabelPaint(cfg)['text-opacity']).toEqual(
-      ['case', ['==', ['get', 'carried'], true], CARRIED_OPACITY, 1],
-    )
+    expect(hexLabelPaint(cfg)['text-opacity']).toEqual([
+      'case',
+      ['==', ['get', 'carried'], true], CARRIED_OPACITY,
+      ['==', ['get', 'fresh'], 0], FRESH_OPACITY,
+      ['==', ['get', 'fresh'], 1], SETTLING_OPACITY,
+      1,
+    ])
   })
 
   it('is faded enough to tell apart from a measured reading', () => {
     expect(CARRIED_OPACITY).toBeLessThan(1)
     expect(CARRIED_OPACITY).toBeGreaterThan(0)
+  })
+
+  // A cell fading in is not a cell holding an old number. Keeping the whole
+  // ramp above the held mute is what stops the two from ever looking alike.
+  it('never draws an arriving cell as faint as a held one', () => {
+    expect(FRESH_OPACITY).toBeGreaterThan(CARRIED_OPACITY)
+    expect(SETTLING_OPACITY).toBeGreaterThan(FRESH_OPACITY)
+    expect(SETTLING_OPACITY).toBeLessThan(1)
   })
 
   it('keeps the colour and halo the measured labels use', () => {
