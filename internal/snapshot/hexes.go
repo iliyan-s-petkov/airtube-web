@@ -739,7 +739,7 @@ func cubeRound(q, r float64) axial {
 	case dx > dy && dx > dz:
 		rx = -ry - rz
 	case dy > dz:
-		ry = -rx - rz
+		// y is the discarded component, so rx and rz stand as rounded.
 	default:
 		rz = -rx - ry
 	}

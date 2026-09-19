@@ -285,7 +285,12 @@ func TestRunOnceFallsBackToCachedMetadataAfterRestart(t *testing.T) {
 	cfg2.MetadataCache = cacheDir
 	cfg2.MaxPayloadBytes = 64 << 20
 
-	st, err := eea.NewCollector(cfg2, s, shippedScorer(t)).RunOnce(ctx)
+	// Its own store, so the assertion below measures what this collector wrote
+	// rather than what the first one left behind: re-writing the first
+	// collector's rows is a no-op upsert and would report nothing written.
+	ctx2, s2 := newStoreForCollector(t)
+
+	st, err := eea.NewCollector(cfg2, s2, shippedScorer(t)).RunOnce(ctx2)
 	if err != nil {
 		t.Fatalf("second collector RunOnce: %v", err)
 	}
@@ -446,8 +451,7 @@ func TestRunOnceScrubsURLFromTransportErrors(t *testing.T) {
 	deadURL := dead.URL
 	dead.Close() // nothing listens here now: a request fails at the transport, not with a status code
 
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ParquetFile/urls":
 			_, _ = w.Write([]byte(deadURL + "/a.parquet?sig=SUPERSECRETTOKEN\n"))
