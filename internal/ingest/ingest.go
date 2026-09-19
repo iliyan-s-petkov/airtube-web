@@ -213,7 +213,7 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 		}
 		switch {
 		case filterErr != nil:
-			pipelineErr = fmt.Errorf("ingest: boundary filter: %w", filterErr)
+			pipelineErr = fmt.Errorf("boundary filter: %w", filterErr)
 
 		case !boundaryPresent:
 			// Fail closed: the national boundary (area.kind = "country") has
@@ -285,9 +285,9 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 
 			if len(scored) > 0 {
 				if err := i.store.UpsertSensors(ctx, scored, res.Country); err != nil {
-					pipelineErr = fmt.Errorf("ingest: upsert sensors: %w", err)
+					pipelineErr = fmt.Errorf("upsert sensors: %w", err)
 				} else if written, err := i.store.WriteReadings(ctx, scored); err != nil {
-					pipelineErr = fmt.Errorf("ingest: write readings: %w", err)
+					pipelineErr = fmt.Errorf("write readings: %w", err)
 				} else {
 					stats.Written = int(written)
 				}
