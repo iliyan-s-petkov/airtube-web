@@ -86,6 +86,10 @@ vi.mock('maplibre-gl', () => {
       this.handlers.click ??= b
       this.clickHandlers[a] = b
     }
+
+    off(event, handler) {
+      if (this.handlers[event] === handler) delete this.handlers[event]
+    }
   }
   return { Map: FakeMap, addProtocol: vi.fn() }
 })
@@ -877,6 +881,11 @@ describe('installTimelapse', () => {
       getBounds: () => ({ getWest: () => 23, getSouth: () => 42, getEast: () => 24, getNorth: () => 43 }),
       getSource: () => ({ setData: (d) => painted.push(d) }),
       on: (evt, fn) => { if (evt === 'zoom') zoomHandlers.push(fn) },
+      off: (evt, fn) => {
+        if (evt !== 'zoom') return
+        const i = zoomHandlers.indexOf(fn)
+        if (i >= 0) zoomHandlers.splice(i, 1)
+      },
     }
     const ui = mountPlayer(document.createElement('div'), { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now', speedLabel: 'Speed' })
     const state = { scales: null, hexUrl: null, window: '24h' }
@@ -921,7 +930,7 @@ describe('installTimelapse', () => {
     }
 
     it('opens at full speed and cycles on each press', async () => {
-      const { ui } = harness(async () => BODY, T, storageFor())
+      const { ui } = harness(async () => BODY, T)
       ui.button.click()
       await vi.waitFor(() => expect(ui.speed.hidden).toBe(false))
       expect(ui.speed.textContent).toBe('1\u00d7')
@@ -973,14 +982,17 @@ describe('installTimelapse', () => {
     it('applies a speed change to a running animation', async () => {
       vi.useFakeTimers()
       try {
-        const { painted, ui } = harness(async () => BODY, T, storageFor())
+        const { painted, ui } = harness(async () => BODY, T)
         ui.button.click()
         await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
         ui.speed.click()
         const after = painted.length
         await vi.advanceTimersByTimeAsync(FRAME_MS)
         expect(painted.length, 'still on the old fast timer').toBe(after)
-        await vi.advanceTimersByTimeAsync(FRAME_MS)
+        // +16: the fake clock's rAF ticks land on its own 16ms grid, not on
+        // this delay's boundary, so the tick that crosses it can be up to one
+        // frame later than the exact millisecond.
+        await vi.advanceTimersByTimeAsync(FRAME_MS + 16)
         expect(painted.length).toBeGreaterThan(after)
         ui.exit.click()
       } finally {
@@ -991,7 +1003,7 @@ describe('installTimelapse', () => {
     // A reader who has paused and pressed the speed button is asking what the
     // next play will look like, not for the animation to start again.
     it('does not start the animation when paused', async () => {
-      const { painted, ui } = harness(async () => BODY, T, storageFor())
+      const { painted, ui } = harness(async () => BODY, T)
       ui.button.click()
       await vi.waitFor(() => expect(ui.speed.hidden).toBe(false))
       ui.button.click()
@@ -1067,6 +1079,81 @@ describe('installTimelapse', () => {
         await vi.advanceTimersByTimeAsync(FRAME_MS + 16)
         expect(painted.length).toBeGreaterThan(after)
         ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  describe('the rAF clock', () => {
+    // The point of the accumulator: a naive "paint on every rAF tick" bug
+    // would paint far more than 3 times across a span this long, since the
+    // fake clock's rAF fires roughly every 16ms.
+    it('advances one frame per elapsed delay, not once per rAF tick', async () => {
+      vi.useFakeTimers()
+      try {
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 3 + 16)
+        expect(painted.length - after).toBe(3)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('pauses while the tab is hidden, and resumes without a catch-up burst', async () => {
+      vi.useFakeTimers()
+      const setHidden = (v) => Object.defineProperty(document, 'hidden', { configurable: true, value: v })
+      try {
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+
+        setHidden(true)
+        document.dispatchEvent(new Event('visibilitychange'))
+        const hiddenSince = painted.length
+        // Ten frame-delays of background time: a clock that keeps ticking
+        // while hidden would paint several frames across this span.
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 10)
+        expect(painted.length, 'no paint while hidden').toBe(hiddenSince)
+
+        setHidden(false)
+        document.dispatchEvent(new Event('visibilitychange'))
+        // Immediately on resume — the elapsed background time must not be
+        // replayed as a burst of frames.
+        await vi.advanceTimersByTimeAsync(16)
+        expect(painted.length, 'no catch-up burst on resume').toBe(hiddenSince)
+
+        await vi.advanceTimersByTimeAsync(FRAME_MS + 16)
+        expect(painted.length).toBeGreaterThan(hiddenSince)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+        setHidden(false)
+      }
+    })
+
+    it('is fully torn down on exit: no further paints, and the zoom listener is gone', async () => {
+      vi.useFakeTimers()
+      try {
+        const asked = []
+        const { ui, painted, map } = harness(async (url) => { asked.push(url); return BODY })
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+
+        ui.exit.click()
+        await vi.advanceTimersByTimeAsync(0)
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 5)
+        expect(painted.length, 'no further paints after exit').toBe(after)
+
+        const askedBefore = asked.length
+        map.setZoom(2)
+        await vi.advanceTimersByTimeAsync(0)
+        expect(asked.length, 'zoom listener removed on exit').toBe(askedBefore)
       } finally {
         vi.useRealTimers()
       }

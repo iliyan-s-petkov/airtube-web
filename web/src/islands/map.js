@@ -1223,7 +1223,13 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   const head = cursor(0)
   let body = null
   let loaded = ''
-  let timer = null
+  // true while a play session is active (paused-for-hidden counts as active);
+  // raf is the actual requestAnimationFrame handle, null whenever none is
+  // scheduled.
+  let timer = false
+  let raf = null
+  let acc = 0
+  let last = 0
   // Read once, at install: the speed is a preference, and re-reading storage
   // per frame would let another tab change the rate mid-animation.
   let speed = readChoice(PLAY_SPEED_KEY, SPEEDS, DEFAULT_SPEED, chrome.storage)
@@ -1259,10 +1265,13 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   }
 
   const stop = async (restore = true) => {
-    if (timer) clearInterval(timer)
-    timer = null
+    pauseClock()
     head.playing = false
     ui.playing(false)
+    // open is already false by the time exit/reset call this — a plain pause
+    // (ontoggle) never touches it, so the zoom follow-along above keeps
+    // working while paused.
+    if (!open) map.off('zoom', onZoom)
     // No refetch: refreshHexes' dedup skips a URL it holds and repaints from the
     // live body it kept, which this never wrote over.
     if (restore) await refreshHexes(map, state, cfg, fetchJSON)
@@ -1305,6 +1314,21 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     return head.count > 0
   }
 
+  // Follows the reader onto the tier the new zoom would ask the live grid
+  // for. Attached only while the player is open (see ontoggle/stop), not for
+  // the page's whole life — wantedURL()'s url === loaded check is what turns
+  // a run of zoom events during a flyTo into at most one request.
+  const onZoom = () => {
+    // Refetch always, repaint only when the body actually changed AND the
+    // animation is running: a flyTo fires a zoom event per frame, and pause
+    // has already put the live grid back — redrawing a frame over it would
+    // undo the reader's own press of pause.
+    const was = loaded
+    load(true).then((ok) => {
+      if (ok && loaded !== was && head.playing) paint(head.i)
+    })
+  }
+
   // matchMedia is missing under jsdom and some old browsers — absent means
   // "no preference", not "reduced".
   const reducedMotion = () => typeof matchMedia === 'function'
@@ -1318,11 +1342,51 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     return reducedMotion() ? Math.max(base, frameDelay(0.25)) : base
   }
 
-  // The one place the timer is started, so a speed change mid-animation and a
-  // fresh press of play cannot disagree about the delay.
+  // setInterval keeps firing in a background tab and coalesces under load —
+  // wrong for an animation. rAF plus an accumulator advances exactly one
+  // frame per elapsed delay, however the ticks themselves land.
+  const tick = (now) => {
+    acc += now - last
+    last = now
+    const delay = effectiveDelay()
+    while (acc >= delay) {
+      paint(step(head))
+      acc -= delay
+    }
+    raf = requestAnimationFrame(tick)
+  }
+
+  // Backgrounding drops the rAF handle rather than letting it run unseen.
+  // Resuming resets the accumulator instead of catching up, so the elapsed
+  // background time is not replayed as a burst of frames.
+  const onVisibility = () => {
+    if (document.hidden) {
+      if (raf) cancelAnimationFrame(raf)
+      raf = null
+    } else if (timer && !raf) {
+      acc = 0
+      last = performance.now()
+      raf = requestAnimationFrame(tick)
+    }
+  }
+
+  const pauseClock = () => {
+    if (raf) cancelAnimationFrame(raf)
+    raf = null
+    timer = false
+    document.removeEventListener('visibilitychange', onVisibility)
+  }
+
+  // The one place the clock is (re)started, so a speed change mid-animation
+  // and a fresh press of play cannot disagree about the delay.
   const run = () => {
-    if (timer) clearInterval(timer)
-    timer = setInterval(() => paint(step(head)), effectiveDelay())
+    if (raf) cancelAnimationFrame(raf)
+    document.removeEventListener('visibilitychange', onVisibility)
+    timer = true
+    acc = 0
+    last = performance.now()
+    document.addEventListener('visibilitychange', onVisibility)
+    raf = document.hidden ? null : requestAnimationFrame(tick)
   }
 
   ui.ontoggle(async () => {
@@ -1337,7 +1401,10 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
       ui.say(cfg.t?.replayNoHistory || '')
       return
     }
-    open = true
+    if (!open) {
+      open = true
+      map.on('zoom', onZoom)
+    }
     head.playing = true
     ui.playing(true)
     paint(head.i)
@@ -1353,28 +1420,11 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     if (timer) run()
   })
 
-  // Follows the reader onto the tier the new zoom would ask the live grid
-  // for. Only while the player is open, and only once wantedURL() actually
-  // names a different tier — load()'s own url === loaded check is what turns
-  // a run of zoom events during a flyTo into at most one request.
-  map.on('zoom', () => {
-    if (!open) return
-    // Refetch always, repaint only when the body actually changed AND the
-    // animation is running: a flyTo fires a zoom event per frame, and pause
-    // has already put the live grid back — redrawing a frame over it would
-    // undo the reader's own press of pause.
-    const was = loaded
-    load(true).then((ok) => {
-      if (ok && loaded !== was && head.playing) paint(head.i)
-    })
-  })
-
-  // A drag is a request to look at one hour: leaving the timer going would move
+  // A drag is a request to look at one hour: leaving the clock going would move
   // the map off that frame a third of a second later.
   ui.onscrub((i) => {
     if (timer) {
-      clearInterval(timer)
-      timer = null
+      pauseClock()
       head.playing = false
       ui.playing(false)
     }
