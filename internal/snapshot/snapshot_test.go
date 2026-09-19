@@ -60,4 +60,3 @@ func TestHolderIsRaceFree(t *testing.T) {
 	}()
 	wg.Wait()
 }
-

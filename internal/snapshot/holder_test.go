@@ -7,11 +7,11 @@ import (
 	"airbg.org/internal/config"
 )
 
-// TestNewHolderRespectesWindArgument proves NewHolder actually uses the wind
+// TestNewHolderRespectsWindArgument proves NewHolder actually uses the wind
 // argument passed to it. The constructor argument must be load-bearing, not
 // ignored. This test fails if NewHolder ignores the wind argument and always
 // uses config.Wind{}.
-func TestNewHolderRespectesWindArgument(t *testing.T) {
+func TestNewHolderRespectsWindArgument(t *testing.T) {
 	series := config.Series{DefaultMetric: "P2", DefaultWindow: time.Hour}
 
 	// Holder with wind disabled
