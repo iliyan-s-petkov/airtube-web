@@ -40,8 +40,12 @@ const TYPES = {
 };
 const server = http.createServer(async (req, res) => {
   const rel = decodeURIComponent(req.url.split('?')[0]);
+  // Resolve then confirm the result is still under KIT: `..` in the request
+  // path would otherwise read anything on disk.
+  const file = path.resolve(KIT, '.' + path.posix.normalize('/' + rel));
+  if (file !== KIT && !file.startsWith(KIT + path.sep)) { res.writeHead(403); res.end('forbidden'); return; }
   try {
-    const buf = await readFile(path.join(KIT, rel));
+    const buf = await readFile(file);
     res.writeHead(200, { 'content-type': TYPES[path.extname(rel)] || 'application/octet-stream' });
     res.end(buf);
   } catch { res.writeHead(404); res.end('not found'); }

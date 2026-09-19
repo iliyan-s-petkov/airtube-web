@@ -1992,7 +1992,10 @@
             if (box.x0 - SGAP < o.x1 && box.x1 + SGAP > o.x0 &&
                 box.y0 - SGAP < o.y1 && box.y1 + SGAP > o.y0) return;
           }
-          var pid = 'street-' + frame.getAttribute('data-od-id') + '-' + drawnStreetNames;
+          // Stripped to id-safe characters: the value reaches an href below,
+          // and the frame's attribute is not ours to trust.
+          var fid = String(frame.getAttribute('data-od-id') || '').replace(/[^A-Za-z0-9_-]/g, '');
+          var pid = 'street-' + fid + '-' + drawnStreetNames;
           var guide = el('path', { id: pid, d: n.d, fill: 'none', stroke: 'none' });
           streetLayer.appendChild(guide);
           var t2 = el('text', { class: 'map-street__name' });
