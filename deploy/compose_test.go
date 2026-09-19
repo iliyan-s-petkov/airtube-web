@@ -180,6 +180,45 @@ func TestTrustedProxyCIDRMatchesTheEdgeSubnet(t *testing.T) {
 	}
 }
 
+// envExampleValue returns the value documented for key in .env.example, the
+// file an operator copies to make a real .env.
+func envExampleValue(t *testing.T, key string) string {
+	t.Helper()
+	data, err := os.ReadFile(".env.example")
+	if err != nil {
+		t.Fatalf("ReadFile(.env.example) error = %v, want nil", err)
+	}
+	prefix := key + "="
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	t.Fatalf(".env.example documents no %s line", key)
+	return ""
+}
+
+// TestDesignPreviewAllowancesDefaultToFalse: the four keys that grant a
+// design-preview host read access to the API and the tiles listener must ship
+// disabled in the example .env. They exist for local preview work, opted in
+// by whoever needs them — not for the example an operator copies to make a
+// real, internet-facing .env.
+func TestDesignPreviewAllowancesDefaultToFalse(t *testing.T) {
+	for _, tt := range []struct {
+		key  string
+		want string
+	}{
+		{"AIRBG_LISTEN_ALLOW_LOOPBACK_ORIGINS", "false"},
+		{"AIRBG_LISTEN_ALLOWED_ORIGINS", ""},
+		{"AIRBG_TILES_ALLOW_LOOPBACK_ORIGINS", "false"},
+		{"AIRBG_TILES_ALLOWED_ORIGINS", ""},
+	} {
+		if got := envExampleValue(t, tt.key); got != tt.want {
+			t.Errorf(".env.example says %s=%q, want %q", tt.key, got, tt.want)
+		}
+	}
+}
+
 // network_mode: host is the port publication that leaves no ports: key behind.
 // It would put every listener in the container directly on the host, defeating
 // TestAppPublishesNoPort and TestOnlyCaddyPublishesPorts without tripping
