@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -185,55 +186,39 @@ func TestWriteReadingsSkipsIdenticalResubmit(t *testing.T) {
 }
 
 // TestWriteReadingsChunksLargeBatches proves a payload larger than
-// writeBatchLimit is still written in full, split across multiple bounded
-// SendBatch flushes rather than one unbounded call — and, since a mutated
-// writeBatchLimit (e.g. 1 or 100000) changed no assertion here before, pins
-// the exact number of flushes against writeBatchLimit rather than only the
-// total row count.
+// writeBatchLimit is still written in full and persisted correctly, split
+// across chunked SendBatch calls rather than one unbounded call. The exact
+// chunk boundaries (how many flushes, and their sizes) are a pure function
+// of writeBatchLimit and are pinned separately, without a DB, by
+// TestWriteBatchRanges in batching_internal_test.go.
 func TestWriteReadingsChunksLargeBatches(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		total       int
-		wantFlushes int
-	}{
-		// Exactly one writeBatchLimit-sized batch: one flush, not two.
-		{"exactlyOneBatch", 1000, 1},
-		// One row over: must not silently round up to one flush of 1001.
-		{"oneOverABatch", 1001, 2},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, total := range []int{1000, 1001} {
+		t.Run(fmt.Sprintf("total=%d", total), func(t *testing.T) {
 			ctx, pool, s := newStore(t)
 			ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-			scored := make([]quality.Scored, 0, tc.total)
-			for i := 0; i < tc.total; i++ {
+			scored := make([]quality.Scored, 0, total)
+			for i := 0; i < total; i++ {
 				scored = append(scored, sample(1, "P1", 20.0, quality.FlagOK, ts.Add(time.Duration(i)*time.Second)))
 			}
 			if err := s.UpsertSensors(ctx, scored[:1], nil); err != nil {
 				t.Fatalf("UpsertSensors: %v", err)
 			}
 
-			var flushes int
-			restore := store.SetWriteReadingsFlushHookForTesting(func() { flushes++ })
-			defer restore()
-
 			n, err := s.WriteReadings(ctx, scored)
 			if err != nil {
 				t.Fatalf("WriteReadings: %v", err)
 			}
-			if n != int64(tc.total) {
-				t.Errorf("wrote %d rows, want %d", n, tc.total)
-			}
-			if flushes != tc.wantFlushes {
-				t.Errorf("flushes = %d, want %d (writeBatchLimit = %d)", flushes, tc.wantFlushes, store.WriteBatchLimitForTesting())
+			if n != int64(total) {
+				t.Errorf("wrote %d rows, want %d", n, total)
 			}
 
 			var got int
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM reading`).Scan(&got); err != nil {
 				t.Fatalf("count: %v", err)
 			}
-			if got != tc.total {
-				t.Errorf("reading count = %d, want %d", got, tc.total)
+			if got != total {
+				t.Errorf("reading count = %d, want %d", got, total)
 			}
 		})
 	}

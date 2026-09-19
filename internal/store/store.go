@@ -84,12 +84,8 @@ const writeBatchLimit = 1000
 // for the upsert/resubmit and return-count semantics.
 func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int64, error) {
 	var written int64
-	for start := 0; start < len(scored); start += writeBatchLimit {
-		end := start + writeBatchLimit
-		if end > len(scored) {
-			end = len(scored)
-		}
-		chunk := scored[start:end]
+	for _, r := range writeBatchRanges(len(scored), writeBatchLimit) {
+		chunk := scored[r[0]:r[1]]
 
 		batch := &pgx.Batch{}
 		for _, sc := range chunk {
@@ -106,9 +102,6 @@ func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int
 		if batch.Len() == 0 {
 			continue
 		}
-		if writeReadingsFlushHook != nil {
-			writeReadingsFlushHook()
-		}
 		n, err := execBatchCountRows(s.pool.SendBatch(ctx, batch), batch.Len())
 		written += n
 		if err != nil {
@@ -118,21 +111,28 @@ func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int
 	return written, nil
 }
 
-// writeReadingsFlushHook, when set, is called once per SendBatch flush in
-// WriteReadings. Production code never sets it; see
-// SetWriteReadingsFlushHookForTesting.
-var writeReadingsFlushHook func()
-
-// SetWriteReadingsFlushHookForTesting installs h to run on every WriteReadings
-// flush, so a test can count flushes and pin them against writeBatchLimit.
-func SetWriteReadingsFlushHookForTesting(h func()) (restore func()) {
-	writeReadingsFlushHook = h
-	return func() { writeReadingsFlushHook = nil }
+// writeBatchRanges splits [0, total) into [start, end) pairs of at most
+// limit each, in order, for WriteReadings to flush one pgx.Batch per pair.
+// Pure and unexported so its chunk boundaries — how many flushes a given
+// input produces — can be pinned directly by an in-package test, without
+// exporting a hook onto the production write path.
+func writeBatchRanges(total, limit int) [][2]int {
+	if total <= 0 {
+		return nil
+	}
+	if limit <= 0 {
+		limit = total
+	}
+	ranges := make([][2]int, 0, (total+limit-1)/limit)
+	for start := 0; start < total; start += limit {
+		end := start + limit
+		if end > total {
+			end = total
+		}
+		ranges = append(ranges, [2]int{start, end})
+	}
+	return ranges
 }
-
-// WriteBatchLimitForTesting exposes writeBatchLimit so a test's failure
-// message can name the value that flush-count expectations were pinned to.
-func WriteBatchLimitForTesting() int { return writeBatchLimit }
 
 // execBatchCountRows consumes n queued results off br — Close alone discards
 // them without reading RowsAffected — and sums each statement's affected row
