@@ -244,7 +244,12 @@ func ParseCSV(r io.Reader, sensorID int64, qcfg config.Quality) ([]HourlyBucket,
 		// sensor's history onto a different sensor.
 		if sensorIDCol != -1 && sensorIDCol < len(record) && record[sensorIDCol] != "" {
 			rowID, err := strconv.ParseInt(record[sensorIDCol], 10, 64)
-			if err == nil && rowID != sensorID {
+			if err != nil {
+				return nil, report, fmt.Errorf(
+					"backfill: csv sensor_id %q is not a valid integer — refusing to import",
+					record[sensorIDCol])
+			}
+			if rowID != sensorID {
 				return nil, report, fmt.Errorf(
 					"backfill: csv sensor_id %d does not match requested sensor_id %d — refusing to import",
 					rowID, sensorID)

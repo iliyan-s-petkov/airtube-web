@@ -575,6 +575,29 @@ func TestCheckNotOfficialAcceptsOrdinarySensorID(t *testing.T) {
 	}
 }
 
+// TestCheckNotOfficialRejectsExactFloor pins the boundary itself: the floor
+// value is reserved, so >= must reject it, not just values above it.
+func TestCheckNotOfficialRejectsExactFloor(t *testing.T) {
+	if err := backfill.CheckNotOfficial(9_000_000_000); err == nil {
+		t.Fatal("CheckNotOfficial accepted sensor_id exactly at the official floor")
+	}
+}
+
+// TestParseCSVRejectsUnparseableSensorIDColumn covers a malformed sensor_id
+// value, not just a disagreeing one: ParseInt failing must not fall through
+// and silently import the row under the CLI arg.
+func TestParseCSVRejectsUnparseableSensorIDColumn(t *testing.T) {
+	const csvData = "sensor_id;timestamp;P1\n456abc;2025-08-07T10:05:00;20.00\n"
+
+	buckets, _, err := backfill.ParseCSV(strings.NewReader(csvData), 123, testQualityConfig())
+	if err == nil {
+		t.Fatal("ParseCSV accepted a CSV row with an unparseable sensor_id")
+	}
+	if buckets != nil {
+		t.Errorf("ParseCSV returned %d buckets on an unparseable sensor_id, want none", len(buckets))
+	}
+}
+
 func TestCheckSensorInBoundaryAcceptsKnownBulgarianSensor(t *testing.T) {
 	ctx, pool := migrated(t)
 	insertBoundary(ctx, t, pool)
