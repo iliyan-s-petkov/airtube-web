@@ -183,6 +183,11 @@ func TestRunOnceCountsUnmodifiedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Fixed and far from time.Now(), so a collector that sends its own clock
+	// instead of this value as If-Modified-Since is caught below rather than
+	// coincidentally matching.
+	const served = "Wed, 21 Oct 2015 07:28:00 GMT"
+
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -191,15 +196,14 @@ func TestRunOnceCountsUnmodifiedFiles(t *testing.T) {
 		case "/metadata.csv":
 			_, _ = w.Write(metadata)
 		default:
-			if r.Header.Get("If-Modified-Since") != "" {
+			if ims := r.Header.Get("If-Modified-Since"); ims != "" {
+				if ims != served {
+					t.Errorf("If-Modified-Since = %q, want %q (the Last-Modified this server previously sent)", ims, served)
+				}
 				w.WriteHeader(http.StatusNotModified)
 				return
 			}
-			// A real download API answers with its own Last-Modified; the
-			// collector must carry it forward as If-Modified-Since on the
-			// next cycle rather than a locally-clocked timestamp, so this
-			// fixture stands in for that contract.
-			w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+			w.Header().Set("Last-Modified", served)
 			_, _ = w.Write(parquet)
 		}
 	}))
@@ -423,6 +427,59 @@ func TestRunOnceNeverLogsAURLQueryString(t *testing.T) {
 	}
 	if strings.Contains(logged, "SUPERSECRETTOKEN") {
 		t.Errorf("the SAS token itself was logged:\n%s", logged)
+	}
+}
+
+// TestRunOnceScrubsURLFromTransportErrors covers the sibling leak the 500-based
+// test above cannot reach: net/http reports a transport failure (DNS, TLS,
+// connection refused) as a *url.Error whose Error() embeds the full request
+// URL, query string and all — unlike an HTTP status error, which carries no
+// URL at all. The dead server below is closed before use, so FetchFile hits
+// exactly that path.
+func TestRunOnceScrubsURLFromTransportErrors(t *testing.T) {
+	metadata, err := os.ReadFile("testdata/metadata_extract.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close() // nothing listens here now: a request fails at the transport, not with a status code
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ParquetFile/urls":
+			_, _ = w.Write([]byte(deadURL + "/a.parquet?sig=SUPERSECRETTOKEN\n"))
+		case "/metadata.csv":
+			_, _ = w.Write(metadata)
+		}
+	}))
+	defer srv.Close()
+
+	ctx, s := newStoreForCollector(t)
+
+	cfg := testConfig(srv.URL, srv.URL+"/metadata.csv")
+	cfg.FileHosts = append(cfg.FileHosts, hostOf(t, deadURL))
+	cfg.MetadataCache = t.TempDir()
+	cfg.MaxPayloadBytes = 64 << 20
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	_, runErr := eea.NewCollector(cfg, s, shippedScorer(t)).RunOnce(ctx)
+
+	logged := buf.String()
+	if !strings.Contains(logged, "eea file fetch failed") {
+		t.Fatalf("expected a fetch-failed log line, got:\n%s", logged)
+	}
+	if strings.Contains(logged, "?") || strings.Contains(logged, "sig") {
+		t.Errorf("a logged line carries the URL's query string:\n%s", logged)
+	}
+	if runErr != nil && (strings.Contains(runErr.Error(), "?") || strings.Contains(runErr.Error(), "sig")) {
+		t.Errorf("RunOnce's returned error carries the URL's query string: %v", runErr)
 	}
 }
 

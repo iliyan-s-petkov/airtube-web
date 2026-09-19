@@ -39,6 +39,27 @@ func urlWithoutQuery(raw string) string {
 	return raw
 }
 
+// scrubURLError strips the query string out of a *url.Error's URL field
+// wherever it appears in err's message, since net/http returns transport
+// failures (DNS, TLS, connection reset, redirect refusal, ctx cancellation)
+// as *url.Error{URL: <the request URL, query and all>}. Every Client method
+// below runs its error result through this before returning it, so no
+// caller can forward a SAS token by forwarding an error.
+func scrubURLError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var uerr *url.Error
+	if !errors.As(err, &uerr) {
+		return err
+	}
+	clean := urlWithoutQuery(uerr.URL)
+	if clean == uerr.URL {
+		return err
+	}
+	return errors.New(strings.ReplaceAll(err.Error(), uerr.URL, clean))
+}
+
 // datasetUTD is the near-real-time set, ~1h behind. Datasets 2 and 3 are the
 // verified archives and lag by years.
 const datasetUTD = 1
@@ -105,7 +126,7 @@ const utf8BOM = "\ufeff"
 func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err error) {
 	trusted, err := url.Parse(c.cfg.URL)
 	if err != nil {
-		return nil, 0, fmt.Errorf("eea: file urls: configured URL: %w", err)
+		return nil, 0, scrubURLError(fmt.Errorf("eea: file urls: configured URL: %w", err))
 	}
 
 	body, err := json.Marshal(urlsRequest{
@@ -122,14 +143,14 @@ func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		strings.TrimSuffix(c.cfg.URL, "/")+"/ParquetFile/urls", bytes.NewReader(body))
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, scrubURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("eea: file urls: %w", err)
+		return nil, 0, scrubURLError(fmt.Errorf("eea: file urls: %w", err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -164,19 +185,12 @@ func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err
 	return urls, rejected, nil
 }
 
-// FetchFile downloads one Parquet file. modified is false on a 304, where the
-// body is empty and the caller keeps what it already stored.
-//
-// lastModified is the server's own Last-Modified response header, parsed if
-// present and zero otherwise. The caller sends it back as If-Modified-Since on
-// the next call instead of a locally-clocked timestamp: this host's clock and
-// the upstream's are two different clocks, and any skew between them means
-// either an unchanged file is refetched every cycle or a genuinely changed one
-// is skipped as if it were not.
+// FetchFile downloads one Parquet file. modified is false on a 304. lastModified
+// is the server's own Last-Modified header (zero if absent) — see README.md.
 func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) (body []byte, modified bool, lastModified time.Time, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, false, time.Time{}, err
+		return nil, false, time.Time{}, scrubURLError(err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 	if !since.IsZero() {
@@ -185,7 +199,7 @@ func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) (bo
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, false, time.Time{}, fmt.Errorf("eea: fetch file: %w", err)
+		return nil, false, time.Time{}, scrubURLError(fmt.Errorf("eea: fetch file: %w", err))
 	}
 	defer resp.Body.Close()
 
@@ -216,13 +230,13 @@ func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) (bo
 func (c *Client) FetchMetadata(ctx context.Context) (Metadata, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.MetadataURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, scrubURLError(err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("eea: fetch metadata: %w", err)
+		return nil, scrubURLError(fmt.Errorf("eea: fetch metadata: %w", err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

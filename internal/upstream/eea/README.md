@@ -106,8 +106,15 @@ never averaged.
 
 ## Operational notes
 
-- `Client.FetchFile` uses conditional `GET` with `If-Modified-Since`; an
-  unchanged file costs a 304 and is counted in `Stats.Unmodified`.
+- `Client.FetchFile` uses conditional `GET` with `If-Modified-Since`, set from
+  the server's own prior `Last-Modified` response rather than this host's
+  clock, since the two clocks can skew; an unchanged file costs a 304 and is
+  counted in `Stats.Unmodified`.
+- Every download URL carries a SAS token in its query string. `client.go`'s
+  `urlWithoutQuery` and `scrubURLError` strip it from anything logged or
+  returned, including transport errors, which embed the full request URL.
+  `Collector.lastFileFetch` is pruned of entries older than `fileFetchTTL`
+  (48h) each cycle, since the upstream file list rotates by date.
 - Every HTTP read is bounded by `io.LimitReader` against
   `config.EEA.MaxPayloadBytes` — see client.go. The metadata file alone is
   26 MB, so that bound must be sized for it (`internal/config/validate.go`

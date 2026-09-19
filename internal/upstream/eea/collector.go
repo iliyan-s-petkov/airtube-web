@@ -88,7 +88,7 @@ func (c *Collector) loadMetadata(ctx context.Context) error {
 		if c.metadata != nil {
 			// Station coordinates are static, so a stale copy is preferable to
 			// an empty official layer.
-			slog.Warn("eea metadata refresh failed, keeping the cached copy", "error", err)
+			slog.Warn("eea metadata refresh failed, keeping the cached copy", "error", scrubURLError(err))
 			return nil
 		}
 		if cached, readErr := os.ReadFile(metadataCachePath(c.cfg.MetadataCache)); readErr == nil {
@@ -111,12 +111,12 @@ func (c *Collector) RunOnce(ctx context.Context) (Stats, error) {
 	var st Stats
 
 	if err := c.loadMetadata(ctx); err != nil {
-		return st, err
+		return st, scrubURLError(err)
 	}
 
 	urls, rejected, err := c.client.FileURLs(ctx)
 	if err != nil {
-		return st, err
+		return st, scrubURLError(err)
 	}
 	st.UntrustedURL = rejected
 	if rejected > 0 {
@@ -131,25 +131,19 @@ func (c *Collector) RunOnce(ctx context.Context) (Stats, error) {
 		st.Files++
 		body, modified, lastModified, err := c.client.FetchFile(ctx, u, c.lastFileFetch[u].lastModified)
 		if err != nil {
-			slog.Warn("eea file fetch failed", "file", urlWithoutQuery(u), "error", err)
+			slog.Warn("eea file fetch failed", "file", urlWithoutQuery(u), "error", scrubURLError(err))
 			continue
 		}
 		if !modified {
 			st.Unmodified++
-			// The file is unchanged, so its Last-Modified is unchanged too;
-			// only seenAt advances, which is what keeps this entry from being
-			// pruned while the collector is still asking about it.
+			// Unchanged file: bump seenAt only, so pruning below leaves it alone.
 			prev := c.lastFileFetch[u]
 			prev.seenAt = now
 			c.lastFileFetch[u] = prev
 			continue
 		}
-		// A response with no Last-Modified header keeps whatever was stored
-		// before rather than being treated as "never modified": the next
-		// cycle then sends no If-Modified-Since for this URL and refetches
-		// it in full, which is the same failure mode the collector already
-		// had for every file before this header existed — never a newly
-		// introduced one.
+		// No Last-Modified header: keep the prior value, so next cycle just
+		// refetches this file in full instead of corrupting the cache.
 		next := fileFetchState{lastModified: c.lastFileFetch[u].lastModified, seenAt: now}
 		if !lastModified.IsZero() {
 			next.lastModified = lastModified
@@ -158,7 +152,7 @@ func (c *Collector) RunOnce(ctx context.Context) (Stats, error) {
 
 		decoded, err := DecodeRows(bytes.NewReader(body), int64(len(body)))
 		if err != nil {
-			slog.Warn("eea file decode failed", "file", urlWithoutQuery(u), "error", err)
+			slog.Warn("eea file decode failed", "file", urlWithoutQuery(u), "error", scrubURLError(err))
 			continue
 		}
 		rows = append(rows, decoded...)
@@ -282,7 +276,7 @@ func (c *Collector) Loop(ctx context.Context) {
 	run := func() {
 		s, err := c.RunOnce(ctx)
 		if err != nil {
-			slog.Error("eea cycle failed", "error", err)
+			slog.Error("eea cycle failed", "error", scrubURLError(err))
 			return
 		}
 		slog.Info("eea cycle complete",
