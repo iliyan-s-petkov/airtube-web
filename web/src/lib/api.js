@@ -101,7 +101,13 @@ function attach(entry, url, signal) {
   if (!signal) return entry.promise.finally(() => { entry.waiters -= 1 })
 
   return new Promise((resolve, reject) => {
+    // Once per caller: a caller that aborts and whose shared request settles
+    // afterwards reaches done() twice, which would decrement for one waiter
+    // twice and can drive the count negative.
+    let settled = false
     const done = () => {
+      if (settled) return
+      settled = true
       signal.removeEventListener('abort', onAbort)
       entry.waiters -= 1
     }
