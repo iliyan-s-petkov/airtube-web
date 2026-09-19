@@ -20,11 +20,10 @@ describe('no literal colours in web/src', () => {
   }
 })
 
-// The files that generated contract.json to stop the drift these two Go
-// constants had: BBoxQuantumDegrees (0.25 vs. JS's own stale 0.05) and the two
-// projection constants. A literal span/window name or projection number
-// reappearing here means a value slipped back to being restated instead of
-// read from contract.json — the exact failure mode this phase closes.
+// Values restated here instead of read from contract.json. The equality test in
+// __tests__/contract.test.js catches a copy that DISAGREES; this catches a copy
+// that agrees today and is free to drift tomorrow. Quote-agnostic: the single
+// quotes this list used to require were evadable by typing double ones.
 //
 // '0.25', '100' and '0' are deliberately not on this list: they are ordinary
 // numbers this code needs for other reasons (THIN_COVERAGE, SPEEDS, tier
@@ -36,7 +35,7 @@ const contractConsumers = [
   'src/lib/mapwindow.js',
   'src/islands/wind.js',
 ]
-const bannedLiterals = [/'24h'/, /'48h'/, /'7d'/, /42\.75/, /\b6371\b/]
+const bannedLiterals = [/["'`]24h["'`]/, /["'`]48h["'`]/, /["'`]7d["'`]/, /42\.75/, /\b6371\b/]
 
 describe('no restated contract literals in the generated contract\'s consumers', () => {
   for (const path of contractConsumers) {
