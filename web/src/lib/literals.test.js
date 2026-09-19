@@ -19,3 +19,32 @@ describe('no literal colours in web/src', () => {
     }
   }
 })
+
+// Values restated here instead of read from contract.json. The equality test in
+// __tests__/contract.test.js catches a copy that DISAGREES; this catches a copy
+// that agrees today and is free to drift tomorrow. Quote-agnostic: the single
+// quotes this list used to require were evadable by typing double ones.
+//
+// '0.25', '100' and '0' are deliberately not on this list: they are ordinary
+// numbers this code needs for other reasons (THIN_COVERAGE, SPEEDS, tier
+// indices) and banning them would make the test fail on code that has nothing
+// to do with the contract.
+const contractConsumers = [
+  'src/lib/hexes.js',
+  'src/lib/timelapse.js',
+  'src/lib/mapwindow.js',
+  'src/islands/wind.js',
+]
+const bannedLiterals = [/["'`]24h["'`]/, /["'`]48h["'`]/, /["'`]7d["'`]/, /\b42\.7\d*\b/, /\b6371\b/]
+
+describe('no restated contract literals in the generated contract\'s consumers', () => {
+  for (const path of contractConsumers) {
+    it(path, () => {
+      const src = readFileSync(path, 'utf8')
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+      for (const pattern of bannedLiterals) {
+        expect(code).not.toMatch(pattern)
+      }
+    })
+  }
+})

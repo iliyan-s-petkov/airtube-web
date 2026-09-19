@@ -54,7 +54,7 @@ const HexResolutionKM = 15.0
 // which a lone sensor in a bin is locatable.
 //
 // The three coarse tiers exist for the national view. The client sizes a cell
-// to ~50 screen pixels, which at the zoom the country fits on a screen wants a
+// to 32 screen pixels, which at the zoom the country fits on a screen wants a
 // bin around 45 km wide; with 15 km as the coarsest, that view was answered
 // with bins a third of the size it asked for and the grid rendered as a field
 // of specks. Coarse tiers also cost the least to build — a coarser bin means

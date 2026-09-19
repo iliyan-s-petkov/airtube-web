@@ -1,8 +1,9 @@
 // A cursor over the server's frames and a way to turn one back into the hex body
 // the map already draws. Nothing here fetches or paints; the island owns both.
+import contract from './contract.json'
 
-// A deliberate duplicate of snapshot.FrameSpecs, like mapwindow.js's WindowSpecs.
-export const SPANS = ['24h', '48h', '7d']
+// Sourced from contract.json, generated from snapshot.FrameSpecs.
+export const SPANS = contract.spans.map((s) => s.span)
 
 // A day passes in about eight seconds at full speed.
 export const FRAME_MS = 320

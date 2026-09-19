@@ -13,20 +13,19 @@
 // out of a test's reach.
 
 import { safeStorage } from './storage.js'
+import contract from './contract.json'
 
 export const WINDOW_STORAGE_KEY = 'airbg:map-window'
 
 // The live view, and the empty name that asks for it. Empty so the default
 // view's URL carries no parameter at all — the front page's canonical address
 // is unchanged by this feature, and every cached copy of it stays valid.
-export const LIVE_WINDOW = ''
+export const LIVE_WINDOW = contract.live_window
 
-// The windows the server publishes, coarsest last. A DELIBERATE DUPLICATE of
-// snapshot.WindowSpecs, for the reason hexes.js duplicates the projection
-// constants: one is Go and one is JS, they cannot be imported across, and they
-// must agree. A name here the server does not know is a 400 on every request the
-// reader makes after picking it.
-export const WINDOWS = ['24h', '48h', '7d']
+// The windows the server publishes, coarsest last. Sourced from contract.json,
+// generated from snapshot.WindowSpecs. A name here the server does not know is
+// a 400 on every request the reader makes after picking it.
+export const WINDOWS = contract.windows.map((w) => w.name)
 
 // The whole choice, in the order the selector offers it: now first, then further
 // back. Exported because the label list is positional against it.

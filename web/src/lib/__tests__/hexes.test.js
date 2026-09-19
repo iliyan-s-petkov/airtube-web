@@ -13,6 +13,7 @@ import {
   POINT_TIER_MIN_ZOOM_FRACTIONAL,
 } from '../hexes.js'
 import { rampColour } from '../ramp.js'
+import contract from '../contract.json'
 
 // Bin centres taken from the Go implementation, which is the only authority on
 // where a bin actually sits. Regenerate by printing hexCentre(axial{q,r}, res)
@@ -158,6 +159,21 @@ describe('bboxParam', () => {
     const a = bboxParam(13, bounds(23.311, 42.611, 23.339, 42.639))
     const b = bboxParam(13, bounds(23.314, 42.613, 23.341, 42.641))
     expect(a).toBe(b)
+  })
+
+  // The assertion above passes at ANY positive quantum, which is how the client
+  // kept snapping onto 0.05 while the server stored on 0.25. These two pin the
+  // number itself: the first fails if this file stops reading contract.json,
+  // the second fails if contract.json's quantum moves without the grid the
+  // server actually stores under moving with it.
+  it('snaps onto the quantum contract.json publishes', () => {
+    const q = contract.hex.bbox_quantum_deg
+    const edges = bboxParam(13, bounds(23.31, 42.61, 23.44, 42.72)).split(',').map(Number)
+    for (const v of edges) expect(Math.abs(v / q - Math.round(v / q))).toBeLessThan(1e-9)
+  })
+
+  it('snaps this viewport onto this box, at the published quantum of 0.25', () => {
+    expect(bboxParam(13, bounds(23.31, 42.61, 23.44, 42.72))).toBe('23.25,42.5,23.5,42.75')
   })
 
   it('clamps to the legal coordinate range', () => {

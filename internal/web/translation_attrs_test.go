@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"airbg.org/internal/snapshot"
 )
 
 // dataTAttrRe finds the START of a data-t-* attribute. The value is scanned by
@@ -124,6 +126,48 @@ func TestEveryPageRendersTheSameMapIslandAttributes(t *testing.T) {
 		if strings.Join(want[name], ",") != strings.Join(base, ",") {
 			t.Errorf("%s renders a different map island attribute set than index.gohtml:\n %s\n index.gohtml:\n %s",
 				name, strings.Join(want[name], ","), strings.Join(base, ","))
+		}
+	}
+}
+
+// TestDataTWindowsMatchesWindowSpecs pins base.gohtml's data-t-windows list
+// against snapshot.WindowSpecs, which mapwindow.js's WINDOW_CHOICES is now
+// generated from (see contract.go). data-t-windows is hand-written HTML, not
+// generated, and it is positional: live first, then WindowSpecs in order (see
+// the comment above mapLayerLabels in base.gohtml). A published window added
+// to WindowSpecs without a matching entry here leaves the selector one choice
+// short, silently, since nothing else reads this attribute's length.
+func TestDataTWindowsMatchesWindowSpecs(t *testing.T) {
+	src, err := fs.ReadFile(templateFS, "templates/base.gohtml")
+	if err != nil {
+		t.Fatalf("reading base.gohtml: %v", err)
+	}
+
+	var windowsAttr string
+	for _, attr := range dataTAttrs(string(src)) {
+		if attr.name == "windows" {
+			windowsAttr = attr.value
+			break
+		}
+	}
+	if windowsAttr == "" {
+		t.Fatal("base.gohtml: no data-t-windows attribute found")
+	}
+
+	calls := tCallRe.FindAllString(windowsAttr, -1)
+	want := len(snapshot.WindowSpecs) + 1 // +1 for the live choice, which has no WindowSpec of its own
+	if len(calls) != want {
+		t.Fatalf("data-t-windows has %d {{.T}} calls (%v), want %d (1 live + len(snapshot.WindowSpecs)=%d)",
+			len(calls), calls, want, len(snapshot.WindowSpecs))
+	}
+
+	if calls[0] != `{{.T "map.window.live"}}` {
+		t.Errorf("data-t-windows[0] = %s, want the live choice {{.T \"map.window.live\"}} first", calls[0])
+	}
+	for i, w := range snapshot.WindowSpecs {
+		want := `{{.T "map.window.` + w.Name + `"}}`
+		if got := calls[i+1]; got != want {
+			t.Errorf("data-t-windows[%d] = %s, want %s (snapshot.WindowSpecs[%d].Name = %q)", i+1, got, want, i, w.Name)
 		}
 	}
 }

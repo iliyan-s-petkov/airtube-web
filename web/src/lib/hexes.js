@@ -1,16 +1,14 @@
 // The hex grid's client half: which resolution a zoom asks for, which viewport
 // it asks about, and how a bin centre becomes a drawable hexagon.
 //
-// The projection constants below are a DELIBERATE DUPLICATE of
-// internal/snapshot/hexes.go (hexRefLat, earthRadiusKM, hexSizeOf, hexCentre).
-// They cannot be imported — one is Go on the server, the other JS in the
-// browser — and they must agree, or the drawn cell sits off the ground its
-// count came from. hexes.test.js pins the two together against values taken
-// from the Go implementation; change one side and that test fails.
+// The projection and tier constants below come from contract.json, generated
+// by `go run ./cmd/airbg contract` from internal/snapshot. That is what keeps
+// this file and the Go server from drifting apart the way BBOX_QUANTUM_DEG did.
 import { OFFICIAL_SOURCE, sourceOf } from './sourcefilter.svelte.js'
+import contract from './contract.json'
 
-const EARTH_RADIUS_KM = 6371
-const HEX_REF_LAT = 42.75
+const EARTH_RADIUS_KM = contract.hex.earth_radius_km
+const HEX_REF_LAT = contract.hex.ref_lat
 
 // Target on-screen width of one hex, in CSS pixels: the cell stays about this
 // big at every zoom. See docs/map-rendering.md for why it is not larger.
@@ -26,16 +24,15 @@ const M_PER_PX_Z0 = (2 * Math.PI * EARTH_RADIUS_KM * 1000) / 256 * Math.cos(radi
 export const BBOX_MIN_ZOOM = 8
 
 // The finest cell the server publishes, in km — the last entry of
-// snapshot.HexTiersKM. Another deliberate duplicate, for the same reason as the
-// projection constants above, and it earns its keep: past this size the server
-// has no smaller bin to snap to, so asking for one only re-requests the 250 m
-// grid under a different URL. That is where the point tier begins instead.
-const FINEST_TIER_KM = 0.25
+// contract.hex.tiers_km. It earns its keep: past this size the server has no
+// smaller bin to snap to, so asking for one only re-requests the 250 m grid
+// under a different URL. That is where the point tier begins instead.
+const FINEST_TIER_KM = contract.hex.tiers_km[contract.hex.tiers_km.length - 1]
 
 // The resolution that means "not a grid at all": one entry per sensor, each
 // naming its device. Zero is the limit of the tier list — a cell small enough
 // to hold one sensor IS that sensor.
-export const POINT_RESOLUTION_KM = 0
+export const POINT_RESOLUTION_KM = contract.hex.point_resolution_km
 
 // The first whole zoom at which hexesURL asks for devices rather than bins.
 // Derived from the two constants that decide it, never restated as a literal:
@@ -52,9 +49,8 @@ export const POINT_TIER_MIN_ZOOM = (() => {
 })()
 
 // The COARSEST cell the server publishes, in km — the first entry of
-// snapshot.HexTiersKM, and a deliberate duplicate for the same reason
-// FINEST_TIER_KM is one.
-const COARSEST_TIER_KM = 100
+// contract.hex.tiers_km, for the same reason FINEST_TIER_KM reads from it too.
+const COARSEST_TIER_KM = contract.hex.tiers_km[0]
 
 // The smallest a cell may be drawn before it stops reading as a cell, in screen
 // pixels. A hexagon under about this size is a speck: its colour is still there
@@ -97,7 +93,12 @@ export const POINT_TIER_MIN_ZOOM_FRACTIONAL = POINT_TIER_MIN_ZOOM - TIER_HANDOVE
 // edges would give every pixel of pan its own URL and no two visitors would ever
 // share a cache entry. Snapped OUTWARD on all four sides, never inward, so the
 // box still covers everything on screen.
-const BBOX_QUANTUM_DEG = 0.05
+//
+// Matched to contract.hex.bbox_quantum_deg, the same grid the server's own
+// BBox.Quantise snaps onto — see internal/snapshot/hexes.go. The two used to
+// disagree (0.05 here, 0.25 there): every cache entry this client filled was
+// on a grid finer than the one the server actually stored under.
+const BBOX_QUANTUM_DEG = contract.hex.bbox_quantum_deg
 
 /**
  * resolutionForZoom returns the cell size, in km, that draws at about
