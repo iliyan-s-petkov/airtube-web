@@ -9,6 +9,7 @@
 package deploy
 
 import (
+	"net"
 	"os"
 	"regexp"
 	"sort"
@@ -110,12 +111,12 @@ func TestDatabaseHasNoRouteToTheInternet(t *testing.T) {
 		t.Fatal("db is attached to no network at all")
 	}
 	for name := range attached {
-		net, ok := c.Networks[name]
+		nw, ok := c.Networks[name]
 		if !ok {
 			t.Errorf("db is attached to network %q, which is not declared in the networks: section", name)
 			continue
 		}
-		if !net.Internal {
+		if !nw.Internal {
 			t.Errorf("db is attached to network %q, which is not internal: true — the database has a route to the public internet", name)
 		}
 	}
@@ -218,6 +219,20 @@ func TestDesignPreviewAllowancesDefaultToFalse(t *testing.T) {
 		if got := envExampleValue(t, tt.key); got != tt.want {
 			t.Errorf(".env.example says %s=%q, want %q", tt.key, got, tt.want)
 		}
+	}
+}
+
+// TestExampleMetricsAddrIsLoopback: config validation now rejects a
+// non-loopback listen.metrics_addr, so an example an operator copies verbatim
+// must already satisfy it — otherwise the app refuses to start.
+func TestExampleMetricsAddrIsLoopback(t *testing.T) {
+	got := envExampleValue(t, "AIRBG_LISTEN_METRICS_ADDR")
+	host, _, err := net.SplitHostPort(got)
+	if err != nil {
+		t.Fatalf("AIRBG_LISTEN_METRICS_ADDR = %q, must be host:port: %v", got, err)
+	}
+	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		t.Errorf("AIRBG_LISTEN_METRICS_ADDR = %q, want a loopback host", got)
 	}
 }
 
