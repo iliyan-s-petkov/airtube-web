@@ -3806,3 +3806,44 @@ describe('hexLabelPaint', () => {
     expect(hexLabelPaint(cfg)['text-halo-color']).toBe('#fff')
   })
 })
+
+// mountChrome returns a storage handle so player and legend prefs can thread
+// through injected storage in tests and use the same handle in production.
+describe('mountChrome storage handle', () => {
+  it('threads the injected storage handle through to the player', async () => {
+    const store = new Map()
+    store.set(PLAY_SPEED_KEY, '0.5') // Set initial speed
+    const fakeStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, v),
+    }
+
+    const { map, chrome } = mountTestMap({ metric: 'P2' })
+
+    // Install timelapse with the injected storage
+    const ui = mountPlayer(document.createElement('div'), {
+      label: 'Time', playLabel: 'Play', pauseLabel: 'Pause',
+      exitLabel: 'Now', speedLabel: 'Speed',
+    })
+    // Pass the fake storage through chrome, which now includes storage
+    installTimelapse(map, {}, { metric: 'P2', lang: 'en', t: {} }, { player: ui, storage: fakeStorage }, async () => ({
+      metric: 'P2', resolution_km: 15, cells: [[23, 42]],
+      frames: [{ t: '2026-09-08T06:00:00Z', v: [10] }],
+    }))
+
+    ui.button.click()
+    await vi.waitFor(() => expect(ui.speed.textContent).not.toBe(''))
+
+    // Verify the initial speed was read from the fake storage
+    expect(ui.speed.textContent).toBe('0.5×')
+
+    // Change the speed
+    ui.speed.click()
+    expect(ui.speed.textContent).toBe('0.25×')
+
+    // Verify it was written to the fake storage
+    expect(store.get(PLAY_SPEED_KEY)).toBe('0.25')
+
+    ui.button.click() // close player
+  })
+})

@@ -25,7 +25,7 @@ import {
 } from '../lib/sourcefilter.svelte.js'
 import { diamondImage, DIAMOND_RADIUS_PX } from '../lib/markericon.js'
 import { applyLocate } from '../lib/locate.js'
-import { readChoice, readFlag, writeChoice, writeFlag } from '../lib/storage.js'
+import { readChoice, readFlag, writeChoice, writeFlag, safeStorage } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
 import {
   chooseWindow, mountWindow, readWindow, windowOptions, withWindow,
@@ -2184,6 +2184,10 @@ export function debounce(fn, ms) {
 // in the DOM is checkable without a WebGL context — and that placement is
 // load-bearing (see the shell comments below), not decoration.
 export function mountChrome(el, cfg) {
+  // Resolve storage once for threaded access to player and legend prefs. Must
+  // be called before any caller can access chrome.storage.
+  const storage = cfg.storage ?? safeStorage()
+
   // The key and the tier line go on the SHELL, not on #map, and they are the
   // only two things here that do. The kit turns .scale--onmap static below
   // 672px so the key sits under the map on a phone — and inside .map, "under
@@ -2419,6 +2423,7 @@ export function mountChrome(el, cfg) {
 
   return {
     ...hintCtl,
+    storage,
     showNote(text) {
       note.textContent = text
       note.hidden = !text
