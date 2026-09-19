@@ -172,6 +172,13 @@ type Snapshot struct {
 	// read once and kept rather than re-read every five minutes.
 	frames map[string]*frameRing
 
+	// bodies memoises the viewport answers HexBody and PointBody encode per
+	// request. A POINTER, so the snapshot stays copyable — buildWindow copies
+	// one by value, and a mutex held here by value would make that copy a vet
+	// error. Nil means "do not cache", which keeps a snapshot built from a
+	// struct literal working.
+	bodies *bodyCache
+
 	// SensorLocations resolves one sensor id to a position and an area, for a
 	// deep link that carries nothing else. Keyed by id and answered from
 	// memory: the lookup must not become a way to make the database walk the

@@ -138,7 +138,16 @@ func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 				`A "bbox" of "w,s,e,n" is required at resolution_km=0.`)
 			return
 		}
-		body, err := snap.PointBody(bb)
+		// Presence alone is not the guard: a world-sized box satisfies it and
+		// still hands back the whole registry in one GET.
+		if lon, lat := bb.Extent(); lon > snapshot.MaxPointBBoxDegrees || lat > snapshot.MaxPointBBoxDegrees {
+			writeError(w, http.StatusBadRequest, "bbox_too_large",
+				`A "bbox" may span at most 2 degrees per axis at resolution_km=0.`)
+			return
+		}
+		// Quantised only AFTER the guard: the limit is on the box a caller may
+		// ask for, and widening first would measure a box the caller never sent.
+		body, err := snap.PointBody(bb.Quantise())
 		if err != nil {
 			writeUnavailable(w)
 			return
@@ -147,6 +156,12 @@ func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Same order as the point tier above, and the same reason the box is
+	// snapped to a grid at all: a viewport arriving as raw float degrees is an
+	// unbounded set of URLs, each one a cache miss and a fresh encode.
+	if clip {
+		bb = bb.Quantise()
+	}
 	body, err := snap.HexBody(res, bb, clip)
 	if err != nil {
 		writeUnavailable(w)

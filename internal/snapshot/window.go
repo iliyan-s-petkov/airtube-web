@@ -93,6 +93,23 @@ func buildWindows(ctx context.Context, s *store.Store, snap *Snapshot, now time.
 	return nil
 }
 
+// windowShell is the part of a window that needs no query: the live snapshot
+// copied, with the fields a window must not inherit reset.
+func (s *Snapshot) windowShell() *Snapshot {
+	// Everything not listed below is copied from the live snapshot by this
+	// assignment and shared with it, which is the intent — see Window. Windows
+	// is deliberately left nil: a windowed view has no windows of its own, so
+	// Window() on one is the identity and cannot recurse.
+	w := *s
+	w.Windows = nil
+
+	// Its own cache, not the live snapshot's: the assignment above copied the
+	// pointer, and a window's bodies are not the live ones under the same key.
+	w.bodies = &bodyCache{}
+
+	return &w
+}
+
 func buildWindow(ctx context.Context, s *store.Store, live *Snapshot, now time.Time, spec WindowSpec) (*Snapshot, error) {
 	since := now.Add(-spec.Dur)
 
@@ -109,12 +126,7 @@ func buildWindow(ctx context.Context, s *store.Store, live *Snapshot, now time.T
 		return nil, fmt.Errorf("snapshot: %s sensors: %w", spec.Name, err)
 	}
 
-	// Everything not listed below is copied from the live snapshot by this
-	// assignment and shared with it, which is the intent — see Window. Windows
-	// is deliberately left nil: a windowed view has no windows of its own, so
-	// Window() on one is the identity and cannot recurse.
-	w := *live
-	w.Windows = nil
+	w := live.windowShell()
 
 	if w.Overview, err = encode(areaPayloadFrom(now, countryAggs)); err != nil {
 		return nil, fmt.Errorf("snapshot: encode %s overview: %w", spec.Name, err)
@@ -160,5 +172,5 @@ func buildWindow(ctx context.Context, s *store.Store, live *Snapshot, now time.T
 		w.AreaSensors[slug] = body
 	}
 
-	return &w, nil
+	return w, nil
 }
