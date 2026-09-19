@@ -132,10 +132,15 @@ func TestContractIsRegeneratedAndDiffed(t *testing.T) {
 	raw := readWorkflow(t)
 	lines := strings.Split(raw, "\n")
 
-	regenIdx, diffIdx, buildIdx, vetIdx := -1, -1, -1, -1
+	regenIdx, diffIdx, remedyIdx, buildIdx, vetIdx := -1, -1, -1, -1, -1
 	for i, line := range lines {
 		switch {
-		case containsAll(line, []string{"go run ./cmd/airbg contract"}):
+		// The remediation message names the same command, so it must be
+		// recognised before the step match and the step match must keep its
+		// first hit — otherwise the echo is read as the regenerate step.
+		case containsAll(line, []string{"::error::", "go run ./cmd/airbg contract"}):
+			remedyIdx = i
+		case regenIdx == -1 && containsAll(line, []string{"go run ./cmd/airbg contract"}):
 			regenIdx = i
 		case containsAll(line, []string{"git diff", "--exit-code", "contract.json"}):
 			diffIdx = i
@@ -157,6 +162,15 @@ func TestContractIsRegeneratedAndDiffed(t *testing.T) {
 		t.Fatalf("found %d of %d contract-check steps in %s (regen=%v diff=%v); "+
 			"if a step was added or removed deliberately, update wantContractSteps",
 			found, wantContractSteps, workflowPath, regenIdx >= 0, diffIdx >= 0)
+	}
+
+	// Without this the job aborts on a bare unified diff of a generated file,
+	// and the message that says how to fix it lives in a `go test` step the
+	// abort never reaches.
+	if remedyIdx == -1 || remedyIdx < diffIdx {
+		t.Errorf("the contract diff step in %s does not print the regenerate command in its own failure path "+
+			"(remedy=%d diff=%d); a developer sees an unexplained diff and reverts the file instead of regenerating it",
+			workflowPath, remedyIdx, diffIdx)
 	}
 
 	if buildIdx == -1 || vetIdx == -1 {

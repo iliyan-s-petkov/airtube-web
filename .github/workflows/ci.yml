@@ -26,7 +26,12 @@ jobs:
       # would make the diff check below pass on nothing to compare.
       - run: git ls-files --error-unmatch web/src/lib/contract.json
       - run: go run ./cmd/airbg contract
-      - run: git diff --exit-code -- web/src/lib/contract.json
+      - name: contract.json is up to date
+        run: |
+          git diff --exit-code -- web/src/lib/contract.json || {
+            echo "::error::web/src/lib/contract.json is stale. Run: go run ./cmd/airbg contract (from the repo root) and commit the result."
+            exit 1
+          }
       - run: go vet ./...
       # go vet does not compile files behind a build tag, so the
       # integration- and e2e-tagged test files are otherwise invisible to it.
