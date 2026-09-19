@@ -106,6 +106,9 @@ func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int
 		if batch.Len() == 0 {
 			continue
 		}
+		if writeReadingsFlushHook != nil {
+			writeReadingsFlushHook()
+		}
 		n, err := execBatchCountRows(s.pool.SendBatch(ctx, batch), batch.Len())
 		written += n
 		if err != nil {
@@ -114,6 +117,22 @@ func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int
 	}
 	return written, nil
 }
+
+// writeReadingsFlushHook, when set, is called once per SendBatch flush in
+// WriteReadings. Production code never sets it; see
+// SetWriteReadingsFlushHookForTesting.
+var writeReadingsFlushHook func()
+
+// SetWriteReadingsFlushHookForTesting installs h to run on every WriteReadings
+// flush, so a test can count flushes and pin them against writeBatchLimit.
+func SetWriteReadingsFlushHookForTesting(h func()) (restore func()) {
+	writeReadingsFlushHook = h
+	return func() { writeReadingsFlushHook = nil }
+}
+
+// WriteBatchLimitForTesting exposes writeBatchLimit so a test's failure
+// message can name the value that flush-count expectations were pinned to.
+func WriteBatchLimitForTesting() int { return writeBatchLimit }
 
 // execBatchCountRows consumes n queued results off br — Close alone discards
 // them without reading RowsAffected — and sums each statement's affected row
