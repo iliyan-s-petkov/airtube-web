@@ -86,21 +86,18 @@ func (c Config) Validate() error {
 }
 
 func (c Config) validateListen(p *problems) {
-	for path, addr := range map[string]string{
-		"listen.addr":         c.Listen.Addr,
-		"listen.metrics_addr": c.Listen.MetricsAddr,
-	} {
-		if addr == "" {
-			p.addf("%s is empty", path)
-			continue
-		}
+	addr := c.Listen.Addr
+	if addr == "" {
+		p.addf("listen.addr is empty")
+	} else {
 		if len(addr) > maxHostLength {
-			p.addf("%s is %d bytes, must be at most %d", path, len(addr), maxHostLength)
+			p.addf("listen.addr is %d bytes, must be at most %d", len(addr), maxHostLength)
 		}
 		if !hostPattern.MatchString(addr) {
-			p.addf("%s = %q, must be host:port", path, addr)
+			p.addf("listen.addr = %q, must be host:port", addr)
 		}
 	}
+	c.validateMetricsAddr(p)
 	// Sharing the address means /metrics is reachable from the public chain,
 	// which hands an attacker the counters that show whether their probing is
 	// being rate limited.
@@ -141,6 +138,38 @@ func (c Config) validateListen(p *problems) {
 		c.Listen.AllowedOriginSchemes)
 	validateOrigins(p, "listen.allowed_origins", "listen.allowed_origin_schemes",
 		c.Listen.AllowedOrigins, c.Listen.AllowedOriginSchemes)
+}
+
+// validateMetricsAddr rejects any listen.metrics_addr not reachable only from
+// this host. /metrics sits outside the public chain's rate limiter and CSP,
+// so binding it off-host hands every counter to whoever can reach the port.
+func (c Config) validateMetricsAddr(p *problems) {
+	addr := c.Listen.MetricsAddr
+	if addr == "" {
+		p.addf("listen.metrics_addr is empty")
+		return
+	}
+	if len(addr) > maxHostLength {
+		p.addf("listen.metrics_addr is %d bytes, must be at most %d", len(addr), maxHostLength)
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		p.addf("listen.metrics_addr = %q, must be host:port: %v", addr, err)
+		return
+	}
+	if host == "localhost" {
+		return
+	}
+	// No DNS lookup here: config validation runs before a resolver exists,
+	// and any hostname other than "localhost" is deliberately unrecognised.
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		p.addf("listen.metrics_addr = %q, must be loopback (the metrics listener must never be reachable off-host)", addr)
+		return
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		p.addf("listen.metrics_addr = %q, must be loopback (the metrics listener must never be reachable off-host)", addr)
+	}
 }
 
 func (c Config) validateTimeouts(p *problems) {
