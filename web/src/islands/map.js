@@ -1239,7 +1239,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   // true while a play session is active (paused-for-hidden counts as active);
   // raf is the actual requestAnimationFrame handle, null whenever none is
   // scheduled.
-  let timer = false
+  let running = false
   let raf = null
   // Frames one tick may advance after a stall. Above this the animation is
   // catching up on time nobody watched, which reads as a jump, not motion.
@@ -1262,9 +1262,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   })
 
   // Which cells carried a digit in the frame drawn before this one, and which
-  // of those had only just arrived. null means there is no previous frame — an
-  // opening frame is the start of the story, not an arrival, so nothing in it
-  // fades in.
+  // of those had only just arrived. null means there is no previous frame to
+  // compare against, so nothing in the first frame drawn counts as an arrival
+  // and nothing in it fades in.
   let prevValued = null
   let justArrived = new Set()
   // Called on entering and leaving replay and on a metric or tier change, NOT
@@ -1387,7 +1387,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
 
   // Follows the reader onto the tier the new zoom would ask the live grid
   // for. Attached only while the player is open (see ontoggle/stop), not for
-  // the page's whole life — wantedURL()'s url === loaded check is what turns
+  // the page's whole life — load()'s url === loaded check is what turns
   // a run of zoom events during a flyTo into at most one request.
   const onZoom = () => {
     // Refetch always, repaint only when the body actually changed AND the
@@ -1444,7 +1444,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     if (document.hidden) {
       if (raf) cancelAnimationFrame(raf)
       raf = null
-    } else if (timer && !raf) {
+    } else if (running && !raf) {
       acc = 0
       last = performance.now()
       raf = requestAnimationFrame(tick)
@@ -1454,7 +1454,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   const pauseClock = () => {
     if (raf) cancelAnimationFrame(raf)
     raf = null
-    timer = false
+    running = false
     document.removeEventListener('visibilitychange', onVisibility)
   }
 
@@ -1463,7 +1463,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   const run = () => {
     if (raf) cancelAnimationFrame(raf)
     document.removeEventListener('visibilitychange', onVisibility)
-    timer = true
+    running = true
     acc = 0
     last = performance.now()
     document.addEventListener('visibilitychange', onVisibility)
@@ -1471,7 +1471,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   }
 
   ui.ontoggle(async () => {
-    if (timer) {
+    if (running) {
       await stop()
       return
     }
@@ -1493,18 +1493,18 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   })
 
   // A press while paused is a question about the next play, not a request to
-  // start one — so the timer is only rebuilt if there already was one.
+  // start one — so the clock is only rebuilt if it was already running.
   ui.onspeed(() => {
     speed = nextSpeed(speed)
     writeChoice(PLAY_SPEED_KEY, speed, chrome.storage)
     ui.atSpeed(speed)
-    if (timer) run()
+    if (running) run()
   })
 
   // A drag is a request to look at one hour: leaving the clock going would move
   // the map off that frame a third of a second later.
   ui.onscrub((i) => {
-    if (timer) {
+    if (running) {
       pauseClock()
       head.playing = false
       ui.playing(false)
