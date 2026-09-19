@@ -195,13 +195,39 @@ func TestHexBodyClipIsByteIdenticalAcrossBoxes(t *testing.T) {
 	}
 }
 
-// TestBBoxIndexShortCircuitTakesTheRightPath fences clip's short-circuit
-// (hexes.go): both the correctness-neutral mutations the round-2 review
-// flagged — forcing it always on, and never maintaining
-// minCol/maxCol/minRow/maxRow — leave every other test in this file green,
-// because clipLinear and the bucket walk agree on the answer. This test
-// checks the routing decision itself, using the same formula clip does, so
-// it fails if that decision stops reflecting the index's real bucket bounds.
+// TestBBoxIndexShortCircuitTakesTheRightPath fences the "never maintain
+// minCol/maxCol/minRow/maxRow" mutation clip's short-circuit (hexes.go) is
+// exposed to. It deliberately does NOT call idx.clip: clipLinear and the
+// bucket walk are proven equal on every input by the sweep test, so no box
+// exists for which clip's own return value reveals which path it took — the
+// only way to observe the routing decision is to read the index's bucket
+// bounds directly, which is what this does.
+//
+// nearCorner is chosen so the mutation is provably observable, not merely
+// plausible: gridEntries' first entry sits at (22.0, 41.0), bucket (88, 164),
+// which is close to but not exactly the grid's real corner bucket (87, 163)
+// — a lower-left duplicate exists at (21.999, 40.999). A build that stops
+// updating minCol/maxCol/minRow/maxRow after the first entry leaves the index
+// believing its bounds are the single bucket (88, 88, 164, 164) forever.
+// nearCorner's own bucket range is w0=88, e0=90, s0=164, n0=165 — under the
+// REAL bounds (87, 100, 163, 172) w0<=minCol fails (88 <= 87 is false), so
+// the box must take the bucket walk; under the STUCK bounds every inequality
+// happens to hold (88<=88, 90>=88, 164<=164, 165>=164), so the mutation
+// misroutes it to clipLinear instead. The two boxes originally used here
+// (a viewport well inside the span, and one covering the whole span) turned
+// out not to test this: both their real answers happened to survive the
+// stuck values by coincidence, so a corrupted index passed silently. This
+// box does not have that problem.
+//
+// The mutation that forces the short-circuit itself always on (rather than
+// corrupting what it reads) is a different matter: it changes a condition
+// inside clip, not the index's stored bounds, and clipLinear/the bucket walk
+// are proven to return byte-identical results for every input (this file's
+// TestHexBodyClipIsByteIdenticalAcrossBoxes, and the sweep). No box, and no
+// assertion reachable through clip's public behaviour, can distinguish
+// "took the short-circuit" from "took the bucket walk and got the same
+// answer" — that mutation is not pinned here, or anywhere in this package,
+// without adding an execution-path hook to clip itself.
 func TestBBoxIndexShortCircuitTakesTheRightPath(t *testing.T) {
 	entries := gridEntries()
 	idx := buildBBoxIndex(entries)
@@ -218,6 +244,14 @@ func TestBBoxIndexShortCircuitTakesTheRightPath(t *testing.T) {
 	if shortCircuits(viewport) {
 		t.Fatalf("viewport box %v takes clipLinear; want the bucket walk (index bounds col[%d,%d] row[%d,%d])",
 			viewport, idx.minCol, idx.maxCol, idx.minRow, idx.maxRow)
+	}
+
+	// See the nearCorner comment above: this is the box that actually kills
+	// the stuck-bounds mutation, where the other two do not.
+	nearCorner := BBox{W: 22.1, S: 41.1, E: 22.6, N: 41.4}
+	if shortCircuits(nearCorner) {
+		t.Fatalf("near-corner box %v takes clipLinear; want the bucket walk (index bounds col[%d,%d] row[%d,%d])",
+			nearCorner, idx.minCol, idx.maxCol, idx.minRow, idx.maxRow)
 	}
 
 	whole := BBox{W: 21.75, S: 40.75, E: 25.25, N: 43.25} // covers gridEntries' whole span
