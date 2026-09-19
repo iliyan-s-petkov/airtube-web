@@ -288,11 +288,20 @@ func TestBuiltSnapshotPointBodyMatchesUnindexedWalk(t *testing.T) {
 	// index replaces, compared here through the real body encoder.
 	linear := &Snapshot{GeneratedAt: now, coverage: indexed.coverage, points: indexed.points}
 
-	for _, bb := range []BBox{
+	boxes := []BBox{
 		{W: 40.0, S: 40.0, E: 40.25, N: 40.25},
 		{W: 23.0, S: 42.0, E: 23.25, N: 42.25},
 		{W: 21.75, S: 40.75, E: 25.25, N: 43.25},
-	} {
+	}
+	// A tight box per point. The three above leave most of the set untouched,
+	// and the whole-span one takes clip's short-circuit into clipLinear, which
+	// walks the entries and never reads the index — so an index missing a
+	// single point survives all three. One box per point closes that.
+	for _, e := range indexed.points {
+		boxes = append(boxes, BBox{W: e.Lon - 0.01, S: e.Lat - 0.01, E: e.Lon + 0.01, N: e.Lat + 0.01})
+	}
+
+	for _, bb := range boxes {
 		want, err := linear.PointBody(bb)
 		if err != nil {
 			t.Fatalf("PointBody without an index: %v", err)
