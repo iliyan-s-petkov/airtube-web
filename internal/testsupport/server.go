@@ -50,6 +50,22 @@ func WaitReady(t *testing.T, addr string) {
 	t.Fatal("the private listener never came up")
 }
 
+// WaitDial polls a TCP connect until it succeeds, for a listener that carries
+// no health endpoint of its own.
+func WaitDial(t *testing.T, addr string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("the listener on %s never came up", addr)
+}
+
 // StartServer assigns the store's sensors into their areas, builds one real
 // snapshot from it (the same way the collector's Publisher does after every
 // ingest cycle), and starts a full server.Server backed by that store and
@@ -121,5 +137,7 @@ func StartServer(t *testing.T, st *store.Store, cfg config.Config, configure ...
 	})
 
 	WaitReady(t, private)
+	// /healthz is private-only; the public listener binds in its own goroutine.
+	WaitDial(t, public)
 	return public, private
 }

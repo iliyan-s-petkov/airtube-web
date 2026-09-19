@@ -126,7 +126,13 @@ func start(t *testing.T, tilesDir string, tweak ...func(*config.Config)) (public
 		}
 	})
 
+	// Each listener binds in its own goroutine; /healthz is private-only, so the
+	// other two need a dial before a test may call them.
 	waitReady(t, private)
+	waitDial(t, public)
+	if tilesAddr != "" {
+		waitDial(t, tilesAddr)
+	}
 	return public, private, tilesAddr
 }
 
@@ -167,6 +173,20 @@ func waitReady(t *testing.T, addr string) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("the private listener never came up")
+}
+
+func waitDial(t *testing.T, addr string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("the listener on %s never came up", addr)
 }
 
 func get(t *testing.T, addr, path string) *http.Response {
