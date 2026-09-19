@@ -154,6 +154,7 @@ func buildWindow(ctx context.Context, s *store.Store, live *Snapshot, now time.T
 		return nil, fmt.Errorf("snapshot: encode %s hexes: %w", spec.Name, err)
 	}
 	w.points = pointsFrom(sensors)
+	w.pointsIndex = buildBBoxIndex(w.points)
 
 	// KnownSlugs is shared with the live snapshot, so iterating it here is
 	// iterating the same area set — a window cannot invent or lose an area.

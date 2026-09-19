@@ -109,6 +109,11 @@ type hexPayload struct {
 	// number can answer. Omitted when empty so a fixture-built payload does
 	// not serialise a null.
 	Coverage map[string]map[string]int `json:"coverage,omitempty"`
+
+	// idx indexes Hexes for HexBody's viewport clip. Unexported, so a struct
+	// literal built directly (as tests do) leaves it nil; HexBody falls back
+	// to a linear walk in that case.
+	idx *bboxIndex
 }
 
 // withoutGeneratedAt clears the build timestamp so identical bins hash
@@ -140,6 +145,78 @@ type hexEntry struct {
 	// asking for a filtered one. Omitted on a single-network entry, where Values
 	// already is that network's numbers.
 	BySource map[string]sourceEntry `json:"by_source,omitempty"`
+}
+
+// bboxIndex buckets a slice of hexEntry onto the BBoxQuantumDegrees grid, so a
+// viewport clip touches only the buckets the box overlaps instead of every
+// entry. Unexported and carried alongside the source slice it indexes, never
+// serialised.
+//
+// Every box HexBody and PointBody see has already been through BBox.Quantise
+// (see internal/api/overview.go), so a bucket's own lon/lat range is either
+// wholly inside the box or wholly outside it — with one exception: BBox.contains
+// is closed on E and N, but a bucket's own range is closed only on its low
+// edge, so an entry sitting exactly on the box's east or north line shares a
+// bucket with entries just past it. clip re-checks only the buckets on those
+// two edges; every other touched bucket is taken whole.
+type bboxIndex struct {
+	buckets map[[2]int][]int // bucket -> ascending indices into the source slice
+}
+
+func bucketOf(lon, lat float64) [2]int {
+	const q = BBoxQuantumDegrees
+	return [2]int{int(math.Floor(lon / q)), int(math.Floor(lat / q))}
+}
+
+// buildBBoxIndex indexes entries once, at build time. The result is read-only
+// afterwards, so it is safe to share across concurrent requests against the
+// same Snapshot.
+func buildBBoxIndex(entries []hexEntry) *bboxIndex {
+	idx := &bboxIndex{buckets: make(map[[2]int][]int)}
+	for i, e := range entries {
+		k := bucketOf(e.Lon, e.Lat)
+		idx.buckets[k] = append(idx.buckets[k], i)
+	}
+	return idx
+}
+
+// clip returns the entries bb.contains, in their original order. w0/s0 need
+// no re-check: BBox.Quantise leaves W and S strictly below E and N by at
+// least one bucket, so the west and south edge buckets are always whole
+// inside the box regardless of its width. Only e0/n0 — the box's own upper
+// edges — can hold entries the walk must re-check individually; see bboxIndex.
+func (idx *bboxIndex) clip(entries []hexEntry, bb BBox) []hexEntry {
+	const q = BBoxQuantumDegrees
+	w0 := int(math.Round(bb.W / q))
+	e0 := int(math.Round(bb.E / q))
+	s0 := int(math.Round(bb.S / q))
+	n0 := int(math.Round(bb.N / q))
+
+	var idxs []int
+	for i := w0; i <= e0; i++ {
+		edgeCol := i == e0
+		for j := s0; j <= n0; j++ {
+			bucket, ok := idx.buckets[[2]int{i, j}]
+			if !ok {
+				continue
+			}
+			if edgeCol || j == n0 {
+				for _, pos := range bucket {
+					if bb.contains(entries[pos].Lon, entries[pos].Lat) {
+						idxs = append(idxs, pos)
+					}
+				}
+				continue
+			}
+			idxs = append(idxs, bucket...)
+		}
+	}
+	sort.Ints(idxs)
+	out := make([]hexEntry, len(idxs))
+	for i, pos := range idxs {
+		out[i] = entries[pos]
+	}
+	return out
 }
 
 type sourceEntry struct {
@@ -335,13 +412,19 @@ func (s *Snapshot) HexBody(resKM float64, bb BBox, clip bool) (Body, error) {
 
 	out := p
 	if clip {
-		out = hexPayload{GeneratedAt: p.GeneratedAt, ResolutionKM: p.ResolutionKM,
-			Coverage: p.Coverage, Hexes: make([]hexEntry, 0, len(p.Hexes))}
-		for _, h := range p.Hexes {
-			if bb.contains(h.Lon, h.Lat) {
-				out.Hexes = append(out.Hexes, h)
+		var hexes []hexEntry
+		if p.idx != nil {
+			hexes = p.idx.clip(p.Hexes, bb)
+		} else {
+			hexes = make([]hexEntry, 0, len(p.Hexes))
+			for _, h := range p.Hexes {
+				if bb.contains(h.Lon, h.Lat) {
+					hexes = append(hexes, h)
+				}
 			}
 		}
+		out = hexPayload{GeneratedAt: p.GeneratedAt, ResolutionKM: p.ResolutionKM,
+			Coverage: p.Coverage, Hexes: hexes}
 	}
 	b, err := encode(out)
 	if err != nil {
@@ -387,13 +470,19 @@ func (s *Snapshot) PointBody(bb BBox) (Body, error) {
 	if b, ok := s.bodies.get(k); ok {
 		return b, nil
 	}
-	out := hexPayload{GeneratedAt: s.GeneratedAt, ResolutionKM: PointResolutionKM,
-		Coverage: s.coverage, Hexes: make([]hexEntry, 0, len(s.points))}
-	for _, p := range s.points {
-		if bb.contains(p.Lon, p.Lat) {
-			out.Hexes = append(out.Hexes, p)
+	var hexes []hexEntry
+	if s.pointsIndex != nil {
+		hexes = s.pointsIndex.clip(s.points, bb)
+	} else {
+		hexes = make([]hexEntry, 0, len(s.points))
+		for _, p := range s.points {
+			if bb.contains(p.Lon, p.Lat) {
+				hexes = append(hexes, p)
+			}
 		}
 	}
+	out := hexPayload{GeneratedAt: s.GeneratedAt, ResolutionKM: PointResolutionKM,
+		Coverage: s.coverage, Hexes: hexes}
 	b, err := encode(out)
 	if err != nil {
 		return Body{}, err
@@ -682,6 +771,7 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 		}
 		p.Hexes = append(p.Hexes, e)
 	}
+	p.idx = buildBBoxIndex(p.Hexes)
 	return p
 }
 
