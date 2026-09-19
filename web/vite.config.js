@@ -57,29 +57,13 @@ function keepDistTracked() {
   }
 }
 
-// The plan's Task 5.4 trigger is 300 KB gz, set against 288.84 KB gz as
-// measured by Vite/rolldown's own built-in reporter (build.reportCompressedSize
-// below) — ~11 KB of headroom. This plugin measures with node:zlib's
-// gzipSync instead: rolldown computes its reporter's gzip size natively (Rust,
-// no JS-inspectable code path), with compression parameters this plugin
-// cannot see or reproduce, so the two numbers never agree bit-for-bit (node
-// zlib measured 278.68 KB gz on the same file that the reporter called 288.89).
-// build.reportCompressedSize is turned off below so only this number appears
-// in the log. Budget recalibrated to this plugin's own measurement basis,
-// preserving the plan's ~11 KB headroom: 278.68 + 11 ≈ 290 KB.
-// This is a build-side proxy for bundle weight, not a wire-byte prediction —
-// internal/web serves these assets uncompressed; a CDN edge does the real
-// compression at its own settings.
+// Keyed to this plugin's own node:zlib measurement, which disagrees with
+// Vite's native reporter on the same bytes. See docs/map-rendering.md.
 const MAP_CHUNK_GZIP_BUDGET_BYTES = 290 * 1024
 
-// writeBundle sees the real written bytes, unlike a test that reads
-// internal/web/dist after the fact and would pass vacuously on a stale or
-// missing build. The map chunk is found by facadeModuleId — the source file
-// Rollup split off — rather than by its hashed output filename, which changes
-// every build. If no chunk's facadeModuleId matches, the budget is unenforced
-// with nothing to show for it, so that is a build failure too, not a silent
-// no-op — distinct from the over-budget failure so the two causes read
-// differently in CI output.
+// writeBundle sees the real written bytes, unlike a test reading dist after the
+// fact, which would pass vacuously on a stale build. A chunk that no longer
+// matches is a build failure, not a silent no-op — see docs/map-rendering.md.
 function checkMapChunkSize() {
   return {
     name: 'check-map-chunk-size',
@@ -87,20 +71,20 @@ function checkMapChunkSize() {
       let mapChunkFound = false
       for (const chunk of Object.values(bundle)) {
         const bytes = readFileSync(path.join(options.dir, chunk.fileName))
-        const gzipKB = gzipSync(bytes).length / 1024
-        console.log(`[bundle size] ${chunk.fileName}: ${gzipKB.toFixed(2)} KB gz`)
+        const gzipBytes = gzipSync(bytes).length
+        console.log(`[bundle size] ${chunk.fileName}: ${(gzipBytes / 1024).toFixed(2)} KB gz`)
         if (chunk.type === 'chunk' && chunk.facadeModuleId?.endsWith('/islands/map.js')) {
           mapChunkFound = true
-          if (gzipKB * 1024 > MAP_CHUNK_GZIP_BUDGET_BYTES) {
+          if (gzipBytes > MAP_CHUNK_GZIP_BUDGET_BYTES) {
             throw new Error(
-              `map chunk is ${gzipKB.toFixed(2)} KB gzipped, over the ${(MAP_CHUNK_GZIP_BUDGET_BYTES / 1024).toFixed(0)} KB budget (Task 5.4) — lazy-load wind/timelapse out of it`,
+              `map chunk is ${(gzipBytes / 1024).toFixed(2)} KB gzipped, over the ${(MAP_CHUNK_GZIP_BUDGET_BYTES / 1024).toFixed(0)} KB budget (docs/map-rendering.md) — lazy-load wind/timelapse out of it`,
             )
           }
         }
       }
       if (!mapChunkFound) {
         throw new Error(
-          'Task 5.4 size guard found no chunk with facadeModuleId ending in /islands/map.js — the map chunk-identifying assumption broke (chunking change, map.js rename/merge) and the gzip budget is no longer enforced; update checkMapChunkSize in vite.config.js',
+          'map chunk size guard found no chunk with facadeModuleId ending in /islands/map.js — the chunk-identifying assumption broke (chunking change, map.js rename/merge) and the gzip budget is no longer enforced; update checkMapChunkSize in vite.config.js (docs/map-rendering.md)',
         )
       }
     },
@@ -132,11 +116,8 @@ export default {
     // `Cache-Control: immutable` without ever serving a stale bundle.
     // Without the manifest, Go cannot know the hashed name.
     manifest: true,
-    // Off so the build log carries one gzip figure per file, not two: this
-    // reporter's own native (rolldown) gzip and checkMapChunkSize's node:zlib
-    // gzip disagree on the same bytes (see MAP_CHUNK_GZIP_BUDGET_BYTES above).
-    // checkMapChunkSize prints every emitted file, assets included, so nothing
-    // this reporter covered is lost.
+    // Off so one gzip number per file reaches the log, not two that disagree;
+    // checkMapChunkSize prints every file, assets included.
     reportCompressedSize: false,
     // 'theme' is a CSS-only entry: it exists so the design kit's tokens are
     // inlined into the build instead of restated in internal/web/static.
