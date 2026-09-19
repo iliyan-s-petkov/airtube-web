@@ -429,6 +429,31 @@ func TestRequestBodyIsCapped(t *testing.T) {
 	}
 }
 
+// TestOversizedHeadersAreRejected: Go's default MaxHeaderBytes is 1 MiB of
+// headers accepted per connection before the handler ever runs. A request
+// carrying more than the configured 64 KiB cap must be rejected by the
+// server itself (431), not reach a handler.
+func TestOversizedHeadersAreRejected(t *testing.T) {
+	public, _ := running(t)
+
+	req, err := http.NewRequest(http.MethodGet, "http://"+public+"/", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("X-Stuffing", strings.Repeat("x", 70<<10))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusRequestHeaderFieldsTooLarge {
+		t.Errorf("status = %d, want %d (MaxHeaderBytes not enforced)",
+			resp.StatusCode, http.StatusRequestHeaderFieldsTooLarge)
+	}
+}
+
 // TestReadHeaderTimeoutIsSet is asserted by behaviour, not by reading the
 // struct: a connection that opens and sends nothing must be closed by the
 // server. Without ReadHeaderTimeout, a few thousand such connections exhaust
