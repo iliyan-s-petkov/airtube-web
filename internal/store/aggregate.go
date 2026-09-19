@@ -510,11 +510,8 @@ SELECT slug, b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
  ORDER BY slug, b
  LIMIT $4`
 
-// AllAreaSeriesRowLimit caps AllAreaSeries's total row count across every
-// area in one query, since (unlike AreaSeries/SensorSeries) no caller-scoped
-// since/until bounds it. Sized as a safety valve well above realistic worst
-// case — see TestAllAreaSeriesRowLimitCoversRealConfig — not a normal sizing
-// constraint; AllAreaSeries logs a WARN if a query ever actually hits it.
+// AllAreaSeriesRowLimit caps AllAreaSeries's row count; see
+// README.md#allareaseriess-row-limit.
 const AllAreaSeriesRowLimit = 200_000
 
 // AllAreaSeries returns the area-mean series for one metric, keyed by slug;
@@ -565,10 +562,8 @@ func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Tim
 	return out, nil
 }
 
-// warnAtAllAreaSeriesRowLimit logs when a row count exactly at
-// AllAreaSeriesRowLimit means the LIMIT truncated the result — some
-// late-slug area's data may be silently missing from the caller's map — so
-// that cannot pass without a trace.
+// warnAtAllAreaSeriesRowLimit logs a possible silent truncation; see
+// README.md#allareaseriess-row-limit.
 func warnAtAllAreaSeriesRowLimit(n int, metric string) {
 	if n != AllAreaSeriesRowLimit {
 		return

@@ -77,20 +77,11 @@ func (s *Store) UpsertSensors(ctx context.Context, scored []quality.Scored, coun
 	return s.pool.SendBatch(ctx, batch).Close()
 }
 
-// writeBatchLimit bounds how many statements ride in one pgx.Batch. Without
-// it, an ingest cycle with an unusually large upstream payload queues every
-// row into a single SendBatch call, holding it all in memory and on the wire
-// at once; flushing in bounded chunks keeps each round trip's footprint
-// constant regardless of input size.
+// writeBatchLimit bounds one pgx.Batch's statement count; see README.md#batched-writes.
 const writeBatchLimit = 1000
 
-// WriteReadings persists every scored reading, including flagged ones. Duplicate
-// samples are upserted (value and quality overwritten) rather than erroring,
-// so a re-run of the same cycle is safe. The WHERE guard skips the write when
-// the resubmitted value and quality are unchanged, so a same-cycle rerun
-// costs no row version; it does not change what value ends up stored. Returns
-// the number of rows actually written or updated — a resubmit that the guard
-// skips does not count, unlike a naive len(scored).
+// WriteReadings persists every scored reading; see README.md#batched-writes
+// for the upsert/resubmit and return-count semantics.
 func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int64, error) {
 	var written int64
 	for start := 0; start < len(scored); start += writeBatchLimit {
