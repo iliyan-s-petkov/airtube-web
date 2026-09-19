@@ -205,21 +205,32 @@ func clientQuantise(w, s, e, n, q float64) (float64, float64, float64, float64) 
 // TARGET_HEX_PX, which is JS-only and presentational (excluded from the
 // contract, see phase4-design.md §2).
 //
-// The box is positioned adversarially: both edges placed just past a grid
-// line, so client-side snapping grows each side by nearly a full quantum.
+// The box is positioned at the worst case the client can produce: the low edge
+// just BELOW a grid line, so floor drops nearly a whole quantum, and the high
+// edge just above one, so ceil adds nearly another. A box whose extent is an
+// exact multiple of the quantum cannot do both — the two edges then sit at the
+// same offset and the growth is exactly one quantum, not two — so the extent
+// carries a small kick off the grid.
 func TestPointTierGuardSurvivesTheClientQuantum(t *testing.T) {
 	q := snapshot.NewContract().Hex.BBoxQuantumDeg
 	const trueExtent = 1.5
-	// eps places both edges just past a grid line without landing exactly on
-	// one, which is the position that makes floor/ceil grow the box the most.
 	eps := q * 0.01
 
-	w := q + eps
-	e := w + trueExtent
-	s := 2*q + eps
-	n := s + trueExtent
+	w := q - eps
+	e := w + trueExtent + 2*eps
+	s := 2*q - eps
+	n := s + trueExtent + 2*eps
 
 	qw, qs, qe, qn := clientQuantise(w, s, e, n, q)
+
+	// The positioning above is a claim about arithmetic, and a later edit could
+	// quietly flatten it back to a quarter-quantum. Checked, not asserted in a
+	// comment: each axis must grow by nearly the full 2*q.
+	for _, grown := range []float64{qe - qw, qn - qs} {
+		if want := trueExtent + 2*q; math.Abs(grown-want) > 4*eps {
+			t.Fatalf("box grew to %v, want the worst case %v: this test is no longer adversarial", grown, want)
+		}
+	}
 
 	mux := api.NewRouter(deps(t, fixture(t)))
 	url := fmt.Sprintf("/api/v1/hexes?resolution_km=0&bbox=%v,%v,%v,%v", qw, qs, qe, qn)
