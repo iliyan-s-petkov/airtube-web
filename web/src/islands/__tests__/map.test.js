@@ -1198,13 +1198,18 @@ describe('installTimelapse', () => {
       return h
     }
 
+    // The playhead, not the paint count: one tick advances as many frames as
+    // elapsed but paints only the frame that composites, so counting setData
+    // would no longer measure the clamp.
+    const at = (ui) => Number(ui.slider.value)
+
     it('replays at most four frames after a long stall', async () => {
       const clock = manualClock()
       try {
-        const { painted, ui } = await playing()
-        const after = painted.length
+        const { ui } = await playing()
+        const after = at(ui)
         clock.tick(FRAME_MS * 30)
-        expect(painted.length - after, 'a 30-frame backlog must not replay whole').toBe(4)
+        expect(at(ui) - after, 'a 30-frame backlog must not replay whole').toBe(4)
         ui.exit.click()
       } finally {
         clock.restore()
@@ -1216,13 +1221,30 @@ describe('installTimelapse', () => {
     it('leaves a normal tick and an exactly-four-frame tick alone', async () => {
       const clock = manualClock()
       try {
-        const { painted, ui } = await playing()
-        let after = painted.length
+        const { ui } = await playing()
+        let after = at(ui)
         clock.tick(FRAME_MS)
-        expect(painted.length - after, 'a normal tick advances one frame').toBe(1)
-        after = painted.length
+        expect(at(ui) - after, 'a normal tick advances one frame').toBe(1)
+        after = at(ui)
         clock.tick(FRAME_MS * 4)
-        expect(painted.length - after, 'exactly at the limit still advances four').toBe(4)
+        expect(at(ui) - after, 'exactly at the limit still advances four').toBe(4)
+        ui.exit.click()
+      } finally {
+        clock.restore()
+      }
+    })
+
+    // Four synchronous paints in one animation frame are four hexFeatures
+    // builds and four setData calls, of which only the last ever composites.
+    it('paints once however many frames one tick swallows', async () => {
+      const clock = manualClock()
+      try {
+        const { painted, ui } = await playing()
+        const wasAt = at(ui)
+        const wasPainted = painted.length
+        clock.tick(FRAME_MS * 30)
+        expect(at(ui) - wasAt, 'the playhead still advanced four').toBe(4)
+        expect(painted.length - wasPainted, 'one setData for the one frame shown').toBe(1)
         ui.exit.click()
       } finally {
         clock.restore()
@@ -1281,6 +1303,35 @@ describe('installTimelapse', () => {
       expect(cell(painted[1], B).fresh, 'the frame B arrives on').toBe(0)
       expect(cell(painted[2], B).fresh, 'one frame later, no longer freshly arrived').toBe(1)
       expect(cell(painted[3], B).fresh, 'settled').toBeUndefined()
+    })
+
+    // A catch-up tick advances several frames and paints one. The arrival
+    // tracking has to describe that painted frame: a cell whose first reading
+    // fell in the swallowed span is new to the reader, who never saw the frames
+    // it arrived on.
+    it('fades a cell in that first appeared inside a skipped span', async () => {
+      const LATE = {
+        metric: 'P2', resolution_km: 15, cells: [[23, 42], [23.2, 42]],
+        frames: [
+          { t: '2026-09-08T06:00:00Z', v: [10, null] },
+          { t: '2026-09-08T07:00:00Z', v: [10, 20] },
+          { t: '2026-09-08T08:00:00Z', v: [10, 20] },
+          { t: '2026-09-08T09:00:00Z', v: [10, 20] },
+        ],
+      }
+      const clock = manualClock()
+      try {
+        const { painted, ui } = harness(async () => LATE, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBe(1))
+        // One tick worth three frames: frames 1 and 2 are never composited.
+        clock.tick(FRAME_MS * 3)
+        expect(Number(ui.slider.value), 'the playhead is on frame 3').toBe(3)
+        expect(cell(painted.at(-1), B).fresh, 'new to the reader on the frame shown').toBe(0)
+        ui.exit.click()
+      } finally {
+        clock.restore()
+      }
     })
 
     it('never marks a cell that reported in both frames', async () => {

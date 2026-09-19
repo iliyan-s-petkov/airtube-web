@@ -1423,10 +1423,17 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     // A stall that visibilitychange does not cover — a long GC pause, a bfcache
     // restore — would otherwise replay the whole gap as one synchronous burst.
     if (acc > delay * MAX_CATCHUP_FRAMES) acc = delay * MAX_CATCHUP_FRAMES
+    // Advance the playhead over every elapsed frame, then paint once. Painting
+    // each of them would build and setData up to four frames only the last of
+    // which ever composites, and would spend the late-joiner fade on frames
+    // nobody sees — a cell arriving mid-catch-up would be drawn already settled.
+    let advanced = 0
     while (acc >= delay) {
-      paint(step(head))
+      step(head)
       acc -= delay
+      advanced++
     }
+    if (advanced > 0) paint(head.i)
     raf = requestAnimationFrame(tick)
   }
 
