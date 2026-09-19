@@ -13,10 +13,6 @@ package api
 //     (internal/upstream/eea); the particulates were 24-hour running means under
 //     the superseded bands, and the revision moved them to the hourly footing
 //     the gases were already on.
-//   - EU limit values: Directive 2008/50/EC — PM10 50 µg/m³ daily,
-//     PM2.5 25 µg/m³ annual.
-//   - WHO: 2021 Global Air Quality Guidelines — PM10 45 µg/m³ 24-hour,
-//     PM2.5 15 µg/m³ 24-hour.
 //   - WHO Environmental Noise Guidelines for the European Region (2018):
 //     road traffic Lden 53 dB, Lnight 45 dB.
 //   - Directive 2003/10/EC: 85 dB(A) upper exposure action value.
@@ -106,38 +102,6 @@ func Scales() []Scale {
 			Notes:   "European Air Quality Index bands for PM10. " + indicative,
 			NotesBG: "Класове на Европейския индекс за качество на въздуха за ПМ10. " + indicativeBG,
 			Source:  "https://airindex.eea.europa.eu/"},
-		{Name: "eu_limit", Metric: "P1", Unit: "µg/m³",
-			Bands: []Band{
-				{Label: "Within the EU daily limit", LabelBG: "В рамките на дневната норма на ЕС", Upper: upper(50), Colour: "#50ccaa"},
-				{Label: "Above the EU daily limit", LabelBG: "Над дневната норма на ЕС", Upper: nil, Colour: "#ff5050"},
-			},
-			Notes:   "Directive 2008/50/EC: PM10 daily limit 50 µg/m³. " + indicative,
-			NotesBG: "Директива 2008/50/ЕО: дневна норма за ПМ10 50 µg/m³. " + indicativeBG,
-			Source:  "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32008L0050"},
-		{Name: "eu_limit", Metric: "P2", Unit: "µg/m³",
-			Bands: []Band{
-				{Label: "Within the EU annual limit", LabelBG: "В рамките на годишната норма на ЕС", Upper: upper(25), Colour: "#50ccaa"},
-				{Label: "Above the EU annual limit", LabelBG: "Над годишната норма на ЕС", Upper: nil, Colour: "#ff5050"},
-			},
-			Notes:   "Directive 2008/50/EC: PM2.5 annual limit 25 µg/m³. " + indicative,
-			NotesBG: "Директива 2008/50/ЕО: годишна норма за ПМ2.5 25 µg/m³. " + indicativeBG,
-			Source:  "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32008L0050"},
-		{Name: "who", Metric: "P1", Unit: "µg/m³",
-			Bands: []Band{
-				{Label: "Within the WHO 24-hour guideline", LabelBG: "В рамките на 24-часовата насока на СЗО", Upper: upper(45), Colour: "#50ccaa"},
-				{Label: "Above the WHO 24-hour guideline", LabelBG: "Над 24-часовата насока на СЗО", Upper: nil, Colour: "#ff5050"},
-			},
-			Notes:   "WHO 2021 guidelines: PM10 24-hour 45 µg/m³. " + indicative,
-			NotesBG: "Насоки на СЗО 2021: ПМ10 за 24 часа 45 µg/m³. " + indicativeBG,
-			Source:  "https://www.who.int/publications/i/item/9789240034228"},
-		{Name: "who", Metric: "P2", Unit: "µg/m³",
-			Bands: []Band{
-				{Label: "Within the WHO 24-hour guideline", LabelBG: "В рамките на 24-часовата насока на СЗО", Upper: upper(15), Colour: "#50ccaa"},
-				{Label: "Above the WHO 24-hour guideline", LabelBG: "Над 24-часовата насока на СЗО", Upper: nil, Colour: "#ff5050"},
-			},
-			Notes:   "WHO 2021 guidelines: PM2.5 24-hour 15 µg/m³. " + indicative,
-			NotesBG: "Насоки на СЗО 2021: ПМ2.5 за 24 часа 15 µg/m³. " + indicativeBG,
-			Source:  "https://www.who.int/publications/i/item/9789240034228"},
 	}
 
 	// Every table above is particulate matter in µg/m³, so they all draw to the

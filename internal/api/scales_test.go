@@ -102,10 +102,24 @@ func TestScalesCoverBothParticulateMetrics(t *testing.T) {
 	for _, s := range api.Scales() {
 		seen[s.Name+"/"+s.Metric] = true
 	}
-	for _, want := range []string{"eaqi/P1", "eaqi/P2", "eu_limit/P1", "eu_limit/P2", "who/P1", "who/P2"} {
+	for _, want := range []string{"eaqi/P1", "eaqi/P2"} {
 		if !seen[want] {
 			t.Errorf("missing scale %s", want)
 		}
+	}
+}
+
+// TestScalesMetricIsUnique. Every consumer resolves a metric with a
+// first-match lookup, so a second entry for the same metric is dead weight at
+// best and a silently wrong table at worst.
+func TestScalesMetricIsUnique(t *testing.T) {
+	seen := map[string]string{}
+	for _, s := range api.Scales() {
+		if prevName, ok := seen[s.Metric]; ok {
+			t.Errorf("metric %q has more than one scale: %q and %q; a first-match lookup can never reach the second", s.Metric, prevName, s.Name)
+			continue
+		}
+		seen[s.Metric] = s.Name
 	}
 }
 

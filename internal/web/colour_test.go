@@ -62,13 +62,8 @@ func TestBandColourCoversEveryCanonicalMetric(t *testing.T) {
 }
 
 // The first table published for a metric, matched on the metric and not on
-// position — the same choice bandsFor makes in web/src/islands/map.js. Scales()
-// carries three tables for P2 (eaqi, eu_limit, who) and the map paints the
-// first; a row painted from a different one would disagree with its own dot.
+// position — the same choice bandsFor makes in web/src/islands/map.js.
 func TestBandColourUsesTheSameTableTheMapDoes(t *testing.T) {
-	// 20 is "Moderate" (#f0e641) under EAQI and "within the limit" (#50ccaa)
-	// under both eu_limit and who, so this value can only come out right from
-	// the table the map uses.
 	if got, want := bandColour("P2", 20), "#f0e641"; got != want {
 		t.Errorf("bandColour(P2, 20) = %q, want the EAQI band %q", got, want)
 	}

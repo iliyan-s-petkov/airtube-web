@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { parseMetricList, hasScale, unitFor, zipLabels, splitAttr, byMetric } from '../metrics.js'
 
 // Shaped exactly like /api/v1/scales: two tables for P2, one for P1, none for
-// anything else. The duplicate P2 entry is not padding — it is what the real
-// endpoint returns (eaqi and eu_limit), and hasScale must not care.
+// anything else. The duplicate P2 entry is not padding — the endpoint no longer
+// serves one (see TestScalesMetricIsUnique), and hasScale must not care if it
+// ever does again.
 const scales = [
   { name: 'eaqi', metric: 'P2', unit: 'µg/m³', bands: [{ upper: 5, colour: '#50f0e6' }] },
   { name: 'eaqi', metric: 'P1', unit: 'µg/m³', bands: [{ upper: 20, colour: '#50f0e6' }] },
