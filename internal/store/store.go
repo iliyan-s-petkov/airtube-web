@@ -77,27 +77,78 @@ func (s *Store) UpsertSensors(ctx context.Context, scored []quality.Scored, coun
 	return s.pool.SendBatch(ctx, batch).Close()
 }
 
-// WriteReadings persists every scored reading, including flagged ones. Duplicate
-// samples are upserted (value and quality overwritten) rather than erroring,
-// so a re-run of the same cycle is safe. Returns the number of statements sent.
+// writeBatchLimit bounds one pgx.Batch's statement count; see README.md#batched-writes.
+const writeBatchLimit = 1000
+
+// WriteReadings persists every scored reading; see README.md#batched-writes
+// for the upsert/resubmit and return-count semantics.
 func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int64, error) {
-	batch := &pgx.Batch{}
-	for _, sc := range scored {
-		r := sc.Reading
-		batch.Queue(
-			`INSERT INTO reading (time, sensor_id, metric, value, quality)
-			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (sensor_id, metric, time) DO UPDATE
-			   SET value = EXCLUDED.value, quality = EXCLUDED.quality`,
-			r.Timestamp, r.SensorID, r.Metric, r.Value, string(sc.Flag))
+	var written int64
+	for _, r := range writeBatchRanges(len(scored), writeBatchLimit) {
+		chunk := scored[r[0]:r[1]]
+
+		batch := &pgx.Batch{}
+		for _, sc := range chunk {
+			r := sc.Reading
+			batch.Queue(
+				`INSERT INTO reading (time, sensor_id, metric, value, quality)
+				 VALUES ($1, $2, $3, $4, $5)
+				 ON CONFLICT (sensor_id, metric, time) DO UPDATE
+				   SET value = EXCLUDED.value, quality = EXCLUDED.quality
+				 WHERE reading.value IS DISTINCT FROM EXCLUDED.value
+				    OR reading.quality IS DISTINCT FROM EXCLUDED.quality`,
+				r.Timestamp, r.SensorID, r.Metric, r.Value, string(sc.Flag))
+		}
+		if batch.Len() == 0 {
+			continue
+		}
+		n, err := execBatchCountRows(s.pool.SendBatch(ctx, batch), batch.Len())
+		written += n
+		if err != nil {
+			return written, err
+		}
 	}
-	if batch.Len() == 0 {
-		return 0, nil
+	return written, nil
+}
+
+// writeBatchRanges splits [0, total) into [start, end) pairs of at most
+// limit each, in order, for WriteReadings to flush one pgx.Batch per pair.
+// Pure and unexported so its chunk boundaries — how many flushes a given
+// input produces — can be pinned directly by an in-package test, without
+// exporting a hook onto the production write path.
+func writeBatchRanges(total, limit int) [][2]int {
+	if total <= 0 {
+		return nil
 	}
-	if err := s.pool.SendBatch(ctx, batch).Close(); err != nil {
-		return 0, err
+	if limit <= 0 {
+		limit = total
 	}
-	return int64(len(scored)), nil
+	ranges := make([][2]int, 0, (total+limit-1)/limit)
+	for start := 0; start < total; start += limit {
+		end := start + limit
+		if end > total {
+			end = total
+		}
+		ranges = append(ranges, [2]int{start, end})
+	}
+	return ranges
+}
+
+// execBatchCountRows consumes n queued results off br — Close alone discards
+// them without reading RowsAffected — and sums each statement's affected row
+// count so a conflict the caller's WHERE guard skipped is not counted as
+// written.
+func execBatchCountRows(br pgx.BatchResults, n int) (int64, error) {
+	defer br.Close()
+	var total int64
+	for i := 0; i < n; i++ {
+		tag, err := br.Exec()
+		if err != nil {
+			return total, err
+		}
+		total += tag.RowsAffected()
+	}
+	return total, nil
 }
 
 // StationUpsert is one official reference station, keyed by its EEA sampling
@@ -168,24 +219,39 @@ type StationReading struct {
 
 // WriteStationReadings persists hourly observations, flagged ones included.
 // The UTD dataset is revised in place upstream, so a re-fetched hour
-// overwrites.
+// overwrites — the WHERE guard only skips the write when the resubmitted row
+// is byte-identical to what is already stored, so a genuine revision still
+// lands. Returns the number of rows actually written or updated.
 func (s *Store) WriteStationReadings(ctx context.Context, rs []StationReading) (int64, error) {
-	if len(rs) == 0 {
-		return 0, nil
+	var written int64
+	for start := 0; start < len(rs); start += writeBatchLimit {
+		end := start + writeBatchLimit
+		if end > len(rs) {
+			end = len(rs)
+		}
+		chunk := rs[start:end]
+
+		batch := &pgx.Batch{}
+		for _, r := range chunk {
+			batch.Queue(
+				`INSERT INTO reading (time, sensor_id, metric, value, quality)
+				 VALUES ($1, $2, $3, $4, $5)
+				 ON CONFLICT (sensor_id, metric, time) DO UPDATE
+				   SET value = EXCLUDED.value, quality = EXCLUDED.quality
+				 WHERE reading.value IS DISTINCT FROM EXCLUDED.value
+				    OR reading.quality IS DISTINCT FROM EXCLUDED.quality`,
+				r.Timestamp, r.SensorID, r.Metric, r.Value, r.Quality)
+		}
+		if batch.Len() == 0 {
+			continue
+		}
+		n, err := execBatchCountRows(s.pool.SendBatch(ctx, batch), batch.Len())
+		written += n
+		if err != nil {
+			return written, err
+		}
 	}
-	batch := &pgx.Batch{}
-	for _, r := range rs {
-		batch.Queue(
-			`INSERT INTO reading (time, sensor_id, metric, value, quality)
-			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (sensor_id, metric, time) DO UPDATE
-			   SET value = EXCLUDED.value, quality = EXCLUDED.quality`,
-			r.Timestamp, r.SensorID, r.Metric, r.Value, r.Quality)
-	}
-	if err := s.pool.SendBatch(ctx, batch).Close(); err != nil {
-		return 0, err
-	}
-	return int64(len(rs)), nil
+	return written, nil
 }
 
 // TruncateHour returns the UTC hour bucket containing t.

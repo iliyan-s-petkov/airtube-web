@@ -17,6 +17,13 @@ type boundaryPayload struct {
 	Features []boundaryFeature `json:"features"`
 }
 
+// withoutGeneratedAt returns the payload unchanged: it carries no build
+// timestamp to clear — see its doc comment. The method still exists so
+// boundaryPayload satisfies canonicalisable and encode can accept it.
+func (p boundaryPayload) withoutGeneratedAt() any { return p }
+
+var _ canonicalisable = boundaryPayload{}
+
 type boundaryFeature struct {
 	Type       string             `json:"type"`
 	Properties boundaryProperties `json:"properties"`

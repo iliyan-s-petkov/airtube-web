@@ -50,7 +50,7 @@ func TestSeriesLimiterEvictsOnItsOwnInterval(t *testing.T) {
 	// built. A millisecond makes the entry evictable immediately.
 	cfg.RateLimit.Series.TTL = time.Millisecond
 
-	holder := snapshot.NewHolder(cfg.Series)
+	holder := snapshot.NewHolder(cfg.Series, config.Wind{})
 	srv, err := New(Options{Config: cfg, Catalogue: cat, Snapshots: holder})
 	if err != nil {
 		t.Fatalf("New: %v", err)

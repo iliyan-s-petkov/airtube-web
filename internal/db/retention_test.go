@@ -19,10 +19,12 @@ func TestReadingHourlyIsHypertable(t *testing.T) {
 
 // TestRetentionPoliciesExist asserts the drop_after interval, not merely that a
 // policy exists. The interval is the whole content of the requirement: raw
-// readings are kept 30 days and hourly buckets 2 years, and a policy with the
-// wrong interval deletes real data on a schedule while every existence check
-// still passes. Getting these two confused is also plausible in a way a missing
-// policy is not — they are adjacent lines in the same migration.
+// readings are kept 32 days (a 2-day margin over the 30-day rollup window,
+// see internal/ingest.RawRetentionHours) and hourly buckets 2 years, and a
+// policy with the wrong interval deletes real data on a schedule while every
+// existence check still passes. Getting these two confused is also plausible
+// in a way a missing policy is not — they are adjacent lines in the same
+// migration.
 func TestRetentionPoliciesExist(t *testing.T) {
 	ctx, pool := migrated(t)
 
@@ -47,11 +49,11 @@ func TestRetentionPoliciesExist(t *testing.T) {
 		t.Fatalf("rows: %v", err)
 	}
 
-	// Postgres renders an interval of 2 years as "2 years" and one of 30 days as
-	// "30 days"; both are the canonical output for the literals the migration
+	// Postgres renders an interval of 2 years as "2 years" and one of 32 days as
+	// "32 days"; both are the canonical output for the literals the migration
 	// passes to add_retention_policy.
 	for _, want := range []struct{ table, dropAfter string }{
-		{"reading", "30 days"},
+		{"reading", "32 days"},
 		{"reading_hourly", "2 years"},
 	} {
 		got, ok := found[want.table]

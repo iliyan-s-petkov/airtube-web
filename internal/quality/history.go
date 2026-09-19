@@ -16,16 +16,28 @@ type seriesState struct {
 	valid bool
 }
 
-// History tracks consecutive identical readings per (sensor, metric).
-//
-// State lives in memory and is empty after a restart, so stuck detection needs
-// `depth` cycles (about one hour at a five-minute cadence) to warm up. That is
-// acceptable: a stuck sensor stays stuck, so it is detected on the next warm
-// window rather than missed.
+// historyMaxTrackedSensors bounds tracked sensors against an unbounded leak;
+// see README.md#historys-tracked-sensor-cap. A var so tests can shrink it.
+var historyMaxTrackedSensors = 200_000
+
+// SetHistoryMaxTrackedSensorsForTesting overrides historyMaxTrackedSensors
+// and returns a func that restores the previous value.
+func SetHistoryMaxTrackedSensorsForTesting(n int) (restore func()) {
+	prev := historyMaxTrackedSensors
+	historyMaxTrackedSensors = n
+	return func() { historyMaxTrackedSensors = prev }
+}
+
+// History tracks consecutive identical readings per (sensor, metric); an
+// in-memory, restart-empty cache, so stuck detection warms up over `depth`
+// cycles after every restart — see README.md#historys-tracked-sensor-cap.
 type History struct {
 	mu    sync.Mutex
 	depth int
 	state map[int64]map[string]*seriesState
+	// order is first-seen order; eviction below is FIFO, not LRU — see
+	// README.md#historys-tracked-sensor-cap.
+	order []int64
 }
 
 func NewHistory(depth int) *History {
@@ -43,6 +55,12 @@ func (h *History) Observe(sensorID int64, metric string, value float64) {
 	if !ok {
 		byMetric = make(map[string]*seriesState)
 		h.state[sensorID] = byMetric
+		h.order = append(h.order, sensorID)
+		for len(h.order) > historyMaxTrackedSensors {
+			evict := h.order[0]
+			h.order = h.order[1:]
+			delete(h.state, evict)
+		}
 	}
 	s, ok := byMetric[metric]
 	if !ok {

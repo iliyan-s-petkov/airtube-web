@@ -28,6 +28,9 @@ CREATE SEQUENCE IF NOT EXISTS official_sensor_id_seq START WITH 9000000000;
 -- statement commits independently; a guard placed after the DROPs would let
 -- sensor.source (the only column that tells an EEA row from a community row)
 -- be gone by the time the guard raises, with no way to undo that.
+--
+-- This Down never removes 'source_invalid' from quality_flag — Postgres
+-- cannot drop an enum value — so that value outlives the rollback.
 -- +goose StatementBegin
 DO $$
 DECLARE n bigint;

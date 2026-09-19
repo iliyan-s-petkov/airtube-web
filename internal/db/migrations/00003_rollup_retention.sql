@@ -23,7 +23,12 @@ SELECT create_hypertable('reading_hourly', 'bucket', chunk_time_interval => inte
 CREATE UNIQUE INDEX reading_hourly_key_idx
     ON reading_hourly (sensor_id, metric, bucket DESC);
 
-SELECT add_retention_policy('reading', drop_after => interval '30 days');
+-- 32 days, not 30: the rollup window (the widest raw-table series period,
+-- airbg.yaml series.periods) is 30 days, and retention must outlive it or a
+-- rollup that falls behind can be asked to read rows this policy already
+-- dropped. See internal/ingest.RawRetentionHours and
+-- TestRawRetentionExceedsSeriesRawWindow.
+SELECT add_retention_policy('reading', drop_after => interval '32 days');
 SELECT add_retention_policy('reading_hourly', drop_after => interval '2 years');
 
 -- +goose Down

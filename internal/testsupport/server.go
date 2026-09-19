@@ -76,7 +76,7 @@ func StartServer(t *testing.T, st *store.Store, cfg config.Config, configure ...
 	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	holder := snapshot.NewHolder(cfg.Series)
+	holder := snapshot.NewHolder(cfg.Series, config.Wind{})
 	pub := server.NewPublisher(st, holder, log)
 	if err := pub.Publish(ctx, time.Now().UTC()); err != nil {
 		t.Fatalf("Publish: %v", err)

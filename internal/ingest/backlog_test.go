@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"airbg.org/internal/area"
+	"airbg.org/internal/db"
 	"airbg.org/internal/ingest"
 	"airbg.org/internal/quality"
 	"airbg.org/internal/store"
+	"airbg.org/internal/testsupport"
 	"airbg.org/internal/upstream"
 )
 
@@ -234,6 +238,88 @@ func TestBacklogAlertFiresDespiteRollupError(t *testing.T) {
 	}
 	if gotGap != int64(wantGap) {
 		t.Errorf("logged gap_hours = %d, want %d", gotGap, wantGap)
+	}
+}
+
+// TestRunOnceSurfacesBothFetchAndRollupErrors: RunOnce's final switch checked
+// fetchErr, then pipelineErr, then rollupErr in sequence and returned on the
+// first match, so a cycle where the fetch AND the rollup both failed reported
+// only the fetch error — the rollup failure, and the DB problem behind it,
+// vanished from the caller's view. This seeds both failures in the same cycle
+// and asserts errors.Is finds both underlying causes in what RunOnce returns.
+func TestRunOnceSurfacesBothFetchAndRollupErrors(t *testing.T) {
+	ctx, st, _ := newIngester(t, nil)
+
+	now := time.Now()
+	staleWatermark := now.Add(-300 * time.Hour)
+	if _, _, err := st.RollupBacklog(ctx, staleWatermark, 24); err != nil {
+		t.Fatalf("seed stale watermark: %v", err)
+	}
+
+	fetchErr := errors.New("simulated upstream fetch failure")
+	rollupErr := errors.New("simulated transient DB error")
+	restoreFailure := store.SetRollupBacklogFailureForTesting(func(processed int) error {
+		if processed == 3 {
+			return rollupErr
+		}
+		return nil
+	})
+	defer restoreFailure()
+
+	f := stubFetcher{err: fetchErr}
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout, testCountries)
+	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
+	defer restoreClock()
+
+	_, err := ing.RunOnce(ctx)
+	if !errors.Is(err, fetchErr) {
+		t.Errorf("RunOnce err = %v, want it to wrap the fetch error %v", err, fetchErr)
+	}
+	if !errors.Is(err, rollupErr) {
+		t.Errorf("RunOnce err = %v, want it to also wrap the rollup error %v", err, rollupErr)
+	}
+}
+
+// TestRunOnceSurfacesPipelineAndRollupErrors is the killing test for
+// fix-round-1 item 2: the `case fetchErr != nil || rollupErr != nil` branch
+// sat above `case pipelineErr != nil`, so when fetch succeeded but the
+// pipeline write AND the rollup both failed in the same cycle, only the
+// rollup error reached the caller — the write failure vanished exactly the
+// way task 2.6 existed to prevent, one branch higher. This closes the pool
+// mid-cycle so both the boundary-filter pipeline step and the rollup step
+// fail from the same real cause, and asserts errors.Is finds both.
+func TestRunOnceSurfacesPipelineAndRollupErrors(t *testing.T) {
+	ctx := context.Background()
+	pool := testsupport.NewPostgres(t)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if _, err := area.Import(ctx, pool, "../area/testdata/bulgaria.geojson", area.NationalBoundaryKind); err != nil {
+		t.Fatalf("area.Import(bulgaria): %v", err)
+	}
+	st := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	now := time.Now()
+	f := stubFetcher{readings: []upstream.Reading{reading(1, "P1", 20, 0, now)}}
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout, testCountries)
+	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
+	defer restoreClock()
+
+	// Closing the pool before RunOnce makes both the boundary-filter query
+	// (pipelineErr) and RollupBacklog (rollupErr) fail for the same real
+	// reason — fetch, a stub, is unaffected — so both errors fire in one
+	// cycle without needing a dedicated failure-injection hook.
+	pool.Close()
+
+	_, err := ing.RunOnce(ctx)
+	if err == nil {
+		t.Fatal("RunOnce err = nil, want a pipeline error and a rollup error, both from the closed pool")
+	}
+	if !strings.Contains(err.Error(), "boundary filter") {
+		t.Errorf("RunOnce err = %v, want it to name the boundary-filter (pipeline) stage", err)
+	}
+	if !strings.Contains(err.Error(), "rollup") {
+		t.Errorf("RunOnce err = %v, want it to name the rollup stage", err)
 	}
 }
 

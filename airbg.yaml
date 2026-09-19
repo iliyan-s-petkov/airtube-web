@@ -227,8 +227,8 @@ series:
   default_metric: "P2"
   default_window: "24h"
   # The hourly flag is not a performance hint, it is a correctness
-  # requirement. Raw readings are retained for 30 days, so a 1-year window
-  # against the raw table silently returns the last 30 days under a "1 year"
+  # requirement. Raw readings are retained for 32 days, so a 1-year window
+  # against the raw table silently returns the last 32 days under a "1 year"
   # label — a chart that is wrong without being empty.
   #
   # max_age is per period because each value needs its own justification: a

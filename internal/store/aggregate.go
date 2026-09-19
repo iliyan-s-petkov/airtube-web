@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -490,7 +491,8 @@ SELECT slug, b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
            AND r.quality = ANY($3::quality_flag[])
          GROUP BY a.slug, b, r.sensor_id) per_sensor
  GROUP BY slug, b
- ORDER BY slug, b`
+ ORDER BY slug, b
+ LIMIT $5`
 
 // allAreaHourlySeriesSQL is the same over the rollup. reading_hourly carries no
 // quality column: the rollup is built from readings that already passed the
@@ -505,24 +507,35 @@ SELECT slug, b, percentile_cont(0.5) WITHIN GROUP (ORDER BY v)
            AND h.bucket >= $2
          GROUP BY a.slug, b, h.sensor_id) per_sensor
  GROUP BY slug, b
- ORDER BY slug, b`
+ ORDER BY slug, b
+ LIMIT $4`
 
-// AllAreaSeries returns the area-mean series for one metric, for every area
-// that has data in the window, keyed by slug.
-//
-// Areas with no readings are absent from the map rather than present with an
-// empty slice. snapshot.Build iterates its known slugs and looks each one up, so
-// a missing key is the correct representation of "no data" there — and a caller
-// that needs an entry per area must iterate its own slug set, not this map.
+// AllAreaSeriesRowLimit caps AllAreaSeries's row count; see
+// README.md#allareaseriess-row-limit.
+const AllAreaSeriesRowLimit = 200_000
+
+// AllAreaSeries returns the area-mean series for one metric, keyed by slug;
+// an area with no data in the window is simply absent from the map.
 func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Time, hourly bool, bucket time.Duration) (map[string][]Point, error) {
-	var (
-		rows pgx.Rows
-		err  error
-	)
+	// A transaction only so statement_timeout can be scoped: set_config's local
+	// flag is transaction-scoped, and this read must not inherit the pool-wide
+	// 15s. Rolled back rather than committed — nothing is written, and a rollback
+	// of a read-only transaction is the cheaper of the two.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: begin all area series: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := db.SetLocalStatementTimeout(ctx, tx, db.StatementTimeoutValue(s.seriesTimeout)); err != nil {
+		return nil, fmt.Errorf("store: all area series timeout: %w", err)
+	}
+
+	var rows pgx.Rows
 	if hourly {
-		rows, err = s.pool.Query(ctx, allAreaHourlySeriesSQL, metric, since, bucket.Seconds())
+		rows, err = tx.Query(ctx, allAreaHourlySeriesSQL, metric, since, bucket.Seconds(), AllAreaSeriesRowLimit)
 	} else {
-		rows, err = s.pool.Query(ctx, allAreaRawSeriesSQL, metric, since, usableQuality, bucket.Seconds())
+		rows, err = tx.Query(ctx, allAreaRawSeriesSQL, metric, since, usableQuality, bucket.Seconds(), AllAreaSeriesRowLimit)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("store: all area series for %q: %w", metric, err)
@@ -530,6 +543,7 @@ func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Tim
 	defer rows.Close()
 
 	out := make(map[string][]Point)
+	var n int
 	for rows.Next() {
 		var (
 			slug string
@@ -539,8 +553,23 @@ func (s *Store) AllAreaSeries(ctx context.Context, metric string, since time.Tim
 			return nil, fmt.Errorf("store: scan all area series: %w", err)
 		}
 		out[slug] = append(out[slug], p)
+		n++
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	warnAtAllAreaSeriesRowLimit(n, metric)
+	return out, nil
+}
+
+// warnAtAllAreaSeriesRowLimit logs a possible silent truncation; see
+// README.md#allareaseriess-row-limit.
+func warnAtAllAreaSeriesRowLimit(n int, metric string) {
+	if n != AllAreaSeriesRowLimit {
+		return
+	}
+	slog.Warn("all area series hit its row limit; result may be truncated",
+		"metric", metric, "limit", AllAreaSeriesRowLimit)
 }
 
 // AreaSeries returns the area-mean time series for one metric.
