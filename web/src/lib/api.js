@@ -40,6 +40,12 @@ const inFlight = new Map()
 // store (islands/map.js) — and from tests.
 export function clearCache() {
   cache.clear()
+  // Aborted, not merely dropped: a response already on the wire lands after the
+  // clear and writes through cacheSet, which silently undoes the invalidation
+  // and can also let an older response overwrite a newer one.
+  for (const entry of inFlight.values()) {
+    entry.controller.abort(new DOMException('The cache was cleared.', 'AbortError'))
+  }
   inFlight.clear()
 }
 

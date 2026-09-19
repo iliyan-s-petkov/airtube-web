@@ -327,3 +327,20 @@ describe('the optional signal', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
+
+// clearCache is the refresh button's invalidation. A request already on the
+// wire when it runs must not land afterwards and seed the cache back: the
+// refresh would then be a control that visibly does nothing.
+it('does not let a request in flight during clearCache() re-seed the cache', async () => {
+  let settle
+  fetchMock.mockReturnValueOnce(new Promise((resolve) => { settle = resolve }))
+
+  const pending = getJSON('/api/v1/overview').catch(() => 'aborted')
+  clearCache()
+  settle(jsonResponse({ areas: ['stale'] }))
+  expect(await pending).toBe('aborted')
+
+  fetchMock.mockResolvedValueOnce(jsonResponse({ areas: ['fresh'] }))
+  expect(await getJSON('/api/v1/overview')).toEqual({ areas: ['fresh'] })
+  expect(fetchMock, 'the second call really went to the network').toHaveBeenCalledTimes(2)
+})
