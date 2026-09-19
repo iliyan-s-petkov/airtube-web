@@ -237,6 +237,45 @@ func TestBacklogAlertFiresDespiteRollupError(t *testing.T) {
 	}
 }
 
+// TestRunOnceSurfacesBothFetchAndRollupErrors: RunOnce's final switch checked
+// fetchErr, then pipelineErr, then rollupErr in sequence and returned on the
+// first match, so a cycle where the fetch AND the rollup both failed reported
+// only the fetch error — the rollup failure, and the DB problem behind it,
+// vanished from the caller's view. This seeds both failures in the same cycle
+// and asserts errors.Is finds both underlying causes in what RunOnce returns.
+func TestRunOnceSurfacesBothFetchAndRollupErrors(t *testing.T) {
+	ctx, st, _ := newIngester(t, nil)
+
+	now := time.Now()
+	staleWatermark := now.Add(-300 * time.Hour)
+	if _, _, err := st.RollupBacklog(ctx, staleWatermark, 24); err != nil {
+		t.Fatalf("seed stale watermark: %v", err)
+	}
+
+	fetchErr := errors.New("simulated upstream fetch failure")
+	rollupErr := errors.New("simulated transient DB error")
+	restoreFailure := store.SetRollupBacklogFailureForTesting(func(processed int) error {
+		if processed == 3 {
+			return rollupErr
+		}
+		return nil
+	})
+	defer restoreFailure()
+
+	f := stubFetcher{err: fetchErr}
+	ing := ingest.New(f, st, quality.NewHistory(12), testScorer(), testAssignTimeout, testCountries)
+	restoreClock := ing.SetClockForTesting(func() time.Time { return now })
+	defer restoreClock()
+
+	_, err := ing.RunOnce(ctx)
+	if !errors.Is(err, fetchErr) {
+		t.Errorf("RunOnce err = %v, want it to wrap the fetch error %v", err, fetchErr)
+	}
+	if !errors.Is(err, rollupErr) {
+		t.Errorf("RunOnce err = %v, want it to also wrap the rollup error %v", err, rollupErr)
+	}
+}
+
 // recordingHandler captures slog records so tests can assert on structured
 // attributes rather than scraping formatted log text.
 type recordingHandler struct {

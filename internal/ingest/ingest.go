@@ -3,6 +3,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -295,12 +296,14 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 	rollupErr := i.rollupBacklog(ctx, i.now())
 
 	switch {
-	case fetchErr != nil:
-		return Stats{}, fmt.Errorf("ingest: fetch: %w", fetchErr)
+	// fetchErr and rollupErr are independent failures — the rollup step runs
+	// unconditionally even when the fetch failed — and both must reach the
+	// caller: returning only fetchErr here silently dropped a concurrent
+	// rollup/DB problem that the fetch failure gave no hint of.
+	case fetchErr != nil || rollupErr != nil:
+		return stats, fmt.Errorf("ingest: %w", errors.Join(fetchErr, rollupErr))
 	case pipelineErr != nil:
 		return stats, pipelineErr
-	case rollupErr != nil:
-		return stats, fmt.Errorf("ingest: rollup: %w", rollupErr)
 	}
 
 	var assigned, revoked int64
