@@ -447,3 +447,19 @@ func TestPointBodyCarriesCoverage(t *testing.T) {
 		t.Errorf("coverage = %#v, want eea P1 = 27", got.Coverage)
 	}
 }
+
+// Extent is per axis, not a diagonal or an area: a box can be narrow and tall,
+// and the point tier's limit applies to each side on its own.
+func TestBBoxExtentIsMeasuredPerAxis(t *testing.T) {
+	b, ok := ParseBBox("22,41,24,41.5")
+	if !ok {
+		t.Fatal("ParseBBox rejected a well-formed box")
+	}
+	lon, lat := b.Extent()
+	if lon != 2.0 {
+		t.Errorf("lon extent = %v, want 2", lon)
+	}
+	if lat != 0.5 {
+		t.Errorf("lat extent = %v, want 0.5", lat)
+	}
+}

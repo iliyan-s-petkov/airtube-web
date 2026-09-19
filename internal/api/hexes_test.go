@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -100,12 +101,61 @@ func TestPointTierAnswersFromThePointTier(t *testing.T) {
 	mux := api.NewRouter(deps(t, fixture(t)))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
-		"/api/v1/hexes?resolution_km=0&bbox=22,41,28,44", nil))
+		"/api/v1/hexes?resolution_km=0&bbox=22,41,23,42", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), `"resolution_km":0`) {
 		t.Errorf("point tier did not report resolution 0: %s", rec.Body.String())
+	}
+}
+
+// Presence is not enough. A world-sized box passes the presence check and then
+// hands back the whole station registry, ids attached, in one GET — the bulk
+// download the viewport requirement exists to prevent.
+func TestPointTierRefusesAnOversizedBox(t *testing.T) {
+	mux := api.NewRouter(deps(t, fixture(t)))
+
+	for _, u := range []string{
+		"/api/v1/hexes?resolution_km=0&bbox=-180,-90,180,90", // the whole world
+		"/api/v1/hexes?resolution_km=0&bbox=22,41,25,43",     // 3.0 wide
+		"/api/v1/hexes?resolution_km=0&bbox=22,41,24,44",     // 3.0 tall
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, u, nil))
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("GET %s = %d, want 400", u, rec.Code)
+			continue
+		}
+		var got struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Errorf("GET %s: body is not JSON: %v", u, err)
+			continue
+		}
+		if got.Error != "bbox_too_large" {
+			t.Errorf("GET %s: error code = %q, want %q", u, got.Error, "bbox_too_large")
+		}
+	}
+}
+
+// The limit is inclusive, and a box just under it is ordinary. A boundary that
+// rejects the exact maximum would make the frontend's own viewport unservable
+// at the zoom it computes for it.
+func TestPointTierAcceptsABoxUpToTheLimit(t *testing.T) {
+	mux := api.NewRouter(deps(t, fixture(t)))
+
+	for _, u := range []string{
+		"/api/v1/hexes?resolution_km=0&bbox=22,41,23.9,42.9", // 1.9 x 1.9
+		"/api/v1/hexes?resolution_km=0&bbox=22,41,24,43",     // exactly 2.0 x 2.0
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, u, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200 (body: %s)", u, rec.Code, rec.Body.String())
+		}
 	}
 }

@@ -138,6 +138,13 @@ func (d Deps) handleHexes(w http.ResponseWriter, r *http.Request) {
 				`A "bbox" of "w,s,e,n" is required at resolution_km=0.`)
 			return
 		}
+		// Presence alone is not the guard: a world-sized box satisfies it and
+		// still hands back the whole registry in one GET.
+		if lon, lat := bb.Extent(); lon > snapshot.MaxPointBBoxDegrees || lat > snapshot.MaxPointBBoxDegrees {
+			writeError(w, http.StatusBadRequest, "bbox_too_large",
+				`A "bbox" may span at most 2 degrees per axis at resolution_km=0.`)
+			return
+		}
 		body, err := snap.PointBody(bb)
 		if err != nil {
 			writeUnavailable(w)

@@ -243,6 +243,9 @@ func (s *Snapshot) HexBody(resKM float64, bb BBox, clip bool) (Body, error) {
 // cell small enough to hold one device is that device.
 const PointResolutionKM = 0.0
 
+// The widest viewport the point tier will answer, per axis, in degrees.
+const MaxPointBBoxDegrees = 2.0
+
 // CellStatChangedAt is the instant the hex cell's summary statistic changed from
 // mean to median.
 //
@@ -392,6 +395,14 @@ func ParseBBox(s string) (BBox, bool) {
 // same ground.
 func (b BBox) contains(lon, lat float64) bool {
 	return lon >= b.W && lon <= b.E && lat >= b.S && lat <= b.N
+}
+
+// Extent reports the box's width and height in degrees.
+//
+// ParseBBox rejects inverted and empty boxes, so both values are positive for
+// any box a caller can reach this with.
+func (b BBox) Extent() (lon, lat float64) {
+	return b.E - b.W, b.N - b.S
 }
 
 // HexCell is one grid cell's identity and centre.
