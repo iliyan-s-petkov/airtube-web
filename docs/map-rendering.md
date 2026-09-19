@@ -83,4 +83,7 @@ predict the wire.
 
 The guard finds the chunk by `facadeModuleId`, not by its hashed filename. If
 no chunk matches, that is a build failure too — a chunking change or a rename
-would otherwise leave the budget unenforced with nobody told.
+would otherwise leave the budget unenforced with nobody told. It carries its
+own message rather than reusing the over-budget one, so the two causes read
+differently in CI output: one means the map got heavier, the other means the
+guard stopped looking at the map.
