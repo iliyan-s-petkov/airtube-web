@@ -2,12 +2,15 @@ package api_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"airbg.org/internal/api"
+	"airbg.org/internal/snapshot"
 )
 
 // An AGGREGATE hex request never fails on its parameters. The resolution is
@@ -175,5 +178,57 @@ func TestPointTierMeasuresTheBoxBeforeWideningIt(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
+// clientQuantise mirrors hexes.js's quantise: snapped outward to the nearest
+// multiple of q, on all four sides. Reimplemented here rather than exported
+// from the JS, because this test is proving what the SERVER receives once the
+// client has already snapped — the two languages cannot share a function, only
+// the number they snap to (see snapshot.Contract).
+func clientQuantise(w, s, e, n, q float64) (float64, float64, float64, float64) {
+	return math.Floor(w/q) * q, math.Floor(s/q) * q, math.Ceil(e/q) * q, math.Ceil(n/q) * q
+}
+
+// TestPointTierGuardSurvivesTheClientQuantum pins Ruling 1 of the phase-4
+// brief: moving the client's bbox quantum from 0.05 to 0.25 (to match
+// BBoxQuantumDegrees and stop the drift, see contract.go) lets client-side
+// snapping grow a viewport by up to 2*BBoxQuantumDegrees per axis instead of
+// 2*0.05, before the box ever reaches the "bbox_too_large" guard — which
+// measures the box AS SENT, deliberately before the server's own Quantise.
+//
+// 1.5 degrees is the true, unsnapped extent under test: the design's own
+// pixel-geometry estimate puts the largest viewport the point tier's zoom
+// range can produce (even on an 8K-wide screen) under 1 degree, so 1.5 is a
+// deliberately generous upper bound on "the largest viewport the point tier
+// can produce" — not a tight one — chosen so the test does not depend on
+// TARGET_HEX_PX, which is JS-only and presentational (excluded from the
+// contract, see phase4-design.md §2).
+//
+// The box is positioned adversarially: both edges placed just past a grid
+// line, so client-side snapping grows each side by nearly a full quantum.
+func TestPointTierGuardSurvivesTheClientQuantum(t *testing.T) {
+	q := snapshot.NewContract().Hex.BBoxQuantumDeg
+	const trueExtent = 1.5
+	// eps places both edges just past a grid line without landing exactly on
+	// one, which is the position that makes floor/ceil grow the box the most.
+	eps := q * 0.01
+
+	w := q + eps
+	e := w + trueExtent
+	s := 2*q + eps
+	n := s + trueExtent
+
+	qw, qs, qe, qn := clientQuantise(w, s, e, n, q)
+
+	mux := api.NewRouter(deps(t, fixture(t)))
+	url := fmt.Sprintf("/api/v1/hexes?resolution_km=0&bbox=%v,%v,%v,%v", qw, qs, qe, qn)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET %s = %d, want 200 (body: %s); a %v-degree viewport, comfortably wider than "+
+			"the point tier ever produces, must survive client-side quantisation to %v degrees",
+			url, rec.Code, rec.Body.String(), trueExtent, q)
 	}
 }
