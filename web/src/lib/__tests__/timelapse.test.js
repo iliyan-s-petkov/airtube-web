@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
 import {
-  SPANS, knownSpan, spanFor, timelapseURL, frameBody, frameCount, frameTime,
+  FRAME_MS, SPANS, knownSpan, spanFor, timelapseURL, frameBody, frameCount, frameTime,
   cursor, step, seek, mountPlayer, frameCoverage, hasHistory, thinFrames, fillForward,
+  DEFAULT_SPEED, SPEEDS, frameDelay, nextSpeed, speedLabel,
 } from '../timelapse.js'
 
 const BODY = {
@@ -420,5 +421,99 @@ describe('fillForward', () => {
     })
     expect(out.frames[1].v[0]).toBe(0)
     expect(out.frames[1].c[0]).toBe(true)
+  })
+})
+
+
+// The animation ran at one speed, eight seconds for a day, which is quick if
+// you are trying to follow one cell across the country.
+describe('playback speed', () => {
+  it('cycles through the three speeds and wraps', () => {
+    expect(SPEEDS).toEqual([1, 0.5, 0.25])
+    expect(nextSpeed(1)).toBe(0.5)
+    expect(nextSpeed(0.5)).toBe(0.25)
+    expect(nextSpeed(0.25)).toBe(1)
+  })
+
+  // A stored preference from an older build, or a hand-edited one, must not
+  // leave the player on a speed it cannot cycle out of.
+  it('treats an unknown speed as the default', () => {
+    expect(nextSpeed(3)).toBe(DEFAULT_SPEED)
+    expect(nextSpeed(null)).toBe(DEFAULT_SPEED)
+    expect(nextSpeed(undefined)).toBe(DEFAULT_SPEED)
+    expect(nextSpeed('0.5')).toBe(DEFAULT_SPEED)
+  })
+
+  it('opens at full speed', () => {
+    expect(DEFAULT_SPEED).toBe(1)
+    expect(SPEEDS[0]).toBe(DEFAULT_SPEED)
+  })
+
+  // Slower means a LONGER gap between frames. Inverting this is the one bug
+  // this arithmetic can have, and it would make the slow setting the fast one.
+  it('turns a speed into a frame delay', () => {
+    expect(frameDelay(1)).toBe(FRAME_MS)
+    expect(frameDelay(0.5)).toBe(FRAME_MS * 2)
+    expect(frameDelay(0.25)).toBe(FRAME_MS * 4)
+    expect(frameDelay(0.5)).toBeGreaterThan(frameDelay(1))
+  })
+
+  it('falls back to the default delay for an unknown speed', () => {
+    expect(frameDelay(0)).toBe(FRAME_MS)
+    expect(frameDelay(null)).toBe(FRAME_MS)
+    expect(frameDelay(-1)).toBe(FRAME_MS)
+  })
+
+  it('labels each speed for the button face', () => {
+    expect(speedLabel(1)).toBe('1\u00d7')
+    expect(speedLabel(0.5)).toBe('0.5\u00d7')
+    expect(speedLabel(0.25)).toBe('0.25\u00d7')
+  })
+})
+
+// The button is text, not an icon, because "half speed" has no glyph a reader
+// would recognise. It still needs a name a screen reader can read.
+describe('mountPlayer speed button', () => {
+  const mountSpeed = () => {
+    const host = document.createElement('div')
+    return mountPlayer(host, {
+      label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now', speedLabel: 'Playback speed',
+    })
+  }
+
+  it('starts hidden, at full speed, named', () => {
+    const ui = mountSpeed()
+    expect(ui.speed.hidden).toBe(true)
+    expect(ui.speed.textContent).toBe('1\u00d7')
+    expect(ui.speed.getAttribute('aria-label')).toBe('Playback speed')
+    expect(ui.speed.getAttribute('title')).toBe('Playback speed')
+    expect(ui.speed.type).toBe('button')
+  })
+
+  // Same rule the scrubber, clock and exit follow: a speed control with no
+  // animation behind it is a button that does nothing.
+  it('appears and disappears with the rest of the replay controls', () => {
+    const ui = mountSpeed()
+    ui.show(24)
+    expect(ui.speed.hidden).toBe(false)
+    ui.show(0)
+    expect(ui.speed.hidden).toBe(true)
+  })
+
+  it('shows the speed it was set to', () => {
+    const ui = mountSpeed()
+    ui.atSpeed(0.25)
+    expect(ui.speed.textContent).toBe('0.25\u00d7')
+    ui.atSpeed(1)
+    expect(ui.speed.textContent).toBe('1\u00d7')
+  })
+
+  it('reports a press to whoever asked', () => {
+    const ui = mountSpeed()
+    const presses = []
+    ui.onspeed(() => presses.push(true))
+    ui.speed.click()
+    ui.speed.click()
+    expect(presses).toHaveLength(2)
   })
 })

@@ -96,6 +96,7 @@
   "map.play.no_history": "Not enough history yet to animate this measurement",
   "map.play.pause": "Pause the animation",
   "map.play.play": "Play the animation",
+  "map.play.speed": "Playback speed",
   "map.play.thin": "Few readings for this hour",
   "map.play.time": "Hour shown",
   "map.text_alternative": "The list of provinces below the map carries the same readings as text.",

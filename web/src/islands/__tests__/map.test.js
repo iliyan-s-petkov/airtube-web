@@ -7,7 +7,7 @@
 // for code that touches no DOM.
 import { DIAMOND_RADIUS_PX } from '../../lib/markericon.js'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, hexLabelPaint, CARRIED_OPACITY, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, hexLabelPaint, CARRIED_OPACITY, PLAY_SPEED_KEY, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM, resolutionForZoom } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -340,6 +340,7 @@ describe('readConfig', () => {
         tLocateFailed: 'We could not determine your location.',
         tWindowLabel: 'Averaging period',
         tPlayLabel: 'Play the animation', tPauseLabel: 'Pause the animation',
+        tSpeedLabel: 'Playback speed',
         tTimeLabel: 'Hour shown', tExitLabel: 'Back to the current readings',
         tReplayThin: 'Few readings for this hour',
         tReplayNoHistory: 'Not enough history yet to animate this measurement',
@@ -365,6 +366,7 @@ describe('readConfig', () => {
       zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomReset: 'Reset view',
       layersButton: 'Layers', layersCaption: 'Show on the map',
       playLabel: 'Play the animation', pauseLabel: 'Pause the animation',
+      speedLabel: 'Playback speed',
       timeLabel: 'Hour shown', exitLabel: 'Back to the current readings',
       replayThin: 'Few readings for this hour',
       replayNoHistory: 'Not enough history yet to animate this measurement',
@@ -863,7 +865,7 @@ describe('installTimelapse', () => {
     frames: [{ t: '2026-09-08T06:00:00Z', v: [10] }, { t: '2026-09-08T07:00:00Z', v: [20] }],
   }
 
-  function harness(fetchJSON, t) {
+  function harness(fetchJSON, t, storage) {
     const painted = []
     let zoom = 12
     const zoomHandlers = []
@@ -876,9 +878,9 @@ describe('installTimelapse', () => {
       getSource: () => ({ setData: (d) => painted.push(d) }),
       on: (evt, fn) => { if (evt === 'zoom') zoomHandlers.push(fn) },
     }
-    const ui = mountPlayer(document.createElement('div'), { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now' })
+    const ui = mountPlayer(document.createElement('div'), { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now', speedLabel: 'Speed' })
     const state = { scales: null, hexUrl: null, window: '24h' }
-    const ctl = installTimelapse(map, state, { ...cfg, t: { ...cfg.t, ...t } }, { player: ui }, fetchJSON)
+    const ctl = installTimelapse(map, state, { ...cfg, t: { ...cfg.t, ...t } }, { player: ui, storage }, fetchJSON)
     return { painted, ui, state, ctl, map }
   }
 
@@ -908,6 +910,98 @@ describe('installTimelapse', () => {
     ],
   }
   const T = { replayThin: 'Partial data for this hour', replayNoHistory: 'Not enough history yet' }
+
+  // Speed changes the gap between frames and nothing else: the same frames, in
+  // the same order, from the same body.
+  describe('playback speed', () => {
+    const storageFor = (raw) => {
+      const kv = new Map()
+      if (raw !== undefined) kv.set(PLAY_SPEED_KEY, raw)
+      return { kv, getItem: (k) => (kv.has(k) ? kv.get(k) : null), setItem: (k, v) => kv.set(k, v) }
+    }
+
+    it('opens at full speed and cycles on each press', async () => {
+      const { ui } = harness(async () => BODY, T, storageFor())
+      ui.button.click()
+      await vi.waitFor(() => expect(ui.speed.hidden).toBe(false))
+      expect(ui.speed.textContent).toBe('1\u00d7')
+      ui.speed.click()
+      expect(ui.speed.textContent).toBe('0.5\u00d7')
+      ui.speed.click()
+      expect(ui.speed.textContent).toBe('0.25\u00d7')
+      ui.speed.click()
+      expect(ui.speed.textContent).toBe('1\u00d7')
+    })
+
+    it('remembers the speed for the next visit', async () => {
+      const store = storageFor()
+      const { ui } = harness(async () => BODY, T, store)
+      ui.button.click()
+      await vi.waitFor(() => expect(ui.speed.hidden).toBe(false))
+      ui.speed.click()
+      expect(store.kv.get(PLAY_SPEED_KEY)).toBe('0.5')
+    })
+
+    it('opens at the remembered speed', async () => {
+      const { ui } = harness(async () => BODY, T, storageFor('0.25'))
+      ui.button.click()
+      await vi.waitFor(() => expect(ui.speed.hidden).toBe(false))
+      expect(ui.speed.textContent).toBe('0.25\u00d7')
+    })
+
+    // The whole point of the control. At half speed the map must still be on
+    // the same frame after one full-speed interval has passed.
+    it('holds each frame longer at a slower speed', async () => {
+      vi.useFakeTimers()
+      try {
+        const { painted, ui } = harness(async () => BODY, T, storageFor('0.5'))
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS)
+        expect(painted.length, 'advanced a frame at half speed').toBe(after)
+        await vi.advanceTimersByTimeAsync(FRAME_MS)
+        expect(painted.length).toBeGreaterThan(after)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    // Pressing the speed button mid-animation must take effect now, not at the
+    // next press of play — the timer is already running at the old delay.
+    it('applies a speed change to a running animation', async () => {
+      vi.useFakeTimers()
+      try {
+        const { painted, ui } = harness(async () => BODY, T, storageFor())
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+        ui.speed.click()
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS)
+        expect(painted.length, 'still on the old fast timer').toBe(after)
+        await vi.advanceTimersByTimeAsync(FRAME_MS)
+        expect(painted.length).toBeGreaterThan(after)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    // A reader who has paused and pressed the speed button is asking what the
+    // next play will look like, not for the animation to start again.
+    it('does not start the animation when paused', async () => {
+      const { painted, ui } = harness(async () => BODY, T, storageFor())
+      ui.button.click()
+      await vi.waitFor(() => expect(ui.speed.hidden).toBe(false))
+      ui.button.click()
+      await vi.waitFor(() => expect(ui.button.getAttribute('aria-pressed')).toBe('false'))
+      const after = painted.length
+      ui.speed.click()
+      expect(ui.button.getAttribute('aria-pressed')).toBe('false')
+      expect(painted.length).toBe(after)
+    })
+  })
 
   // Twenty-eight blank frames under a running clock read as clean air, not as
   // missing data. Saying so is the whole point of the guard.

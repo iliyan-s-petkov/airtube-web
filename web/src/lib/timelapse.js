@@ -4,8 +4,32 @@
 // A deliberate duplicate of snapshot.FrameSpecs, like mapwindow.js's WindowSpecs.
 export const SPANS = ['24h', '48h', '7d']
 
-// A day passes in about eight seconds.
+// A day passes in about eight seconds at full speed.
 export const FRAME_MS = 320
+
+// Eight seconds for a day is quick if you are following one cell, so the
+// player can be slowed. Multipliers rather than millisecond values: FRAME_MS
+// stays the one place the base rate is written down.
+export const SPEEDS = [1, 0.5, 0.25]
+export const DEFAULT_SPEED = SPEEDS[0]
+
+// Unknown speeds reset rather than pass through: a preference stored by an
+// older build, or edited by hand, must not leave the button on a value it can
+// never cycle out of. indexOf gives -1 for those, and -1 + 1 is the default's
+// own index — so the reset needs no branch of its own.
+export function nextSpeed(speed) {
+  return SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]
+}
+
+// Slower is a LONGER gap between frames. Dividing the other way round would
+// make the slow setting the fast one.
+export function frameDelay(speed) {
+  return SPEEDS.includes(speed) ? FRAME_MS / speed : FRAME_MS
+}
+
+export function speedLabel(speed) {
+  return `${speed}\u00d7`
+}
 
 export function knownSpan(name) {
   return SPANS.includes(name)
@@ -85,7 +109,7 @@ export function seek(c, i) {
 // The play control, unwired: the caller says what play, pause, scrub and exit
 // do, because all four need the map. The scrubber stays hidden until there is
 // something to scrub.
-export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, host = frame }, doc = document) {
+export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, speedLabel: speedName, host = frame }, doc = document) {
   const root = doc.createElement('div')
   root.className = 'map-play'
 
@@ -128,6 +152,16 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, ho
   note.setAttribute('aria-live', 'polite')
   note.hidden = true
 
+  // Text, not an icon: "half speed" has no glyph a reader would recognise, and
+  // the current speed has to be readable without pressing anything to find out.
+  const speed = doc.createElement('button')
+  speed.type = 'button'
+  speed.className = 'btn map-play__btn map-play__speed'
+  speed.setAttribute('aria-label', speedName)
+  speed.setAttribute('title', speedName)
+  speed.textContent = speedLabel(DEFAULT_SPEED)
+  speed.hidden = true
+
   // Its own button rather than a second meaning for the play button: pressing
   // play from a scrubbed frame replays, so without this there is no control that
   // returns the map to the live readings.
@@ -164,6 +198,10 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, ho
   const toggles = []
   const scrubs = []
   const exits = []
+  const speeds = []
+  speed.addEventListener('click', () => {
+    for (const fn of speeds) fn()
+  })
   button.addEventListener('click', () => {
     for (const fn of toggles) fn()
   })
@@ -178,11 +216,12 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, ho
   root.appendChild(slider)
   root.appendChild(clock)
   root.appendChild(note)
+  root.appendChild(speed)
   root.appendChild(exit)
   host.appendChild(root)
 
   return {
-    root, button, slider, clock, note, exit,
+    root, button, slider, clock, note, speed, exit,
     playing,
     say: (text) => {
       note.textContent = text ?? ''
@@ -193,13 +232,16 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, ho
       slider.max = String(Math.max(0, count - 1))
       slider.hidden = count <= 0
       clock.hidden = count <= 0
+      speed.hidden = count <= 0
       exit.hidden = count <= 0
     },
     at: (i, text) => {
       slider.value = String(i)
       clock.textContent = text ?? ''
     },
+    atSpeed: (s) => { speed.textContent = speedLabel(s) },
     ontoggle: (fn) => toggles.push(fn),
+    onspeed: (fn) => speeds.push(fn),
     onscrub: (fn) => scrubs.push(fn),
     onexit: (fn) => exits.push(fn),
   }

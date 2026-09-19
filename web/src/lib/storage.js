@@ -34,3 +34,24 @@ export function writeFlag(key, value, storage = safeStorage()) {
     /* private mode, or a full quota: the control still works this visit */
   }
 }
+
+// readChoice/writeChoice are readFlag/writeFlag for a preference that is one
+// of a fixed few values rather than a boolean. It returns a member of
+// `allowed`, never the stored string: localStorage holds "0.5", and a caller
+// comparing that against 0.5 with === would silently never match.
+export function readChoice(key, allowed, fallback, storage = safeStorage()) {
+  try {
+    const raw = storage?.getItem(key)
+    return allowed.find((v) => String(v) === raw) ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+export function writeChoice(key, value, storage = safeStorage()) {
+  try {
+    storage?.setItem(key, String(value))
+  } catch {
+    /* private mode, or a full quota: the control still works this visit */
+  }
+}

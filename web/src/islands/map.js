@@ -25,14 +25,14 @@ import {
 } from '../lib/sourcefilter.svelte.js'
 import { diamondImage, DIAMOND_RADIUS_PX } from '../lib/markericon.js'
 import { applyLocate } from '../lib/locate.js'
-import { readFlag, writeFlag } from '../lib/storage.js'
+import { readChoice, readFlag, writeChoice, writeFlag } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
 import {
   chooseWindow, mountWindow, readWindow, windowOptions, withWindow,
 } from '../lib/mapwindow.js'
 import {
-  FRAME_MS, cursor, fillForward, frameBody, frameCount, frameTime, hasHistory, mountPlayer,
-  seek, step, thinFrames, timelapseURL,
+  DEFAULT_SPEED, SPEEDS, cursor, fillForward, frameBody, frameCount, frameTime, frameDelay,
+  hasHistory, mountPlayer, nextSpeed, seek, step, thinFrames, timelapseURL,
 } from '../lib/timelapse.js'
 import { setMapAreas, provideAreaSelect } from '../lib/mapareas.svelte.js'
 import { stationsOf, readingAt } from '../lib/stations.js'
@@ -111,6 +111,10 @@ export const HEX_LABEL_LAYER_ID = 'airbg-hex-labels'
 // it is folded, and conflating them would make turning the key back on undo a
 // fold the reader never touched.
 export const LEGEND_FOLD_KEY = 'airbg:legend-open'
+
+// Remembered, like the legend fold: a reader who needs the slow speed to
+// follow a cell needs it every visit, not once.
+export const PLAY_SPEED_KEY = 'airbg:play-speed'
 
 // MapLibre's own maxzoom default. setLayerZoomRange takes both ends, so a call
 // that only means to move the floor still has to name a ceiling.
@@ -1220,6 +1224,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   let body = null
   let loaded = ''
   let timer = null
+  // Read once, at install: the speed is a preference, and re-reading storage
+  // per frame would let another tab change the rate mid-animation.
+  let speed = readChoice(PLAY_SPEED_KEY, SPEEDS, DEFAULT_SPEED, chrome.storage)
   // Recomputed per body, not per frame: which hours are thin depends on the
   // best hour in the same body, so it cannot be decided one frame at a time.
   let thin = new Set()
@@ -1294,7 +1301,15 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     head.count = frameCount(body)
     head.i = keepPlayhead ? seek(head, head.i) : 0
     ui.show(head.count)
+    ui.atSpeed(speed)
     return head.count > 0
+  }
+
+  // The one place the timer is started, so a speed change mid-animation and a
+  // fresh press of play cannot disagree about the delay.
+  const run = () => {
+    if (timer) clearInterval(timer)
+    timer = setInterval(() => paint(step(head)), frameDelay(speed))
   }
 
   ui.ontoggle(async () => {
@@ -1313,7 +1328,16 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     head.playing = true
     ui.playing(true)
     paint(head.i)
-    timer = setInterval(() => paint(step(head)), FRAME_MS)
+    run()
+  })
+
+  // A press while paused is a question about the next play, not a request to
+  // start one — so the timer is only rebuilt if there already was one.
+  ui.onspeed(() => {
+    speed = nextSpeed(speed)
+    writeChoice(PLAY_SPEED_KEY, speed, chrome.storage)
+    ui.atSpeed(speed)
+    if (timer) run()
   })
 
   // Follows the reader onto the tier the new zoom would ask the live grid
@@ -1768,6 +1792,7 @@ export function readConfig(el) {
       zoomReset: d.tZoomReset || '',
       windowLabel: d.tWindowLabel || '',
       playLabel: d.tPlayLabel || '',
+      speedLabel: d.tSpeedLabel || '',
       pauseLabel: d.tPauseLabel || '',
       timeLabel: d.tTimeLabel || '',
       exitLabel: d.tExitLabel || '',
@@ -2256,6 +2281,7 @@ export function mountChrome(el, cfg) {
     playLabel: cfg.t.playLabel,
     pauseLabel: cfg.t.pauseLabel,
     exitLabel: cfg.t.exitLabel,
+    speedLabel: cfg.t.speedLabel,
     host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
   })
 

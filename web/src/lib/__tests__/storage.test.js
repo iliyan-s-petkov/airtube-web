@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFlag, writeFlag, safeStorage } from '../storage.js'
+import { readFlag, writeFlag, safeStorage, readChoice, writeChoice } from '../storage.js'
 
 // A stand-in for the real thing, so a test can be a browser that has decided
 // not to cooperate without needing that browser.
@@ -72,5 +72,61 @@ describe('safeStorage', () => {
     expect(safeStorage()).toBe(null)
     if (had) Object.defineProperty(globalThis, 'localStorage', had)
     else delete globalThis.localStorage
+  })
+})
+
+
+// readFlag covers the one-boolean case, which is most preferences. The
+// playback speed is one of a fixed few numbers instead, and the same rule
+// applies: a stored value outside the set is treated as unset.
+describe('readChoice/writeChoice', () => {
+  const fake = () => {
+    const kv = new Map()
+    return {
+      kv,
+      getItem: (k) => (kv.has(k) ? kv.get(k) : null),
+      setItem: (k, v) => kv.set(k, v),
+    }
+  }
+
+  it('returns the fallback when nothing is stored', () => {
+    expect(readChoice('k', [1, 0.5], 1, fake())).toBe(1)
+  })
+
+  it('reads back what was written', () => {
+    const s = fake()
+    writeChoice('k', 0.5, s)
+    expect(readChoice('k', [1, 0.5], 1, s)).toBe(0.5)
+  })
+
+  // The defect this exists to prevent: localStorage stores strings, so a
+  // careless read hands the caller "0.5" and every === against 0.5 fails.
+  it('returns a member of the allowed set, not the stored string', () => {
+    const s = fake()
+    writeChoice('k', 0.25, s)
+    const got = readChoice('k', [1, 0.5, 0.25], 1, s)
+    expect(got).toBe(0.25)
+    expect(typeof got).toBe('number')
+  })
+
+  it('treats a value outside the set as unset', () => {
+    const s = fake()
+    s.setItem('k', '3')
+    expect(readChoice('k', [1, 0.5], 1, s)).toBe(1)
+    s.setItem('k', 'nonsense')
+    expect(readChoice('k', [1, 0.5], 1, s)).toBe(1)
+  })
+
+  // Private mode throws on the access itself; a preference that cannot be
+  // stored must still leave a working control.
+  it('survives storage that throws', () => {
+    const boom = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('denied') } }
+    expect(readChoice('k', [1], 1, boom)).toBe(1)
+    expect(() => writeChoice('k', 1, boom)).not.toThrow()
+  })
+
+  it('survives no storage at all', () => {
+    expect(readChoice('k', [1], 1, null)).toBe(1)
+    expect(() => writeChoice('k', 1, null)).not.toThrow()
   })
 })
