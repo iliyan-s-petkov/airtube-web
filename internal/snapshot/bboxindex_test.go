@@ -1,7 +1,7 @@
 package snapshot
 
 import (
-	"encoding/json"
+	"bytes"
 	"reflect"
 	"testing"
 	"time"
@@ -171,13 +171,16 @@ func TestHexBodyClipIsByteIdenticalAcrossBoxes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("HexBody(%v): %v", bb, err)
 		}
-		var got hexPayload
-		if err := json.Unmarshal(b.JSON, &got); err != nil {
-			t.Fatalf("unmarshal: %v", err)
+		tier := s.hexTiers[res]
+		want, err := encode(hexPayload{
+			GeneratedAt: tier.GeneratedAt, ResolutionKM: tier.ResolutionKM,
+			Coverage: tier.Coverage, Hexes: naiveClip(tier.Hexes, bb),
+		})
+		if err != nil {
+			t.Fatalf("encode(naiveClip(%v)): %v", bb, err)
 		}
-		want := naiveClip(s.hexTiers[res].Hexes, bb)
-		if len(got.Hexes) != len(want) {
-			t.Errorf("HexBody(%v): got %d hexes, want %d", bb, len(got.Hexes), len(want))
+		if !bytes.Equal(b.JSON, want.JSON) {
+			t.Errorf("HexBody(%v): JSON bytes diverge from the unindexed walk's own encode", bb)
 		}
 	}
 }
