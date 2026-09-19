@@ -28,7 +28,7 @@ const (
 	// backlogAlertThreshold is the gap, in hours, between the rollup
 	// watermark and the current hour that triggers an ERROR log. Raw
 	// readings are retained for RawRetentionHours before TimescaleDB deletes
-	// them; alerting at 168 hours (7 days) leaves roughly 23 days of margin,
+	// them; alerting at 168 hours (7 days) leaves roughly 25 days of margin,
 	// so an operator gets days of warning to notice and fix a stalled
 	// rollup, not hours.
 	backlogAlertThreshold = 168
@@ -301,15 +301,10 @@ func (i *Ingester) RunOnce(ctx context.Context) (Stats, error) {
 	// present (task-16 review finding 2).
 	rollupErr := i.rollupBacklog(ctx, i.now())
 
-	switch {
-	// fetchErr and rollupErr are independent failures — the rollup step runs
-	// unconditionally even when the fetch failed — and both must reach the
-	// caller: returning only fetchErr here silently dropped a concurrent
-	// rollup/DB problem that the fetch failure gave no hint of.
-	case fetchErr != nil || rollupErr != nil:
-		return stats, fmt.Errorf("ingest: %w", errors.Join(fetchErr, rollupErr))
-	case pipelineErr != nil:
-		return stats, pipelineErr
+	// fetchErr, pipelineErr and rollupErr are independent failures — joined
+	// so none is silently dropped when more than one fires the same cycle.
+	if joined := errors.Join(wrapStage("fetch", fetchErr), pipelineErr, wrapStage("rollup", rollupErr)); joined != nil {
+		return stats, fmt.Errorf("ingest: %w", joined)
 	}
 
 	var assigned, revoked int64
@@ -397,6 +392,15 @@ func (i *Ingester) rollupBacklog(ctx context.Context, now time.Time) error {
 	}
 
 	return rollupErr
+}
+
+// wrapStage labels err with which pipeline stage produced it, so a joined
+// error still tells an operator which step failed. nil passes through.
+func wrapStage(stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", stage, err)
 }
 
 // BacklogHours returns the whole number of hours between the watermark
