@@ -10,7 +10,9 @@ package deploy
 
 import (
 	"os"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -446,6 +448,57 @@ func TestTheWwwVhostRedirectsAndIsEquallyClosed(t *testing.T) {
 	}
 	if !strings.Contains(www, "redir https://airbg.org") {
 		t.Error("the www.airbg.org block does not redirect to the apex, so the site would serve on two names")
+	}
+}
+
+// hstsMaxAge extracts the max-age value from a Strict-Transport-Security
+// header line, or -1 if the header is absent or unparsable.
+func hstsMaxAge(t *testing.T, block string) int {
+	t.Helper()
+	re := regexp.MustCompile(`Strict-Transport-Security\s+"max-age=(\d+)([^"]*)"`)
+	m := re.FindStringSubmatch(block)
+	if m == nil {
+		return -1
+	}
+	age, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("max-age %q is not an integer: %v", m[1], err)
+	}
+	if !strings.Contains(m[2], "includeSubDomains") {
+		return -1
+	}
+	return age
+}
+
+// tiles.airbg.org is the real gap: it is the one publicly-reachable TLS
+// endpoint with no edge in front of it, so a browser that has never visited
+// airbg.org first has nothing pinning it to HTTPS on that host. All three
+// production vhosts must carry HSTS; Caddyfile.dev must not, since it is the
+// deliberately open LAN path (TestTheDevCaddyfileIsUnmistakableAndOpen).
+func TestProductionVhostsSendHSTS(t *testing.T) {
+	blocks := caddyBlocks(t, "Caddyfile")
+
+	for _, name := range []string{"airbg.org", "www.airbg.org", "tiles.airbg.org"} {
+		block, ok := blocks[name]
+		if !ok {
+			t.Fatalf("Caddyfile has no %s site block; found %v", name, keysOf(blocks))
+		}
+		age := hstsMaxAge(t, block)
+		if age < 0 {
+			t.Errorf("%s does not send Strict-Transport-Security with includeSubDomains", name)
+			continue
+		}
+		if age < 15552000 {
+			t.Errorf("%s HSTS max-age = %d, want at least 15552000 (180 days)", name, age)
+		}
+	}
+
+	devData, err := os.ReadFile("Caddyfile.dev")
+	if err != nil {
+		t.Fatalf("ReadFile(Caddyfile.dev) error = %v, want nil", err)
+	}
+	if strings.Contains(string(devData), "Strict-Transport-Security") {
+		t.Error("Caddyfile.dev sends Strict-Transport-Security; it is the deliberately open LAN path and must not pin browsers to HTTPS there")
 	}
 }
 
