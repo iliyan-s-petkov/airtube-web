@@ -3,10 +3,9 @@ package web
 import (
 	"io/fs"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
-
-	"airbg.org/internal/i18n"
 )
 
 // dataTAttrRe finds the START of a data-t-* attribute. The value is scanned by
@@ -51,22 +50,16 @@ func dataTAttrs(src string) []dataTAttr {
 	return out
 }
 
-// TestEveryDataTAttributeIsTranslated is the Go half of the data-t-* rule whose
-// JS half lives in web/src/islands/__tests__/map.test.js. That one proves the
-// template and the island's reader agree on the attribute NAMES; this one
-// proves each attribute's VALUE is a translation that exists.
+// TestNoDataTAttributeHoldsALiteral rejects a data-t-* attribute whose value is
+// plain text rather than a translation call. That renders one language on every
+// page, and TestEveryTemplateKeyExistsInEveryCatalogue cannot see it: a scan for
+// {{.T}} calls only judges the calls that are there.
 //
-// It is narrower than TestEveryTemplateKeyExistsInEveryCatalogue in one way and
-// wider in another: wider because it also rejects a data-t-* attribute holding
-// a hardcoded literal, which renders one language on every page and which a
-// scan for {{.T}} calls cannot see; narrower because it reports the attribute
-// name, so a failure points at the markup rather than at the file.
-func TestEveryDataTAttributeIsTranslated(t *testing.T) {
-	cat, err := i18n.Load()
-	if err != nil {
-		t.Fatalf("loading catalogues: %v", err)
-	}
-
+// The key-existence half deliberately lives in that test and not here. Every
+// {{.T "key"}} inside one of these attributes is already one of the calls it
+// walks, so repeating the catalogue check would be a second scanner over the
+// same templates, kept in sync by hand.
+func TestNoDataTAttributeHoldsALiteral(t *testing.T) {
 	files, err := fs.Glob(templateFS, "templates/*.gohtml")
 	if err != nil {
 		t.Fatalf("globbing templates: %v", err)
@@ -82,17 +75,6 @@ func TestEveryDataTAttributeIsTranslated(t *testing.T) {
 			total++
 			if !strings.Contains(attr.value, "{{") {
 				t.Errorf("%s: data-t-%s=%q holds a literal, not a translation", name, attr.name, attr.value)
-				continue
-			}
-			// Keys composed at render time — {{.T (printf "metric.%s" ...)}} —
-			// are unreachable from a static scan and are left to the render
-			// tests; a static key that does not exist is caught here.
-			for _, m := range tCallRe.FindAllStringSubmatch(attr.value, -1) {
-				for _, lang := range cat.Languages() {
-					if !cat.Has(lang, m[1]) {
-						t.Errorf("%s: data-t-%s references %q, missing from %s.json", name, attr.name, m[1], lang)
-					}
-				}
 			}
 		}
 	}
@@ -102,5 +84,46 @@ func TestEveryDataTAttributeIsTranslated(t *testing.T) {
 	// over fifty.
 	if total < 50 {
 		t.Errorf("found only %d data-t-* attributes across %d templates; the scanner is probably wrong", total, len(files))
+	}
+}
+
+// mapIslandRe captures the map island's open tag, which is where the island's
+// own data-t-* attributes are rendered.
+var mapIslandRe = regexp.MustCompile(`(?s)<[^<>]*data-island="map".*?>`)
+
+// TestEveryPageRendersTheSameMapIslandAttributes pins the three pages that mount
+// the map to one attribute set. The island's JS reads the set through a single
+// readConfig, and its test reads index.gohtml — so an attribute added to index
+// alone would leave /areas/* and the embed mounting a map whose config is short
+// a key, with every test green and nothing failing until someone looked at the
+// page.
+func TestEveryPageRendersTheSameMapIslandAttributes(t *testing.T) {
+	want := map[string][]string{}
+	for _, name := range []string{"index.gohtml", "area.gohtml", "embed.gohtml"} {
+		src, err := fs.ReadFile(templateFS, "templates/"+name)
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		tag := mapIslandRe.FindString(string(src))
+		if tag == "" {
+			t.Fatalf("%s: no data-island=\"map\" tag; this test would pass vacuously", name)
+		}
+		var names []string
+		for _, attr := range dataTAttrs(tag) {
+			names = append(names, attr.name)
+		}
+		if len(names) == 0 {
+			t.Fatalf("%s: map island carries no data-t-* attributes", name)
+		}
+		sort.Strings(names)
+		want[name] = names
+	}
+
+	base := want["index.gohtml"]
+	for _, name := range []string{"area.gohtml", "embed.gohtml"} {
+		if strings.Join(want[name], ",") != strings.Join(base, ",") {
+			t.Errorf("%s renders a different map island attribute set than index.gohtml:\n %s\n index.gohtml:\n %s",
+				name, strings.Join(want[name], ","), strings.Join(base, ","))
+		}
 	}
 }
