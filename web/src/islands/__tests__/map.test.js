@@ -2613,6 +2613,39 @@ describe('refreshHexes', () => {
     expect(map.painted[1].features[0].properties.value).toBe(40)
   })
 
+  // A pan superseded by another pan is answering a viewport the reader has
+  // already left. It cancels itself rather than finishing and being discarded.
+  it('aborts the previous pan when a new one starts', async () => {
+    const state = { scales, hexUrl: null, hexBody: null }
+    const fetchJSON = vi.fn(async () => body)
+
+    await refreshHexes(hexMap(12), state, hexCfg, fetchJSON)
+    const first = fetchJSON.mock.calls[0][1].signal
+    expect(first.aborted).toBe(false)
+
+    await refreshHexes(hexMap(15), state, hexCfg, fetchJSON)
+
+    expect(first.aborted).toBe(true)
+    // The near miss: the pan in flight is not aborted by its own start.
+    expect(fetchJSON.mock.calls[1][1].signal.aborted).toBe(false)
+  })
+
+  // An abort is the caller's own doing, not a failure: no console noise, and
+  // no stale-grid hint. The last good grid simply stays on screen.
+  it('stays quiet and paints nothing when its fetch is aborted', async () => {
+    const map = hexMap()
+    const state = { scales, hexUrl: null, hexBody: null }
+    const fetchJSON = vi.fn(async () => { throw new DOMException('aborted', 'AbortError') })
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await refreshHexes(map, state, hexCfg, fetchJSON)
+
+    expect(map.painted).toHaveLength(0)
+    expect(err).not.toHaveBeenCalled()
+    expect(state.hexUrl).toBe(null)
+    err.mockRestore()
+  })
+
   it('leaves the map untouched and caches nothing when the fetch fails', async () => {
     const map = hexMap()
     const state = { scales, hexUrl: null, hexBody: null }

@@ -177,7 +177,7 @@ export function mount(el) {
   // sensors over area dots is the failure that distinction prevents.
   const state = {
     slug: cfg.slug, tier: null, scales: null, areas: null,
-    hexUrl: null, hexBody: null, sensorBody: null,
+    hexUrl: null, hexBody: null, hexAbort: null, sensorBody: null,
     // Read from storage rather than defaulting to live: a reader who picked a
     // week's average is asking a question about this map, not about this visit,
     // and re-picking it on every page is the map disagreeing with its own
@@ -1175,10 +1175,17 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
   // different URL, and therefore a fetch rather than a repaint.
   const url = withWindow(hexesURL(map.getZoom(), map.getBounds?.()), state.window)
   if (url !== state.hexUrl) {
+    // A pan superseded by another pan is answering a viewport the reader has
+    // already left: cancel it rather than let it finish and be discarded.
+    state.hexAbort?.abort()
+    const controller = new AbortController()
+    state.hexAbort = controller
     let body
     try {
-      body = await fetchJSON(url)
+      body = await fetchJSON(url, { signal: controller.signal })
     } catch (err) {
+      // A pan we cancelled ourselves is not a failure to report.
+      if (err?.name === 'AbortError') return
       // Deliberately quiet, unlike refresh()'s own failure. The hex grid is a
       // background layer over a working map: the markers, the panel and the
       // legend are all unaffected, so a hint claiming the data is unavailable
