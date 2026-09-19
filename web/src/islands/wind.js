@@ -43,8 +43,11 @@ const WIND_ARROW_PX = 64
 export const WIND_FIELD_MAX = 600
 
 const EARTH_RADIUS_KM = contract.hex.earth_radius_km
+// The same reference latitude the hex grid narrows by, read from the same
+// place: half of this formula was generated and half was a stale 42.7.
+const HEX_REF_LAT = contract.hex.ref_lat
 const KM_PER_DEG_LAT = (Math.PI * EARTH_RADIUS_KM) / 180
-const M_PER_PX_Z0 = ((2 * Math.PI * EARTH_RADIUS_KM * 1000) / 256) * Math.cos((42.7 * Math.PI) / 180)
+const M_PER_PX_Z0 = ((2 * Math.PI * EARTH_RADIUS_KM * 1000) / 256) * Math.cos((HEX_REF_LAT * Math.PI) / 180)
 
 // The spacing that puts an arrow every WIND_ARROW_PX on screen.
 function windSpacingKm(zoom) {
