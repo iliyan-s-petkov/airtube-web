@@ -19,3 +19,33 @@ describe('no literal colours in web/src', () => {
     }
   }
 })
+
+// The files that generated contract.json to stop the drift these two Go
+// constants had: BBoxQuantumDegrees (0.25 vs. JS's own stale 0.05) and the two
+// projection constants. A literal span/window name or projection number
+// reappearing here means a value slipped back to being restated instead of
+// read from contract.json — the exact failure mode this phase closes.
+//
+// '0.25', '100' and '0' are deliberately not on this list: they are ordinary
+// numbers this code needs for other reasons (THIN_COVERAGE, SPEEDS, tier
+// indices) and banning them would make the test fail on code that has nothing
+// to do with the contract.
+const contractConsumers = [
+  'src/lib/hexes.js',
+  'src/lib/timelapse.js',
+  'src/lib/mapwindow.js',
+  'src/islands/wind.js',
+]
+const bannedLiterals = [/'24h'/, /'48h'/, /'7d'/, /42\.75/, /\b6371\b/]
+
+describe('no restated contract literals in the generated contract\'s consumers', () => {
+  for (const path of contractConsumers) {
+    it(path, () => {
+      const src = readFileSync(path, 'utf8')
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+      for (const pattern of bannedLiterals) {
+        expect(code).not.toMatch(pattern)
+      }
+    })
+  }
+})
