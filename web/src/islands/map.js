@@ -1305,11 +1305,24 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     return head.count > 0
   }
 
+  // matchMedia is missing under jsdom and some old browsers — absent means
+  // "no preference", not "reduced".
+  const reducedMotion = () => typeof matchMedia === 'function'
+    && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // Read per run(), not cached at module load: a reader can flip the OS
+  // setting mid-session, and a cached value would need a reload to take
+  // effect. No speed can outrun the 0.25x floor while reduced motion is on.
+  const effectiveDelay = () => {
+    const base = frameDelay(speed)
+    return reducedMotion() ? Math.max(base, frameDelay(0.25)) : base
+  }
+
   // The one place the timer is started, so a speed change mid-animation and a
   // fresh press of play cannot disagree about the delay.
   const run = () => {
     if (timer) clearInterval(timer)
-    timer = setInterval(() => paint(step(head)), frameDelay(speed))
+    timer = setInterval(() => paint(step(head)), effectiveDelay())
   }
 
   ui.ontoggle(async () => {

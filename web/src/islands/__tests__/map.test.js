@@ -1003,6 +1003,76 @@ describe('installTimelapse', () => {
     })
   })
 
+  // Pressing play is user-initiated, so replay must still run under reduced
+  // motion — only the pace changes, floored at the 0.25x delay.
+  describe('reduced motion', () => {
+    const mockReducedMotion = (matches) => {
+      globalThis.matchMedia = vi.fn((q) => ({ media: q, matches }))
+    }
+
+    it('floors the delay at 0.25x even at full speed', async () => {
+      vi.useFakeTimers()
+      try {
+        mockReducedMotion(true)
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+        const after = painted.length
+        // Full speed's own delay (FRAME_MS) is nowhere near the 0.25x floor
+        // (4 * FRAME_MS) — three of it must still produce nothing.
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 3)
+        expect(painted.length, 'reduced motion must floor the delay').toBe(after)
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 2 + 16)
+        expect(painted.length).toBeGreaterThan(after)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+        delete globalThis.matchMedia
+      }
+    })
+
+    // matchMedia is read fresh on every run(), not cached at install, so a
+    // reader flipping the OS setting mid-session takes effect on the very
+    // next play without a reload.
+    it('re-reads the preference on every run(), not once at install', async () => {
+      vi.useFakeTimers()
+      try {
+        mockReducedMotion(false)
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+
+        mockReducedMotion(true)
+        ui.speed.click()
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS * 3)
+        expect(painted.length, 'now floored, mid-session').toBe(after)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+        delete globalThis.matchMedia
+      }
+    })
+
+    // jsdom, like some old browsers, has no matchMedia at all — that must
+    // read as "no preference", not throw.
+    it('treats a missing matchMedia as no preference', async () => {
+      expect(typeof matchMedia).toBe('undefined')
+      vi.useFakeTimers()
+      try {
+        const { painted, ui } = harness(async () => BODY, T)
+        ui.button.click()
+        await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+        const after = painted.length
+        await vi.advanceTimersByTimeAsync(FRAME_MS + 16)
+        expect(painted.length).toBeGreaterThan(after)
+        ui.exit.click()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
   // Twenty-eight blank frames under a running clock read as clean air, not as
   // missing data. Saying so is the whole point of the guard.
   it('refuses to animate a metric with no history, and says why', async () => {
