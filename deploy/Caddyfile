@@ -25,6 +25,8 @@ airbg.org {
 	# CF-Connecting-IP passes through untouched: it is the rate-limit bucket
 	# key, and the app trusts it only from this container's subnet.
 	reverse_proxy app:8080
+
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 }
 
 # Proxied at Cloudflare like the apex, so it arrives through the edge and is
@@ -37,6 +39,8 @@ www.airbg.org {
 		}
 	}
 
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
 	redir https://airbg.org{uri} permanent
 }
 
@@ -45,4 +49,8 @@ tiles.airbg.org {
 	# so this must NOT require a client certificate. It is served the same
 	# certificate as above, which carries this name. README.md.
 	reverse_proxy app:8082
+
+	# The real gap without this: no edge in front, so this is the one
+	# publicly-reachable TLS endpoint whose browsers get no HSTS otherwise.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 }

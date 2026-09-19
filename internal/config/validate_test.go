@@ -30,6 +30,12 @@ func TestValidateRejects(t *testing.T) {
 		want   string
 	}{
 		{"metrics addr equal to public addr", func(c *Config) { c.Listen.MetricsAddr = c.Listen.Addr }, "must be separate"},
+		// The metrics listener must never be reachable off-host: it is not
+		// behind the public chain's rate limiter or CSP, so anything that can
+		// bind it to a non-loopback address can read every counter directly.
+		{"metrics addr all interfaces IPv4", func(c *Config) { c.Listen.MetricsAddr = "0.0.0.0:9090" }, "must be loopback"},
+		{"metrics addr all interfaces IPv6", func(c *Config) { c.Listen.MetricsAddr = "[::]:9090" }, "must be loopback"},
+		{"metrics addr private network", func(c *Config) { c.Listen.MetricsAddr = "10.0.0.5:9090" }, "must be loopback"},
 		{"zero max_conns", func(c *Config) { c.Listen.MaxConns = 0 }, "listen.max_conns"},
 		{"unsafe-inline in csp", func(c *Config) { c.Listen.CSP += "; script-src 'unsafe-inline'" }, "unsafe-inline"},
 		{"unsafe-eval in csp", func(c *Config) { c.Listen.CSP += "; script-src 'unsafe-eval'" }, "unsafe-eval"},
@@ -117,6 +123,21 @@ func TestValidateReportsAllProblemsAtOnce(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error does not mention %q:\n%s", want, err)
 		}
+	}
+}
+
+// TestValidateAcceptsLoopbackMetricsAddr: the three forms an operator
+// legitimately binds the metrics listener to. No DNS lookup happens for
+// "localhost" — it is accepted by name, not resolved.
+func TestValidateAcceptsLoopbackMetricsAddr(t *testing.T) {
+	for _, addr := range []string{"127.0.0.1:9090", "localhost:9090", "[::1]:9090"} {
+		t.Run(addr, func(t *testing.T) {
+			cfg := good(t)
+			cfg.Listen.MetricsAddr = addr
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() error = %v, want %q accepted as loopback", err, addr)
+			}
+		})
 	}
 }
 

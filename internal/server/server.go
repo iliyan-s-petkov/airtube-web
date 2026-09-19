@@ -71,6 +71,9 @@ type Server struct {
 // limits below, which airbg.yaml controls.
 const maxBodyBytes = 64 << 10
 
+// maxHeaderBytes caps request headers per connection; Go's default is 1 MiB.
+const maxHeaderBytes = 64 << 10
+
 func New(opts Options) (*Server, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -158,6 +161,7 @@ func New(opts Options) (*Server, error) {
 			ReadTimeout:       opts.Config.Timeouts.Read,
 			WriteTimeout:      opts.Config.Timeouts.Write,
 			IdleTimeout:       opts.Config.Timeouts.Idle,
+			MaxHeaderBytes:    maxHeaderBytes,
 			ErrorLog:          slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
 		},
 		private: &http.Server{
@@ -167,6 +171,7 @@ func New(opts Options) (*Server, error) {
 			ReadTimeout:       opts.Config.Timeouts.Read,
 			WriteTimeout:      opts.Config.Timeouts.Write,
 			IdleTimeout:       opts.Config.Timeouts.Idle,
+			MaxHeaderBytes:    maxHeaderBytes,
 		},
 		limiter:             limiter,
 		breadth:             breadth,
@@ -201,6 +206,7 @@ func New(opts Options) (*Server, error) {
 			ReadTimeout:       opts.Config.Timeouts.Read,
 			WriteTimeout:      opts.Config.Timeouts.Write,
 			IdleTimeout:       opts.Config.Timeouts.Idle,
+			MaxHeaderBytes:    maxHeaderBytes,
 			ErrorLog:          slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
 		}
 	}

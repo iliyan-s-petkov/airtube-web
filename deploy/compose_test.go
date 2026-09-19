@@ -9,8 +9,11 @@
 package deploy
 
 import (
+	"net"
 	"os"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -108,12 +111,12 @@ func TestDatabaseHasNoRouteToTheInternet(t *testing.T) {
 		t.Fatal("db is attached to no network at all")
 	}
 	for name := range attached {
-		net, ok := c.Networks[name]
+		nw, ok := c.Networks[name]
 		if !ok {
 			t.Errorf("db is attached to network %q, which is not declared in the networks: section", name)
 			continue
 		}
-		if !net.Internal {
+		if !nw.Internal {
 			t.Errorf("db is attached to network %q, which is not internal: true — the database has a route to the public internet", name)
 		}
 	}
@@ -177,6 +180,59 @@ func TestTrustedProxyCIDRMatchesTheEdgeSubnet(t *testing.T) {
 	}
 	if documented != subnet {
 		t.Errorf(".env.example says %s%s, but the edge subnet is %s", key, documented, subnet)
+	}
+}
+
+// envExampleValue returns the value documented for key in .env.example, the
+// file an operator copies to make a real .env.
+func envExampleValue(t *testing.T, key string) string {
+	t.Helper()
+	data, err := os.ReadFile(".env.example")
+	if err != nil {
+		t.Fatalf("ReadFile(.env.example) error = %v, want nil", err)
+	}
+	prefix := key + "="
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	t.Fatalf(".env.example documents no %s line", key)
+	return ""
+}
+
+// TestDesignPreviewAllowancesDefaultToFalse: the four keys that grant a
+// design-preview host read access to the API and the tiles listener must ship
+// disabled in the example .env. They exist for local preview work, opted in
+// by whoever needs them — not for the example an operator copies to make a
+// real, internet-facing .env.
+func TestDesignPreviewAllowancesDefaultToFalse(t *testing.T) {
+	for _, tt := range []struct {
+		key  string
+		want string
+	}{
+		{"AIRBG_LISTEN_ALLOW_LOOPBACK_ORIGINS", "false"},
+		{"AIRBG_LISTEN_ALLOWED_ORIGINS", ""},
+		{"AIRBG_TILES_ALLOW_LOOPBACK_ORIGINS", "false"},
+		{"AIRBG_TILES_ALLOWED_ORIGINS", ""},
+	} {
+		if got := envExampleValue(t, tt.key); got != tt.want {
+			t.Errorf(".env.example says %s=%q, want %q", tt.key, got, tt.want)
+		}
+	}
+}
+
+// TestExampleMetricsAddrIsLoopback: config validation now rejects a
+// non-loopback listen.metrics_addr, so an example an operator copies verbatim
+// must already satisfy it — otherwise the app refuses to start.
+func TestExampleMetricsAddrIsLoopback(t *testing.T) {
+	got := envExampleValue(t, "AIRBG_LISTEN_METRICS_ADDR")
+	host, _, err := net.SplitHostPort(got)
+	if err != nil {
+		t.Fatalf("AIRBG_LISTEN_METRICS_ADDR = %q, must be host:port: %v", got, err)
+	}
+	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		t.Errorf("AIRBG_LISTEN_METRICS_ADDR = %q, want a loopback host", got)
 	}
 }
 
@@ -407,6 +463,57 @@ func TestTheWwwVhostRedirectsAndIsEquallyClosed(t *testing.T) {
 	}
 	if !strings.Contains(www, "redir https://airbg.org") {
 		t.Error("the www.airbg.org block does not redirect to the apex, so the site would serve on two names")
+	}
+}
+
+// hstsMaxAge extracts the max-age value from a Strict-Transport-Security
+// header line, or -1 if the header is absent or unparsable.
+func hstsMaxAge(t *testing.T, block string) int {
+	t.Helper()
+	re := regexp.MustCompile(`Strict-Transport-Security\s+"max-age=(\d+)([^"]*)"`)
+	m := re.FindStringSubmatch(block)
+	if m == nil {
+		return -1
+	}
+	age, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("max-age %q is not an integer: %v", m[1], err)
+	}
+	if !strings.Contains(m[2], "includeSubDomains") {
+		return -1
+	}
+	return age
+}
+
+// tiles.airbg.org is the real gap: it is the one publicly-reachable TLS
+// endpoint with no edge in front of it, so a browser that has never visited
+// airbg.org first has nothing pinning it to HTTPS on that host. All three
+// production vhosts must carry HSTS; Caddyfile.dev must not, since it is the
+// deliberately open LAN path (TestTheDevCaddyfileIsUnmistakableAndOpen).
+func TestProductionVhostsSendHSTS(t *testing.T) {
+	blocks := caddyBlocks(t, "Caddyfile")
+
+	for _, name := range []string{"airbg.org", "www.airbg.org", "tiles.airbg.org"} {
+		block, ok := blocks[name]
+		if !ok {
+			t.Fatalf("Caddyfile has no %s site block; found %v", name, keysOf(blocks))
+		}
+		age := hstsMaxAge(t, block)
+		if age < 0 {
+			t.Errorf("%s does not send Strict-Transport-Security with includeSubDomains", name)
+			continue
+		}
+		if age < 15552000 {
+			t.Errorf("%s HSTS max-age = %d, want at least 15552000 (180 days)", name, age)
+		}
+	}
+
+	devData, err := os.ReadFile("Caddyfile.dev")
+	if err != nil {
+		t.Fatalf("ReadFile(Caddyfile.dev) error = %v, want nil", err)
+	}
+	if strings.Contains(string(devData), "Strict-Transport-Security") {
+		t.Error("Caddyfile.dev sends Strict-Transport-Security; it is the deliberately open LAN path and must not pin browsers to HTTPS there")
 	}
 }
 
