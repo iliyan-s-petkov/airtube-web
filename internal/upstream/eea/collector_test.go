@@ -285,9 +285,7 @@ func TestRunOnceFallsBackToCachedMetadataAfterRestart(t *testing.T) {
 	cfg2.MetadataCache = cacheDir
 	cfg2.MaxPayloadBytes = 64 << 20
 
-	// Its own store, so the assertion below measures what this collector wrote
-	// rather than what the first one left behind: re-writing the first
-	// collector's rows is a no-op upsert and would report nothing written.
+	// Its own store: re-writing the first collector's rows is a no-op upsert.
 	ctx2, s2 := newStoreForCollector(t)
 
 	st, err := eea.NewCollector(cfg2, s2, shippedScorer(t)).RunOnce(ctx2)
