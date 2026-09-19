@@ -141,20 +141,12 @@ func buildWindow(ctx context.Context, s *store.Store, live *Snapshot, now time.T
 		return nil, fmt.Errorf("snapshot: encode %s areas: %w", spec.Name, err)
 	}
 
-	// Counted from this window's own fresh set, not copied from live: a 7d
-	// window sees sensors a 24h one does not.
-	w.coverage = coverageFrom(sensors)
-	w.hexTiers = make(map[float64]hexPayload, len(HexTiersKM))
-	for _, res := range HexTiersKM {
-		p := hexPayloadFrom(now, sensors, res)
-		p.Coverage = w.coverage
-		w.hexTiers[res] = p
+	// Binned from this window's own fresh set, not copied from live: a 7d
+	// window sees sensors a 24h one does not. Shared with the live snapshot so
+	// the grid and the point index are wired in exactly one place.
+	if err := buildHexes(w, sensors, now); err != nil {
+		return nil, fmt.Errorf("%s window: %w", spec.Name, err)
 	}
-	if w.Hexes, err = encode(w.hexTiers[HexResolutionKM]); err != nil {
-		return nil, fmt.Errorf("snapshot: encode %s hexes: %w", spec.Name, err)
-	}
-	w.points = pointsFrom(sensors)
-	w.pointsIndex = buildBBoxIndex(w.points)
 
 	// KnownSlugs is shared with the live snapshot, so iterating it here is
 	// iterating the same area set — a window cannot invent or lose an area.
