@@ -86,11 +86,10 @@ function checkMapChunkSize() {
     writeBundle(options, bundle) {
       let mapChunkFound = false
       for (const chunk of Object.values(bundle)) {
-        if (chunk.type !== 'chunk') continue
         const bytes = readFileSync(path.join(options.dir, chunk.fileName))
         const gzipKB = gzipSync(bytes).length / 1024
-        console.log(`[chunk size] ${chunk.fileName}: ${gzipKB.toFixed(2)} KB gz`)
-        if (chunk.facadeModuleId?.endsWith('/islands/map.js')) {
+        console.log(`[bundle size] ${chunk.fileName}: ${gzipKB.toFixed(2)} KB gz`)
+        if (chunk.type === 'chunk' && chunk.facadeModuleId?.endsWith('/islands/map.js')) {
           mapChunkFound = true
           if (gzipKB * 1024 > MAP_CHUNK_GZIP_BUDGET_BYTES) {
             throw new Error(
@@ -133,9 +132,11 @@ export default {
     // `Cache-Control: immutable` without ever serving a stale bundle.
     // Without the manifest, Go cannot know the hashed name.
     manifest: true,
-    // Off so the build log carries one gzip figure per chunk, not two: this
+    // Off so the build log carries one gzip figure per file, not two: this
     // reporter's own native (rolldown) gzip and checkMapChunkSize's node:zlib
     // gzip disagree on the same bytes (see MAP_CHUNK_GZIP_BUDGET_BYTES above).
+    // checkMapChunkSize prints every emitted file, assets included, so nothing
+    // this reporter covered is lost.
     reportCompressedSize: false,
     // 'theme' is a CSS-only entry: it exists so the design kit's tokens are
     // inlined into the build instead of restated in internal/web/static.
