@@ -223,6 +223,14 @@ type bodyKey struct {
 // past the point where an eviction policy is what protects us.
 const bodyCacheMax = 256
 
+// bodyCacheMaxBytes is the byte bound alongside bodyCacheMax. The entry count
+// alone bounds nothing about size: a caller who picks the tier gets to pick
+// the body size too, and 256 near-full-tier bodies at the finest tier run
+// order 200 KB each. 32 MB keeps one snapshot's cache well inside a sane
+// resident footprint even with four snapshots (live plus three windows) held
+// at once.
+const bodyCacheMaxBytes = 32 << 20
+
 // bodyCache memoises the per-viewport encodes HexBody and PointBody would
 // otherwise repeat on every request — a json.Marshal, a second marshal, a
 // SHA-256 and a gzip at BestCompression each time.
@@ -232,8 +240,9 @@ const bodyCacheMax = 256
 // returns a distinct *Snapshot per window, so the window needs no place in the
 // key either.
 type bodyCache struct {
-	mu sync.Mutex
-	m  map[bodyKey]Body
+	mu    sync.Mutex
+	m     map[bodyKey]Body
+	bytes int
 }
 
 // A nil cache means "do not cache" and never a panic: a Snapshot built by a
@@ -248,19 +257,38 @@ func (c *bodyCache) get(k bodyKey) (Body, bool) {
 	return b, ok
 }
 
+// bodySize is the retained heap a Body accounts for in the cache's byte
+// budget: the JSON and the Gzip slices, plus the ETag string, which is what a
+// held Body actually keeps alive.
+func bodySize(b Body) int {
+	return len(b.JSON) + len(b.Gzip) + len(b.ETag)
+}
+
 func (c *bodyCache) put(k bodyKey, b Body) {
 	if c == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	size := bodySize(b)
+	// Larger than the whole budget: serve it uncached rather than clear
+	// everything else just to make room for one entry.
+	if size > bodyCacheMaxBytes {
+		return
+	}
 	if c.m == nil {
 		c.m = make(map[bodyKey]Body)
 	}
-	if len(c.m) >= bodyCacheMax {
+	// existing is 0 when k is not yet in the map, since bodySize of the zero
+	// Body is 0 — so replacing a key never double-counts it.
+	existing := bodySize(c.m[k])
+	if len(c.m) >= bodyCacheMax || c.bytes-existing+size > bodyCacheMaxBytes {
 		clear(c.m)
+		c.bytes = 0
+		existing = 0
 	}
 	c.m[k] = b
+	c.bytes += size - existing
 }
 
 // HexBody answers a hex request at a given tier, optionally clipped to a

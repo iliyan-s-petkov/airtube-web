@@ -595,7 +595,88 @@ func TestBodyCacheStaysBounded(t *testing.T) {
 	if n > bodyCacheMax {
 		t.Errorf("cache holds %d entries, want at most %d", n, bodyCacheMax)
 	}
-	if n == 0 {
-		t.Error("cache emptied itself and kept nothing")
+	// The overflowing put is what triggers the clear, so it lands alone in the
+	// freshly emptied map: exactly 1, not merely nonzero. Pinning the exact
+	// value is what makes the test assert the wholesale-clear policy rather
+	// than tolerate any policy that happens to keep something.
+	if n != 1 {
+		t.Errorf("cache holds %d entries after overflow, want exactly 1", n)
+	}
+}
+
+// bigBody returns a Body whose JSON and Gzip together are n bytes, for tests
+// that need to drive the cache's byte budget rather than its entry count.
+func bigBody(n int) Body {
+	return Body{JSON: make([]byte, n), ETag: "etag"}
+}
+
+func TestBodyCacheClearsOnByteOverflow(t *testing.T) {
+	s := pointFixture()
+	// Four bodies a hair over a quarter of the byte budget each: well under
+	// bodyCacheMax entries, but the fourth put pushes the running total past
+	// bodyCacheMaxBytes and must clear the cache.
+	each := bodyCacheMaxBytes/4 + 1
+	for i := range 4 {
+		w := 20.0 + float64(i)*BBoxQuantumDegrees
+		k := bodyKey{resKM: PointResolutionKM, w: w, s: 42, e: w + 1, n: 43, point: true}
+		s.bodies.put(k, bigBody(each))
+	}
+	s.bodies.mu.Lock()
+	n := len(s.bodies.m)
+	gotBytes := s.bodies.bytes
+	s.bodies.mu.Unlock()
+	if n != 1 {
+		t.Errorf("cache holds %d entries after byte overflow, want exactly 1", n)
+	}
+	if gotBytes != bodySize(bigBody(each)) {
+		t.Errorf("cache bytes = %d, want %d", gotBytes, bodySize(bigBody(each)))
+	}
+}
+
+func TestBodyCacheSkipsOversizedBody(t *testing.T) {
+	s := pointFixture()
+	kept := bodyKey{resKM: PointResolutionKM, w: 20, s: 42, e: 21, n: 43, point: true}
+	s.bodies.put(kept, bigBody(1024))
+
+	oversized := bodyKey{resKM: PointResolutionKM, w: 30, s: 42, e: 31, n: 43, point: true}
+	s.bodies.put(oversized, bigBody(bodyCacheMaxBytes+1))
+
+	s.bodies.mu.Lock()
+	_, oversizedCached := s.bodies.m[oversized]
+	_, keptStillThere := s.bodies.m[kept]
+	n := len(s.bodies.m)
+	s.bodies.mu.Unlock()
+	if oversizedCached {
+		t.Error("oversized body was cached")
+	}
+	if !keptStillThere {
+		t.Error("putting an oversized body evicted the existing entry")
+	}
+	if n != 1 {
+		t.Errorf("cache holds %d entries, want exactly 1", n)
+	}
+}
+
+func TestBodyCacheByteCountingSurvivesRepeatedClears(t *testing.T) {
+	s := pointFixture()
+	// Each body is over half the budget, so every put after the first
+	// overflows against the one already held and clears again — six puts is
+	// two full rounds of overflow-then-clear. A counter that fails to reset on
+	// clear drifts upward and this test catches it well before the sixth.
+	each := bodyCacheMaxBytes/2 + 1
+	for i := range 6 {
+		w := 20.0 + float64(i)*BBoxQuantumDegrees
+		k := bodyKey{resKM: PointResolutionKM, w: w, s: 42, e: w + 1, n: 43, point: true}
+		s.bodies.put(k, bigBody(each))
+	}
+	s.bodies.mu.Lock()
+	gotBytes := s.bodies.bytes
+	n := len(s.bodies.m)
+	s.bodies.mu.Unlock()
+	if n != 1 {
+		t.Errorf("cache holds %d entries, want exactly 1", n)
+	}
+	if want := bodySize(bigBody(each)); gotBytes != want {
+		t.Errorf("cache bytes = %d, want %d (counter drifted across clears)", gotBytes, want)
 	}
 }
