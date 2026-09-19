@@ -111,6 +111,15 @@ type hexPayload struct {
 	Coverage map[string]map[string]int `json:"coverage,omitempty"`
 }
 
+// withoutGeneratedAt clears the build timestamp so identical bins hash
+// identically across builds.
+func (p hexPayload) withoutGeneratedAt() any {
+	p.GeneratedAt = time.Time{}
+	return p
+}
+
+var _ canonicalisable = hexPayload{}
+
 type hexEntry struct {
 	Lon float64 `json:"lon"`
 	Lat float64 `json:"lat"`
@@ -414,19 +423,15 @@ func (s *Snapshot) PointBody(bb BBox) (Body, error) {
 //
 // N is the station's devices, the same count the aggregate tiers report.
 func pointsFrom(sensors []store.SensorReading) []hexEntry {
-	type site struct {
-		lon, lat float64
-		source   string
-	}
 	type station struct {
 		entry hexEntry
 		vals  map[string][]float64
 	}
 
-	order := make([]site, 0, len(sensors))
-	stations := make(map[site]*station, len(sensors))
+	order := make([]stationKey, 0, len(sensors))
+	stations := make(map[stationKey]*station, len(sensors))
 	for _, sr := range sensors {
-		k := site{sr.Lon, sr.Lat, sourceOf(sr)}
+		k := stationKeyOf(sr)
 		st, seen := stations[k]
 		if !seen {
 			country := sr.Country

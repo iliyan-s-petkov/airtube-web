@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"airbg.org/internal/config"
 	"airbg.org/internal/i18n"
 	"airbg.org/internal/snapshot"
 	"airbg.org/internal/web"
@@ -56,7 +57,7 @@ func trilingualRenderer(t *testing.T, snap *snapshot.Snapshot, extra map[string]
 		t.Fatalf("LoadWithOverrides: %v", err)
 	}
 	cfg := testConfig(t)
-	h := snapshot.NewHolder(cfg.Series)
+	h := snapshot.NewHolder(cfg.Series, config.Wind{})
 	if snap != nil {
 		h.Store(snap)
 	}

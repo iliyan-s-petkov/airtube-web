@@ -96,7 +96,7 @@ func (s *stubSource) AreaSeriesBand(_ context.Context, _, _ string, since time.T
 func deps(t *testing.T, snap *snapshot.Snapshot) api.Deps {
 	t.Helper()
 	cfg := testConfig(t)
-	h := snapshot.NewHolder(cfg.Series)
+	h := snapshot.NewHolder(cfg.Series, config.Wind{})
 	if snap != nil {
 		h.Store(snap)
 	}

@@ -78,7 +78,7 @@ func start(t *testing.T, tilesDir string, tweak ...func(*config.Config)) (public
 		t.Fatalf("i18n.Load: %v", err)
 	}
 	cfg := testConfig(t)
-	holder := snapshot.NewHolder(cfg.Series)
+	holder := snapshot.NewHolder(cfg.Series, config.Wind{})
 	holder.Store(&snapshot.Snapshot{
 		GeneratedAt: time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
 		KnownSlugs:  map[string]snapshot.AreaMeta{},
@@ -372,7 +372,7 @@ func TestABadTilesDirIsAStartupError(t *testing.T) {
 		t.Fatalf("i18n.Load: %v", err)
 	}
 	cfg := testConfig(t)
-	holder := snapshot.NewHolder(cfg.Series)
+	holder := snapshot.NewHolder(cfg.Series, config.Wind{})
 	cfg.Tiles = config.Tiles{
 		Addr:      "127.0.0.1:0",
 		Dir:       filepath.Join(t.TempDir(), "does-not-exist"),
@@ -543,7 +543,7 @@ func TestSeriesAdmissionCapComesFromConfiguredMaxInflight(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Database.MaxInflight = 1
 
-	holder := snapshot.NewHolder(cfg.Series)
+	holder := snapshot.NewHolder(cfg.Series, config.Wind{})
 	holder.Store(&snapshot.Snapshot{
 		GeneratedAt: time.Now().UTC(),
 		KnownSlugs:  map[string]snapshot.AreaMeta{"sofia": {Slug: "sofia"}},

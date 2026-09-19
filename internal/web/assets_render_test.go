@@ -78,7 +78,7 @@ func rendererForAssetsTest(t *testing.T) *Renderer {
 	if err != nil {
 		t.Fatalf("i18n.Load: %v", err)
 	}
-	h := snapshot.NewHolder(testSeries)
+	h := snapshot.NewHolder(testSeries, config.Wind{})
 	h.Store(&snapshot.Snapshot{
 		GeneratedAt: time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
 		KnownSlugs: map[string]snapshot.AreaMeta{
