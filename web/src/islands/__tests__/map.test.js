@@ -5,6 +5,10 @@
 // `hashchange`, which the rest of this file's pure-logic tests do not need
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
+// node:fs, not a fixture: the translation-key rule test below reads
+// internal/web/templates/ off disk so the template stays the single source.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { DIAMOND_RADIUS_PX } from '../../lib/markericon.js'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, hexLabelPaint, CARRIED_OPACITY, PLAY_SPEED_KEY, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
@@ -17,6 +21,7 @@ import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
 import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
 import { setSourceEnabled, resetSourceFilterForTests } from '../../lib/sourcefilter.svelte.js'
 import { getMapAreas, setMapAreas } from '../../lib/mapareas.svelte.js'
+import { LAYER_ORDER } from '../../lib/maplayers.js'
 
 // mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
 // out of reach under jsdom (see the "no jsdom" rule respected everywhere else
@@ -307,108 +312,99 @@ describe('readConfig', () => {
     expect(cfg.basemap).toBe('')
   })
 
-  // toEqual, not toMatchObject: cfg.t must contain exactly these keys. A field
-  // read from an attribute no template renders any more (t.noData, dropped with
-  // data-t-no-data) is the same "written but never read" asymmetry pointing the
-  // other way, and it silently resolves to ''.
-  it('carries every server-rendered translation string through to cfg.t, and no others', () => {
+  // The attribute names the server actually renders on the map island, read
+  // off the template rather than kept as a list here: index.gohtml's open tag
+  // with its {{template}} partials (mapLayerLabels) spliced in, which is the
+  // attribute set the browser hands readConfig.
+  function mapIslandAttributes() {
+    // import.meta.dirname, not cwd: vitest is run from web/, but this rule is
+    // about a file four levels up and must not move when the cwd does.
+    const dir = join(import.meta.dirname, '../../../../internal/web/templates')
+    const base = readFileSync(join(dir, 'base.gohtml'), 'utf8')
+    const page = readFileSync(join(dir, 'index.gohtml'), 'utf8')
+    const marker = page.indexOf('data-island="map"')
+    expect(marker).toBeGreaterThan(-1)
+    const start = page.lastIndexOf('<', marker)
+    // Quote-aware: stop at the '>' that closes the open tag, never at one
+    // inside a translated string.
+    let end = start
+    for (let quoted = false; end < page.length; end++) {
+      if (page[end] === '"') quoted = !quoted
+      else if (page[end] === '>' && !quoted) break
+    }
+    const tag = page.slice(start, end).replace(/\{\{template\s+"([^"]+)"[^}]*\}\}/g, (_, name) => {
+      const define = base.match(new RegExp(`\\{\\{define "${name}"\\}\\}([\\s\\S]*?)\\{\\{end\\}\\}`))
+      expect(define, `{{define "${name}"}} in base.gohtml`).not.toBeNull()
+      return define[1]
+    })
+    // The leading (?<![\w-]) is what keeps this off `my-data-t-x`; requiring a
+    // trailing [a-z0-9] before the '=' keeps it off a bare `data-t-`.
+    return new Set([...tag.matchAll(/(?<![\w-])data-t-([a-z0-9-]*[a-z0-9])=/g)].map((m) => m[1]))
+  }
+
+  // The DOM's own attribute-to-dataset rule: a hyphen before an ASCII lowercase
+  // letter uppercases it, a hyphen before a digit stays (data-t-window-24h is
+  // tWindow-24h, which is why that one is positional instead).
+  function datasetKey(attr) {
+    const camel = attr.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+    return 't' + camel[0].toUpperCase() + camel.slice(1)
+  }
+
+  // Which dataset properties readConfig actually touches, recorded rather than
+  // restated: the alias (communitySensors) and the two nested shapes (tier,
+  // layers) mean cfg.t's key names are not the attribute names, so the
+  // comparison has to happen on the dataset side of readConfig, not after it.
+  function datasetKeysReadConfigReads() {
+    const seen = new Set()
+    const dataset = new Proxy({}, {
+      get(_, prop) {
+        if (typeof prop === 'string') seen.add(prop)
+        return ''
+      },
+    })
+    readConfig({ dataset })
+    return seen
+  }
+
+  const sorted = (set) => [...set].sort()
+
+  // A rule, not a snapshot. The exact-object toEqual this replaced passed only
+  // for one frozen list: it proved someone had edited two literals in step, not
+  // that the template and the reader agree. Set equality both ways fails the
+  // moment either side gains or loses a string.
+  it('reads exactly the data-t-* attributes the template renders on the map island', () => {
+    const rendered = new Set([...mapIslandAttributes()].map(datasetKey))
+    // t followed by a non-lowercase char: the dataset spelling of data-t-*,
+    // and never 'then'/'toString'/'title' that a Proxy also sees.
+    const read = new Set(sorted(datasetKeysReadConfigReads()).filter((k) => /^t[^a-z]/.test(k)))
+    expect(rendered.size).toBeGreaterThan(40)
+    expect(sorted(rendered)).toEqual(sorted(read))
+  })
+
+  // The three places where one attribute is not one flat key, which the set
+  // comparison above deliberately cannot see.
+  it('nests and aliases the translations the lookups index by', () => {
     const cfg = readConfig({
       dataset: {
-        tLegend: 'Air quality', tHint: 'Select an area',
-        tNoSources: 'No networks are shown',
-        tLegendToggle: 'Legend', tLegendNoData: 'Not enough data',
-        tFullscreen: 'Full screen', tFullscreenExit: 'Exit full screen',
-        tZoomIn: 'Zoom in', tZoomOut: 'Zoom out', tZoomReset: 'Reset view',
-        tLayersButton: 'Layers', tLayersCaption: 'Show on the map',
-        tViewLegend: 'Scale', tViewBasemap: 'OpenStreetMap basemap',
-        tViewCellValues: 'Cell values',
-        tViewInactiveSensors: 'Inactive sensors',
-        tViewBoundaries: 'Province outlines',
+        tLayerBase: 'Terrain and parks', tLayerStreetNames: 'Street names',
+        tTierCountry: 'Each dot is an oblast average',
         tViewCommunitySensors: 'Citizen sensors',
         tViewOfficialStations: 'Official stations',
-        tNotMeasured: 'does not measure this',
-        // Two of the twelve groups, deliberately: the other ten prove the
-        // point below, that an unrendered group arrives as '' rather than as
-        // undefined or as a missing key.
-        tLayerBase: 'Terrain and parks', tLayerStreetNames: 'Street names',
-        tLegendAbout: 'What the colours mean',
-        tLegendSource: 'Read the official guideline',
-        tDisclaimer: 'Indicative data.',
-        tClose: 'Close',
-        tTierCountry: 'Each dot is an oblast average',
-        tTierCity: 'Each dot is a city average',
-        tTierSensors: 'Each dot is a single sensor',
-        tRateLimited: 'Retrying', tUnavailable: 'Unavailable',
-        tUnscaled: 'No air-quality scale for this metric',
-        tLocateButton: 'Find me', tLocateDenied: 'Location access was denied.',
-        tLocateFailed: 'We could not determine your location.',
-        tWindowLabel: 'Averaging period',
-        tPlayLabel: 'Play the animation', tPauseLabel: 'Pause the animation',
-        tSpeedLabel: 'Playback speed',
-        tTimeLabel: 'Hour shown', tExitLabel: 'Back to the current readings',
-        tReplayThin: 'Few readings for this hour',
-        tReplayNoHistory: 'Not enough history yet to animate this measurement',
-        tWindToggle: 'Wind',
-        tWindAbout: 'About the wind layer',
-        tWindNote: 'Arrows show where the wind blows.',
-        tWindAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
-        // Neither is rendered any more; toEqual below is what keeps them from
-        // reappearing in cfg.t. tLocateOutside went with the unreachable
-        // outside-coverage branch (nearestArea has no distance cutoff).
-        tLocateOutside: 'You appear to be outside the mapped area.',
-        tNoData: 'Not enough data',
       },
     })
-    expect(cfg.t).toEqual({
-      legend: 'Air quality', hint: 'Select an area',
-      noSources: 'No networks are shown',
-      legendToggle: 'Legend', legendNoData: 'Not enough data',
-      legendAbout: 'What the colours mean',
-      legendSource: 'Read the official guideline',
-      disclaimer: 'Indicative data.', close: 'Close',
-      fullscreen: 'Full screen', fullscreenExit: 'Exit full screen',
-      zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomReset: 'Reset view',
-      layersButton: 'Layers', layersCaption: 'Show on the map',
-      playLabel: 'Play the animation', pauseLabel: 'Pause the animation',
-      speedLabel: 'Playback speed',
-      timeLabel: 'Hour shown', exitLabel: 'Back to the current readings',
-      replayThin: 'Few readings for this hour',
-      replayNoHistory: 'Not enough history yet to animate this measurement',
-      viewLegend: 'Scale', viewBasemap: 'OpenStreetMap basemap',
-      viewCellValues: 'Cell values',
-      viewInactiveSensors: 'Inactive sensors',
-      viewBoundaries: 'Province outlines',
-      viewCommunitySensors: 'Citizen sensors',
-      viewOfficialStations: 'Official stations',
-      notMeasured: 'does not measure this',
-      // communitySensors/officialStations reuse the view labels: setSourceViewAvailability
-      // keys the checkbox label lookup by view id, not by a second pair of dataset attributes.
-      communitySensors: 'Citizen sensors',
-      officialStations: 'Official stations',
-      // One entry per group in LAYER_ORDER, always: the menu looks a label up
-      // by the group the STYLE reports, so a key that is simply absent here
-      // would be a group that renders under its own slug the day the style
-      // starts carrying it.
-      layers: {
-        base: 'Terrain and parks', water: '', roads: '', 'street-names': 'Street names',
-        buildings: '', places: '', boundaries: '', 'poi-education': '',
-        'poi-health': '', 'poi-shop': '', 'poi-transport': '', 'poi-other': '',
-      },
-      tier: {
-        country: 'Each dot is an oblast average',
-        city: 'Each dot is a city average',
-        sensors: 'Each dot is a single sensor',
-      },
-      rateLimited: 'Retrying', unavailable: 'Unavailable',
-      unscaled: 'No air-quality scale for this metric',
-      locateButton: 'Find me', locateDenied: 'Location access was denied.',
-      locateFailed: 'We could not determine your location.',
-      windowLabel: 'Averaging period',
-      windToggle: 'Wind',
-      windAbout: 'About the wind layer',
-      windNote: 'Arrows show where the wind blows.',
-      windAttribution: 'Wind forecast · {model}, {resolution}° · valid {time}',
-    })
+    // One entry per LAYER_ORDER group, always: the menu looks a label up by the
+    // group the STYLE reports, so an absent key is a group rendering under its
+    // own slug the day the style starts carrying it.
+    expect(Object.keys(cfg.t.layers)).toEqual(LAYER_ORDER)
+    expect(cfg.t.layers.base).toBe('Terrain and parks')
+    expect(cfg.t.layers['street-names']).toBe('Street names')
+    expect(cfg.t.layers.water).toBe('')
+    // Keyed by the names tierFor returns, so showLegend indexes rather than branches.
+    expect(cfg.t.tier).toEqual({ country: 'Each dot is an oblast average', city: '', sensors: '' })
+    // setSourceViewAvailability keys the checkbox label by view id, so the two
+    // source labels are read a second time under a second name.
+    expect(cfg.t.communitySensors).toBe('Citizen sensors')
+    expect(cfg.t.officialStations).toBe('Official stations')
   })
 
   // One comma-separated attribute, positional against WINDOW_CHOICES, because
