@@ -37,8 +37,10 @@ test.describe.serial('the network layers', () => {
     await page.getByRole('checkbox', { name: /Citizen sensors/ }).check()
   })
 
-  test('the layer menu counts stations and explains zero coverage, at the default metric', async () => {
-    await expect(page.getByText(/Citizen sensors — \d+ with data/)).toBeVisible()
+  test('the layer menu explains zero coverage, at the default metric', async () => {
+    // A network with data carries the bare label; the count was dropped from
+    // the option (see setSourceViewAvailability in map.js).
+    await expect(page.getByText('Citizen sensors', { exact: true })).toBeVisible()
     await expect(page.getByText(/Official stations — does not measure this/)).toBeVisible()
     await expect(page.getByRole('checkbox', { name: /Official stations/ })).toBeEnabled()
   })
@@ -52,7 +54,7 @@ test.describe.serial('the network layers', () => {
     await page.getByRole('button', { name: 'Layers' }).click()
     await expect(page.getByText(/Citizen sensors — does not measure this/)).toBeVisible()
     await expect(page.getByRole('checkbox', { name: /Citizen sensors/ })).toBeEnabled()
-    await expect(page.getByText(/Official stations — \d+ with data/)).toBeVisible()
+    await expect(page.getByText('Official stations', { exact: true })).toBeVisible()
   })
 })
 
