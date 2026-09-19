@@ -202,8 +202,8 @@ func clientQuantise(w, s, e, n, q float64) (float64, float64, float64, float64) 
 // range can produce (even on an 8K-wide screen) under 1 degree, so 1.5 is a
 // deliberately generous upper bound on "the largest viewport the point tier
 // can produce" — not a tight one — chosen so the test does not depend on
-// TARGET_HEX_PX, which is JS-only and presentational (excluded from the
-// contract, see phase4-design.md §2).
+// TARGET_HEX_PX, which is presentational and JS-only and so is not in the
+// contract.
 //
 // The box is positioned at the worst case the client can produce: the low edge
 // just BELOW a grid line, so floor drops nearly a whole quantum, and the high
