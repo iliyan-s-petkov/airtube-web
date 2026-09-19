@@ -77,27 +77,68 @@ func (s *Store) UpsertSensors(ctx context.Context, scored []quality.Scored, coun
 	return s.pool.SendBatch(ctx, batch).Close()
 }
 
+// writeBatchLimit bounds how many statements ride in one pgx.Batch. Without
+// it, an ingest cycle with an unusually large upstream payload queues every
+// row into a single SendBatch call, holding it all in memory and on the wire
+// at once; flushing in bounded chunks keeps each round trip's footprint
+// constant regardless of input size.
+const writeBatchLimit = 1000
+
 // WriteReadings persists every scored reading, including flagged ones. Duplicate
 // samples are upserted (value and quality overwritten) rather than erroring,
-// so a re-run of the same cycle is safe. Returns the number of statements sent.
+// so a re-run of the same cycle is safe. The WHERE guard skips the write when
+// the resubmitted value and quality are unchanged, so a same-cycle rerun
+// costs no row version; it does not change what value ends up stored. Returns
+// the number of rows actually written or updated — a resubmit that the guard
+// skips does not count, unlike a naive len(scored).
 func (s *Store) WriteReadings(ctx context.Context, scored []quality.Scored) (int64, error) {
-	batch := &pgx.Batch{}
-	for _, sc := range scored {
-		r := sc.Reading
-		batch.Queue(
-			`INSERT INTO reading (time, sensor_id, metric, value, quality)
-			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (sensor_id, metric, time) DO UPDATE
-			   SET value = EXCLUDED.value, quality = EXCLUDED.quality`,
-			r.Timestamp, r.SensorID, r.Metric, r.Value, string(sc.Flag))
+	var written int64
+	for start := 0; start < len(scored); start += writeBatchLimit {
+		end := start + writeBatchLimit
+		if end > len(scored) {
+			end = len(scored)
+		}
+		chunk := scored[start:end]
+
+		batch := &pgx.Batch{}
+		for _, sc := range chunk {
+			r := sc.Reading
+			batch.Queue(
+				`INSERT INTO reading (time, sensor_id, metric, value, quality)
+				 VALUES ($1, $2, $3, $4, $5)
+				 ON CONFLICT (sensor_id, metric, time) DO UPDATE
+				   SET value = EXCLUDED.value, quality = EXCLUDED.quality
+				 WHERE reading.value IS DISTINCT FROM EXCLUDED.value
+				    OR reading.quality IS DISTINCT FROM EXCLUDED.quality`,
+				r.Timestamp, r.SensorID, r.Metric, r.Value, string(sc.Flag))
+		}
+		if batch.Len() == 0 {
+			continue
+		}
+		n, err := execBatchCountRows(s.pool.SendBatch(ctx, batch), batch.Len())
+		written += n
+		if err != nil {
+			return written, err
+		}
 	}
-	if batch.Len() == 0 {
-		return 0, nil
+	return written, nil
+}
+
+// execBatchCountRows consumes n queued results off br — Close alone discards
+// them without reading RowsAffected — and sums each statement's affected row
+// count so a conflict the caller's WHERE guard skipped is not counted as
+// written.
+func execBatchCountRows(br pgx.BatchResults, n int) (int64, error) {
+	defer br.Close()
+	var total int64
+	for i := 0; i < n; i++ {
+		tag, err := br.Exec()
+		if err != nil {
+			return total, err
+		}
+		total += tag.RowsAffected()
 	}
-	if err := s.pool.SendBatch(ctx, batch).Close(); err != nil {
-		return 0, err
-	}
-	return int64(len(scored)), nil
+	return total, nil
 }
 
 // StationUpsert is one official reference station, keyed by its EEA sampling
@@ -168,24 +209,39 @@ type StationReading struct {
 
 // WriteStationReadings persists hourly observations, flagged ones included.
 // The UTD dataset is revised in place upstream, so a re-fetched hour
-// overwrites.
+// overwrites — the WHERE guard only skips the write when the resubmitted row
+// is byte-identical to what is already stored, so a genuine revision still
+// lands. Returns the number of rows actually written or updated.
 func (s *Store) WriteStationReadings(ctx context.Context, rs []StationReading) (int64, error) {
-	if len(rs) == 0 {
-		return 0, nil
+	var written int64
+	for start := 0; start < len(rs); start += writeBatchLimit {
+		end := start + writeBatchLimit
+		if end > len(rs) {
+			end = len(rs)
+		}
+		chunk := rs[start:end]
+
+		batch := &pgx.Batch{}
+		for _, r := range chunk {
+			batch.Queue(
+				`INSERT INTO reading (time, sensor_id, metric, value, quality)
+				 VALUES ($1, $2, $3, $4, $5)
+				 ON CONFLICT (sensor_id, metric, time) DO UPDATE
+				   SET value = EXCLUDED.value, quality = EXCLUDED.quality
+				 WHERE reading.value IS DISTINCT FROM EXCLUDED.value
+				    OR reading.quality IS DISTINCT FROM EXCLUDED.quality`,
+				r.Timestamp, r.SensorID, r.Metric, r.Value, r.Quality)
+		}
+		if batch.Len() == 0 {
+			continue
+		}
+		n, err := execBatchCountRows(s.pool.SendBatch(ctx, batch), batch.Len())
+		written += n
+		if err != nil {
+			return written, err
+		}
 	}
-	batch := &pgx.Batch{}
-	for _, r := range rs {
-		batch.Queue(
-			`INSERT INTO reading (time, sensor_id, metric, value, quality)
-			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (sensor_id, metric, time) DO UPDATE
-			   SET value = EXCLUDED.value, quality = EXCLUDED.quality`,
-			r.Timestamp, r.SensorID, r.Metric, r.Value, r.Quality)
-	}
-	if err := s.pool.SendBatch(ctx, batch).Close(); err != nil {
-		return 0, err
-	}
-	return int64(len(rs)), nil
+	return written, nil
 }
 
 // TruncateHour returns the UTC hour bucket containing t.
