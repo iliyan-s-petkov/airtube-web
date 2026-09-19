@@ -747,6 +747,76 @@ func TestAllAreaSeriesGroupsSensorsAtTheSameInstant(t *testing.T) {
 	}
 }
 
+// TestAllAreaSeriesCapsRowCount seeds one more bucket than
+// store.AllAreaSeriesRowLimit for a single area and asserts the result is
+// truncated to exactly the cap. AllAreaSeries has no per-caller since/until
+// tightening the way AreaSeries does, so the LIMIT is the only thing standing
+// between a wide window and an unbounded result set.
+func TestAllAreaSeriesCapsRowCount(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "capped", "oblast", 23.0, 42.0)
+	seedSensor(t, ctx, pool, 1, 23.0, 42.0)
+	assignAreas(t, ctx, pool)
+
+	start := time.Now().UTC().Add(-24 * time.Hour)
+	const extra = 500
+	rows := store.AllAreaSeriesRowLimit + extra
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO reading (time, sensor_id, metric, value, quality)
+		 SELECT $1::timestamptz + (n || ' seconds')::interval, $2, 'P2', 10, 'ok'::quality_flag
+		   FROM generate_series(0, $3) AS n`,
+		start, int64(1), rows-1); err != nil {
+		t.Fatalf("bulk seed: %v", err)
+	}
+
+	all, err := s.AllAreaSeries(ctx, "P2", start.Add(-time.Minute), false, time.Second)
+	if err != nil {
+		t.Fatalf("AllAreaSeries: %v", err)
+	}
+	if got := len(all["capped"]); got != store.AllAreaSeriesRowLimit {
+		t.Errorf("AllAreaSeries returned %d points, want exactly %d (the row cap); seeded %d",
+			got, store.AllAreaSeriesRowLimit, rows)
+	}
+}
+
+// TestAllAreaSeriesTimesOutUnderItsOwnScopedBound mirrors the AreaSeries and
+// SensorSeries timeout tests: AllAreaSeries reads across every area in one
+// query and must not inherit the pool-wide 15s statement_timeout either.
+func TestAllAreaSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	if pool.Config().MaxConns < 2 {
+		t.Fatalf("pool MaxConns = %d, want >= 2 so the blocker and AllAreaSeries use distinct connections", pool.Config().MaxConns)
+	}
+
+	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20)
+	_ = slug
+
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("blocker Begin: %v", err)
+	}
+	defer blocker.Rollback(ctx)
+	if _, err := blocker.Exec(ctx, `LOCK TABLE reading IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("LOCK TABLE: %v", err)
+	}
+
+	start := time.Now()
+	_, err = s.AllAreaSeries(ctx, "P2", at.Add(-time.Hour), false, time.Second)
+	elapsed := time.Since(start)
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "57014" {
+		t.Fatalf("AllAreaSeries err = %v, want SQLSTATE 57014 (query_canceled)", err)
+	}
+	if elapsed > 10*time.Second {
+		t.Errorf("took %v; the pool's 15s bound applied, not the scoped 5s", elapsed)
+	}
+}
+
 // TestAreaSeriesExcludesOutOfRangeNaN: deferred item (b) — a faulty sensor can
 // report NaN, and strconv.ParseFloat("nan", ...) succeeds while NaN compares
 // false against every < and > in a plain range check. The ingest-time
