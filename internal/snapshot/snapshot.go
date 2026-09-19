@@ -245,10 +245,6 @@ func NewHolder(cfg config.Series, wind config.Wind) *Holder {
 // itself, whether a request's metric matches the precomputed one.
 func (h *Holder) DefaultMetric() string { return h.metric }
 
-// WindForTesting returns h.wind for testing purposes only.
-// This method is not part of the stable API and should not be called in production code.
-func (h *Holder) WindForTesting() config.Wind { return h.wind }
-
 // Load returns the current snapshot, or nil if none has been built yet.
 // Callers must treat nil as "not ready" and answer 503 — never as an empty
 // dataset.
