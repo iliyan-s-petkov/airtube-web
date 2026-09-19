@@ -16,6 +16,24 @@ type seriesState struct {
 	valid bool
 }
 
+// historyMaxTrackedSensors bounds how many distinct sensors History retains
+// state for. The upstream sensor population churns — devices go offline and
+// new ones appear — and state is only ever added in Observe, never removed;
+// without a cap that is an unbounded, permanent leak for the life of the
+// process. The value is comfortably above the largest observed network so
+// normal operation never evicts a live sensor. A var, not a const, so tests
+// can shrink it to exercise eviction without seeding hundreds of thousands
+// of sensors.
+var historyMaxTrackedSensors = 200_000
+
+// SetHistoryMaxTrackedSensorsForTesting overrides historyMaxTrackedSensors
+// and returns a func that restores the previous value.
+func SetHistoryMaxTrackedSensorsForTesting(n int) (restore func()) {
+	prev := historyMaxTrackedSensors
+	historyMaxTrackedSensors = n
+	return func() { historyMaxTrackedSensors = prev }
+}
+
 // History tracks consecutive identical readings per (sensor, metric).
 //
 // State lives in memory and is empty after a restart, so stuck detection needs
@@ -26,6 +44,10 @@ type History struct {
 	mu    sync.Mutex
 	depth int
 	state map[int64]map[string]*seriesState
+	// order records sensorID insertion order, oldest first, so Observe can
+	// evict the longest-untouched sensor once historyMaxTrackedSensors is
+	// exceeded.
+	order []int64
 }
 
 func NewHistory(depth int) *History {
@@ -43,6 +65,12 @@ func (h *History) Observe(sensorID int64, metric string, value float64) {
 	if !ok {
 		byMetric = make(map[string]*seriesState)
 		h.state[sensorID] = byMetric
+		h.order = append(h.order, sensorID)
+		for len(h.order) > historyMaxTrackedSensors {
+			evict := h.order[0]
+			h.order = h.order[1:]
+			delete(h.state, evict)
+		}
 	}
 	s, ok := byMetric[metric]
 	if !ok {

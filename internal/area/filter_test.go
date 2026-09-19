@@ -213,6 +213,9 @@ func TestFilterByBoundaryAbsentBoundaryReportsNotPresent(t *testing.T) {
 	if rejected != 0 {
 		t.Errorf("rejected = %d, want 0 when boundary is absent (caller decides, not this function)", rejected)
 	}
+	if len(res.MissingCountries) != len(testCountries) {
+		t.Errorf("MissingCountries = %v, want every enabled country (%v) — none of them has an imported boundary, and silence here looks identical to nothing being wrong", res.MissingCountries, testCountries)
+	}
 }
 
 func TestFilterByBoundaryEmptyBatchReportsPresentWithoutQuerying(t *testing.T) {
