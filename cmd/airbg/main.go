@@ -31,7 +31,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|rollup|import-areas|purge-outside-boundary|validate-config>")
+		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|rollup|import-areas|purge-outside-boundary|validate-config|contract>")
 		os.Exit(2)
 	}
 
@@ -40,6 +40,12 @@ func main() {
 	// rather than at server start.
 	if os.Args[1] == "validate-config" {
 		os.Exit(runValidateConfig(os.Stdout, os.Stderr))
+	}
+
+	// contract emits the constants the frontend generates from. Checked before
+	// config or a database is touched: it is a build step, not an operation.
+	if os.Args[1] == "contract" {
+		os.Exit(runContract(os.Args[2:], os.Stdout, os.Stderr))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

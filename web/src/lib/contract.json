@@ -1,0 +1,52 @@
+{
+  "spans": [
+    {
+      "span": "24h",
+      "step_seconds": 3600,
+      "frames": 24
+    },
+    {
+      "span": "48h",
+      "step_seconds": 7200,
+      "frames": 24
+    },
+    {
+      "span": "7d",
+      "step_seconds": 21600,
+      "frames": 28
+    }
+  ],
+  "windows": [
+    {
+      "name": "24h",
+      "seconds": 86400
+    },
+    {
+      "name": "48h",
+      "seconds": 172800
+    },
+    {
+      "name": "7d",
+      "seconds": 604800
+    }
+  ],
+  "live_window": "",
+  "hex": {
+    "tiers_km": [
+      100,
+      50,
+      25,
+      15,
+      5,
+      2,
+      1,
+      0.5,
+      0.25
+    ],
+    "point_resolution_km": 0,
+    "bbox_quantum_deg": 0.25,
+    "max_point_bbox_deg": 2,
+    "ref_lat": 42.75,
+    "earth_radius_km": 6371
+  }
+}
