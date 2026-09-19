@@ -1,6 +1,7 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte'
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { gzipSync } from 'node:zlib'
 
 // MapLibre GL JS ships its tiling/parsing work in a SEPARATE worker script
 // (maplibre-gl-worker.mjs) that it loads itself at runtime via
@@ -56,6 +57,35 @@ function keepDistTracked() {
   }
 }
 
+// 300 KB gz is this plan's Task 5.4 trigger for lazy-loading wind/timelapse out
+// of the map chunk. Today's measurement is 288.89 KB gz — under the trigger,
+// so nothing is split, but close enough that this needs to fail loudly later.
+const MAP_CHUNK_GZIP_BUDGET_BYTES = 300 * 1024
+
+// writeBundle sees the real written bytes, unlike a test that reads
+// internal/web/dist after the fact and would pass vacuously on a stale or
+// missing build. The map chunk is found by facadeModuleId — the source file
+// Rollup split off — rather than by its hashed output filename, which changes
+// every build.
+function checkMapChunkSize() {
+  return {
+    name: 'check-map-chunk-size',
+    writeBundle(options, bundle) {
+      for (const chunk of Object.values(bundle)) {
+        if (chunk.type !== 'chunk') continue
+        const bytes = readFileSync(path.join(options.dir, chunk.fileName))
+        const gzipKB = gzipSync(bytes).length / 1024
+        console.log(`[chunk size] ${chunk.fileName}: ${gzipKB.toFixed(2)} KB gz`)
+        if (chunk.facadeModuleId?.endsWith('/islands/map.js') && gzipKB * 1024 > MAP_CHUNK_GZIP_BUDGET_BYTES) {
+          throw new Error(
+            `map chunk is ${gzipKB.toFixed(2)} KB gzipped, over the ${(MAP_CHUNK_GZIP_BUDGET_BYTES / 1024).toFixed(0)} KB budget (Task 5.4) — lazy-load wind/timelapse out of it`,
+          )
+        }
+      }
+    },
+  }
+}
+
 export default {
   // '.' rather than 'web': vite.config.js already lives inside web/, and every
   // script in package.json runs with npm's cwd there (`cd web && npm run
@@ -73,7 +103,7 @@ export default {
   // hand verification: the browser asked for /assets/map-*.css, got Go's
   // catch-all 404 page back as text/html, and the map island failed to mount).
   base: '/static/build/',
-  plugins: [svelte(), copyMapLibreWorker(), keepDistTracked()],
+  plugins: [svelte(), copyMapLibreWorker(), keepDistTracked(), checkMapChunkSize()],
   build: {
     outDir: '../internal/web/dist',
     emptyOutDir: true,
