@@ -24,6 +24,16 @@ type windPayload struct {
 	Vectors            []windVector `json:"vectors"`
 }
 
+// withoutGeneratedAt clears the build timestamp — but not ValidAt, which is
+// the forecast hour and is part of the data, not the build time — so an
+// unchanged forecast hashes identically across builds.
+func (p windPayload) withoutGeneratedAt() any {
+	p.GeneratedAt = time.Time{}
+	return p
+}
+
+var _ canonicalisable = windPayload{}
+
 type windVector struct {
 	Lon float64 `json:"lon"`
 	Lat float64 `json:"lat"`

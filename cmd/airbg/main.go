@@ -102,6 +102,14 @@ func main() {
 			slog.Error("backfill", "error", err)
 			os.Exit(1)
 		}
+		// Refuse an official-range sensor_id before touching the database at
+		// all: official readings reach reading_hourly only through the EEA
+		// collector, and a hand-backfilled row under one of those ids would
+		// be indistinguishable from real official data.
+		if err := backfill.CheckNotOfficial(sensorID); err != nil {
+			slog.Error("backfill", "error", err)
+			os.Exit(1)
+		}
 		// Refuse before reading the file: a backfill for an unknown or
 		// out-of-boundary sensor_id creates reading_hourly rows that the
 		// documented cleanup command cannot reach by sensor.
@@ -230,10 +238,11 @@ func runServe(ctx context.Context, cfg config.Config, apiPool, collectorPool *pg
 	apiStore := store.New(apiPool, cfg.Store, cfg.Database.StatementTimeouts.Series)
 	collectorStore := store.New(collectorPool, cfg.Store, cfg.Database.StatementTimeouts.Series)
 
-	holder := snapshot.NewHolder(cfg.Series)
+	windCfg := config.Wind{}
 	if cfg.Wind.Enabled {
-		holder.SetWind(cfg.Wind)
+		windCfg = cfg.Wind
 	}
+	holder := snapshot.NewHolder(cfg.Series, windCfg)
 	pub := server.NewPublisher(collectorStore, holder, log)
 
 	cat, err := i18n.LoadWithOverrides(cfg.I18n.Dir)

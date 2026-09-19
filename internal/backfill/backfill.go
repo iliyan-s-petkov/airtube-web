@@ -24,6 +24,7 @@ import (
 	"airbg.org/internal/area"
 	"airbg.org/internal/config"
 	"airbg.org/internal/quality"
+	"airbg.org/internal/store"
 	"airbg.org/internal/upstream"
 )
 
@@ -188,10 +189,15 @@ func ParseCSV(r io.Reader, sensorID int64, qcfg config.Quality) ([]HourlyBucket,
 	}
 
 	tsCol := -1
+	sensorIDCol := -1
 	metricCols := map[int]string{}
 	for i, name := range header {
-		if name == "timestamp" {
+		switch name {
+		case "timestamp":
 			tsCol = i
+			continue
+		case "sensor_id":
+			sensorIDCol = i
 			continue
 		}
 		if upstream.IsCanonicalMetric(name) {
@@ -230,6 +236,24 @@ func ParseCSV(r io.Reader, sensorID int64, qcfg config.Quality) ([]HourlyBucket,
 		}
 		if tsCol >= len(record) {
 			continue
+		}
+		// A CSV that carries its own sensor_id column must agree with the
+		// sensor_id passed on the command line for every row, or the whole
+		// import aborts here — before any bucket is built — rather than
+		// silently trusting one source over the other and writing one
+		// sensor's history onto a different sensor.
+		if sensorIDCol != -1 && sensorIDCol < len(record) && record[sensorIDCol] != "" {
+			rowID, err := strconv.ParseInt(record[sensorIDCol], 10, 64)
+			if err != nil {
+				return nil, report, fmt.Errorf(
+					"backfill: csv sensor_id %q is not a valid integer — refusing to import",
+					record[sensorIDCol])
+			}
+			if rowID != sensorID {
+				return nil, report, fmt.Errorf(
+					"backfill: csv sensor_id %d does not match requested sensor_id %d — refusing to import",
+					rowID, sensorID)
+			}
 		}
 		ts, err := time.Parse(archiveTimeLayout, record[tsCol])
 		if err != nil {
@@ -294,6 +318,21 @@ func ParseCSV(r io.Reader, sensorID int64, qcfg config.Quality) ([]HourlyBucket,
 		})
 	}
 	return buckets, report, nil
+}
+
+// CheckNotOfficial refuses a backfill for any sensor_id in the range EEA
+// stations are assigned (store.OfficialSensorIDFloor and above). Official
+// readings reach reading_hourly only through the EEA collector; a
+// hand-backfilled row under one of those ids would be indistinguishable from
+// real official data once written, so this is checked before the boundary
+// query even runs.
+func CheckNotOfficial(sensorID int64) error {
+	if sensorID >= store.OfficialSensorIDFloor {
+		return fmt.Errorf(
+			"backfill: sensor_id %d is in the official EEA range (>= %d) — refusing to backfill an official sensor",
+			sensorID, store.OfficialSensorIDFloor)
+	}
+	return nil
 }
 
 // CheckSensorInBoundary refuses a backfill for any sensor_id that is not

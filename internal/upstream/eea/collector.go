@@ -17,6 +17,21 @@ import (
 // once history backfills; one unbounded batch would be all-or-nothing.
 const writeChunkSize = 2000
 
+// fileFetchTTL bounds how long a URL's entry is kept in lastFileFetch once
+// the collector stops seeing it. The upstream file list rotates (dated file
+// names, rotated SAS tokens), so without a bound the map grows by one entry
+// per URL ever seen and never shrinks.
+const fileFetchTTL = 48 * time.Hour
+
+// fileFetchState is what the collector remembers about one URL between
+// cycles: lastModified is the upstream's own answer, sent back as
+// If-Modified-Since; seenAt is this host's clock, used only to decide when
+// the entry is stale enough to prune.
+type fileFetchState struct {
+	lastModified time.Time
+	seenAt       time.Time
+}
+
 // Stats is one cycle's outcome. Each discard reason gets its own counter so a
 // zero-reading cycle can be diagnosed from the log line alone.
 type Stats struct {
@@ -40,8 +55,12 @@ type Collector struct {
 
 	metadata      Metadata
 	metadataAt    time.Time
-	lastFileFetch map[string]time.Time
+	lastFileFetch map[string]fileFetchState
 }
+
+// SetClockForTesting overrides the clock used to prune lastFileFetch and to
+// stamp LastSeen on station upserts.
+func (c *Collector) SetClockForTesting(clock func() time.Time) { c.clock = clock }
 
 // NewCollector takes the scorer rather than building one so the official layer
 // is plausibility-checked by the same quality.Scorer the community ingest and
@@ -54,7 +73,7 @@ func NewCollector(cfg config.EEA, s *store.Store, scorer *quality.Scorer) *Colle
 		store:         s,
 		scorer:        scorer,
 		clock:         time.Now,
-		lastFileFetch: map[string]time.Time{},
+		lastFileFetch: map[string]fileFetchState{},
 	}
 }
 
@@ -69,7 +88,7 @@ func (c *Collector) loadMetadata(ctx context.Context) error {
 		if c.metadata != nil {
 			// Station coordinates are static, so a stale copy is preferable to
 			// an empty official layer.
-			slog.Warn("eea metadata refresh failed, keeping the cached copy", "error", err)
+			slog.Warn("eea metadata refresh failed, keeping the cached copy", "error", scrubURLError(err))
 			return nil
 		}
 		if cached, readErr := os.ReadFile(metadataCachePath(c.cfg.MetadataCache)); readErr == nil {
@@ -92,12 +111,12 @@ func (c *Collector) RunOnce(ctx context.Context) (Stats, error) {
 	var st Stats
 
 	if err := c.loadMetadata(ctx); err != nil {
-		return st, err
+		return st, scrubURLError(err)
 	}
 
 	urls, rejected, err := c.client.FileURLs(ctx)
 	if err != nil {
-		return st, err
+		return st, scrubURLError(err)
 	}
 	st.UntrustedURL = rejected
 	if rejected > 0 {
@@ -107,27 +126,47 @@ func (c *Collector) RunOnce(ctx context.Context) (Stats, error) {
 	stations := map[string]Station{}
 	var rows []Row
 
+	now := c.clock().UTC()
 	for _, u := range urls {
 		st.Files++
-		body, modified, err := c.client.FetchFile(ctx, u, c.lastFileFetch[u])
+		body, modified, lastModified, err := c.client.FetchFile(ctx, u, c.lastFileFetch[u].lastModified)
 		if err != nil {
-			slog.Warn("eea file fetch failed", "url", u, "error", err)
+			slog.Warn("eea file fetch failed", "file", urlWithoutQuery(u), "error", scrubURLError(err))
 			continue
 		}
 		if !modified {
 			st.Unmodified++
+			// Unchanged file: bump seenAt only, so pruning below leaves it alone.
+			prev := c.lastFileFetch[u]
+			prev.seenAt = now
+			c.lastFileFetch[u] = prev
 			continue
 		}
-		c.lastFileFetch[u] = c.clock().UTC()
+		// No Last-Modified header: keep the prior value, so next cycle just
+		// refetches this file in full instead of corrupting the cache.
+		next := fileFetchState{lastModified: c.lastFileFetch[u].lastModified, seenAt: now}
+		if !lastModified.IsZero() {
+			next.lastModified = lastModified
+		}
+		c.lastFileFetch[u] = next
 
 		decoded, err := DecodeRows(bytes.NewReader(body), int64(len(body)))
 		if err != nil {
-			slog.Warn("eea file decode failed", "url", u, "error", err)
+			slog.Warn("eea file decode failed", "file", urlWithoutQuery(u), "error", scrubURLError(err))
 			continue
 		}
 		rows = append(rows, decoded...)
 	}
 	st.Rows = len(rows)
+
+	// Prune URLs the collector has not seen in the current file list for a
+	// while: the upstream list rotates (dated names, rotated SAS tokens), so
+	// without this the map grows by one entry per URL ever seen.
+	for u, state := range c.lastFileFetch {
+		if now.Sub(state.seenAt) > fileFetchTTL {
+			delete(c.lastFileFetch, u)
+		}
+	}
 
 	unplaceable := map[string]bool{}
 	type keyed struct {
@@ -237,7 +276,7 @@ func (c *Collector) Loop(ctx context.Context) {
 	run := func() {
 		s, err := c.RunOnce(ctx)
 		if err != nil {
-			slog.Error("eea cycle failed", "error", err)
+			slog.Error("eea cycle failed", "error", scrubURLError(err))
 			return
 		}
 		slog.Info("eea cycle complete",

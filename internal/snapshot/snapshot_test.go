@@ -14,7 +14,7 @@ import (
 // airbg.yaml's "P2". A holder built from a config naming a different metric
 // must report that metric back, not "P2".
 func TestNewHolderTakesDefaultMetricFromConfig(t *testing.T) {
-	h := snapshot.NewHolder(config.Series{DefaultMetric: "temperature", DefaultWindow: time.Hour})
+	h := snapshot.NewHolder(config.Series{DefaultMetric: "temperature", DefaultWindow: time.Hour}, config.Wind{})
 	if got := h.DefaultMetric(); got != "temperature" {
 		t.Errorf("DefaultMetric() = %q, want %q", got, "temperature")
 	}

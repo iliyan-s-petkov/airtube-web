@@ -53,7 +53,7 @@ func testStore(t *testing.T, pool *pgxpool.Pool) *store.Store {
 // combination, for the h argument Build takes.
 func testHolder(t *testing.T) *snapshot.Holder {
 	t.Helper()
-	return snapshot.NewHolder(testConfig(t).Series)
+	return snapshot.NewHolder(testConfig(t).Series, config.Wind{})
 }
 
 func migrated(t *testing.T) (context.Context, *pgxpool.Pool) {
@@ -192,8 +192,47 @@ func TestBuildETagIsStableForIdenticalData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build b: %v", err)
 	}
-	if a.Overview.ETag != b.Overview.ETag {
-		t.Errorf("ETag changed between builds of identical data (%s vs %s); GeneratedAt must not be hashed", a.Overview.ETag, b.Overview.ETag)
+
+	// Every top-level body this cycle produced, not a sample: a type missing
+	// from encode's canonicalisation would only show up here, since its ETag
+	// is otherwise indistinguishable from a correctly hashed one.
+	bodies := map[string]snapshot.Body{
+		"Overview":     a.Overview,
+		"OverviewCity": a.OverviewCity,
+		"Areas":        a.Areas,
+		"Hexes":        a.Hexes,
+		"Boundaries":   a.Boundaries,
+		"Wind":         a.Wind,
+	}
+	bBodies := map[string]snapshot.Body{
+		"Overview":     b.Overview,
+		"OverviewCity": b.OverviewCity,
+		"Areas":        b.Areas,
+		"Hexes":        b.Hexes,
+		"Boundaries":   b.Boundaries,
+		"Wind":         b.Wind,
+	}
+	for slug, body := range a.AreaSensors {
+		bodies["AreaSensors["+slug+"]"] = body
+		bBodies["AreaSensors["+slug+"]"] = b.AreaSensors[slug]
+	}
+	for slug, body := range a.AreaSeries {
+		bodies["AreaSeries["+slug+"]"] = body
+		bBodies["AreaSeries["+slug+"]"] = b.AreaSeries[slug]
+	}
+	for key, body := range a.Timelapse {
+		bodies["Timelapse["+key+"]"] = body
+		bBodies["Timelapse["+key+"]"] = b.Timelapse[key]
+	}
+
+	if len(bodies) < 6 {
+		t.Fatalf("only %d bodies collected; seed() must be under-populating for this test to be meaningful", len(bodies))
+	}
+	for name, ab := range bodies {
+		bb := bBodies[name]
+		if ab.ETag != bb.ETag {
+			t.Errorf("%s: ETag changed between builds of identical data (%s vs %s); GeneratedAt must not be hashed", name, ab.ETag, bb.ETag)
+		}
 	}
 }
 

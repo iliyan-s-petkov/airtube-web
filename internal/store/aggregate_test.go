@@ -2,9 +2,12 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"airbg.org/internal/area"
+	"airbg.org/internal/config"
 	"airbg.org/internal/db"
 	"airbg.org/internal/store"
 	"airbg.org/internal/testsupport"
@@ -747,6 +751,76 @@ func TestAllAreaSeriesGroupsSensorsAtTheSameInstant(t *testing.T) {
 	}
 }
 
+// TestAllAreaSeriesCapsRowCount seeds one more bucket than
+// store.AllAreaSeriesRowLimit for a single area and asserts the result is
+// truncated to exactly the cap. AllAreaSeries has no per-caller since/until
+// tightening the way AreaSeries does, so the LIMIT is the only thing standing
+// between a wide window and an unbounded result set.
+func TestAllAreaSeriesCapsRowCount(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	seedArea(t, ctx, pool, "capped", "oblast", 23.0, 42.0)
+	seedSensor(t, ctx, pool, 1, 23.0, 42.0)
+	assignAreas(t, ctx, pool)
+
+	start := time.Now().UTC().Add(-24 * time.Hour)
+	const extra = 500
+	rows := store.AllAreaSeriesRowLimit + extra
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO reading (time, sensor_id, metric, value, quality)
+		 SELECT $1::timestamptz + (n || ' seconds')::interval, $2, 'P2', 10, 'ok'::quality_flag
+		   FROM generate_series(0, $3) AS n`,
+		start, int64(1), rows-1); err != nil {
+		t.Fatalf("bulk seed: %v", err)
+	}
+
+	all, err := s.AllAreaSeries(ctx, "P2", start.Add(-time.Minute), false, time.Second)
+	if err != nil {
+		t.Fatalf("AllAreaSeries: %v", err)
+	}
+	if got := len(all["capped"]); got != store.AllAreaSeriesRowLimit {
+		t.Errorf("AllAreaSeries returned %d points, want exactly %d (the row cap); seeded %d",
+			got, store.AllAreaSeriesRowLimit, rows)
+	}
+}
+
+// TestAllAreaSeriesTimesOutUnderItsOwnScopedBound mirrors the AreaSeries and
+// SensorSeries timeout tests: AllAreaSeries reads across every area in one
+// query and must not inherit the pool-wide 15s statement_timeout either.
+func TestAllAreaSeriesTimesOutUnderItsOwnScopedBound(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	if pool.Config().MaxConns < 2 {
+		t.Fatalf("pool MaxConns = %d, want >= 2 so the blocker and AllAreaSeries use distinct connections", pool.Config().MaxConns)
+	}
+
+	slug, at := seedTwoSensorsOneInstant(t, ctx, pool, 10, 20)
+	_ = slug
+
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("blocker Begin: %v", err)
+	}
+	defer blocker.Rollback(ctx)
+	if _, err := blocker.Exec(ctx, `LOCK TABLE reading IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("LOCK TABLE: %v", err)
+	}
+
+	start := time.Now()
+	_, err = s.AllAreaSeries(ctx, "P2", at.Add(-time.Hour), false, time.Second)
+	elapsed := time.Since(start)
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "57014" {
+		t.Fatalf("AllAreaSeries err = %v, want SQLSTATE 57014 (query_canceled)", err)
+	}
+	if elapsed > 10*time.Second {
+		t.Errorf("took %v; the pool's 15s bound applied, not the scoped 5s", elapsed)
+	}
+}
+
 // TestAreaSeriesExcludesOutOfRangeNaN: deferred item (b) — a faulty sensor can
 // report NaN, and strconv.ParseFloat("nan", ...) succeeds while NaN compares
 // false against every < and > in a plain range check. The ingest-time
@@ -1035,5 +1109,72 @@ func TestAreaSeriesBandExcludesFlaggedReadings(t *testing.T) {
 	}
 	if bands[0].High != 14 {
 		t.Errorf("high = %v, want 14 — the flagged 900 reading is not a sensor", bands[0].High)
+	}
+}
+
+// geojsonFeatureCount reports the number of features in a committed boundary
+// file — the real source of an area's existence, not a hardcoded guess.
+func geojsonFeatureCount(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var doc struct {
+		Features []json.RawMessage `json:"features"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("unmarshal %s: %v", path, err)
+	}
+	return len(doc.Features)
+}
+
+// TestAllAreaSeriesRowLimitCoversRealConfig is the structural killing test for
+// fix-round-1 item 1: AllAreaSeriesRowLimit must stay comfortably above the
+// worst case AllAreaSeries can actually be asked for, computed from the real
+// airbg.yaml and the real committed boundary files rather than a hardcoded
+// number that rots the moment either changes.
+//
+// Area count is city + oblast + neighbourhood boundaries only: AssignSensers
+// excludes area.kind = NationalBoundaryKind ("country") from area_sensor, so
+// the country boundary can never contribute a row to AllAreaSeries no matter
+// how many features bulgaria.geojson has.
+func TestAllAreaSeriesRowLimitCoversRealConfig(t *testing.T) {
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+
+	var maxBuckets int
+	for name, pd := range cfg.Series.Periods {
+		if pd.Bucket <= 0 {
+			t.Fatalf("period %q has no bucket duration; this test proves nothing", name)
+		}
+		buckets := int((pd.Window + pd.Bucket - 1) / pd.Bucket) // ceil
+		if buckets > maxBuckets {
+			maxBuckets = buckets
+		}
+	}
+	if maxBuckets == 0 {
+		t.Fatal("no series period found in airbg.yaml; this test proves nothing")
+	}
+
+	areaCount := 0
+	for _, f := range []string{"oblasti.geojson", "cities.geojson", "sofia-districts.geojson"} {
+		areaCount += geojsonFeatureCount(t, filepath.Join("..", "..", "data", "boundaries", f))
+	}
+	if areaCount == 0 {
+		t.Fatal("no boundary features found; this test proves nothing")
+	}
+
+	worst := maxBuckets * areaCount
+	// "Comfortably below": the limit must be at least 4x the worst case, not
+	// just barely above it — a limit sized to exactly today's worst case is
+	// exactly what silently broke in fix-round-1 item 1 once the area count
+	// grew a little.
+	if worst*4 > store.AllAreaSeriesRowLimit {
+		t.Errorf("worst case = %d buckets x %d areas = %d rows; want AllAreaSeriesRowLimit (%d) at least 4x that, got %.1fx",
+			maxBuckets, areaCount, worst, store.AllAreaSeriesRowLimit, float64(store.AllAreaSeriesRowLimit)/float64(worst))
 	}
 }

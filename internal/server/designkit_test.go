@@ -198,7 +198,7 @@ func TestABadDesignKitDirIsAStartupError(t *testing.T) {
 	}
 	cfg := testConfig(t)
 	cfg.DesignKit.Dir = t.TempDir() // exists, but holds no ui_kits/app/index.html
-	holder := snapshot.NewHolder(cfg.Series)
+	holder := snapshot.NewHolder(cfg.Series, config.Wind{})
 
 	if _, err := server.New(server.Options{Config: cfg, Catalogue: cat, Snapshots: holder}); err == nil {
 		t.Fatal("server.New error = nil, want an error naming the missing entry point")

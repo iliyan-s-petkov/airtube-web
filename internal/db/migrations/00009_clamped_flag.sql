@@ -7,6 +7,8 @@ ALTER TYPE quality_flag ADD VALUE IF NOT EXISTS 'clamped';
 
 -- +goose Down
 
+-- Postgres cannot drop a value from an enum type, so this Down does not
+-- remove 'clamped' from quality_flag — only guards that no row still uses it.
 -- +goose StatementBegin
 DO $$
 DECLARE n bigint;

@@ -32,6 +32,15 @@ type areaPayload struct {
 	Areas       []areaPayloadEntry `json:"areas"`
 }
 
+// withoutGeneratedAt clears the build timestamp so identical areas hash
+// identically across builds.
+func (p areaPayload) withoutGeneratedAt() any {
+	p.GeneratedAt = time.Time{}
+	return p
+}
+
+var _ canonicalisable = areaPayload{}
+
 type areaPayloadEntry struct {
 	Slug   string  `json:"slug"`
 	Kind   string  `json:"kind"`
@@ -56,6 +65,15 @@ type sensorPayload struct {
 	GeneratedAt time.Time     `json:"generated_at"`
 	Sensors     sensorColumns `json:"sensors"`
 }
+
+// withoutGeneratedAt clears the build timestamp so identical sensor readings
+// hash identically across builds.
+func (p sensorPayload) withoutGeneratedAt() any {
+	p.GeneratedAt = time.Time{}
+	return p
+}
+
+var _ canonicalisable = sensorPayload{}
 
 type sensorColumns struct {
 	ID      []int64   `json:"id"`
@@ -399,17 +417,16 @@ func measuresOf(sr store.SensorReading, canonical []string) []string {
 // on the order rows arrive in, and so the same site keeps the same id from one
 // snapshot to the next for as long as that member reports.
 func stationIDs(sensors []store.SensorReading) []int64 {
-	type site struct{ lon, lat float64 }
-	lowest := make(map[site]int64, len(sensors))
+	lowest := make(map[stationKey]int64, len(sensors))
 	for _, sr := range sensors {
-		k := site{sr.Lon, sr.Lat}
+		k := stationKeyOf(sr)
 		if id, seen := lowest[k]; !seen || sr.SensorID < id {
 			lowest[k] = sr.SensorID
 		}
 	}
 	out := make([]int64, 0, len(sensors))
 	for _, sr := range sensors {
-		out = append(out, lowest[site{sr.Lon, sr.Lat}])
+		out = append(out, lowest[stationKeyOf(sr)])
 	}
 	return out
 }
@@ -441,7 +458,7 @@ func seriesPayloadFrom(slug, metric string, points []store.Point) SeriesPayload 
 // Hashing the timestamped body would change the ETag every cycle even when no
 // value moved, invalidating every cached copy five minutes after it was stored
 // — which defeats the edge cache entirely on a dataset that changes slowly.
-func encode(payload any) (Body, error) {
+func encode(payload canonicalisable) (Body, error) {
 	withTime, err := json.Marshal(payload)
 	if err != nil {
 		return Body{}, err
@@ -474,26 +491,20 @@ func encode(payload any) (Body, error) {
 	}, nil
 }
 
-// zeroGeneratedAt returns a copy of the payload with its timestamp cleared, for
-// hashing only. Handled per concrete type rather than by reflection: the
-// payload types are few and named here, and a reflective version would silently
-// stop working the moment one is added without a matching case.
-func zeroGeneratedAt(payload any) any {
-	switch p := payload.(type) {
-	case areaPayload:
-		p.GeneratedAt = time.Time{}
-		return p
-	case sensorPayload:
-		p.GeneratedAt = time.Time{}
-		return p
-	case hexPayload:
-		p.GeneratedAt = time.Time{}
-		return p
-	default:
-		// Unknown payload type: hash it as-is rather than silently returning
-		// something that is not the payload. A caller adding a third type gets
-		// per-cycle ETag churn, which is visible in cache metrics, rather than
-		// a wrong hash.
-		return payload
-	}
+// canonicalisable is implemented by every payload type encode hashes for its
+// ETag. withoutGeneratedAt returns a copy with the build timestamp cleared (or
+// unchanged, for a payload that carries none), so identical data hashes
+// identically across builds.
+//
+// encode takes this interface rather than any: a payload type that forgets
+// the method fails to compile at its call site, instead of silently falling
+// through to a hash that includes the timestamp.
+type canonicalisable interface {
+	withoutGeneratedAt() any
+}
+
+// zeroGeneratedAt returns a copy of the payload with its timestamp cleared,
+// for hashing only.
+func zeroGeneratedAt(payload canonicalisable) any {
+	return payload.withoutGeneratedAt()
 }

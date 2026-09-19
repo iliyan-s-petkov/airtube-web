@@ -42,7 +42,7 @@ func renderer(t *testing.T, snap *snapshot.Snapshot) *web.Renderer {
 		t.Fatalf("i18n.Load: %v", err)
 	}
 	cfg := testConfig(t)
-	h := snapshot.NewHolder(cfg.Series)
+	h := snapshot.NewHolder(cfg.Series, config.Wind{})
 	if snap != nil {
 		h.Store(snap)
 	}
@@ -93,7 +93,7 @@ func newTestRendererWithTiles(t *testing.T, publicURL string) *web.Renderer {
 			Archive:   "bulgaria-20260815.pmtiles",
 		}
 	}
-	h := snapshot.NewHolder(cfg.Series)
+	h := snapshot.NewHolder(cfg.Series, config.Wind{})
 	h.Store(fixture(t))
 	rr, err := web.NewRenderer(cat, h, cfg)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestNewRendererFailsClosedOnEmptyPeriodNames(t *testing.T) {
 	}
 	cfg := testConfig(t)
 	cfg.Series.PeriodNames = nil
-	h := snapshot.NewHolder(cfg.Series)
+	h := snapshot.NewHolder(cfg.Series, config.Wind{})
 
 	_, err = web.NewRenderer(cat, h, cfg)
 	if err == nil {

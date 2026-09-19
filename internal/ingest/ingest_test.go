@@ -3,6 +3,7 @@ package ingest_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -200,7 +201,7 @@ func TestRunOnceHandlesEmptyBatch(t *testing.T) {
 
 // TestRawRetentionHoursMatchesLivePolicy guards task-16 review finding 4:
 // ingest.RawRetentionHours mirrors the retention policy that migration 00003
-// installs on the `reading` hypertable (drop_after => 30 days), purely as a
+// installs on the `reading` hypertable (drop_after => 32 days), purely as a
 // documentation constant with no structural link to the migration. If a
 // future edit to that migration's drop_after forgot to update the constant,
 // the alert's "margin_hours" would silently misreport how much runway is
@@ -222,6 +223,40 @@ func TestRawRetentionHoursMatchesLivePolicy(t *testing.T) {
 
 	if int(gotHours) != ingest.RawRetentionHours {
 		t.Errorf("live retention policy on reading = %v hours, ingest.RawRetentionHours = %d — the constant has drifted from migration 00003's drop_after", gotHours, ingest.RawRetentionHours)
+	}
+}
+
+// TestRawRetentionExceedsSeriesRawWindow pins task 2.7's decision: raw
+// `reading` retention must outlive the widest window airbg.yaml still
+// queries the raw table for (a series period with hourly: false), or a
+// rollup that falls behind can be asked to read rows retention has already
+// deleted. Reads the committed airbg.yaml and compares against
+// ingest.RawRetentionHours structurally — no window or retention literal is
+// hardcoded here — so a future edit that narrows the margin on either side
+// fails here rather than only under a slow rollup in production.
+func TestRawRetentionExceedsSeriesRawWindow(t *testing.T) {
+	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "airbg.yaml"))
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+
+	var widestRawWindow time.Duration
+	for _, pd := range cfg.Series.Periods {
+		if pd.Hourly {
+			continue
+		}
+		if pd.Window > widestRawWindow {
+			widestRawWindow = pd.Window
+		}
+	}
+	if widestRawWindow == 0 {
+		t.Fatal("no raw (hourly: false) series period found in airbg.yaml; this test proves nothing")
+	}
+
+	retention := time.Duration(ingest.RawRetentionHours) * time.Hour
+	if retention <= widestRawWindow {
+		t.Errorf("ingest.RawRetentionHours = %v, widest raw series window = %v — retention must exceed it, or a rollup lagging behind the widest raw window can read rows retention already deleted", retention, widestRawWindow)
 	}
 }
 
@@ -475,7 +510,9 @@ func (p *observingPublisher) Publish(ctx context.Context, _ time.Time) error {
 // all look healthy, and nothing but a direct comparison against upstream
 // would ever reveal it).
 func TestPublishSeesThisCyclesWrites(t *testing.T) {
-	ts := time.Date(2026, 1, 15, 8, 3, 0, 0, time.UTC)
+	// Inside the 32-day raw retention window (migration 00003); an older date
+	// races the retention worker.
+	ts := time.Now().UTC().Truncate(time.Hour)
 	f := stubFetcher{readings: []upstream.Reading{
 		reading(42, "temperature", 22, 0, ts),
 	}}

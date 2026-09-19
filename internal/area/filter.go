@@ -142,7 +142,12 @@ func FilterByBoundary(ctx context.Context, pool *pgxpool.Pool, readings []upstre
 		return BoundaryFilterResult{}, err
 	}
 	if len(imported) == 0 {
-		return BoundaryFilterResult{}, nil
+		// Every enabled country is missing its boundary, not just some of
+		// them — the loop below that builds MissingCountries from imported
+		// never runs on this path, so without this it silently reports an
+		// empty list even though the whole allow list has no geometry to
+		// test against, which looks identical to nothing being wrong.
+		return BoundaryFilterResult{MissingCountries: countries}, nil
 	}
 	var missing []string
 	for _, c := range countries {

@@ -29,6 +29,37 @@ func metadataCachePath(dir string) string {
 
 const userAgent = "airbg.org collector (+https://airbg.org)"
 
+// urlWithoutQuery strips a URL's query string before it is used anywhere
+// that might end up in a log line. EEA download URLs carry a SAS token in the
+// query, so logging one whole would leak a credential into the log stream.
+func urlWithoutQuery(raw string) string {
+	if i := strings.IndexByte(raw, '?'); i >= 0 {
+		return raw[:i]
+	}
+	return raw
+}
+
+// scrubURLError strips the query string out of a *url.Error's URL field
+// wherever it appears in err's message, since net/http returns transport
+// failures (DNS, TLS, connection reset, redirect refusal, ctx cancellation)
+// as *url.Error{URL: <the request URL, query and all>}. Every Client method
+// below runs its error result through this before returning it, so no
+// caller can forward a SAS token by forwarding an error.
+func scrubURLError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var uerr *url.Error
+	if !errors.As(err, &uerr) {
+		return err
+	}
+	clean := urlWithoutQuery(uerr.URL)
+	if clean == uerr.URL {
+		return err
+	}
+	return errors.New(strings.ReplaceAll(err.Error(), uerr.URL, clean))
+}
+
 // datasetUTD is the near-real-time set, ~1h behind. Datasets 2 and 3 are the
 // verified archives and lag by years.
 const datasetUTD = 1
@@ -95,7 +126,7 @@ const utf8BOM = "\ufeff"
 func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err error) {
 	trusted, err := url.Parse(c.cfg.URL)
 	if err != nil {
-		return nil, 0, fmt.Errorf("eea: file urls: configured URL: %w", err)
+		return nil, 0, scrubURLError(fmt.Errorf("eea: file urls: configured URL: %w", err))
 	}
 
 	body, err := json.Marshal(urlsRequest{
@@ -112,14 +143,14 @@ func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		strings.TrimSuffix(c.cfg.URL, "/")+"/ParquetFile/urls", bytes.NewReader(body))
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, scrubURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("eea: file urls: %w", err)
+		return nil, 0, scrubURLError(fmt.Errorf("eea: file urls: %w", err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -154,12 +185,12 @@ func (c *Client) FileURLs(ctx context.Context) (urls []string, rejected int, err
 	return urls, rejected, nil
 }
 
-// FetchFile downloads one Parquet file. modified is false on a 304, where the
-// body is empty and the caller keeps what it already stored.
-func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) ([]byte, bool, error) {
+// FetchFile downloads one Parquet file. modified is false on a 304. lastModified
+// is the server's own Last-Modified header (zero if absent) — see README.md.
+func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) (body []byte, modified bool, lastModified time.Time, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, false, err
+		return nil, false, time.Time{}, scrubURLError(err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 	if !since.IsZero() {
@@ -168,22 +199,28 @@ func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) ([]
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("eea: fetch file: %w", err)
+		return nil, false, time.Time{}, scrubURLError(fmt.Errorf("eea: fetch file: %w", err))
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotModified {
-		return nil, false, nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("eea: fetch file: status %d", resp.StatusCode)
+	if lm := resp.Header.Get("Last-Modified"); lm != "" {
+		if t, parseErr := http.ParseTime(lm); parseErr == nil {
+			lastModified = t.UTC()
+		}
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, c.cfg.MaxPayloadBytes))
-	if err != nil {
-		return nil, false, fmt.Errorf("eea: fetch file: read body: %w", err)
+	if resp.StatusCode == http.StatusNotModified {
+		return nil, false, lastModified, nil
 	}
-	return body, true, nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, lastModified, fmt.Errorf("eea: fetch file: status %d", resp.StatusCode)
+	}
+
+	body, err = io.ReadAll(io.LimitReader(resp.Body, c.cfg.MaxPayloadBytes))
+	if err != nil {
+		return nil, false, lastModified, fmt.Errorf("eea: fetch file: read body: %w", err)
+	}
+	return body, true, lastModified, nil
 }
 
 // FetchMetadata downloads and parses the coordinate CSV. It is 26 MB, so
@@ -193,13 +230,13 @@ func (c *Client) FetchFile(ctx context.Context, url string, since time.Time) ([]
 func (c *Client) FetchMetadata(ctx context.Context) (Metadata, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.MetadataURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, scrubURLError(err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("eea: fetch metadata: %w", err)
+		return nil, scrubURLError(fmt.Errorf("eea: fetch metadata: %w", err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

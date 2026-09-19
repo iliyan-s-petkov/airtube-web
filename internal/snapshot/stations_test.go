@@ -61,6 +61,28 @@ func TestNearbyIsNotTheSameStation(t *testing.T) {
 	}
 }
 
+// A community sensor and an official EEA station at the exact same
+// coordinate are two independent devices from two different networks, not
+// one box under two ids — see station.go's reasoning. Both paths that derive
+// a station identity, stationIDs (the sensor catalogue) and pointsFrom (the
+// point tier), must agree that this is two stations, or the same map reports
+// a different station count depending on which one produced it.
+func TestTwoNetworksAtOneCoordinateAreTwoStations(t *testing.T) {
+	sensors := []store.SensorReading{
+		{SensorID: 100, SensorType: "SDS011", Lon: 27.976, Lat: 43.224, Source: "sensor.community"},
+		{SensorID: 200, SensorType: "EEA", Lon: 27.976, Lat: 43.224, Source: "eea"},
+	}
+
+	if got := stationIDs(sensors); got[0] == got[1] {
+		t.Errorf("stationIDs = %v, want two distinct stations for two networks at one coordinate", got)
+	}
+
+	points := pointsFrom(sensors)
+	if len(points) != 2 {
+		t.Fatalf("pointsFrom returned %d stations, want 2", len(points))
+	}
+}
+
 // The column has to reach the wire, and has to line up with the others: the
 // frontend joins on index, so a station column of the wrong length would
 // attach one device's readings to another device's marker.
