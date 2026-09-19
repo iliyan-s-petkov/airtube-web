@@ -31,6 +31,14 @@ func benchSensors(n int) []store.SensorReading {
 // A small viewport near Sofia — the common case a pan-and-zoom map asks for,
 // already on the BBoxQuantumDegrees grid as the API layer's Quantise would
 // leave it.
+//
+// Indexed vs. the nil-index (linear) fallback on this box, at
+// -benchtime=200x -count=5: roughly 2-3x, measured 2.1-3.7x across separate
+// runs on the same machine — quote the range, not a point estimate; the
+// spread at this sample size is bigger than the difference between any two
+// of the point estimates this was revised through (79dc8ee ~5.5x, a45a509
+// ~3.1-4.4x). Memory is the one figure stable enough to quote as a point:
+// 2.421 -> 0.815 MB/op, 2.97x, reproduced on every run.
 var benchViewport = BBox{W: 23.0, S: 42.5, E: 23.75, N: 43.0}
 
 // A box wide enough to cover the whole of benchSensors' spread — the case
