@@ -3975,15 +3975,17 @@ describe('mountChrome storage handle', () => {
       setItem: (k, v) => store.set(k, v),
     }
 
-    const { map, chrome } = mountTestMap({ metric: 'P2' })
+    const { map } = mountTestMap({ metric: 'P2' })
 
-    // Install timelapse with the injected storage
-    const ui = mountPlayer(document.createElement('div'), {
-      label: 'Time', playLabel: 'Play', pauseLabel: 'Pause',
-      exitLabel: 'Now', speedLabel: 'Speed',
-    })
-    // Pass the fake storage through chrome, which now includes storage
-    installTimelapse(map, {}, { metric: 'P2', lang: 'en', t: {} }, { player: ui, storage: fakeStorage }, async () => ({
+    // The whole point of the task: chrome, built by mountChrome, is the object
+    // installTimelapse is handed. Hand-building `{player, storage}` here would
+    // pass whether or not mountChrome returns a storage handle at all.
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const chrome = mountChrome(el, chromeCfg({ storage: fakeStorage }))
+    const ui = chrome.player
+
+    installTimelapse(map, {}, { metric: 'P2', lang: 'en', t: {} }, chrome, async () => ({
       metric: 'P2', resolution_km: 15, cells: [[23, 42]],
       frames: [{ t: '2026-09-08T06:00:00Z', v: [10] }],
     }))
