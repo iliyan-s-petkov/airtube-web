@@ -239,7 +239,10 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, sp
       slider.value = String(i)
       clock.textContent = text ?? ''
     },
-    atSpeed: (s) => { speed.textContent = speedLabel(s) },
+    atSpeed: (s) => {
+      speed.textContent = speedLabel(s)
+      speed.setAttribute('aria-label', `${speedName}, ${speedLabel(s)}`)
+    },
     ontoggle: (fn) => toggles.push(fn),
     onspeed: (fn) => speeds.push(fn),
     onscrub: (fn) => scrubs.push(fn),

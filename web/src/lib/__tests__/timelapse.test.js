@@ -508,6 +508,13 @@ describe('mountPlayer speed button', () => {
     expect(ui.speed.textContent).toBe('1\u00d7')
   })
 
+  it('updates the aria-label to track the current speed', () => {
+    const ui = mountSpeed()
+    ui.atSpeed(0.5)
+    const label = ui.speed.getAttribute('aria-label')
+    expect(label).toContain('0.5')
+  })
+
   it('reports a press to whoever asked', () => {
     const ui = mountSpeed()
     const presses = []
