@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"bytes"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -80,9 +81,18 @@ func TestBBoxIndexClipMatchesUnindexedWalk(t *testing.T) {
 // towards zero, landing this entry in an INTERIOR bucket instead — one
 // clip takes whole, with no per-entry contains() check — so a truncating
 // bucketOf would wrongly include it.
+//
+// A second, distant entry is load-bearing too: with only the one entry near
+// the box, minCol/maxCol/minRow/maxRow collapse onto it and the box covers
+// the whole index under EITHER keying function, so clip's short-circuit
+// (hexes.go) sends every case through clipLinear and never reaches the
+// bucket walk this test exists to exercise — a45a509 did exactly that to an
+// earlier version of this fixture. The distant entry keeps the index wider
+// than the box, so the short-circuit does not fire here.
 func TestBBoxIndexClipPinsFloorNotTruncate(t *testing.T) {
 	entries := []hexEntry{
 		{Lon: -0.9, Lat: -0.9, SensorID: 1, N: 1, Country: "??", Values: map[string]float64{"P1": 1}},
+		{Lon: 10.0, Lat: 10.0, SensorID: 2, N: 1, Country: "??", Values: map[string]float64{"P1": 1}},
 	}
 	bb := BBox{W: -0.8, S: -0.8, E: -0.25, N: -0.25}
 	idx := buildBBoxIndex(entries)
@@ -182,5 +192,37 @@ func TestHexBodyClipIsByteIdenticalAcrossBoxes(t *testing.T) {
 		if !bytes.Equal(b.JSON, want.JSON) {
 			t.Errorf("HexBody(%v): JSON bytes diverge from the unindexed walk's own encode", bb)
 		}
+	}
+}
+
+// TestBBoxIndexShortCircuitTakesTheRightPath fences clip's short-circuit
+// (hexes.go): both the correctness-neutral mutations the round-2 review
+// flagged — forcing it always on, and never maintaining
+// minCol/maxCol/minRow/maxRow — leave every other test in this file green,
+// because clipLinear and the bucket walk agree on the answer. This test
+// checks the routing decision itself, using the same formula clip does, so
+// it fails if that decision stops reflecting the index's real bucket bounds.
+func TestBBoxIndexShortCircuitTakesTheRightPath(t *testing.T) {
+	entries := gridEntries()
+	idx := buildBBoxIndex(entries)
+	const q = BBoxQuantumDegrees
+	shortCircuits := func(bb BBox) bool {
+		w0 := int(math.Floor(bb.W / q))
+		e0 := int(math.Floor(bb.E / q))
+		s0 := int(math.Floor(bb.S / q))
+		n0 := int(math.Floor(bb.N / q))
+		return w0 <= idx.minCol && e0 >= idx.maxCol && s0 <= idx.minRow && n0 >= idx.maxRow
+	}
+
+	viewport := BBox{W: 23.0, S: 42.0, E: 23.25, N: 42.25} // one bucket, well inside gridEntries' span
+	if shortCircuits(viewport) {
+		t.Fatalf("viewport box %v takes clipLinear; want the bucket walk (index bounds col[%d,%d] row[%d,%d])",
+			viewport, idx.minCol, idx.maxCol, idx.minRow, idx.maxRow)
+	}
+
+	whole := BBox{W: 21.75, S: 40.75, E: 25.25, N: 43.25} // covers gridEntries' whole span
+	if !shortCircuits(whole) {
+		t.Fatalf("country-sized box %v takes the bucket walk; want clipLinear (index bounds col[%d,%d] row[%d,%d])",
+			whole, idx.minCol, idx.maxCol, idx.minRow, idx.maxRow)
 	}
 }
