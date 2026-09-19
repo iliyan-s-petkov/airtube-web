@@ -7,7 +7,7 @@
 // for code that touches no DOM.
 import { DIAMOND_RADIUS_PX } from '../../lib/markericon.js'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
+import { urlFor, bandsFor, markerMaxZoom, applyMarkerZoomRange, hexOutlinePaint, refreshHexes, installTimelapse, areaFeatures, sensorFeatures, readConfig, debounce, loadScales, hintController, mapHint, setSourceViewAvailability, initData, layerPaint, markerPaint, officialLayout, officialPaint, NOT_OFFICIAL, metricNote, mapStyle, glyphsURL, cellArea, cellTier, overlayLayers, addBasemapOverlay, registerProtocols, installErrorHandler, mount, mountChrome, HEX_LABEL_LAYER_ID, HEX_SOURCE_ID, hexLabelPaint, CARRIED_OPACITY, LEGEND_FOLD_KEY, locateVisitor, placeVisitor, locateMe, showArea, openDeepLinkedSensor, prefetchPlacement, DEEP_LINK_ZOOM, layerLabelKey } from '../map.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM, resolutionForZoom } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
@@ -897,6 +897,16 @@ describe('installTimelapse', () => {
       { t: '2026-09-08T08:00:00Z', v: [1, 2, 3, 4] },
     ],
   }
+  // Same shape as PATCHY but on the metric this harness draws, so the cells
+  // actually reach the layer.
+  const GAPPY = {
+    metric: 'P2', resolution_km: 15, cells: [[23, 42], [23.2, 42], [23.4, 42], [23.6, 42]],
+    frames: [
+      { t: '2026-09-08T06:00:00Z', v: [1, 2, 3, 4] },
+      { t: '2026-09-08T07:00:00Z', v: [null, null, null, null] },
+      { t: '2026-09-08T08:00:00Z', v: [1, 2, 3, 4] },
+    ],
+  }
   const T = { replayThin: 'Partial data for this hour', replayNoHistory: 'Not enough history yet' }
 
   // Twenty-eight blank frames under a running clock read as clean air, not as
@@ -925,6 +935,27 @@ describe('installTimelapse', () => {
 
       await vi.advanceTimersByTimeAsync(FRAME_MS)
       expect(ui.note.textContent).toBe('')
+      ui.exit.click()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // The silent hour is drawn at the previous hour's readings rather than
+  // dropping its digits, which is what made the replay look like numbers
+  // blinking on and off at random.
+  it('holds a silent cell at its last reading, marked as carried', async () => {
+    vi.useFakeTimers()
+    try {
+      const { painted, ui } = harness(async () => GAPPY, T)
+      ui.button.click()
+      await vi.waitFor(() => expect(painted.length).toBeGreaterThan(0))
+      await vi.advanceTimersByTimeAsync(FRAME_MS)
+
+      const drawn = painted.map((p) => p.features).filter((fs) => fs.length > 0)
+      const gap = drawn.find((fs) => fs.every((f) => f.properties.carried === true))
+      expect(gap, 'a frame drawn entirely from carried readings').toBeDefined()
+      expect(gap.map((f) => f.properties.value).sort()).toEqual([1, 2, 3, 4])
       ui.exit.click()
     } finally {
       vi.useRealTimers()
@@ -2782,6 +2813,20 @@ describe('mount() registers the wind arrow before the layer that draws it', () =
   })
 })
 
+// The mute is only worth anything if the layer that draws the digits actually
+// asks for it; wiring plain labelPaint here would carry the readings forward
+// and draw every held one as if it had been measured.
+describe('mount() fades the held readings on the hex label layer', () => {
+  it('builds the hex label layer with the carried-aware paint', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+
+    const labels = map.addLayer.mock.calls.find((c) => c[0]?.id === HEX_LABEL_LAYER_ID)
+    expect(labels, 'no hex label layer added').toBeDefined()
+    expect(labels[0].paint['text-opacity'])
+      .toEqual(['case', ['==', ['get', 'carried'], true], CARRIED_OPACITY, 1])
+  })
+})
+
 // The wind layer used to be appended last, drawing over the hex value labels
 // and hiding the digits — icon-allow-overlap/icon-ignore-placement keep the
 // arrows from yielding, so stacking order is the only thing that decides this.
@@ -3645,5 +3690,25 @@ describe('the official marker layer', () => {
 
     expect(officialPaint(cfg)['icon-color']).toEqual(['get', 'colour'])
     expect(officialPaint(cfg)['icon-halo-color']).toBe('#ffffff')
+  })
+})
+
+describe('hexLabelPaint', () => {
+  const cfg = { labelColour: '#222', markerStrokeColour: '#fff' }
+
+  it('fades a carried reading and leaves a measured one alone', () => {
+    expect(hexLabelPaint(cfg)['text-opacity']).toEqual(
+      ['case', ['==', ['get', 'carried'], true], CARRIED_OPACITY, 1],
+    )
+  })
+
+  it('is faded enough to tell apart from a measured reading', () => {
+    expect(CARRIED_OPACITY).toBeLessThan(1)
+    expect(CARRIED_OPACITY).toBeGreaterThan(0)
+  })
+
+  it('keeps the colour and halo the measured labels use', () => {
+    expect(hexLabelPaint(cfg)['text-color']).toBe('#222')
+    expect(hexLabelPaint(cfg)['text-halo-color']).toBe('#fff')
   })
 })

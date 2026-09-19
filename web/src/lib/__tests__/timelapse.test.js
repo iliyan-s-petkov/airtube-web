@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SPANS, knownSpan, spanFor, timelapseURL, frameBody, frameCount, frameTime,
-  cursor, step, seek, mountPlayer, frameCoverage, hasHistory, thinFrames,
+  cursor, step, seek, mountPlayer, frameCoverage, hasHistory, thinFrames, fillForward,
 } from '../timelapse.js'
 
 const BODY = {
@@ -65,8 +65,8 @@ describe('reading a frame', () => {
     const b = frameBody(BODY, 0)
     expect(b.resolution_km).toBe(15)
     expect(b.hexes).toEqual([
-      { lon: 23.0, lat: 42.0, values: { P2: 10 } },
-      { lon: 27.0, lat: 43.0, values: { P2: null } },
+      { lon: 23.0, lat: 42.0, values: { P2: 10 }, carried: false },
+      { lon: 27.0, lat: 43.0, values: { P2: null }, carried: false },
     ])
   })
 
@@ -342,5 +342,83 @@ describe('mountPlayer note', () => {
 
   it('writes no inline style', () => {
     expect(mountNote().note.getAttribute('style')).toBeNull()
+  })
+})
+
+describe('fillForward', () => {
+  // Cell 0 reports every hour; cell 1 goes silent for one hour in the middle and
+  // comes back. Cell 2 has nothing until the third hour.
+  const GAPPY = {
+    metric: 'P2',
+    resolution_km: 15,
+    cells: [[23.0, 42.0], [27.0, 43.0], [25.0, 41.0]],
+    frames: [
+      { t: '2026-09-19T00:00:00Z', v: [10, 20, null] },
+      { t: '2026-09-19T01:00:00Z', v: [11, null, null] },
+      { t: '2026-09-19T02:00:00Z', v: [12, 22, 30] },
+    ],
+  }
+
+  it('holds a silent cell at its last reading', () => {
+    const out = fillForward(GAPPY)
+    expect(out.frames.map((f) => f.v[1])).toEqual([20, 20, 22])
+  })
+
+  it('marks only the held hours as carried', () => {
+    const out = fillForward(GAPPY)
+    expect(out.frames.map((f) => f.c[1])).toEqual([false, true, false])
+  })
+
+  it('leaves a cell that has never reported alone', () => {
+    const out = fillForward(GAPPY)
+    expect(out.frames.map((f) => f.v[2])).toEqual([null, null, 30])
+    expect(out.frames.map((f) => f.c[2])).toEqual([false, false, false])
+  })
+
+  // Never backfills: a reading can be held over, but an hour before the cell
+  // first reported is an hour nobody measured.
+  it('does not fill backwards', () => {
+    const out = fillForward(GAPPY)
+    expect(out.frames[0].v[2]).toBeNull()
+  })
+
+  it('carries nothing for a cell that reports every hour', () => {
+    const out = fillForward(GAPPY)
+    expect(out.frames.map((f) => f.c[0])).toEqual([false, false, false])
+  })
+
+  it('leaves the original body untouched', () => {
+    fillForward(GAPPY)
+    expect(GAPPY.frames[1].v[1]).toBeNull()
+    expect(GAPPY.frames[1].c).toBeUndefined()
+  })
+
+  it('keeps the geometry and the frame times', () => {
+    const out = fillForward(GAPPY)
+    expect(out.cells).toEqual(GAPPY.cells)
+    expect(out.metric).toBe('P2')
+    expect(out.resolution_km).toBe(15)
+    expect(out.frames.map((f) => f.t)).toEqual(GAPPY.frames.map((f) => f.t))
+  })
+
+  it('survives a body with no frames', () => {
+    expect(fillForward({ cells: [], frames: [] }).frames).toEqual([])
+    expect(fillForward(undefined).frames).toEqual([])
+  })
+
+  // Zero is a reading, not an absence, so it must be held like any other.
+  it('hands frameBody the carried flag per cell', () => {
+    const out = fillForward(GAPPY)
+    expect(frameBody(out, 1).hexes.map((h) => h.carried)).toEqual([false, true, false])
+    expect(frameBody(out, 1).hexes[1].values.P2).toBe(20)
+  })
+
+  it('treats zero as a reading', () => {
+    const out = fillForward({
+      cells: [[23, 42]],
+      frames: [{ t: 'a', v: [0] }, { t: 'b', v: [null] }],
+    })
+    expect(out.frames[1].v[0]).toBe(0)
+    expect(out.frames[1].c[0]).toBe(true)
   })
 })

@@ -46,6 +46,7 @@ export function frameBody(body, i) {
       lon,
       lat,
       values: { [body.metric]: frame.v?.[j] ?? null },
+      carried: frame.c?.[j] === true,
     })),
   }
 }
@@ -201,6 +202,35 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, ho
     ontoggle: (fn) => toggles.push(fn),
     onscrub: (fn) => scrubs.push(fn),
     onexit: (fn) => exits.push(fn),
+  }
+}
+
+// A cell that goes silent for an hour keeps its no-data colour and drops its
+// digit, so an animation of a network with ~6% intermittent cells reads as
+// numbers blinking on and off at random rather than as gaps. fillForward holds
+// each cell at its last reading instead, and flags the held hours in a parallel
+// `c` array so they can be drawn muted — a held number is not a measured one.
+//
+// Forward only: a reading can be held over, but an hour before the cell first
+// reported is an hour nobody measured, and backfilling it would invent one.
+export function fillForward(body) {
+  const frames = body?.frames ?? []
+  const last = []
+  return {
+    ...body,
+    frames: frames.map((f) => {
+      const vs = f?.v ?? []
+      const v = []
+      const c = []
+      vs.forEach((value, j) => {
+        const held = value === null || value === undefined
+        if (!held) last[j] = value
+        const carried = held && last[j] !== undefined
+        v.push(carried ? last[j] : (held ? null : value))
+        c.push(carried)
+      })
+      return { ...f, v, c }
+    }),
   }
 }
 

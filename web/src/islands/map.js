@@ -31,8 +31,8 @@ import {
   chooseWindow, mountWindow, readWindow, windowOptions, withWindow,
 } from '../lib/mapwindow.js'
 import {
-  FRAME_MS, cursor, frameBody, frameCount, frameTime, hasHistory, mountPlayer, seek, step,
-  thinFrames, timelapseURL,
+  FRAME_MS, cursor, fillForward, frameBody, frameCount, frameTime, hasHistory, mountPlayer,
+  seek, step, thinFrames, timelapseURL,
 } from '../lib/timelapse.js'
 import { setMapAreas, provideAreaSelect } from '../lib/mapareas.svelte.js'
 import { stationsOf, readingAt } from '../lib/stations.js'
@@ -115,6 +115,10 @@ export const LEGEND_FOLD_KEY = 'airbg:legend-open'
 // MapLibre's own maxzoom default. setLayerZoomRange takes both ends, so a call
 // that only means to move the floor still has to name a ceiling.
 const MAX_ZOOM_CEILING = 24
+
+// How far a held reading is faded. Low enough to read as held, high enough to
+// stay legible over every band.
+export const CARRIED_OPACITY = 0.55
 
 export function mount(el) {
   const cfg = readConfig(el)
@@ -311,7 +315,7 @@ export function mount(el) {
         ['!=', ['get', 'value'], null],
       ],
       layout: hexLabelLayout(cfg),
-      paint: labelPaint(cfg),
+      paint: hexLabelPaint(cfg),
     })
 
     // Between the grid and the markers: the outlines frame the readings, so
@@ -1273,15 +1277,20 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
       ui.show(head.count)
       return head.count > 0
     }
+    let measured
     try {
-      body = await fetchJSON(url)
+      measured = await fetchJSON(url)
     } catch (err) {
       // Quiet, like refreshHexes': the map underneath is working.
       console.error('timelapse:', err)
       return false
     }
+    // Drawn from the held body, judged on the measured one: coverage counts the
+    // readings actually taken, so filling gaps in before thinFrames saw them
+    // would report every hour as complete and silence the guard.
+    body = fillForward(measured)
     loaded = url
-    thin = thinFrames(body)
+    thin = thinFrames(measured)
     head.count = frameCount(body)
     head.i = keepPlayhead ? seek(head, head.i) : 0
     ui.show(head.count)
@@ -1927,6 +1936,16 @@ export function installErrorHandler(map, warn = console.warn) {
 // map.addLayer time. Pulled out of mount()'s map.on('load', ...) callback,
 // which is unreachable from a test (it needs a real MapLibre map), so the
 // paint values it reads from cfg can be proven directly.
+// hexLabelPaint mutes a held reading. During replay a cell that went silent for
+// an hour is drawn at its last reading rather than dropping its digit, and the
+// fade is what keeps a held number from reading as a measured one.
+export function hexLabelPaint(cfg) {
+  return {
+    ...labelPaint(cfg),
+    'text-opacity': ['case', ['==', ['get', 'carried'], true], CARRIED_OPACITY, 1],
+  }
+}
+
 //
 // Named layerPaint, not markerPaint (its name before this task): 'circle-
 // color' here is only ever a placeholder — the source is empty at addLayer
