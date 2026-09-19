@@ -1,4 +1,5 @@
 // The forecast wind overlay. Not measured data — see docs/wind-overlay.md.
+import contract from '../lib/contract.json'
 
 export const WIND_SOURCE_ID = 'airbg-wind'
 export const WIND_LAYER_ID = 'airbg-wind-arrows'
@@ -41,7 +42,7 @@ export const WIND_SERVED_SPACING_KM = 15
 const WIND_ARROW_PX = 64
 export const WIND_FIELD_MAX = 600
 
-const EARTH_RADIUS_KM = 6371
+const EARTH_RADIUS_KM = contract.hex.earth_radius_km
 const KM_PER_DEG_LAT = (Math.PI * EARTH_RADIUS_KM) / 180
 const M_PER_PX_Z0 = ((2 * Math.PI * EARTH_RADIUS_KM * 1000) / 256) * Math.cos((42.7 * Math.PI) / 180)
 
