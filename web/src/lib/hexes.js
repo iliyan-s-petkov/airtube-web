@@ -333,9 +333,6 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
         // Undefined on every aggregate tier, so a popup can tell a device from
         // a bin without also having to know which resolution it asked for.
         sensorId: h.sensor_id,
-      // Set only by the replay, where a silent hour is held at the cell's last
-      // reading; the live map never carries anything.
-      carried: h.carried === true ? true : undefined,
         // Set only by the replay, where a silent hour is held at the cell's last
         // reading; the live map never carries anything.
         carried: h.carried === true ? true : undefined,

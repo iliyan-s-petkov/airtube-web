@@ -1267,6 +1267,9 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   // fades in.
   let prevValued = null
   let justArrived = new Set()
+  // Called on entering and leaving replay and on a metric or tier change, NOT
+  // on a scrub or a speed change: those stay inside one run, where the previous
+  // frame is still the frame the reader was just looking at.
   const forgetFrames = () => {
     prevValued = null
     justArrived = new Set()
