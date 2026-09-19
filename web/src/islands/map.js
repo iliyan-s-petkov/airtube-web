@@ -1310,10 +1310,25 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
     return features
   }
 
+  // Held against its two inputs by identity, not computed once: paint() asked
+  // bandsFor per frame, but installTimelapse runs before initData awaits the
+  // scales, so a run started inside that window would keep the empty table and
+  // draw a grey country under a working clock. cfg.metric is in the key for the
+  // same reason, not because reset() would miss it.
+  let bandsFrom = null
+  let bandsMetric = null
+  let bands = []
+  const currentBands = () => {
+    if (state.scales === bandsFrom && cfg.metric === bandsMetric) return bands
+    bandsFrom = state.scales
+    bandsMetric = cfg.metric
+    bands = bandsFor(bandsFrom, bandsMetric)
+    return bands
+  }
+
   const paint = (i) => {
-    const bands = bandsFor(state.scales, cfg.metric)
     const features = hexFeatures(
-      frameBody(body, i), cfg.metric, bands, cfg.noDataColour, rampColour,
+      frameBody(body, i), cfg.metric, currentBands(), cfg.noDataColour, rampColour,
       // No network filter: a frame is folded from reading_hourly, which carries
       // no source column, so there is nothing to filter it by.
       resolutionForZoom(Math.round(map.getZoom())), null,
