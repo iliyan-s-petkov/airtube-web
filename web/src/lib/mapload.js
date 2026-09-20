@@ -46,7 +46,7 @@ import { installTimelapse } from './timelapse-island.js'
 
 export function installMapLoad(map, state, cfg, chrome, vs, windState, boundaryState, onMoveEnd, subs) {
   map.on('load', async () => {
-    // Not awaited: mount()'s metric subscription must be registered before this
+    // Not awaited: this handler's metric subscription must be registered before its
     // handler's first await (see below), and the ground is detail the map does
     // not need in order to be a map. It slots itself under the grid when it
     // arrives, by id.
@@ -259,10 +259,6 @@ export function installMapLoad(map, state, cfg, chrome, vs, windState, boundaryS
       apply: (on) => setWind(map, cfg, chrome, windState, on),
     }
 
-    // Here and not in mountChrome: the options are the style's own groups, and
-    // map.getStyle() has no layers to report until the style has loaded. A menu
-    // built any earlier is a menu of nothing, which is why it stays hidden
-    // until this call finds something to put in it.
     // No defaultOff: the outlines are on unless the reader has switched them
     // off, because a province map with no provinces drawn on it is a claim the
     // page keeps making in words and never showing.
@@ -294,6 +290,10 @@ export function installMapLoad(map, state, cfg, chrome, vs, windState, boundaryS
       },
     ]
 
+    // Here and not in mountChrome: the options are the style's own groups, and
+    // map.getStyle() has no layers to report until the style has loaded. A menu
+    // built any earlier is a menu of nothing, which is why it stays hidden
+    // until this call finds something to put in it.
     installLayers(map, chrome.layersUI, {
       labels: cfg.t.layers,
       caption: cfg.t.layersCaption,
@@ -319,9 +319,9 @@ export function installMapLoad(map, state, cfg, chrome, vs, windState, boundaryS
 
     // Registered synchronously, right here — after addLayer so setPaintProperty
     // always has a real layer to act on, but deliberately BEFORE awaiting
-    // initData below, not after: islands/map.js is plain .js, not .svelte.js,
-    // so $effect.root cannot be used here (runes only compile in
-    // .svelte/.svelte.js — see the task brief's own note on this). vs.metric
+    // initData below, not after: this file is plain .js, not .svelte.js, so
+    // $effect.root cannot be used here (runes only compile in
+    // .svelte/.svelte.js). vs.metric
     // is an ordinary getter backed by a rune defined in viewstate.svelte.js,
     // so reading it needs no rune; reacting to it changing does, which is why
     // onMetricChange (a plain callback list, see that file) exists instead of

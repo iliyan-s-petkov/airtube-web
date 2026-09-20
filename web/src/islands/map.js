@@ -96,8 +96,10 @@ export function mount(el) {
 
   // The province outlines' own state, on the same one-fetch-per-page terms as
   // the wind: the borders do not move, so the collection is fetched once and
-  // kept. On, unlike the wind, because the outlines are part of the map a
-  // reader is shown rather than an overlay they ask for.
+  // kept. Starts false only because nothing is drawn yet; the layer menu turns
+  // it on at build time (no defaultOff, see mapload.js's boundaryView), unlike
+  // the wind, because the outlines are part of the map a reader is shown
+  // rather than an overlay they ask for.
   const boundaryState = { on: false, body: null, loading: false }
 
   chrome.locateButton.addEventListener('click', () => locateMe(map, state, cfg, chrome))

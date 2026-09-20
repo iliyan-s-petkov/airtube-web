@@ -34,8 +34,8 @@ export const MAX_ZOOM_CEILING = 24
 // group keys and the template's attribute names have to agree, and they agree
 // by rule rather than by two lists kept in step by hand.
 //
-// Moved here with readConfig, the only caller: it stays behind map.js's other
-// exports but readConfig needs it to build the config object below.
+// Moved here with readConfig, the only caller, which needs it to build the
+// config object below.
 export function layerLabelKey(group) {
   const camel = group.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('')
   return `tLayer${camel}`

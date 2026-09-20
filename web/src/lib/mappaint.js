@@ -93,7 +93,7 @@ export function hexLabelPaint(cfg) {
 }
 
 // layerPaint is the circle layer's INITIAL paint object, set once at
-// map.addLayer time. Pulled out of mount()'s map.on('load', ...) callback,
+// map.addLayer time. Pulled out of the map's load handler (lib/mapload.js),
 // which is unreachable from a test (it needs a real MapLibre map), so the
 // paint values it reads from cfg can be proven directly.
 //
