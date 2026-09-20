@@ -162,7 +162,8 @@
      tier line: no bare numbers (DESIGN.md §9.1). */}}
 {{define "readouts"}}<div class="readouts">
 {{range .}}  <div class="readout card">
-    <span class="readout__label">{{.Label}}</span>
+{{with .Group}}    <span class="readout__group">{{.}}</span>
+{{end}}    <span class="readout__label">{{.Label}}</span>
 {{if .Gauge}}    {{/* SVG presentation attributes, not an inline style: style-src is
          'self' with no 'unsafe-inline', so a style attribute would be dropped
          and the arc would never paint. pathLength=100 makes the dash array the
