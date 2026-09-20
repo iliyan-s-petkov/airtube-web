@@ -72,10 +72,6 @@ export function bandsFor(scales, metric) {
   )
 }
 
-// layerPaint is the circle layer's INITIAL paint object, set once at
-// map.addLayer time. Pulled out of mount()'s map.on('load', ...) callback,
-// which is unreachable from a test (it needs a real MapLibre map), so the
-// paint values it reads from cfg can be proven directly.
 // hexLabelPaint mutes a held reading. During replay a cell that went silent for
 // an hour is drawn at its last reading rather than dropping its digit, and the
 // fade is what keeps a held number from reading as a measured one. A cell that
@@ -96,6 +92,10 @@ export function hexLabelPaint(cfg) {
   }
 }
 
+// layerPaint is the circle layer's INITIAL paint object, set once at
+// map.addLayer time. Pulled out of mount()'s map.on('load', ...) callback,
+// which is unreachable from a test (it needs a real MapLibre map), so the
+// paint values it reads from cfg can be proven directly.
 //
 // Named layerPaint, not markerPaint (its name before this task): 'circle-
 // color' here is only ever a placeholder — the source is empty at addLayer

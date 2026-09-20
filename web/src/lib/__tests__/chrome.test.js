@@ -278,7 +278,6 @@ describe('mountChrome() remembers whether the key is folded', () => {
   })
 })
 
-
 // Where the key and the tier line LAND is load-bearing, not decoration, and
 // both defects it guards were found in a browser rather than here.
 //

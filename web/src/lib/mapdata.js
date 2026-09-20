@@ -53,14 +53,6 @@ export function setCellValues(map, on) {
   )
 }
 
-// paintWind redraws the arrows for the viewport the map is currently showing.
-//
-// The served field is one national lattice at the snapshot's hex resolution, so
-// drawing it as-is means the arrows thin out as the reader zooms in and are
-// gone entirely over a single neighbourhood — a layer that empties itself looks
-// exactly like a forecast that failed. windField resamples the same vectors
-// onto a screen-sized lattice instead; the values are still the model's, only
-// repeated, and the disclosure already names the grid they came from.
 // Every data-layer repaint goes through here. The event nothing in the app
 // listens to is how e2e/redraw.spec.js counts the draws a reader sees.
 export function paintSource(map, sourceId, features) {

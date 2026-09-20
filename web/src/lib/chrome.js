@@ -23,9 +23,9 @@ import { setCellValues, hintController } from './mapdata.js'
 // Classes only, never `el.style` — the CSP's style-src has no 'unsafe-inline',
 // so an inline style written from JS is silently dropped by the browser, not
 // merely a lint complaint.
-// Exported for the placement test, not for other callers: mount() is the only
-// one. It touches no MapLibre object, so where the key and the tier line land
-// in the DOM is checkable without a WebGL context — and that placement is
+// Exported for mount() and for the placement test, which are the only two
+// callers. It touches no MapLibre object, so where the key and the tier line
+// land in the DOM is checkable without a WebGL context — and that placement is
 // load-bearing (see the shell comments below), not decoration.
 export function mountChrome(el, cfg) {
   // Resolve storage once for threaded access to player and legend prefs. Must
