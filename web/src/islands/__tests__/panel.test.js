@@ -29,7 +29,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { clearCache } from '../../lib/api.js'
-import { mount, normaliseSensor, flagTextFor } from '../panel.js'
+import { mount, normaliseSensor, flagTextFor, flagCatalogueFrom } from '../panel.js'
 import { setSensors, findSensor } from '../../lib/sensors.svelte.js'
 import { getViewState, resetViewStateForTests } from '../../lib/viewstate.svelte.js'
 
@@ -54,6 +54,7 @@ const PANEL_ATTR_FIXTURES = {
   tFlagOutOfRange: 'This reading is out of the expected range.',
   tFlagStuck: 'This reading has not changed in a while.',
   tFlagSpatialOutlier: 'This reading disagrees with nearby sensors.',
+  tFlagSourceInvalid: 'The newest reading was rejected by its source; this is the last accepted one.',
   tChartTitle: 'Chart',
   tChartValue: 'Value',
   tChartTime: 'Time',
@@ -281,10 +282,17 @@ describe('flagTextFor', () => {
     out_of_range: 'This reading is out of the expected range.',
     stuck: 'This reading has not changed in a while.',
     spatial_outlier: 'This reading disagrees with nearby sensors.',
+    source_invalid: 'The newest reading was rejected by its source; this is the last accepted one.',
   }
 
   it('renders the matching warning for a real flag', () => {
     expect(flagTextFor('stuck', catalogue)).toBe(catalogue.stuck)
+  })
+
+  // PR #21: an official station can show a real value while its flag is
+  // source_invalid (upstream Validity <= 0, last usable row kept).
+  it('renders the matching warning for source_invalid', () => {
+    expect(flagTextFor('source_invalid', catalogue)).toBe(catalogue.source_invalid)
   })
 
   it('renders nothing for the two non-failure quality values', () => {
@@ -296,6 +304,30 @@ describe('flagTextFor', () => {
     expect(flagTextFor('something_new', catalogue)).toBe('')
     expect(flagTextFor(undefined, catalogue)).toBe('')
     expect(flagTextFor('', catalogue)).toBe('')
+  })
+})
+
+// flagCatalogueFrom is the catalogue-construction logic mount() uses, pulled
+// out so it is testable without a DOM: a dataset in, the flagTextFor lookup
+// table out.
+describe('flagCatalogueFrom', () => {
+  it('carries tFlagSourceInvalid through as source_invalid', () => {
+    const got = flagCatalogueFrom({
+      tFlagOutOfRange: 'out of range',
+      tFlagStuck: 'stuck',
+      tFlagSpatialOutlier: 'outlier',
+      tFlagSourceInvalid: 'rejected by source',
+    })
+    expect(got.source_invalid).toBe('rejected by source')
+  })
+
+  it('defaults every entry to empty when the dataset carries none of them', () => {
+    expect(flagCatalogueFrom({})).toEqual({
+      out_of_range: '',
+      stuck: '',
+      spatial_outlier: '',
+      source_invalid: '',
+    })
   })
 })
 

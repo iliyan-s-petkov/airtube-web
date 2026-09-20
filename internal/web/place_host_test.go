@@ -59,6 +59,17 @@ func TestChartIsLastOnTheAreaPage(t *testing.T) {
 	}
 }
 
+// PR #21: an official station can show a real value while its flag is
+// source_invalid. The panel needs the label to render it, not blank text.
+func TestSensorPanelCarriesTheSourceInvalidFlagLabel(t *testing.T) {
+	rr := renderer(t, rankingSnapshot())
+	body := fetch(t, rr, "/en/area/high").Body.String()
+
+	if !strings.Contains(body, `data-t-flag-source-invalid="The newest reading was rejected by its source; this is the last accepted one."`) {
+		t.Error("the area page is missing the source_invalid flag label")
+	}
+}
+
 // The no-coverage notice does NOT travel with the chart. It says why the page
 // has no numbers, so it belongs beside the readouts it explains — printed at
 // the foot it would arrive after the reader has already given up.

@@ -28,8 +28,8 @@ import { findSensor, getScales, normaliseSensor } from '../lib/sensors.svelte.js
 // names as normaliseSensor's home.
 export { normaliseSensor }
 
-// Only 'out_of_range', 'stuck' and 'spatial_outlier' have catalogue entries
-// (panel.flag.*, internal/i18n/{bg,en}.json) — 'ok' and 'no_neighbours'
+// Only 'out_of_range', 'stuck', 'spatial_outlier' and 'source_invalid' have
+// catalogue entries (panel.flag.*, internal/i18n/{bg,en}.json) — 'ok' and 'no_neighbours'
 // deliberately do not, because neither is a failure. flagTextFor's lookup
 // miss (any flag not a key of `catalogue`, including those two, and
 // including anything this frontend does not yet recognise) falls through to
@@ -44,17 +44,24 @@ export function flagTextFor(flag, catalogue) {
   return catalogue[flag] || ''
 }
 
+// Pulled out of mount() so the catalogue-construction logic is testable
+// without a DOM.
+export function flagCatalogueFrom(d) {
+  return {
+    out_of_range: d.tFlagOutOfRange || '',
+    stuck: d.tFlagStuck || '',
+    spatial_outlier: d.tFlagSpatialOutlier || '',
+    source_invalid: d.tFlagSourceInvalid || '',
+  }
+}
+
 export function mount(el) {
   const d = el.dataset
   const metrics = parseMetricList(d.metrics)
   const options = zipLabels(metrics, parseMetricList(d.metricLabels))
   const vs = getViewState({ metrics, defaultMetric: d.metric })
 
-  const flagCatalogue = {
-    out_of_range: d.tFlagOutOfRange || '',
-    stuck: d.tFlagStuck || '',
-    spatial_outlier: d.tFlagSpatialOutlier || '',
-  }
+  const flagCatalogue = flagCatalogueFrom(d)
 
   // Memoised by sensor id: `chart` below is read on EVERY reactive
   // re-evaluation of the props object (a pan that brings in new sensors, a
