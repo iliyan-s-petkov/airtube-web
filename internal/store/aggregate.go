@@ -182,6 +182,8 @@ type SensorReading struct {
 	// Country is the ISO 3166-1 alpha-2 code of the boundary that admitted
 	// this sensor at ingest. Empty for rows written before the column existed.
 	Country string
+	// Quality is the worst flag on the newest row of any metric; Values carry
+	// the newest USABLE row, so a real value beside a rejecting flag is normal.
 	Quality string
 	Values  map[string]float64
 	// Measures names the metrics this device produced a fresh reading for, of
@@ -213,12 +215,8 @@ type SensorReading struct {
 // value expression may differ. Identity, quality and the measures list are the
 // live answer in both, so a marker does not change colour rules, or appear and
 // disappear, depending on which window the reader picked.
-// Two CTEs, because "latest" answers two different questions. latest is the
-// newest USABLE reading per sensor and metric: filtering after DISTINCT ON let
-// one rejected newer row mask the last good one, which emptied the whole
-// official layer (EEA publishes provisional hours as 'source_invalid').
-// measured is the newest reading of ANY quality — it drives which sensors and
-// metrics exist at all, and carries the flag the payload reports.
+// latest is the newest USABLE row per sensor and metric and feeds Values;
+// measured is the newest row of any quality and feeds Measures and Quality.
 func latestSensorsCTE(communityCutoff int) string {
 	return fmt.Sprintf(`
 latest AS (
