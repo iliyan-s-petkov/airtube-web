@@ -4,7 +4,10 @@ import { OFFICIAL_SOURCE } from './sourcefilter.svelte.js'
 import {
   GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL,
 } from './hexes.js'
-import { OFFICIAL_IMAGE_ID } from './mapids.js'
+import {
+  OFFICIAL_IMAGE_ID, HEX_LABEL_LAYER_ID, LAYER_ID, OFFICIAL_LAYER_ID, LABEL_LAYER_ID,
+} from './mapids.js'
+import { MAX_ZOOM_CEILING } from './mapconfig.js'
 
 // How far a held reading is faded. Low enough to read as held, high enough to
 // stay legible over every band.
@@ -32,6 +35,36 @@ export const SETTLING_OPACITY = 0.8
 // to open a panel. It runs to the point-tier handover as it always did.
 export function markerMaxZoom(tier) {
   return tier === 'sensors' ? POINT_TIER_MIN_ZOOM_FRACTIONAL : GRID_MIN_ZOOM_FRACTIONAL
+}
+
+// setCellValues moves the cell-label layer's floor, and nothing else.
+//
+// The number is normally reserved for the point tier, where a cell is one
+// sensor: below that a cell is an average of several, and a country covered in
+// printed figures reads as noise over the ramp that is the primary reading.
+// But a reader comparing two neighbourhoods should not have to zoom to sensor
+// level one cell at a time to get the figures, so the floor is theirs to lower.
+//
+// Down to the CELLS' own floor, not to zero: a number below that would print
+// over ground with no cell drawn under it. The label layer's own collision
+// thinning does the rest — where the cells are too small to hold a number, it
+// simply drops the ones that will not fit.
+export function setCellValues(map, on) {
+  map.setLayerZoomRange(
+    HEX_LABEL_LAYER_ID,
+    on ? GRID_MIN_ZOOM_FRACTIONAL : POINT_TIER_MIN_ZOOM_FRACTIONAL,
+    MAX_ZOOM_CEILING,
+  )
+}
+
+// applyMarkerZoomRange moves both marker layers onto the handover the current
+// tier calls for. Exported for its own test; guarded because refresh() runs on
+// every moveend and a style reload can leave a layer briefly absent.
+export function applyMarkerZoomRange(map, tier) {
+  const max = markerMaxZoom(tier)
+  for (const id of [LAYER_ID, OFFICIAL_LAYER_ID, LABEL_LAYER_ID]) {
+    if (map.getLayer?.(id)) map.setLayerZoomRange(id, 0, max)
+  }
 }
 
 // hexOutlinePaint: the border between one cell and the next.

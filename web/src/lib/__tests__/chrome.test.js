@@ -2,7 +2,7 @@
 //
 // jsdom: mountChrome builds real DOM, which every test here drives directly.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mountChrome } from '../chrome.js'
+import { mountChrome, hintController } from '../chrome.js'
 import { refreshHexes } from '../mapdata.js'
 import { readConfig, LEGEND_FOLD_KEY } from '../mapconfig.js'
 import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../sensorfilter.svelte.js'
@@ -385,5 +385,32 @@ describe('mountChrome() announces the hint banner', () => {
 
     mountChrome(el, readConfig(el))
     expect(el.querySelector('.map-hint')?.getAttribute('aria-live')).toBe('polite')
+  })
+})
+
+// hintController is the precedence rule: an error outranks the routine tier
+// hint permanently. `render` is the only side effect, so these drive the real
+// rule with an array as the sink — no DOM, and no second implementation that
+// could disagree with the one the page runs.
+describe('hintController', () => {
+  it('shows and clears the routine hint while no error is outstanding', () => {
+    const rendered = []
+    const c = hintController((t) => rendered.push(t))
+
+    c.showHint('Select an area')
+    c.showHint('')
+
+    expect(rendered).toEqual(['Select an area', ''])
+  })
+
+  it('refuses to let a later showHint erase an error', () => {
+    const rendered = []
+    const c = hintController((t) => rendered.push(t))
+
+    c.showError('Map data is unavailable right now')
+    c.showHint('')
+    c.showHint('Select an area')
+
+    expect(rendered).toEqual(['Map data is unavailable right now'])
   })
 })

@@ -12,7 +12,39 @@ import { mountWindow, readWindow, windowOptions } from './mapwindow.js'
 import { mountPlayer } from './timelapse.js'
 import { RASTER_LAYER_ID } from './mapids.js'
 import { LEGEND_FOLD_KEY } from './mapconfig.js'
-import { setCellValues, hintController } from './mapdata.js'
+import { setCellValues } from './mappaint.js'
+
+// hintController owns the ONE rule about the hint banner: an error outranks the
+// routine hint, permanently.
+//
+// showHint is called on every refresh with the text that applies right now, and
+// with '' when none does — that clear-on-empty is what makes the tier hint
+// disappear when it stops applying. It is also what silently erased the
+// scales-failure explanation, because refresh runs immediately after the scales
+// load and calls showHint('') whenever the zoom's tier is served as-is (the
+// common case: zoom 7 on / and zoom ~10 on an area page). ANYONE ADDING A
+// showHint CALL SHOULD KNOW IT CAN ERASE A REAL ERROR MESSAGE — use showError
+// for anything the visitor must keep seeing.
+//
+// Pure and separate from the DOM on purpose: `render` is the only side effect,
+// so the precedence rule itself can be driven by a test with an array as the
+// sink instead of a browser, and the rule the test exercises is the same code
+// the page runs.
+export function hintController(render) {
+  let stickyError = ''
+  return {
+    showHint(text) {
+      // Deliberately not "only ignore the empty string": once the map is known
+      // to be uncoloured, the tier hint is the lesser message too.
+      if (stickyError) return
+      render(text)
+    },
+    showError(text) {
+      stickyError = text
+      render(text)
+    },
+  }
+}
 
 // mountChrome builds the legend and the hint banner as plain DOM, appended
 // beside the MapLibre canvas inside the same container. Plain DOM rather than

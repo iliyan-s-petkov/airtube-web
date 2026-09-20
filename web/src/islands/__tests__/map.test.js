@@ -7,10 +7,9 @@
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '../map.js'
-import { applyMarkerZoomRange } from '../../lib/mapdata.js'
 import { installTimelapse } from '../../lib/timelapse-island.js'
 import {
-  NOT_OFFICIAL, CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY,
+  NOT_OFFICIAL, CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY, applyMarkerZoomRange,
 } from '../../lib/mappaint.js'
 import { mountChrome } from '../../lib/chrome.js'
 import { HEX_LABEL_LAYER_ID } from '../../lib/mapids.js'

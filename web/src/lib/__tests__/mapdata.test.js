@@ -5,9 +5,10 @@
 // describe block here is pure-logic and does not mind it either.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  debounce, hintController, loadScales, initData, refreshHexes, showArea, mapHint,
+  debounce, loadScales, initData, refreshHexes, showArea, mapHint,
   setSourceViewAvailability, metricNote, cellTier, urlFor,
 } from '../mapdata.js'
+import { hintController } from '../chrome.js'
 import { placeVisitor } from '../placement.js'
 import { clearCache } from '../api.js'
 import { resetViewStateForTests } from '../viewstate.svelte.js'
@@ -71,33 +72,6 @@ describe('debounce', () => {
 
     expect(fn).toHaveBeenCalledWith('second')
     vi.useRealTimers()
-  })
-})
-
-// hintController is the precedence rule: an error outranks the routine tier
-// hint permanently. `render` is the only side effect, so these drive the real
-// rule with an array as the sink — no DOM, and no second implementation that
-// could disagree with the one the page runs.
-describe('hintController', () => {
-  it('shows and clears the routine hint while no error is outstanding', () => {
-    const rendered = []
-    const c = hintController((t) => rendered.push(t))
-
-    c.showHint('Select an area')
-    c.showHint('')
-
-    expect(rendered).toEqual(['Select an area', ''])
-  })
-
-  it('refuses to let a later showHint erase an error', () => {
-    const rendered = []
-    const c = hintController((t) => rendered.push(t))
-
-    c.showError('Map data is unavailable right now')
-    c.showHint('')
-    c.showHint('Select an area')
-
-    expect(rendered).toEqual(['Map data is unavailable right now'])
   })
 })
 

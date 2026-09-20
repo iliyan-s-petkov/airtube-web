@@ -9,15 +9,14 @@ import { setMapAreas } from './mapareas.svelte.js'
 import { withWindow } from './mapwindow.js'
 import {
   hexesURL, hexFeatures, resolutionForZoom,
-  GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL,
+  POINT_TIER_MIN_ZOOM_FRACTIONAL,
 } from './hexes.js'
 import { rampColour } from './ramp.js'
 import {
-  SOURCE_ID, LAYER_ID, OFFICIAL_LAYER_ID, LABEL_LAYER_ID, HEX_SOURCE_ID, HEX_LABEL_LAYER_ID,
+  SOURCE_ID, LAYER_ID, HEX_SOURCE_ID,
 } from './mapids.js'
-import { MAX_ZOOM_CEILING } from './mapconfig.js'
 import { areaFeatures, sensorFeatures } from './mapfeatures.js'
-import { bandsFor, markerMaxZoom, markerPaint } from './mappaint.js'
+import { applyMarkerZoomRange, bandsFor, markerPaint } from './mappaint.js'
 
 // urlFor turns a tier into the endpoint that serves it. It lives here, beside
 // refresh, so the data seam does not import from the placement seam that
@@ -32,26 +31,6 @@ export function urlFor(tier, slug) {
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
 // burst.
 export const MOVE_DEBOUNCE_MS = 250
-
-// setCellValues moves the cell-label layer's floor, and nothing else.
-//
-// The number is normally reserved for the point tier, where a cell is one
-// sensor: below that a cell is an average of several, and a country covered in
-// printed figures reads as noise over the ramp that is the primary reading.
-// But a reader comparing two neighbourhoods should not have to zoom to sensor
-// level one cell at a time to get the figures, so the floor is theirs to lower.
-//
-// Down to the CELLS' own floor, not to zero: a number below that would print
-// over ground with no cell drawn under it. The label layer's own collision
-// thinning does the rest — where the cells are too small to hold a number, it
-// simply drops the ones that will not fit.
-export function setCellValues(map, on) {
-  map.setLayerZoomRange(
-    HEX_LABEL_LAYER_ID,
-    on ? GRID_MIN_ZOOM_FRACTIONAL : POINT_TIER_MIN_ZOOM_FRACTIONAL,
-    MAX_ZOOM_CEILING,
-  )
-}
 
 // Every data-layer repaint goes through here. The event nothing in the app
 // listens to is how e2e/redraw.spec.js counts the draws a reader sees.
@@ -264,21 +243,12 @@ export async function showArea(map, state, cfg, chrome, area) {
   return true
 }
 
-// applyMarkerZoomRange moves both marker layers onto the handover the current
-// tier calls for. Exported for its own test; guarded because refresh() runs on
-// every moveend and a style reload can leave a layer briefly absent.
-export function applyMarkerZoomRange(map, tier) {
-  const max = markerMaxZoom(tier)
-  for (const id of [LAYER_ID, OFFICIAL_LAYER_ID, LABEL_LAYER_ID]) {
-    if (map.getLayer?.(id)) map.setLayerZoomRange(id, 0, max)
-  }
-}
-
 // mapHint picks the one routine hint that applies now. Both networks unticked
 // outranks the select-an-area hint: it empties the map completely, and with no
 // message the reader is looking at a blank canvas with nothing to explain it.
 // Returns '' when neither applies, because showHint's clear-on-empty is what
-// makes a hint disappear once it stops applying (see hintController).
+// makes a hint disappear once it stops applying (see hintController in
+// chrome.js).
 export function mapHint(t, { fellBack, sources }) {
   if (sources && sources.size === 0) return t.noSources
   return fellBack ? t.hint : ''
@@ -400,38 +370,6 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
 // caller (onMetricChange) owns the DOM, through chrome.showNote.
 export function metricNote(scales, metric, text) {
   return hasScale(scales, metric) ? '' : text
-}
-
-// hintController owns the ONE rule about the hint banner: an error outranks the
-// routine hint, permanently.
-//
-// showHint is called on every refresh with the text that applies right now, and
-// with '' when none does — that clear-on-empty is what makes the tier hint
-// disappear when it stops applying. It is also what silently erased the
-// scales-failure explanation, because refresh runs immediately after the scales
-// load and calls showHint('') whenever the zoom's tier is served as-is (the
-// common case: zoom 7 on / and zoom ~10 on an area page). ANYONE ADDING A
-// showHint CALL SHOULD KNOW IT CAN ERASE A REAL ERROR MESSAGE — use showError
-// for anything the visitor must keep seeing.
-//
-// Pure and separate from the DOM on purpose: `render` is the only side effect,
-// so the precedence rule itself can be driven by a test with an array as the
-// sink instead of a browser, and the rule the test exercises is the same code
-// the page runs.
-export function hintController(render) {
-  let stickyError = ''
-  return {
-    showHint(text) {
-      // Deliberately not "only ignore the empty string": once the map is known
-      // to be uncoloured, the tier hint is the lesser message too.
-      if (stickyError) return
-      render(text)
-    },
-    showError(text) {
-      stickyError = text
-      render(text)
-    },
-  }
 }
 
 export function debounce(fn, ms) {
