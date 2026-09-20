@@ -95,9 +95,13 @@ export function windowOptions(labels = []) {
  * around it reloads the map, which needs a camera and a network. Re-picking the
  * current window reports false so that a change event the browser fires for a
  * value that did not move costs no requests.
+ *
+ * Live is the exception: it names no fixed range, only "now", so re-picking it
+ * is a reader asking for current data, not a no-op change event.
  */
 export function chooseWindow(state, name) {
-  if (!knownWindow(name) || name === state.window) return false
+  if (!knownWindow(name)) return false
+  if (name === state.window && name !== LIVE_WINDOW) return false
   state.window = name
   writeWindow(name)
   return true
