@@ -35,7 +35,7 @@ export function mount(el, doc = document) {
     thisSensor: d.tThisSensor || '', ofTotal: d.tOfTotal || '',
     aboveMedian: d.tAbove || '', belowMedian: d.tBelow || '', atMedian: d.tAt || '',
     areaSensors: d.tAreaSensors || '', sensorsOnly: d.tSensorsOnly || '',
-    sourceRow: d.tSourceRow || '',
+    sourceRow: d.tSourceRow || '', sourceRowOne: d.tSourceRowOne || '',
     sourceCommunity: d.tSourceCommunity || '', sourceOfficial: d.tSourceOfficial || '',
   }
 

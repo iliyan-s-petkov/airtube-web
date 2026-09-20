@@ -109,7 +109,8 @@ describe('areaCards', () => {
 })
 
 const sourceT = {
-  sourceRow: '{source} · {n} stations',
+  sourceRow: '{n} stations',
+  sourceRowOne: '1 station',
   sourceCommunity: 'Citizen',
   sourceOfficial: 'Official',
 }
@@ -123,9 +124,19 @@ describe('areaSourceCards', () => {
     expect(cards).toHaveLength(2)
     expect(cards[0].group).toBe('Official')
     expect(cards[0].value).toBe('100')
-    expect(cards[0].tier).toBe('Official · 1 stations')
+    expect(cards[0].tier).toBe('1 station')
     expect(cards[1].group).toBe('Citizen')
-    expect(cards[1].tier).toBe('Citizen · 3 stations')
+    expect(cards[1].tier).toBe('3 stations')
+    expect(cards[0].tier).not.toContain(cards[0].group)
+    expect(cards[1].tier).not.toContain(cards[1].group)
+  })
+
+  it('uses the plural at n=2', () => {
+    const cards = areaSourceCards(
+      [{ source: 'eea', n: 2, median: 100 }],
+      { metricLabel: 'PM2.5', scale: null, lang: 'en', t: sourceT },
+    )
+    expect(cards[0].tier).toBe('2 stations')
   })
 
   it('renders the one row a silent network leaves behind', () => {

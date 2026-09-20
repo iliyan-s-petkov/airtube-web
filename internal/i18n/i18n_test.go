@@ -101,7 +101,7 @@ func TestLangFromPath(t *testing.T) {
 // the identical-keys guard proves the catalogues agree, not that either has these.
 func TestSourceNameKeysExistInEveryCatalogue(t *testing.T) {
 	c := loaded(t)
-	for _, key := range []string{"source.name.sensor_community", "source.name.eea", "area.sources.row"} {
+	for _, key := range []string{"source.name.sensor_community", "source.name.eea", "area.sources.row", "area.sources.row_one"} {
 		for _, lang := range []string{"bg", "en"} {
 			if !c.Has(lang, key) {
 				t.Errorf("%s has no %q", lang, key)
@@ -110,8 +110,12 @@ func TestSourceNameKeysExistInEveryCatalogue(t *testing.T) {
 	}
 	for _, lang := range []string{"bg", "en"} {
 		row := c.T(lang, "area.sources.row")
-		if !strings.Contains(row, "{source}") || !strings.Contains(row, "{n}") {
-			t.Errorf("%s area.sources.row = %q, want both {source} and {n}", lang, row)
+		if strings.Contains(row, "{source}") || !strings.Contains(row, "{n}") {
+			t.Errorf("%s area.sources.row = %q, want {n} only, no {source}", lang, row)
+		}
+		rowOne := c.T(lang, "area.sources.row_one")
+		if strings.Contains(rowOne, "{source}") || strings.Contains(rowOne, "{n}") {
+			t.Errorf("%s area.sources.row_one = %q, want a fixed singular, no placeholders", lang, rowOne)
 		}
 	}
 	// Each language says it in its own words; a shared string would mean one

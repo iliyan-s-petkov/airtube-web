@@ -4,6 +4,7 @@ package web
 // PageData.cat is unexported and AreaReadouts reads the catalogue.
 
 import (
+	"strings"
 	"testing"
 
 	"airbg.org/internal/i18n"
@@ -237,14 +238,17 @@ func TestAreaReadoutsAddARowPerNetwork(t *testing.T) {
 	if gs[0].Group != "Official" || gs[0].Value != "100.0" {
 		t.Errorf("first group = %q %q, want Official 100.0", gs[0].Group, gs[0].Value)
 	}
-	if gs[0].Tier != "Official · 1 stations" {
-		t.Errorf("first group tier = %q, want \"Official · 1 stations\"", gs[0].Tier)
+	if gs[0].Tier != "1 station" {
+		t.Errorf("first group tier = %q, want \"1 station\"", gs[0].Tier)
 	}
 	if gs[1].Group != "Citizen" || gs[1].Value != "20.0" {
 		t.Errorf("second group = %q %q, want Citizen 20.0", gs[1].Group, gs[1].Value)
 	}
-	if gs[1].Tier != "Citizen · 3 stations" {
-		t.Errorf("second group tier = %q, want \"Citizen · 3 stations\"", gs[1].Tier)
+	if gs[1].Tier != "3 stations" {
+		t.Errorf("second group tier = %q, want \"3 stations\"", gs[1].Tier)
+	}
+	if strings.Contains(gs[0].Tier, "Official") || strings.Contains(gs[0].Tier, "·") {
+		t.Errorf("tier %q still carries the network name or its separator", gs[0].Tier)
 	}
 }
 
@@ -285,8 +289,8 @@ func TestAreaReadoutsNameNetworksInBulgarian(t *testing.T) {
 	if gs[0].Group != "Официални" || gs[1].Group != "Граждански" {
 		t.Errorf("groups = %q, %q — want Официални then Граждански", gs[0].Group, gs[1].Group)
 	}
-	if gs[0].Tier != "Официални · 1 станции" {
-		t.Errorf("tier = %q, want \"Официални · 1 станции\"", gs[0].Tier)
+	if gs[0].Tier != "1 станция" {
+		t.Errorf("tier = %q, want \"1 станция\"", gs[0].Tier)
 	}
 }
 
