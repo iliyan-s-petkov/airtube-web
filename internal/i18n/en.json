@@ -144,6 +144,7 @@
   "panel.detail.updated": "Last reading",
   "panel.details": "About this station",
   "panel.flag.out_of_range": "This reading is out of the expected range.",
+  "panel.flag.source_invalid": "The newest reading was rejected by its source; this is the last accepted one.",
   "panel.flag.spatial_outlier": "This reading disagrees with nearby sensors.",
   "panel.flag.stuck": "This reading has not changed in a while.",
   "panel.network": "Network",
