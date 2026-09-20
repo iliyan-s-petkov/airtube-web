@@ -174,6 +174,17 @@ containers use.
 on `airbg.org`, while `tiles.airbg.org` and ACME renewals keep working because
 `caddy` itself stays up.
 
+## docker-compose.prod.yml: where the memory and PID limits come from
+
+Measured on the host on 2026-09-20, right after a cold start with the
+snapshot loaded: `app` 407 MiB and 10 PIDs, `caddy` 14 MiB and 9 PIDs. The
+limits (`app` 1g/256, `caddy` 256m/128) give the app 2.5x headroom for an
+ingest spike and Caddy far more than it needs; they exist to keep one runaway
+container from taking the host, not to be tight. `compose_test.go` pins only
+ceilings (app at most 2g, caddy at most 512m), so a retune within those does
+not touch the test. `db` runs unlimited on purpose: TimescaleDB sizes its
+shared buffers to the host and an OOM kill there is worse than a slow query.
+
 ## Caddyfile: the origin certificate
 
 `origin.pem` / `origin.key` are a **Let's Encrypt** certificate, not a Cloudflare Origin CA
