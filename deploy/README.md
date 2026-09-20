@@ -100,7 +100,8 @@ place of ofelia, which would delete both this service and the scheduler.
 
 `pull = false` stays regardless: the only app image on the host is
 `airbg:<short-sha>`, tagged locally after the verified pull described below.
-There is no `airbg:latest`, and ofelia must never fetch anything itself.
+There is no `airbg:latest` on the host, and ofelia must never fetch anything
+itself.
 
 ## image: pulled from GHCR by signed digest
 
@@ -163,6 +164,13 @@ re-deploy, never on a first deploy.
 The Ansible role runs bootstrap commands and area imports with plain
 `docker run` on the back network instead, the same shape ofelia's job-run
 containers use.
+
+## docker-compose.prod.yml: caddy does not wait on app health
+
+`caddy`'s `depends_on` on `app` is start-order only, not
+`condition: service_healthy`. A bad `app` release therefore surfaces as a 502
+on `airbg.org`, while `tiles.airbg.org` and ACME renewals keep working because
+`caddy` itself stays up.
 
 ## Caddyfile: the origin certificate
 

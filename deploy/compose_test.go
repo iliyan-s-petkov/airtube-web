@@ -1083,16 +1083,15 @@ func TestAppAndCaddyHaveHealthchecks(t *testing.T) {
 	}
 }
 
-// Now that app carries a healthcheck, caddy must wait for it to report
-// healthy rather than merely started, or caddy can come up and start
-// forwarding before app's listener is ready.
-func TestCaddyWaitsForAHealthyApp(t *testing.T) {
+// TestCaddyDoesNotWaitOnAppHealth pins depends_on to start-order only: a
+// service_healthy condition here would take tiles and ACME down with app.
+func TestCaddyDoesNotWaitOnAppHealth(t *testing.T) {
 	caddy := service(t, loadCompose(t), "caddy")
 	dep, ok := caddy.DependsOn["app"]
 	if !ok {
 		t.Fatal("caddy depends_on does not name app")
 	}
-	if dep.Condition != "service_healthy" {
-		t.Errorf("caddy depends_on.app.condition = %q, want \"service_healthy\"", dep.Condition)
+	if dep.Condition == "service_healthy" {
+		t.Error("caddy depends_on.app.condition = \"service_healthy\", want start-order only")
 	}
 }
