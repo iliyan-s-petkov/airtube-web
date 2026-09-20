@@ -180,24 +180,17 @@ func TestAreaPayloadStaysReadableByAnOldClient(t *testing.T) {
 	}
 }
 
-// The neighbourhood tier carries the scalar but not the breakdown: it is the
-// tier that multiplies the area count, and the payload measurement refused it.
-func TestNeighbourhoodTierOmitsTheBreakdown(t *testing.T) {
-	by := map[string]store.SourceAggregate{
-		"sensor.community": {N: 3, Values: map[string]float64{"P2": 20}},
-		"eea":              {N: 1, Values: map[string]float64{"P2": 100}},
-	}
+// The breakdown is not gated by tier: the payload measurement came in under
+// budget, so a neighbourhood publishes both networks like any other area.
+func TestNeighbourhoodTierCarriesTheBreakdown(t *testing.T) {
 	hood := entryFor(t, []store.AreaAggregate{
-		aggFrom("lozenets", "neighbourhood", 4, map[string]float64{"P2": 25}, by),
+		aggFrom("lozenets", "neighbourhood", 4, map[string]float64{"P2": 25},
+			map[string]store.SourceAggregate{
+				"sensor.community": {N: 3, Values: map[string]float64{"P2": 20}},
+				"eea":              {N: 1, Values: map[string]float64{"P2": 100}},
+			}),
 	}, "lozenets")
-	if hood.BySource != nil {
-		t.Errorf("by_source = %#v, want nil on the neighbourhood tier", hood.BySource)
-	}
-
-	city := entryFor(t, []store.AreaAggregate{
-		aggFrom("plovdiv", "city", 4, map[string]float64{"P2": 25}, by),
-	}, "plovdiv")
-	if len(city.BySource) != 2 {
-		t.Errorf("by_source = %#v, want both networks on the city tier", city.BySource)
+	if len(hood.BySource) != 2 {
+		t.Errorf("by_source = %#v, want both networks on the neighbourhood tier", hood.BySource)
 	}
 }
