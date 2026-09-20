@@ -20,9 +20,6 @@ import { HEX_SOURCE_ID } from '../mapids.js'
 // feature-mapping logic, not about the specific grey.
 const NO_DATA_COLOUR = '#9ca3af'
 
-// debounce: the 250ms gate between a moveend event and the request it may
-// fire. One pinch-zoom gesture emits a dozen moveend events; without this, that
-// is a dozen requests and the whole burst.
 // urlFor is the anti-enumeration seam: it is the ONLY place a tier turns into a
 // request URL, and it must never accept a bounding box or build one from a
 // slug the caller did not explicitly select.
@@ -41,6 +38,9 @@ describe('urlFor', () => {
   })
 })
 
+// debounce: the 250ms gate between a moveend event and the request it may
+// fire. One pinch-zoom gesture emits a dozen moveend events; without this, that
+// is a dozen requests and the whole burst.
 describe('debounce', () => {
   it('calls the wrapped function once, after the delay, for a burst of calls', () => {
     vi.useFakeTimers()

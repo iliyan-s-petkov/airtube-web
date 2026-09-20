@@ -20,8 +20,8 @@ import { areaFeatures, sensorFeatures } from './mapfeatures.js'
 import { bandsFor, markerMaxZoom, markerPaint } from './mappaint.js'
 
 // urlFor turns a tier into the endpoint that serves it. It lives here, beside
-// its only caller, so the data seam does not import from the placement seam
-// that imports it back.
+// refresh, so the data seam does not import from the placement seam that
+// imports it back; placement calls it too, for the city overview.
 export function urlFor(tier, slug) {
   if (tier === 'country') return '/api/v1/overview'
   if (tier === 'city') return '/api/v1/overview?tier=city'
