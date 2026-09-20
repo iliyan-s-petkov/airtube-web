@@ -7,8 +7,8 @@
 // above it.
 import { mount as mountComponent, unmount } from 'svelte'
 import Readouts from '../components/Readouts.svelte'
-import { areaStats } from '../lib/areastats.js'
-import { areaCards } from '../lib/areacards.js'
+import { areaStats, areaSourceStats } from '../lib/areastats.js'
+import { areaCards, areaSourceCards } from '../lib/areacards.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { getSensors, getSensorArea, getScales } from '../lib/sensors.svelte.js'
 import { getMapAreas } from '../lib/mapareas.svelte.js'
@@ -35,6 +35,8 @@ export function mount(el, doc = document) {
     thisSensor: d.tThisSensor || '', ofTotal: d.tOfTotal || '',
     aboveMedian: d.tAbove || '', belowMedian: d.tBelow || '', atMedian: d.tAt || '',
     areaSensors: d.tAreaSensors || '', sensorsOnly: d.tSensorsOnly || '',
+    sourceRow: d.tSourceRow || '',
+    sourceCommunity: d.tSourceCommunity || '', sourceOfficial: d.tSourceOfficial || '',
   }
 
   // The server's strip is the first child; the sensor row goes above it.
@@ -46,14 +48,19 @@ export function mount(el, doc = document) {
     if (vs.sensorId == null) return []
     const metric = vs.metric
     const scale = (getScales() ?? []).find((s) => s.metric === metric) ?? null
-    return areaCards(areaStats(getSensors(), metric, vs.sensorId), {
+    const metricLabel = labels.find((o) => o.metric === metric)?.label || metric
+    const base = areaCards(areaStats(getSensors(), metric, vs.sensorId), {
       metric,
-      metricLabel: labels.find((o) => o.metric === metric)?.label || metric,
+      metricLabel,
       scale,
       area: areaName(getMapAreas(), getSensorArea(), lang),
       lang,
       t,
     })
+    if (base.length === 0) return base
+    return base.concat(areaSourceCards(areaSourceStats(getSensors(), metric), {
+      metricLabel, scale, lang, t,
+    }))
   }
 
   // .svelte.js, for this one $effect: hiding an empty row is a side effect on

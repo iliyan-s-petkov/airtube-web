@@ -473,3 +473,80 @@ func TestBuildSensorPayloadIsColumnar(t *testing.T) {
 		t.Errorf("lat[0] = %v, want ~42.7", got.Sensors.Lat[0])
 	}
 }
+
+// seedMixed is seed's fixture with one official station added. Separate from
+// seed: every other test here asserts on seed's exact three-sensor shape.
+func seedMixed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	seed(t, ctx, pool)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	id := store.OfficialSensorIDFloor + 1
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sensor (sensor_id, sensor_type, location, source)
+		 VALUES ($1, 'EEA', ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, 'eea')`,
+		id, 23.3219+0.004, 42.6977)
+	if err != nil {
+		t.Fatalf("seed official sensor: %v", err)
+	}
+	_, err = pool.Exec(ctx,
+		`INSERT INTO reading (time, sensor_id, metric, value, quality)
+		 VALUES ($1, $2, 'P2', 100, 'ok')`,
+		now, id)
+	if err != nil {
+		t.Fatalf("seed official reading: %v", err)
+	}
+	if _, _, err := area.AssignSensors(ctx, pool, testAssignTimeout); err != nil {
+		t.Fatalf("AssignSensors: %v", err)
+	}
+}
+
+// areasBodyGrowth serialises the body twice from the same decoded value — once
+// as published, once with the two new keys stripped — and returns the ratio.
+func areasBodyGrowth(t *testing.T, raw []byte) float64 {
+	t.Helper()
+	var body struct {
+		GeneratedAt any              `json:"generated_at"`
+		Areas       []map[string]any `json:"areas"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decode areas body: %v", err)
+	}
+	after, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("re-marshal: %v", err)
+	}
+	mixed := 0
+	for _, e := range body.Areas {
+		if _, ok := e["by_source"]; ok {
+			mixed++
+		}
+		delete(e, "source")
+		delete(e, "by_source")
+	}
+	if mixed == 0 {
+		t.Fatal("no entry carries by_source; the fixture is not mixed and this measures nothing")
+	}
+	before, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("re-marshal stripped: %v", err)
+	}
+	t.Logf("areas body: %d bytes before, %d after, %d mixed entries", len(before), len(after), mixed)
+	return float64(len(after)-len(before)) / float64(len(before))
+}
+
+// The one thing Option C was to measure rather than design around. Above 30 %
+// the breakdown is restricted to the oblast and city kinds; see Task 7.
+func TestAreasPayloadGrowthFromBySourceIsWithinBudget(t *testing.T) {
+	ctx, pool := migrated(t)
+	seedMixed(t, ctx, pool)
+
+	snap, err := snapshot.Build(ctx, testStore(t, pool), testHolder(t), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if growth := areasBodyGrowth(t, snap.Areas.JSON); growth > 0.30 {
+		t.Errorf("areas body grew %.1f%%, budget is 30%% — restrict by_source to oblast and city",
+			growth*100)
+	}
+}

@@ -451,7 +451,12 @@ strong, b { font-weight: var(--weight-emphasis); }
   display: grid; grid-template-rows: auto 1fr auto; justify-items: center; text-align: center;
   gap: var(--space-2); padding: var(--space-4); align-content: start;
 }
+/* A breakdown card has a fourth child, so it needs a fourth track or the 1fr
+   lands on the label instead of the figure. */
+.readout.card:has(.readout__group) { grid-template-rows: auto auto 1fr auto; }
 .readout.card .readout__value { display: inline-flex; align-items: baseline; gap: var(--space-1); }
+/* Which network a breakdown card counts, above its label and quieter than it. */
+.readout__group { color: var(--fg-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); }
 /* A card whose figure sits in a gauge ring is 108px tall, and the cards beside
    it match that height. At the kit's 2rem the bare number floated in the middle
    of all that space reading as an afterthought, so a figure with no ring around

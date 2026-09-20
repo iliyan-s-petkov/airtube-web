@@ -59,6 +59,7 @@ func TestReadoutsIslandLabelsKeepTheirPlaceholders(t *testing.T) {
 		"data-t-of-total":     "{total}",
 		"data-t-area-sensors": "{area}",
 		"data-t-sensors-only": "{total}",
+		"data-t-source-row":   "{source}",
 	} {
 		if v := attrValue(t, tag, attr); !strings.Contains(v, want) {
 			t.Errorf("%s = %q, which cannot say %s", attr, v, want)

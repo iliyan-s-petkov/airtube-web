@@ -96,3 +96,27 @@ func TestLangFromPath(t *testing.T) {
 		}
 	}
 }
+
+// The network names the area breakdown labels its rows with. Named explicitly:
+// the identical-keys guard proves the catalogues agree, not that either has these.
+func TestSourceNameKeysExistInEveryCatalogue(t *testing.T) {
+	c := loaded(t)
+	for _, key := range []string{"source.name.sensor_community", "source.name.eea", "area.sources.row"} {
+		for _, lang := range []string{"bg", "en"} {
+			if !c.Has(lang, key) {
+				t.Errorf("%s has no %q", lang, key)
+			}
+		}
+	}
+	for _, lang := range []string{"bg", "en"} {
+		row := c.T(lang, "area.sources.row")
+		if !strings.Contains(row, "{source}") || !strings.Contains(row, "{n}") {
+			t.Errorf("%s area.sources.row = %q, want both {source} and {n}", lang, row)
+		}
+	}
+	// Each language says it in its own words; a shared string would mean one
+	// catalogue was filled from the other.
+	if c.T("bg", "source.name.eea") == c.T("en", "source.name.eea") {
+		t.Error("bg and en source.name.eea are the same string")
+	}
+}

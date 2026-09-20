@@ -70,3 +70,40 @@ export function areaStats(body, metric, sensorId) {
     rank: mine ? values.filter((v) => v < mine.value).length + 1 : null,
   }
 }
+
+// A row written before the source column existed is the citizen network, the
+// same rule snapshot.sourceOf applies on the server.
+function sourceOf(src) {
+  return src ? src : 'sensor.community'
+}
+
+// areaSourceStats is stationValues split by network. [] for fewer than two
+// networks: one network's median is the area median under a second name.
+export function areaSourceStats(body, metric) {
+  const sources = body?.sensors?.source
+  if (!Array.isArray(sources)) return []
+
+  const ids = body?.sensors?.id ?? []
+  const sourceById = new Map()
+  const present = new Set()
+  for (let i = 0; i < ids.length; i += 1) {
+    const src = sourceOf(sources[i])
+    sourceById.set(ids[i], src)
+    present.add(src)
+  }
+  // The gate is networks PRESENT, the same len(BySource) < 2 the server applies
+  // in render.go: a network silent on this metric still makes the other one's
+  // figures a breakdown rather than the area median under a second name.
+  if (present.size < 2) return []
+
+  const grouped = new Map()
+  for (const row of stationValues(body, metric)) {
+    const src = sourceById.get(row.id) ?? 'sensor.community'
+    if (!grouped.has(src)) grouped.set(src, [])
+    grouped.get(src).push(row.value)
+  }
+
+  return [...grouped.entries()]
+    .map(([source, values]) => ({ source, n: values.length, median: median(values) }))
+    .sort((a, b) => (a.source < b.source ? -1 : a.source > b.source ? 1 : 0))
+}

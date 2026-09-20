@@ -261,10 +261,8 @@ func (idx *bboxIndex) clip(entries []hexEntry, bb BBox) []hexEntry {
 	return out
 }
 
-type sourceEntry struct {
-	N      int                `json:"n"`
-	Values map[string]float64 `json:"values"`
-}
+// The hex bin and the area entry publish the same object under the same key.
+type sourceEntry = SourceEntry
 
 // sourceOf names the network a reading came from. A row written before the
 // source column existed carries an empty Source and is sensor.community; the

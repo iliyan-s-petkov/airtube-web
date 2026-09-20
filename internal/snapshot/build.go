@@ -55,6 +55,10 @@ type areaPayloadEntry struct {
 	SensorCount int                `json:"sensor_count"`
 	Covered     bool               `json:"covered"`
 	Values      map[string]float64 `json:"values"`
+	// Exactly one of the two is ever set, and neither appears for an
+	// uncovered area. Source names the one network; BySource breaks out several.
+	Source   string                 `json:"source,omitempty"`
+	BySource map[string]SourceEntry `json:"by_source,omitempty"`
 }
 
 // sensorPayload is columnar (Phase 1 §7.3): each field named once, values in
@@ -245,11 +249,12 @@ func buildAreas(ctx context.Context, s *store.Store, h *Holder, snap *Snapshot, 
 	snap.KnownSlugs = make(map[string]AreaMeta, len(all))
 
 	for _, a := range all {
+		metaSource, metaBySource := collapseSources(a.BySource)
 		snap.KnownSlugs[a.Slug] = AreaMeta{
 			Slug: a.Slug, Kind: a.Kind, NameBG: a.NameBG, NameEN: a.NameEN,
 			CentroidLon: a.CentroidLon, CentroidLat: a.CentroidLat,
 			DefaultZoom: a.DefaultZoom, Covered: a.Covered, SensorCount: a.SensorCount,
-			Values: a.Values,
+			Values: a.Values, Source: metaSource, BySource: metaBySource,
 		}
 	}
 
@@ -335,6 +340,29 @@ func buildSensors(snap *Snapshot, h *Holder, sensors []store.SensorReading, seri
 	return nil
 }
 
+// collapseSources applies the hexes.go rule: one network is named by the
+// scalar, several are broken out, none publishes nothing.
+func collapseSources(by map[string]store.SourceAggregate) (string, map[string]SourceEntry) {
+	if len(by) == 0 {
+		return "", nil
+	}
+	if len(by) == 1 {
+		for src := range by {
+			return src, nil
+		}
+	}
+	out := make(map[string]SourceEntry, len(by))
+	for src, sa := range by {
+		// A windowed row can name a network with no value inside the window.
+		v := sa.Values
+		if v == nil {
+			v = map[string]float64{}
+		}
+		out[src] = SourceEntry{N: sa.N, Values: v}
+	}
+	return "", out
+}
+
 func areaPayloadFrom(now time.Time, aggs []store.AreaAggregate) areaPayload {
 	p := areaPayload{GeneratedAt: now, Areas: make([]areaPayloadEntry, 0, len(aggs))}
 	for _, a := range aggs {
@@ -342,10 +370,12 @@ func areaPayloadFrom(now time.Time, aggs []store.AreaAggregate) areaPayload {
 		if values == nil {
 			values = map[string]float64{}
 		}
+		source, bySource := collapseSources(a.BySource)
 		p.Areas = append(p.Areas, areaPayloadEntry{
 			Slug: a.Slug, Kind: a.Kind, NameBG: a.NameBG, NameEN: a.NameEN,
 			Lon: a.CentroidLon, Lat: a.CentroidLat, Zoom: a.DefaultZoom,
 			SensorCount: a.SensorCount, Covered: a.Covered, Values: values,
+			Source: source, BySource: bySource,
 		})
 	}
 	return p

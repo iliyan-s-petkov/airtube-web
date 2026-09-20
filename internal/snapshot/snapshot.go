@@ -78,6 +78,13 @@ func (p SeriesPayload) withoutGeneratedAt() any { return p }
 
 var _ canonicalisable = SeriesPayload{}
 
+// SourceEntry is one network's own count and medians inside an aggregate, hex
+// bin or area. Exported because internal/web renders the area half.
+type SourceEntry struct {
+	N      int                `json:"n"`
+	Values map[string]float64 `json:"values"`
+}
+
 // AreaMeta is the non-payload metadata a handler needs about an area: enough to
 // validate a slug, resolve /locate, and render a page header, without going to
 // the database.
@@ -99,6 +106,10 @@ type AreaMeta struct {
 	// no-JS fallback and the crawlable content, and a ranking that only
 	// exists once JavaScript has run is one crawlers never see.
 	Values map[string]float64
+	// The same attribution the wire type publishes, so the server-rendered
+	// area page needs no second round trip.
+	Source   string
+	BySource map[string]SourceEntry
 }
 
 type Snapshot struct {

@@ -8,6 +8,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -1268,5 +1270,169 @@ func TestAllAreaSeriesRowLimitCoversRealConfig(t *testing.T) {
 	if worst*4 > store.AllAreaSeriesRowLimit {
 		t.Errorf("worst case = %d buckets x %d areas = %d rows; want AllAreaSeriesRowLimit (%d) at least 4x that, got %.1fx",
 			maxBuckets, areaCount, worst, store.AllAreaSeriesRowLimit, float64(store.AllAreaSeriesRowLimit)/float64(worst))
+	}
+}
+
+// findAgg picks one area out of an AreaAggregates result.
+func findAgg(t *testing.T, aggs []store.AreaAggregate, slug string) store.AreaAggregate {
+	t.Helper()
+	for _, a := range aggs {
+		if a.Slug == slug {
+			return a
+		}
+	}
+	t.Fatalf("no aggregate for %q in %d rows", slug, len(aggs))
+	return store.AreaAggregate{}
+}
+
+func TestAreaAggregatesBreakDownByNetwork(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+	now := time.Now().UTC().Truncate(time.Minute)
+
+	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
+	seedSensorReading(t, ctx, pool, 101, 23.3219, 42.6977, "P2", 10, "ok", now)
+	seedSensorReading(t, ctx, pool, 102, 23.3229, 42.6977, "P2", 20, "ok", now)
+	seedSensorReading(t, ctx, pool, 103, 23.3239, 42.6977, "P2", 30, "ok", now)
+	seedOfficialSensorReading(t, ctx, pool, store.OfficialSensorIDFloor+1, 23.3249, 42.6977, "P2", 100, now)
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.AreaAggregates(ctx, []string{"oblast"})
+	if err != nil {
+		t.Fatalf("AreaAggregates: %v", err)
+	}
+	a := findAgg(t, aggs, "sofia")
+
+	sc, ok := a.BySource["sensor.community"]
+	if !ok {
+		t.Fatalf("by_source has no sensor.community: %#v", a.BySource)
+	}
+	if sc.N != 3 || sc.Values["P2"] != 20 {
+		t.Errorf("sensor.community = {n:%d P2:%v}, want {n:3 P2:20}", sc.N, sc.Values["P2"])
+	}
+	eea, ok := a.BySource["eea"]
+	if !ok {
+		t.Fatalf("by_source has no eea: %#v", a.BySource)
+	}
+	if eea.N != 1 || eea.Values["P2"] != 100 {
+		t.Errorf("eea = {n:%d P2:%v}, want {n:1 P2:100}", eea.N, eea.Values["P2"])
+	}
+	// The median of all four, not of either network: 10, 20, 30, 100 -> 25.
+	if a.Values["P2"] != 25 {
+		t.Errorf("values.P2 = %v, want 25 — the blended median must not move", a.Values["P2"])
+	}
+	// Two networks at one coordinate are two stations per-source and one in the
+	// total, so the parts bound the total rather than summing to it.
+	if sc.N < 1 || eea.N < 1 {
+		t.Errorf("per-source n = %d / %d, want at least 1 each", sc.N, eea.N)
+	}
+	if a.SensorCount < sc.N || a.SensorCount < eea.N {
+		t.Errorf("SensorCount %d is below a per-source n (%d, %d)", a.SensorCount, sc.N, eea.N)
+	}
+}
+
+// The two network keys are all SQL can produce: sourceExpr is a total CASE over
+// the sensor id, so no third key and no blank key can reach a caller.
+func TestAreaAggregatesNameOnlyTheTwoKnownNetworks(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+	now := time.Now().UTC().Truncate(time.Minute)
+
+	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
+	seedSensorReading(t, ctx, pool, 111, 23.3219, 42.6977, "P2", 10, "ok", now)
+	seedSensorReading(t, ctx, pool, 112, 23.3229, 42.6977, "P2", 20, "ok", now)
+	seedOfficialSensorReading(t, ctx, pool, store.OfficialSensorIDFloor+11, 23.3239, 42.6977, "P2", 90, now)
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.AreaAggregates(ctx, []string{"oblast"})
+	if err != nil {
+		t.Fatalf("AreaAggregates: %v", err)
+	}
+	keys := make([]string, 0, 2)
+	for k := range findAgg(t, aggs, "sofia").BySource {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if !reflect.DeepEqual(keys, []string{"eea", "sensor.community"}) {
+		t.Errorf("network keys = %q, want exactly [eea sensor.community]", keys)
+	}
+}
+
+func TestAreaAggregatesPerSourceCountsStationsNotDevices(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+	now := time.Now().UTC().Truncate(time.Minute)
+
+	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
+	// Two devices at ONE address, plus two more addresses.
+	seedSensorReading(t, ctx, pool, 201, 23.3219, 42.6977, "P2", 10, "ok", now)
+	seedSensorReading(t, ctx, pool, 202, 23.3219, 42.6977, "humidity", 55, "ok", now)
+	seedSensorReading(t, ctx, pool, 203, 23.3229, 42.6977, "P2", 20, "ok", now)
+	seedSensorReading(t, ctx, pool, 204, 23.3239, 42.6977, "P2", 30, "ok", now)
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.AreaAggregates(ctx, []string{"oblast"})
+	if err != nil {
+		t.Fatalf("AreaAggregates: %v", err)
+	}
+	if got := findAgg(t, aggs, "sofia").BySource["sensor.community"].N; got != 3 {
+		t.Errorf("sensor.community n = %d, want 3 — four devices at three addresses", got)
+	}
+}
+
+func TestAreaAggregatesPerSourceIsEmptyWithoutCoverage(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+	now := time.Now().UTC().Truncate(time.Minute)
+
+	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
+	seedSensorReading(t, ctx, pool, 301, 23.3219, 42.6977, "P2", 10, "ok", now)
+	seedOfficialSensorReading(t, ctx, pool, store.OfficialSensorIDFloor+21, 23.3229, 42.6977, "P2", 90, now)
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.AreaAggregates(ctx, []string{"oblast"})
+	if err != nil {
+		t.Fatalf("AreaAggregates: %v", err)
+	}
+	a := findAgg(t, aggs, "sofia")
+	// testStoreConfig's CoverageThreshold is 3; two stations is below it.
+	if a.Covered {
+		t.Fatalf("two stations should be below the coverage threshold; got Covered = true")
+	}
+	if len(a.BySource) != 0 {
+		t.Errorf("BySource = %#v, want empty for an uncovered area", a.BySource)
+	}
+}
+
+// The windowed answer must break down the same way the live one does: the two
+// are assembled from the same projection and may differ only in the value.
+func TestWindowedAreaAggregatesBreakDownByNetwork(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+	now := time.Now().UTC().Truncate(time.Minute)
+	bucket := now.Truncate(time.Hour)
+	official := store.OfficialSensorIDFloor + 31
+
+	seedArea(t, ctx, pool, "sofia", "oblast", 23.3219, 42.6977)
+	seedSensorReading(t, ctx, pool, 401, 23.3219, 42.6977, "P2", 10, "ok", now)
+	seedSensorReading(t, ctx, pool, 402, 23.3229, 42.6977, "P2", 20, "ok", now)
+	seedSensorReading(t, ctx, pool, 403, 23.3239, 42.6977, "P2", 30, "ok", now)
+	seedOfficialSensorReading(t, ctx, pool, official, 23.3249, 42.6977, "P2", 100, now)
+	seedHourly(t, ctx, pool, 401, "P2", bucket, 10, 1)
+	seedHourly(t, ctx, pool, 402, "P2", bucket, 20, 1)
+	seedHourly(t, ctx, pool, 403, "P2", bucket, 30, 1)
+	seedHourly(t, ctx, pool, official, "P2", bucket, 100, 1)
+	assignAreas(t, ctx, pool)
+
+	aggs, err := s.WindowedAreaAggregates(ctx, []string{"oblast"}, now.Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("WindowedAreaAggregates: %v", err)
+	}
+	a := findAgg(t, aggs, "sofia")
+	if a.BySource["eea"].N != 1 || a.BySource["sensor.community"].N != 3 {
+		t.Errorf("windowed BySource = %#v, want the same 3/1 split as the live query", a.BySource)
+	}
+	if a.BySource["eea"].Values["P2"] != 100 {
+		t.Errorf("windowed eea P2 = %v, want 100", a.BySource["eea"].Values["P2"])
 	}
 }
