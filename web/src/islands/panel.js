@@ -35,7 +35,7 @@ export { normaliseSensor }
 // including anything this frontend does not yet recognise) falls through to
 // '', never to the server's i18n miss-marker ('!key!'): that marker is a
 // Go-side concept (internal/i18n/i18n.go) produced by Catalogue.T, and
-// mount() below never calls it — it only reads the three data-t-flag-*
+// mount() below never calls it — it only reads the four data-t-flag-*
 // attributes the template renders (see area.gohtml), so '!key!' cannot
 // reach this function's input in the first place. Exported (rather than a
 // closure inside mount()) so this guard is provable without mounting a
