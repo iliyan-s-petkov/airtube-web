@@ -38,6 +38,53 @@ type composeService struct {
 	NetworkMode string                   `yaml:"network_mode"`
 	ReadOnly    bool                     `yaml:"read_only"`
 	Tmpfs       []string                 `yaml:"tmpfs"`
+	MemLimit    string                   `yaml:"mem_limit"`
+	PidsLimit   int                      `yaml:"pids_limit"`
+	CapDrop     []string                 `yaml:"cap_drop"`
+	CapAdd      []string                 `yaml:"cap_add"`
+	SecurityOpt []string                 `yaml:"security_opt"`
+	Healthcheck *struct {
+		Test []string `yaml:"test"`
+	} `yaml:"healthcheck"`
+	DependsOn composeDependsOn `yaml:"depends_on"`
+}
+
+// composeDependsOn handles both shapes this file uses: caddy's list form
+// (`depends_on: [app]`, now the condition-map form) and app's map form
+// (`depends_on: {db: {condition: service_healthy}}`). A custom unmarshal
+// picks the right one from the YAML node kind.
+type composeDependsOn map[string]struct {
+	Condition string `yaml:"condition"`
+}
+
+func (d *composeDependsOn) UnmarshalYAML(value *yaml.Node) error {
+	*d = composeDependsOn{}
+	switch value.Kind {
+	case yaml.SequenceNode:
+		var names []string
+		if err := value.Decode(&names); err != nil {
+			return err
+		}
+		for _, name := range names {
+			(*d)[name] = struct {
+				Condition string `yaml:"condition"`
+			}{}
+		}
+		return nil
+	case yaml.MappingNode:
+		var m map[string]struct {
+			Condition string `yaml:"condition"`
+		}
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		for k, v := range m {
+			(*d)[k] = v
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 type composeAttach struct {
@@ -920,5 +967,132 @@ func TestTheGoStageCrossCompilesForTheTargetArch(t *testing.T) {
 		if !strings.Contains(df, want) {
 			t.Errorf("Dockerfile is missing %q; a --platform build would emulate the whole builder instead of cross-compiling", want)
 		}
+	}
+}
+
+// parseMemLimit parses a compose mem_limit like "1g" or "256m" into bytes.
+func parseMemLimit(t *testing.T, s string) int64 {
+	t.Helper()
+	if s == "" {
+		t.Fatal("mem_limit is empty")
+	}
+	unit := s[len(s)-1]
+	n, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+	if err != nil {
+		t.Fatalf("mem_limit %q does not parse as <number><unit>: %v", s, err)
+	}
+	switch unit {
+	case 'g', 'G':
+		return n * 1024 * 1024 * 1024
+	case 'm', 'M':
+		return n * 1024 * 1024
+	default:
+		t.Fatalf("mem_limit %q has unrecognised unit %q, want g or m", s, string(unit))
+		return 0
+	}
+}
+
+// app and caddy both handle internet-originated traffic or its proxy, so both
+// need a ceiling that turns a leak or an abuse pattern into a restart instead
+// of a host-wide OOM. The exact numbers are unmeasured — a first cut for the
+// operator to tune — so this pins presence and a ceiling, not the value.
+func TestAppAndCaddyAreResourceLimited(t *testing.T) {
+	c := loadCompose(t)
+	for _, tt := range []struct {
+		name   string
+		maxMem int64
+	}{
+		{"app", 2 * 1024 * 1024 * 1024},
+		{"caddy", 512 * 1024 * 1024},
+	} {
+		svc := service(t, c, tt.name)
+		mem := parseMemLimit(t, svc.MemLimit)
+		if mem > tt.maxMem {
+			t.Errorf("%s mem_limit %s exceeds the %d byte ceiling", tt.name, svc.MemLimit, tt.maxMem)
+		}
+		if svc.PidsLimit <= 0 {
+			t.Errorf("%s pids_limit = %d, want > 0", tt.name, svc.PidsLimit)
+		}
+	}
+}
+
+// caddy runs as root and binds 80/443, which needs CAP_NET_BIND_SERVICE even
+// from root once cap_drop removes it; every other capability must stay
+// dropped. app carries the same drop/security_opt pair with no cap_add, since
+// it never binds a privileged port.
+func TestCaddyDropsAllCapabilitiesButBind(t *testing.T) {
+	c := loadCompose(t)
+
+	caddy := service(t, c, "caddy")
+	if got := caddy.CapDrop; len(got) != 1 || got[0] != "ALL" {
+		t.Errorf("caddy cap_drop = %v, want [\"ALL\"]", got)
+	}
+	if got := caddy.CapAdd; len(got) != 1 || got[0] != "NET_BIND_SERVICE" {
+		t.Errorf("caddy cap_add = %v, want [\"NET_BIND_SERVICE\"]", got)
+	}
+	if !containsString(caddy.SecurityOpt, "no-new-privileges:true") {
+		t.Errorf("caddy security_opt = %v, want it to contain \"no-new-privileges:true\"", caddy.SecurityOpt)
+	}
+
+	app := service(t, c, "app")
+	if got := app.CapDrop; len(got) != 1 || got[0] != "ALL" {
+		t.Errorf("app cap_drop = %v, want [\"ALL\"]", got)
+	}
+	if !containsString(app.SecurityOpt, "no-new-privileges:true") {
+		t.Errorf("app security_opt = %v, want it to contain \"no-new-privileges:true\"", app.SecurityOpt)
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// app's healthcheck must invoke the binary directly, not a shell: the
+// distroless image has none, so a CMD-SHELL probe would fail forever and
+// flap the container. caddy's probe is busybox wget against the admin API,
+// the one endpoint that answers plainly (see compose file comments).
+func TestAppAndCaddyHaveHealthchecks(t *testing.T) {
+	c := loadCompose(t)
+
+	app := service(t, c, "app")
+	if app.Healthcheck == nil {
+		t.Fatal("app has no healthcheck")
+	}
+	want := []string{"CMD", "/airbg", "healthz"}
+	if len(app.Healthcheck.Test) != len(want) {
+		t.Fatalf("app healthcheck test = %v, want %v", app.Healthcheck.Test, want)
+	}
+	for i, part := range want {
+		if app.Healthcheck.Test[i] != part {
+			t.Errorf("app healthcheck test = %v, want %v", app.Healthcheck.Test, want)
+			break
+		}
+	}
+
+	caddy := service(t, c, "caddy")
+	if caddy.Healthcheck == nil {
+		t.Fatal("caddy has no healthcheck")
+	}
+	if len(caddy.Healthcheck.Test) < 2 || caddy.Healthcheck.Test[0] != "CMD" || caddy.Healthcheck.Test[1] != "wget" {
+		t.Errorf("caddy healthcheck test = %v, want it to start with [\"CMD\", \"wget\"", caddy.Healthcheck.Test)
+	}
+}
+
+// Now that app carries a healthcheck, caddy must wait for it to report
+// healthy rather than merely started, or caddy can come up and start
+// forwarding before app's listener is ready.
+func TestCaddyWaitsForAHealthyApp(t *testing.T) {
+	caddy := service(t, loadCompose(t), "caddy")
+	dep, ok := caddy.DependsOn["app"]
+	if !ok {
+		t.Fatal("caddy depends_on does not name app")
+	}
+	if dep.Condition != "service_healthy" {
+		t.Errorf("caddy depends_on.app.condition = %q, want \"service_healthy\"", dep.Condition)
 	}
 }
