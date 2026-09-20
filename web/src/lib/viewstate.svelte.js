@@ -2,11 +2,22 @@
 // this file holds $state, the listener, and the one policy that needs the
 // History API: which writes are destinations and which are settings.
 import { parseHash, serialiseHash } from './viewstate.js'
+import { SOURCES, getSources, setSourceEnabled, onSourceChange } from './sourcefilter.svelte.js'
+
+// Applies only the sources whose desired state differs from the live one —
+// an unchanged source must not fan out through onSourceChange for nothing.
+function applySources(target) {
+  for (const source of SOURCES) {
+    const want = target.has(source)
+    if (getSources().has(source) !== want) setSourceEnabled(source, want)
+  }
+}
 
 export function createViewState({ metrics, defaultMetric, win = globalThis }) {
   const initial = parseHash(win.location.hash, { metrics, defaultMetric })
   let metric = $state(initial.metric)
   let sensorId = $state(initial.sensorId)
+  applySources(initial.sources)
 
   // Plain (non-rune) subscriber list — added ONLY because a consumer
   // (islands/map.js) is deliberately plain .js: runes only compile in
@@ -36,15 +47,29 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
     const next = parseHash(win.location.hash, { metrics, defaultMetric })
     metric = next.metric
     sensorId = next.sensorId
+    // Reuses `writing`: applying a hash-originated source change must not,
+    // in turn, write the hash again.
+    writing = true
+    try {
+      applySources(next.sources)
+    } finally {
+      writing = false
+    }
     notifyMetric()
   }
   win.addEventListener('hashchange', onHashChange)
+
+  // A source toggle is a view setting, same as metric: replaceState, and
+  // suppressed while we are the ones applying a hash-originated change.
+  const unsubscribeSources = onSourceChange(() => {
+    if (!writing) write(false)
+  })
 
   // write() always serialises the WHOLE state, so the two keys cannot disagree
   // with what is rendered. An empty serialisation is written as the bare path,
   // not as '#' — otherwise the address bar keeps a dangling hash forever.
   function write(push) {
-    const hash = serialiseHash({ metric, sensorId }, defaultMetric)
+    const hash = serialiseHash({ metric, sensorId, sources: getSources() }, defaultMetric)
     const url = win.location.pathname + win.location.search + hash
     writing = true
     // finally, not a bare assignment after: real browsers enforce a
@@ -91,6 +116,7 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
     },
     destroy() {
       win.removeEventListener('hashchange', onHashChange)
+      unsubscribeSources()
       metricListeners.clear()
     },
   }
