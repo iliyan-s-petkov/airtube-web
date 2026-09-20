@@ -268,15 +268,13 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
   const pick = (h) => {
     if (enabled === null) return { values: h.values, n: h.n }
     if (enabled.size === 0) return null
-    if (enabled.size > 1 && h.by_source) return { values: h.values, n: h.n }
-    if (h.by_source) {
-      for (const src of enabled) {
-        const part = h.by_source[src]
-        if (part) return { values: part.values, n: part.n }
-      }
-      return null
-    }
-    return enabled.has(sourceOf(h)) ? { values: h.values, n: h.n } : null
+    if (!h.by_source) return enabled.has(sourceOf(h)) ? { values: h.values, n: h.n } : null
+    // The blend is the server's median over every network in the cell, so it is
+    // right only when every one of them is on. Counting enabled networks is not
+    // that test once a third network exists.
+    const parts = Object.entries(h.by_source)
+    if (parts.every(([src]) => enabled.has(src))) return { values: h.values, n: h.n }
+    return combine(parts.filter(([src]) => enabled.has(src)).map(([, part]) => part))
   }
 
   // No-data cells first, and the served order kept within each group.
@@ -365,6 +363,32 @@ function ringFor(points, h, drawKM) {
 // device standing there says. It also subsumes the climate twin — a station's
 // two sensor ids share one pair of coordinates and so one cell, and the twin's
 // missing PM reading stops being a grey cell laid over its sibling's.
+// The numbers of a subset of a cell's networks. One part is its own numbers; a
+// median over several parts cannot be recovered client-side, so they are combined
+// by count-weighted mean, the same approximation snapToLattice makes. A metric
+// no part carries stays absent rather than becoming 0.
+function combine(parts) {
+  if (parts.length === 0) return null
+  if (parts.length === 1) return { values: parts[0].values, n: parts[0].n }
+  const sums = new Map()
+  let n = 0
+  for (const part of parts) {
+    const weight = part.n ?? 0
+    n += weight
+    for (const [metric, value] of Object.entries(part.values ?? {})) {
+      if (typeof value !== 'number') continue
+      const sum = sums.get(metric) ?? { total: 0, weight: 0 }
+      sum.total += value * weight
+      sum.weight += weight
+      sums.set(metric, sum)
+    }
+  }
+  const values = Object.fromEntries(
+    [...sums].filter(([, s]) => s.weight > 0).map(([m, s]) => [m, s.total / s.weight]),
+  )
+  return { values, n }
+}
+
 function snapToLattice(hexes, drawKM) {
   const cells = new Map()
   for (const h of hexes) {
