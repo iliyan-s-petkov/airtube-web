@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   debounce, hintController, loadScales, initData, refreshHexes, showArea, mapHint,
-  setSourceViewAvailability, metricNote, cellTier,
+  setSourceViewAvailability, metricNote, cellTier, urlFor,
 } from '../mapdata.js'
 import { placeVisitor } from '../placement.js'
 import { clearCache } from '../api.js'
@@ -23,6 +23,24 @@ const NO_DATA_COLOUR = '#9ca3af'
 // debounce: the 250ms gate between a moveend event and the request it may
 // fire. One pinch-zoom gesture emits a dozen moveend events; without this, that
 // is a dozen requests and the whole burst.
+// urlFor is the anti-enumeration seam: it is the ONLY place a tier turns into a
+// request URL, and it must never accept a bounding box or build one from a
+// slug the caller did not explicitly select.
+describe('urlFor', () => {
+  it('asks for the country aggregate with no per-entity key', () => {
+    expect(urlFor('country', null)).toBe('/api/v1/overview')
+  })
+  it('asks for the city aggregate via the tier query parameter, not a path segment', () => {
+    expect(urlFor('city', null)).toBe('/api/v1/overview?tier=city')
+  })
+  it('asks for one area\'s sensors by the slug the caller passed in, percent-encoded', () => {
+    expect(urlFor('sensors', 'sofia')).toBe('/api/v1/area/sofia/sensors')
+  })
+  it('percent-encodes a slug containing characters that would otherwise change the path', () => {
+    expect(urlFor('sensors', 'a/b?c')).toBe('/api/v1/area/a%2Fb%3Fc/sensors')
+  })
+})
+
 describe('debounce', () => {
   it('calls the wrapped function once, after the delay, for a burst of calls', () => {
     vi.useFakeTimers()

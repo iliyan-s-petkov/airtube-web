@@ -1259,11 +1259,11 @@ export {
 export {
   paintSource, initData, loadScales, cellTier, showArea,
   applyMarkerZoomRange, mapHint, repaintSensors, setSourceViewAvailability, refreshHexes,
-  metricNote, hintController, debounce, setCellValues,
+  metricNote, hintController, debounce, setCellValues, urlFor,
 } from '../lib/mapdata.js'
 export {
   LOCATE_TIMEOUT_MS, placeVisitor, prefetchPlacement, DEEP_LINK_ZOOM, openDeepLinkedSensor,
-  locateMe, showNearestSensor, urlFor, locateVisitor,
+  locateMe, showNearestSensor, locateVisitor,
 } from '../lib/placement.js'
 export {
   glyphsURL, overlayLayers, registerProtocols, mapStyle, installErrorHandler, addBasemapOverlay,

@@ -18,7 +18,15 @@ import {
 import { MAX_ZOOM_CEILING } from './mapconfig.js'
 import { areaFeatures, sensorFeatures } from './mapfeatures.js'
 import { bandsFor, markerMaxZoom, markerPaint } from './mappaint.js'
-import { urlFor } from './placement.js'
+
+// urlFor turns a tier into the endpoint that serves it. It lives here, beside
+// its only caller, so the data seam does not import from the placement seam
+// that imports it back.
+export function urlFor(tier, slug) {
+  if (tier === 'country') return '/api/v1/overview'
+  if (tier === 'city') return '/api/v1/overview?tier=city'
+  return `/api/v1/area/${encodeURIComponent(slug)}/sensors`
+}
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole

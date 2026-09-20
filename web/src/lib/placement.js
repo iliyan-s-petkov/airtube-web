@@ -4,7 +4,7 @@ import { findSensor, getSensors } from './sensors.svelte.js'
 import { nearestArea, nearestSensor } from './nearest.js'
 import { setMapAreas } from './mapareas.svelte.js'
 import { POINT_TIER_MIN_ZOOM } from './hexes.js'
-import { refresh, refreshHexes } from './mapdata.js'
+import { refresh, refreshHexes, urlFor } from './mapdata.js'
 
 // locateVisitor asks the server where the visitor is and, only for a genuine
 // "geoip" placement (see applyLocate's own comment on why "default" must
@@ -177,10 +177,4 @@ export async function showNearestSensor(map, state, cfg, chrome, point) {
   if (sensor) map.jumpTo({ center: [sensor.lon, sensor.lat], zoom: DEEP_LINK_ZOOM })
   await refreshHexes(map, state, cfg)
   return true
-}
-
-export function urlFor(tier, slug) {
-  if (tier === 'country') return '/api/v1/overview'
-  if (tier === 'city') return '/api/v1/overview?tier=city'
-  return `/api/v1/area/${encodeURIComponent(slug)}/sensors`
 }

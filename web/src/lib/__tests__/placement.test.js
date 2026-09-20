@@ -1,30 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  urlFor, locateVisitor, openDeepLinkedSensor, prefetchPlacement, locateMe, DEEP_LINK_ZOOM,
+  locateVisitor, openDeepLinkedSensor, prefetchPlacement, locateMe, DEEP_LINK_ZOOM,
 } from '../placement.js'
 import { clearCache } from '../api.js'
 import { resetViewStateForTests } from '../viewstate.svelte.js'
 import { setSensors } from '../sensors.svelte.js'
 import { getMapAreas, setMapAreas } from '../mapareas.svelte.js'
 import { POINT_TIER_MIN_ZOOM } from '../hexes.js'
-
-// urlFor is the anti-enumeration seam: it is the ONLY place a tier turns into a
-// request URL, and it must never accept a bounding box or build one from a
-// slug the caller did not explicitly select.
-describe('urlFor', () => {
-  it('asks for the country aggregate with no per-entity key', () => {
-    expect(urlFor('country', null)).toBe('/api/v1/overview')
-  })
-  it('asks for the city aggregate via the tier query parameter, not a path segment', () => {
-    expect(urlFor('city', null)).toBe('/api/v1/overview?tier=city')
-  })
-  it('asks for one area\'s sensors by the slug the caller passed in, percent-encoded', () => {
-    expect(urlFor('sensors', 'sofia')).toBe('/api/v1/area/sofia/sensors')
-  })
-  it('percent-encodes a slug containing characters that would otherwise change the path', () => {
-    expect(urlFor('sensors', 'a/b?c')).toBe('/api/v1/area/a%2Fb%3Fc/sensors')
-  })
-})
 
 // Task 10, fix round 1: mountTestMap's harness sets no data-slug, so
 // locateVisitor DOES run during the mount()-based tests above via the
