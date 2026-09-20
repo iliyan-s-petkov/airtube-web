@@ -240,3 +240,15 @@ func TestLatestIsTaggedOnlyAfterSigning(t *testing.T) {
 			publishWorkflowPath, imagetoolsIdx, cosignSignIdx)
 	}
 }
+
+// TestShortTagWidthIsPinned asserts that the git rev-parse step pins the
+// short SHA width to exactly 7 characters. Git's auto-abbrev width grows with
+// object count, and a shallow CI clone sees fewer objects than the operator's
+// full clone — the two sides can drift. The Ansible side is pinned to 7 in
+// the same change set, so this test pins the CI side to match.
+func TestShortTagWidthIsPinned(t *testing.T) {
+	raw := readWorkflow(t, publishWorkflowPath)
+	if !strings.Contains(raw, "git rev-parse --short=7 HEAD") {
+		t.Error(publishWorkflowPath + ": git rev-parse does not pin the short width to 7 characters; the CI clone and the operator's clone can drift on auto-abbrev width")
+	}
+}
