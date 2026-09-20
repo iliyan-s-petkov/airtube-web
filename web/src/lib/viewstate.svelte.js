@@ -47,14 +47,8 @@ export function createViewState({ metrics, defaultMetric, win = globalThis }) {
     const next = parseHash(win.location.hash, { metrics, defaultMetric })
     metric = next.metric
     sensorId = next.sensorId
-    // The hash already reflects `next.sources` — applying it must not, in
-    // turn, write the hash again. Reusing `writing` for this (rather than a
-    // second flag) is the same guard as the reentrancy case below: both mean
-    // "this change originated from the hash, do not echo it back".
-    // The hash already reflects `next.sources` — applying it must not, in
-    // turn, write the hash again. Reusing `writing` for this (rather than a
-    // second flag) is the same guard as the reentrancy case below: both mean
-    // "this change originated from the hash, do not echo it back".
+    // Reuses `writing`: applying a hash-originated source change must not,
+    // in turn, write the hash again.
     writing = true
     try {
       applySources(next.sources)
