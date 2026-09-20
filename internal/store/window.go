@@ -48,7 +48,9 @@ per_area AS (
 var windowedAreaAggregateSQL = "WITH" + latestCTE(5) +
 	"," + fmt.Sprintf(windowedSensorCTE, 4) +
 	"," + windowedPerAreaCTE +
-	"," + coverageCTE + areaAggregateSelect
+	"," + perAreaSourceCTE("w.value",
+	"      JOIN windowed w      ON w.sensor_id = l.sensor_id AND w.metric = l.metric") +
+	"," + coverageCTE + "," + coverageSourceCTE + areaAggregateSelect
 
 // WindowedAreaAggregates is AreaAggregates with the published value replaced by
 // the figure over [since, now) — each device's weighted mean over the window,
