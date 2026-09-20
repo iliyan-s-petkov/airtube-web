@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createViewState } from '../viewstate.svelte.js'
+import {
+  CITIZEN_SOURCE, OFFICIAL_SOURCE, getSources, setSourceEnabled, resetSourceFilterForTests,
+} from '../sourcefilter.svelte.js'
 
 const opts = { metrics: ['P1', 'P2', 'temperature'], defaultMetric: 'P2' }
 
 beforeEach(() => {
   history.replaceState(null, '', '/area/sofia')
+  resetSourceFilterForTests()
 })
 
 describe('createViewState', () => {
@@ -119,6 +123,35 @@ describe('createViewState', () => {
     win.location.hash = '#metric=temperature'
     listener()
     expect(vs.metric).toBe('temperature')
+    vs.destroy()
+  })
+
+  it('adopts the hash-restored sources on init', () => {
+    history.replaceState(null, '', '/area/sofia#layers=official')
+    const vs = createViewState(opts)
+    expect(getSources()).toEqual(new Set([OFFICIAL_SOURCE]))
+    vs.destroy()
+  })
+
+  // One flow, matching the brief: init restricted to official, disabling it
+  // reaches the empty set (written as 'none'), then an external hashchange
+  // to community must update sources WITHOUT writing the hash a second time.
+  it('writes replaceState for a toggle, and does not echo a hash-driven source change', () => {
+    history.replaceState(null, '', '/area/sofia#layers=official')
+    const vs = createViewState(opts)
+
+    setSourceEnabled(OFFICIAL_SOURCE, false)
+    expect(location.hash).toBe('#layers=none')
+
+    const replaceSpy = vi.spyOn(history, 'replaceState')
+    history.replaceState(null, '', '/area/sofia#layers=community')
+    replaceSpy.mockClear() // ignore the setup call above, only count the store's own writes
+    dispatchEvent(new HashChangeEvent('hashchange'))
+    expect(getSources()).toEqual(new Set([CITIZEN_SOURCE]))
+    expect(replaceSpy).not.toHaveBeenCalled()
+    expect(location.hash).toBe('#layers=community')
+
+    replaceSpy.mockRestore()
     vs.destroy()
   })
 })
