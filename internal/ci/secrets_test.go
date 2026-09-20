@@ -10,7 +10,7 @@ import (
 )
 
 // gcpAPIKey is gitleaks' own shape for a Google API key. The 2017 PHP
-// collector committed one; it was later quoted verbatim in ANALYSIS.md.
+// collector committed one; a later analysis note quoted it verbatim.
 var gcpAPIKey = regexp.MustCompile(`AIzaSy[\w-]{33}`)
 
 // TestSecretScanRunsOnEveryEvent: ci.yml has a job that runs gitleaks, pinned
