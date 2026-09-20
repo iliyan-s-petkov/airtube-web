@@ -23,6 +23,8 @@ Flow: browser geolocation → `location.php?lat&long&bounds` → Mongo bbox → 
 `lib/geo2addr.class.php:39` hardcodes a Google API key (`AIzaSy…`, redacted here; see `.gitleaksignore` for the finding) in the Geocoding URL, and it is committed to git history. Anyone with repo access can bill against it.
 **Action:** rotate the key in Google Cloud Console, move the new one to an env var / untracked config, and apply an API restriction (Geocoding API only, IP-restricted to the collector host). Rotation is required — removing the line does not un-leak a key already in history.
 
+Status (2026-09-20): the key belongs to the upstream airtube-web author, not to this project. The Go rewrite does not use Google Geocoding; the PHP collector and the key are gone from the tree, and the finding is allowlisted by commit fingerprint in `.gitleaksignore`. Revocation is the upstream owner's to do.
+
 ### S2 — InfluxQL injection via `geohash` (high)
 `charts_values.php:13,25` interpolate `$_GET['geohash']` into a single-quoted InfluxQL string with no escaping. A `'` in the parameter breaks out of the literal, allowing arbitrary clause injection (read other measurements, expensive scans → DoS). `location.php` is safer by accident: `bounds` passes through `explode` + `floatval`, and the geohashes come from Mongo.
 **Action:** whitelist the parameter with `preg_match('/^[0-9a-z]{1,12}$/', $geohash)` before it reaches the query.

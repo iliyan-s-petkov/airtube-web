@@ -1,5 +1,5 @@
 # Legacy Google Geocoding key from the 2017 PHP collector, and the analysis
-# note that quoted it. History stays; the key is to be revoked at project
-# close. Fingerprints only: <commit>:<path>:<rule>:<line>.
+# note that quoted it. History stays; the key belongs to the upstream author,
+# not to this project, so there is nothing for us to revoke. Fingerprints only: <commit>:<path>:<rule>:<line>.
 7d80789ce8424d6015412e13f1ef9d625cf29293:www-root/lib/geo2addr.class.php:gcp-api-key:41
 84df191f941d6824741caf61a5196268547b3403:ANALYSIS.md:gcp-api-key:23
