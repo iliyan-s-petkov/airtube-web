@@ -22,8 +22,9 @@ jobs:
           platforms: linux/amd64
           push: false
           load: true
-          provenance: true
-          sbom: true
+          # load uses the docker exporter, which cannot take the attestation manifest list
+          provenance: false
+          sbom: false
           tags: ghcr.io/iliyan-s-petkov/airbg:pr-check
           labels: org.opencontainers.image.source=https://github.com/iliyan-s-petkov/airtube-web
           cache-from: type=gha
