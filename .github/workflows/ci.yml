@@ -89,6 +89,7 @@ jobs:
       # package.json instead of quietly resolving a different tree than the
       # one that was reviewed.
       - run: npm ci
+      - run: npm audit --audit-level=high
       - run: npm test
       - run: npm run build
 

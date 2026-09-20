@@ -168,7 +168,7 @@ func TestContractIsRegeneratedAndDiffed(t *testing.T) {
 	// and the message that says how to fix it lives in a `go test` step the
 	// abort never reaches.
 	if remedyIdx == -1 || remedyIdx < diffIdx {
-		t.Errorf("the contract diff step in %s does not print the regenerate command in its own failure path "+
+		t.Errorf("the contract diff step in %s does not print a ::error:: annotation naming the regenerate command after the diff "+
 			"(remedy=%d diff=%d); a developer sees an unexplained diff and reverts the file instead of regenerating it",
 			workflowPath, remedyIdx, diffIdx)
 	}
