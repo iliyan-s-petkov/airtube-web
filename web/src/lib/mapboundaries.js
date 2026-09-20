@@ -8,6 +8,9 @@ import {
   BOUNDARY_SOURCE_ID, BOUNDARY_SELECTED_LAYER_ID, BOUNDARY_LAYER_IDS, selectedFilter,
 } from './boundaries.js'
 
+// Padding in pixels around a province fitted into the frame. Enough that the
+// outline the reader just selected is not flush against the edge of the map,
+// where the highlight it was given would be half a line wide.
 export const BOUNDARY_FIT_PADDING = 24
 
 // queryRenderedFeatures over whichever of the named layers the map actually
