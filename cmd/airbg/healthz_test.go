@@ -41,4 +41,15 @@ func TestRunHealthz(t *testing.T) {
 			t.Errorf("runHealthz() took %v, want well under the timeout bound", elapsed)
 		}
 	})
+
+	t.Run("empty address fails closed without dialing", func(t *testing.T) {
+		start := time.Now()
+		err := runHealthz("", time.Second)
+		if err == nil {
+			t.Fatal("runHealthz(\"\", ...) error = nil, want an error")
+		}
+		if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+			t.Errorf("runHealthz(\"\", ...) took %v, want an immediate failure with no dial attempt", elapsed)
+		}
+	})
 }

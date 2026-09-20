@@ -9,11 +9,8 @@ import (
 	"testing"
 )
 
-// TestSSHIsRateLimited asserts that the SSH rule limits new connections to
-// 6 per minute with a 10-packet burst, and that no line contains the
-// dangerous `flush ruleset` command. The test reads nftables.conf and
-// verifies the rate-limiting tokens appear on the SSH rule before the accept
-// verdict.
+// TestSSHIsRateLimited asserts the SSH rule contains `ct state new`,
+// `limit rate` and `accept`, and that no line is `flush ruleset`.
 func TestSSHIsRateLimited(t *testing.T) {
 	data, err := os.ReadFile("nftables.conf")
 	if err != nil {
