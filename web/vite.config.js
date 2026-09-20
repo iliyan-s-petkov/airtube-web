@@ -1,6 +1,7 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte'
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { gzipSync } from 'node:zlib'
 
 // MapLibre GL JS ships its tiling/parsing work in a SEPARATE worker script
 // (maplibre-gl-worker.mjs) that it loads itself at runtime via
@@ -56,6 +57,40 @@ function keepDistTracked() {
   }
 }
 
+// Keyed to this plugin's own node:zlib measurement, which disagrees with
+// Vite's native reporter on the same bytes. See docs/map-rendering.md.
+const MAP_CHUNK_GZIP_BUDGET_BYTES = 290 * 1024
+
+// writeBundle sees the real written bytes, unlike a test reading dist after the
+// fact, which would pass vacuously on a stale build. A chunk that no longer
+// matches is a build failure, not a silent no-op — see docs/map-rendering.md.
+function checkMapChunkSize() {
+  return {
+    name: 'check-map-chunk-size',
+    writeBundle(options, bundle) {
+      let mapChunkFound = false
+      for (const chunk of Object.values(bundle)) {
+        const bytes = readFileSync(path.join(options.dir, chunk.fileName))
+        const gzipBytes = gzipSync(bytes).length
+        console.log(`[bundle size] ${chunk.fileName}: ${(gzipBytes / 1024).toFixed(2)} KB gz`)
+        if (chunk.type === 'chunk' && chunk.facadeModuleId?.endsWith('/islands/map.js')) {
+          mapChunkFound = true
+          if (gzipBytes > MAP_CHUNK_GZIP_BUDGET_BYTES) {
+            throw new Error(
+              `map chunk is ${(gzipBytes / 1024).toFixed(2)} KB gzipped, over the ${(MAP_CHUNK_GZIP_BUDGET_BYTES / 1024).toFixed(0)} KB budget (docs/map-rendering.md) — lazy-load wind/timelapse out of it`,
+            )
+          }
+        }
+      }
+      if (!mapChunkFound) {
+        throw new Error(
+          'map chunk size guard found no chunk with facadeModuleId ending in /islands/map.js — the chunk-identifying assumption broke (chunking change, map.js rename/merge) and the gzip budget is no longer enforced; update checkMapChunkSize in vite.config.js (docs/map-rendering.md)',
+        )
+      }
+    },
+  }
+}
+
 export default {
   // '.' rather than 'web': vite.config.js already lives inside web/, and every
   // script in package.json runs with npm's cwd there (`cd web && npm run
@@ -73,7 +108,7 @@ export default {
   // hand verification: the browser asked for /assets/map-*.css, got Go's
   // catch-all 404 page back as text/html, and the map island failed to mount).
   base: '/static/build/',
-  plugins: [svelte(), copyMapLibreWorker(), keepDistTracked()],
+  plugins: [svelte(), copyMapLibreWorker(), keepDistTracked(), checkMapChunkSize()],
   build: {
     outDir: '../internal/web/dist',
     emptyOutDir: true,
@@ -81,6 +116,9 @@ export default {
     // `Cache-Control: immutable` without ever serving a stale bundle.
     // Without the manifest, Go cannot know the hashed name.
     manifest: true,
+    // Off so one gzip number per file reaches the log, not two that disagree;
+    // checkMapChunkSize prints every file, assets included.
+    reportCompressedSize: false,
     // 'theme' is a CSS-only entry: it exists so the design kit's tokens are
     // inlined into the build instead of restated in internal/web/static.
     rollupOptions: { input: { main: 'src/main.js', theme: 'src/styles/theme.css' } },

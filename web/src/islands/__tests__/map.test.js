@@ -1252,6 +1252,29 @@ describe('installTimelapse', () => {
     })
   })
 
+  // The band table is held across frames rather than rebuilt per frame, and the
+  // one window in which that could go stale is the one the player is installed
+  // in: installTimelapse runs before initData awaits the scales, so a reader who
+  // presses play on a slow link starts the run with no table at all. Caching it
+  // for the life of the run would leave that country grey under a working clock
+  // until they pressed exit.
+  it('picks up a band table that arrives after the run started', async () => {
+    const clock = manualClock()
+    try {
+      const { painted, ui, state } = harness(async () => BODY, T)
+      ui.button.click()
+      await vi.waitFor(() => expect(painted.length).toBe(1))
+      expect(painted[0].features[0].properties.colour, 'no scales yet, so no colour to give it').toBe(cfg.noDataColour)
+      state.scales = [{ metric: 'P2', bands: [{ upper: 5, colour: '#50f0e6' }] }]
+      clock.tick(FRAME_MS)
+      expect(painted.length).toBeGreaterThan(1)
+      expect(painted.at(-1).features[0].properties.colour).not.toBe(cfg.noDataColour)
+      ui.exit.click()
+    } finally {
+      clock.restore()
+    }
+  })
+
   // A digit that appears where there was none pulls the eye to the arrival
   // rather than to the value. It must ramp up instead of popping.
   describe('late joiners', () => {

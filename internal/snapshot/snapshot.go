@@ -129,6 +129,11 @@ type Snapshot struct {
 	// build once — and deliberately no way to ask for one.
 	points []hexEntry
 
+	// pointsIndex buckets points for PointBody's viewport clip; see bboxIndex.
+	// Nil on a Snapshot built by a struct literal (tests), where PointBody
+	// falls back to a linear walk.
+	pointsIndex *bboxIndex
+
 	// coverage is the per-network per-metric sensor count the hex payloads
 	// publish. Held here as well as on each tier payload because PointBody
 	// builds its envelope from scratch rather than from hexTiers.

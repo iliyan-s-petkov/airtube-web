@@ -57,3 +57,33 @@ marker labels, cell values and wind arrows all disappear at once.
 
 `hex_opacity` (`airbg.yaml`) is 0.75 and the outline is the label ink at
 1.2 px / 0.7 opacity. White outlines were invisible over a pale raster.
+
+## Map chunk size budget
+
+`web/vite.config.js` fails the build if the `islands/map.js` chunk goes over
+290 KB gzipped. MapLibre plus the wind and timelapse code is the bulk of what
+the browser downloads for the map, and nothing else in the build watches it.
+
+Two gzip numbers exist for the same file and they disagree. Vite/rolldown's
+built-in reporter (`build.reportCompressedSize`) computes its figure natively
+in Rust, with compression parameters no JS plugin can read or reproduce; the
+guard measures with node:zlib's `gzipSync`. On the same bytes the reporter
+said 288.89 KB and node:zlib said 278.68 KB. The reporter is turned off so the
+log carries one number, and the guard prints a line for every emitted file —
+assets and the manifest included — so nothing the reporter covered is lost.
+
+The plan set the trigger at 300 KB against the reporter's 288.84 KB, i.e. about
+11 KB of headroom. Re-based onto the guard's own measurement that is
+278.68 + 11 ≈ 290 KB, which is the constant in the config.
+
+Neither number is bytes on the wire: `internal/web` serves these assets
+uncompressed and a CDN edge compresses at its own settings. The budget's job is
+to be measured the same way every build so a crossing is detectable, not to
+predict the wire.
+
+The guard finds the chunk by `facadeModuleId`, not by its hashed filename. If
+no chunk matches, that is a build failure too — a chunking change or a rename
+would otherwise leave the budget unenforced with nobody told. It carries its
+own message rather than reusing the over-budget one, so the two causes read
+differently in CI output: one means the map got heavier, the other means the
+guard stopped looking at the map.
