@@ -363,6 +363,12 @@ func collapseSources(by map[string]store.SourceAggregate) (string, map[string]So
 	return "", out
 }
 
+// bySourceKind is the tier gate. The neighbourhood tier multiplies the area
+// count by an order of magnitude; see TestAreasPayloadGrowthFromBySourceIsWithinBudget.
+func bySourceKind(kind string) bool {
+	return kind == "oblast" || kind == "city"
+}
+
 func areaPayloadFrom(now time.Time, aggs []store.AreaAggregate) areaPayload {
 	p := areaPayload{GeneratedAt: now, Areas: make([]areaPayloadEntry, 0, len(aggs))}
 	for _, a := range aggs {
@@ -371,6 +377,9 @@ func areaPayloadFrom(now time.Time, aggs []store.AreaAggregate) areaPayload {
 			values = map[string]float64{}
 		}
 		source, bySource := collapseSources(a.BySource)
+		if !bySourceKind(a.Kind) {
+			bySource = nil
+		}
 		p.Areas = append(p.Areas, areaPayloadEntry{
 			Slug: a.Slug, Kind: a.Kind, NameBG: a.NameBG, NameEN: a.NameEN,
 			Lon: a.CentroidLon, Lat: a.CentroidLat, Zoom: a.DefaultZoom,

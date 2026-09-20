@@ -179,3 +179,25 @@ func TestAreaPayloadStaysReadableByAnOldClient(t *testing.T) {
 		t.Errorf("old view = %#v, want the unchanged 4 / true / P2 25 / P1 40", e)
 	}
 }
+
+// The neighbourhood tier carries the scalar but not the breakdown: it is the
+// tier that multiplies the area count, and the payload measurement refused it.
+func TestNeighbourhoodTierOmitsTheBreakdown(t *testing.T) {
+	by := map[string]store.SourceAggregate{
+		"sensor.community": {N: 3, Values: map[string]float64{"P2": 20}},
+		"eea":              {N: 1, Values: map[string]float64{"P2": 100}},
+	}
+	hood := entryFor(t, []store.AreaAggregate{
+		aggFrom("lozenets", "neighbourhood", 4, map[string]float64{"P2": 25}, by),
+	}, "lozenets")
+	if hood.BySource != nil {
+		t.Errorf("by_source = %#v, want nil on the neighbourhood tier", hood.BySource)
+	}
+
+	city := entryFor(t, []store.AreaAggregate{
+		aggFrom("plovdiv", "city", 4, map[string]float64{"P2": 25}, by),
+	}, "plovdiv")
+	if len(city.BySource) != 2 {
+		t.Errorf("by_source = %#v, want both networks on the city tier", city.BySource)
+	}
+}
