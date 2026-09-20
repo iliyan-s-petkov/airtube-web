@@ -158,6 +158,12 @@ describe('chooseWindow', () => {
     expect(localStorage.getItem(WINDOW_STORAGE_KEY)).toBe(null)
   })
 
+  it('re-picking live is not a no-op, since live moves with the clock', () => {
+    const state = { window: LIVE_WINDOW }
+    expect(chooseWindow(state, LIVE_WINDOW)).toBe(true)
+    expect(state.window).toBe(LIVE_WINDOW)
+  })
+
   it('takes a change back to live', () => {
     const state = { window: '7d' }
     expect(chooseWindow(state, LIVE_WINDOW)).toBe(true)
