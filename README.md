@@ -4,8 +4,7 @@ Air quality map for Bulgaria, using data from the sensor.community citizen
 sensor network.
 
 This repository is a rewrite of the legacy PHP application. See
-`docs/superpowers/specs/2026-08-07-airbg-phase1-design.md` for the design and
-`ANALYSIS.md` for the audit of the code it replaces.
+`docs/superpowers/specs/2026-08-07-airbg-phase1-design.md` for the design.
 
 ## Running locally
 
