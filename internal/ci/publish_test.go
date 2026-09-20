@@ -148,6 +148,20 @@ func TestTrivyRunsBeforeCosignSign(t *testing.T) {
 	}
 }
 
+// line0Indent returns the number of leading spaces before the `- ` that
+// starts a workflow step.
+func line0Indent(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " "))
+}
+
+// isStepStart reports whether line begins a new step at the given
+// indentation: a new `- ` list item (uses:, name:, run:, if:, id: — whatever
+// key happens to lead that step) at exactly that indent.
+func isStepStart(line string, indent int) bool {
+	trimmed := strings.TrimLeft(line, " ")
+	return len(line)-len(trimmed) == indent && strings.HasPrefix(trimmed, "- ")
+}
+
 // cosignSignsDigest matches the cosign sign invocation and requires it to
 // target an `@sha256:...`-style digest reference built from the build step's
 // digest output, never a mutable `:tag`.
@@ -159,5 +173,61 @@ func TestCosignSignsTheDigestNotATag(t *testing.T) {
 	raw := readWorkflowFile(t, publishWorkflowPath)
 	if !cosignSignsDigest.MatchString(raw) {
 		t.Errorf("%s: no `cosign sign` step found targeting `@${{ steps.build.outputs.digest }}`", publishWorkflowPath)
+	}
+}
+
+// TestLatestIsTaggedOnlyAfterSigning proves the build step never pushes the
+// mutable `:latest` tag itself — a failed Trivy scan must not leave `:latest`
+// pointing at an unscanned image — and that `:latest` (and any release tag)
+// is only aliased onto the already-signed digest by an `imagetools create`
+// step that runs after `cosign sign`.
+func TestLatestIsTaggedOnlyAfterSigning(t *testing.T) {
+	raw := readWorkflowFile(t, publishWorkflowPath)
+	lines := strings.Split(raw, "\n")
+
+	buildIdx, buildEnd := -1, -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "- id: build" {
+			buildIdx = i
+			break
+		}
+	}
+	if buildIdx == -1 {
+		t.Fatalf("%s: no `- id: build` step found", publishWorkflowPath)
+	}
+	indent := line0Indent(lines[buildIdx])
+	buildEnd = len(lines)
+	for i := buildIdx + 1; i < len(lines); i++ {
+		if isStepStart(lines[i], indent) {
+			buildEnd = i
+			break
+		}
+	}
+	for i := buildIdx; i < buildEnd; i++ {
+		if strings.Contains(lines[i], "latest") {
+			t.Errorf("%s: build step (lines %d-%d) tags block contains `latest`; a failed scan would leave `:latest` pointing at an unscanned image",
+				publishWorkflowPath, buildIdx, buildEnd-1)
+			break
+		}
+	}
+
+	cosignSignIdx, imagetoolsIdx := -1, -1
+	for i, line := range lines {
+		switch {
+		case cosignSignIdx == -1 && containsAll(line, []string{"cosign sign"}):
+			cosignSignIdx = i
+		case imagetoolsIdx == -1 && containsAll(line, []string{"imagetools create"}):
+			imagetoolsIdx = i
+		}
+	}
+	if cosignSignIdx == -1 {
+		t.Fatalf("%s: no `cosign sign` step found", publishWorkflowPath)
+	}
+	if imagetoolsIdx == -1 {
+		t.Fatalf("%s: no `imagetools create` step found", publishWorkflowPath)
+	}
+	if !(imagetoolsIdx > cosignSignIdx) {
+		t.Errorf("%s: `imagetools create` (line %d) is not after `cosign sign` (line %d); `:latest` would be aliased before the image is signed",
+			publishWorkflowPath, imagetoolsIdx, cosignSignIdx)
 	}
 }
