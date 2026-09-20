@@ -6,10 +6,9 @@
 import { Map as MapLibreMap } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { installZoom } from '../lib/mapcontrols.js'
-import { installLayers, LAYER_ORDER } from '../lib/maplayers.js'
+import { installLayers } from '../lib/maplayers.js'
 import { getJSON, clearCache } from '../lib/api.js'
 import { getFreshness } from '../lib/freshness.svelte.js'
-import { parseMetricList, splitAttr, byMetric } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import {
@@ -619,36 +618,3 @@ export function mount(el) {
     stop: () => { unsubscribe?.(); unprovide?.(); unfilter?.(); unfilterSource?.(); unselect() },
   }
 }
-
-// Re-exports: task 6.1 moved this code to lib/, but map.js stays the Vite
-// chunk facade and every name it exported before must still be importable
-// from here. sensorFeatures is the one exception — its only external
-// importer now reads it straight from lib/mapfeatures.js.
-export { HEX_SOURCE_ID, HEX_LABEL_LAYER_ID } from '../lib/mapids.js'
-export { LEGEND_FOLD_KEY, PLAY_SPEED_KEY, readConfig, layerLabelKey } from '../lib/mapconfig.js'
-export { areaFeatures } from '../lib/mapfeatures.js'
-export {
-  CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY, markerMaxZoom, hexOutlinePaint, bandsFor,
-  hexLabelPaint, layerPaint, NOT_OFFICIAL, officialLayout, officialPaint, labelLayout,
-  hexLabelLayout, labelPaint, markerPaint,
-} from '../lib/mappaint.js'
-export {
-  setWind, refreshWind, paintWind,
-} from '../lib/mapwind.js'
-export {
-  boundaryChoice, highlightBoundary, setBoundaries, cellArea,
-} from '../lib/mapboundaries.js'
-export {
-  paintSource, initData, loadScales, cellTier, showArea,
-  applyMarkerZoomRange, mapHint, repaintSensors, setSourceViewAvailability, refreshHexes,
-  metricNote, hintController, debounce, setCellValues, urlFor,
-} from '../lib/mapdata.js'
-export {
-  LOCATE_TIMEOUT_MS, placeVisitor, prefetchPlacement, DEEP_LINK_ZOOM, openDeepLinkedSensor,
-  locateMe, showNearestSensor, locateVisitor,
-} from '../lib/placement.js'
-export {
-  glyphsURL, overlayLayers, registerProtocols, mapStyle, installErrorHandler, addBasemapOverlay,
-} from '../lib/mapstyle.js'
-export { installTimelapse } from '../lib/timelapse-island.js'
-export { mountChrome } from '../lib/chrome.js'

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { setBoundaries, boundaryChoice, highlightBoundary } from '../map.js'
+import { setBoundaries, boundaryChoice, highlightBoundary } from '../../lib/mapboundaries.js'
 import {
   BOUNDARY_SOURCE_ID, BOUNDARY_SELECTED_LAYER_ID, BOUNDARY_LAYER_IDS, selectedFilter,
 } from '../../lib/boundaries.js'

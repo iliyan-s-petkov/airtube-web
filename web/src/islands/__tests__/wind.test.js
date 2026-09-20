@@ -3,7 +3,7 @@ import {
   arrowBearing, arrowImage, arrowLayout, arrowPaint, windFeatures, windField, windLabel, windIsStale,
   ARROW_IMAGE_ID, ARROW_PX, WIND_LAYER_ID, WIND_FIELD_MAX,
 } from '../wind.js'
-import { setWind, refreshWind } from '../map.js'
+import { setWind, refreshWind } from '../../lib/mapwind.js'
 
 describe('arrowBearing', () => {
   // The API reports where the wind comes FROM. A northerly (0°) blows

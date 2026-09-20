@@ -6,7 +6,16 @@
 // but do not mind either — jsdom is a superset, not a different behaviour,
 // for code that touches no DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { applyMarkerZoomRange, installTimelapse, NOT_OFFICIAL, mount, mountChrome, HEX_LABEL_LAYER_ID, CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY, PLAY_SPEED_KEY, DEEP_LINK_ZOOM } from '../map.js'
+import { mount } from '../map.js'
+import { applyMarkerZoomRange } from '../../lib/mapdata.js'
+import { installTimelapse } from '../../lib/timelapse-island.js'
+import {
+  NOT_OFFICIAL, CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY,
+} from '../../lib/mappaint.js'
+import { mountChrome } from '../../lib/chrome.js'
+import { HEX_LABEL_LAYER_ID } from '../../lib/mapids.js'
+import { PLAY_SPEED_KEY } from '../../lib/mapconfig.js'
+import { DEEP_LINK_ZOOM } from '../../lib/placement.js'
 import { ARROW_IMAGE_ID, WIND_LAYER_ID, WIND_SOURCE_ID } from '../wind.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM } from '../../lib/hexes.js'
 import { clearCache } from '../../lib/api.js'
