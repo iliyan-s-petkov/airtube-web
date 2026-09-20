@@ -3,8 +3,7 @@
 // under Vitest (which does not check the export list) but fails a real Rollup
 // build with MISSING_EXPORT. Importing the one class actually used avoids the
 // mismatch entirely.
-import { Map as MapLibreMap, addProtocol } from 'maplibre-gl'
-import { Protocol } from 'pmtiles'
+import { Map as MapLibreMap } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { tierFor } from '../lib/tier.js'
 import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../lib/legend.js'
@@ -12,7 +11,7 @@ import { createScaleDialog } from '../lib/scaledialog.js'
 import { scaleFor } from '../lib/scaleinfo.js'
 import { mountFullscreen, mountZoom, mountLocate, installZoom } from '../lib/mapcontrols.js'
 import { mountLayers, installLayers, LAYER_ORDER } from '../lib/maplayers.js'
-import { rampColour, rampValueStops } from '../lib/ramp.js'
+import { rampColour } from '../lib/ramp.js'
 import { getJSON, clearCache } from '../lib/api.js'
 import { getFreshness } from '../lib/freshness.svelte.js'
 import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.js'
@@ -23,7 +22,7 @@ import {
   filterBySource, getSources, onSourceChange, setSourceEnabled,
   CITIZEN_SOURCE, OFFICIAL_SOURCE,
 } from '../lib/sourcefilter.svelte.js'
-import { diamondImage, DIAMOND_RADIUS_PX } from '../lib/markericon.js'
+import { diamondImage } from '../lib/markericon.js'
 import { applyLocate } from '../lib/locate.js'
 import { readChoice, readFlag, writeChoice, writeFlag, safeStorage } from '../lib/storage.js'
 import { nearestArea, nearestSensor } from '../lib/nearest.js'
@@ -35,7 +34,6 @@ import {
   hasHistory, mountPlayer, nextSpeed, seek, step, thinFrames, timelapseURL,
 } from '../lib/timelapse.js'
 import { setMapAreas, provideAreaSelect } from '../lib/mapareas.svelte.js'
-import { stationsOf, readingAt } from '../lib/stations.js'
 import {
   hexesURL, hexFeatures, resolutionForZoom,
   GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM,
@@ -50,85 +48,25 @@ import {
   boundaryFillPaint, boundaryLinePaint, boundarySelectedPaint,
   selectedFilter, boundsOf, findBoundary,
 } from '../lib/boundaries.js'
+import {
+  RASTER_LAYER_ID, SOURCE_ID, LAYER_ID, OFFICIAL_LAYER_ID, OFFICIAL_IMAGE_ID, LABEL_LAYER_ID,
+  HEX_SOURCE_ID, HEX_LAYER_ID, HEX_OUTLINE_LAYER_ID, HEX_POINT_LAYER_ID, HEX_LABEL_LAYER_ID,
+} from '../lib/mapids.js'
+import {
+  LEGEND_FOLD_KEY, PLAY_SPEED_KEY, MIN_ZOOM, MAX_ZOOM_CEILING, readConfig,
+} from '../lib/mapconfig.js'
+import { areaFeatures, sensorFeatures, emptyCollection } from '../lib/mapfeatures.js'
+import {
+  CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY, markerMaxZoom, hexOutlinePaint, bandsFor,
+  hexLabelPaint, layerPaint, NOT_OFFICIAL, officialLayout, officialPaint, labelLayout,
+  hexLabelLayout, labelPaint, markerPaint, MARKER_PIXEL_RATIO,
+} from '../lib/mappaint.js'
+import { registerProtocols, mapStyle, installErrorHandler, addBasemapOverlay } from '../lib/mapstyle.js'
 
 // Debounce before any tier change fires a request. One pinch-zoom gesture emits
 // a dozen moveend events; undebounced, that is a dozen requests and the whole
 // burst.
 const MOVE_DEBOUNCE_MS = 250
-
-// The camera's own floor, and the reason the zoom stack can be honest about it.
-// MapLibre keeps TWO minimums: the setting getMinZoom() reports (0 by default)
-// and the floor Transform._constrain silently enforces so the world still
-// covers the container — around 0.2 on a hero-height map. Left at the default,
-// getZoom() bottoms out at the constrained floor while getMinZoom() keeps
-// saying 0, so installZoom's `z <= getMinZoom()` never fires and the minus
-// button stays live over a camera that has stopped moving. Setting it makes the
-// reported floor the reachable one. It used to be 5 — "a map of one country,
-// nothing below it to zoom out to" — which stopped a reader from putting
-// Bulgaria in its neighbourhood. 2 shows the continent and then some, and is
-// kept off 0 because MapLibre's own constrained floor sits near 0.2 on a
-// hero-height map, which would put the reported floor back out of reach.
-const MIN_ZOOM = 2
-
-// The world underneath the vector archive.
-//
-// The archive we host is a Bulgaria extract: outside its bounding box it has
-// no tiles at any zoom, so the map went beige the moment the viewport left the
-// country. This raster layer draws the rest of the world under it, and the
-// extract keeps painting its own detail on top wherever it has some.
-//
-// It is a THIRD-PARTY ORIGIN, unlike everything else this site loads, and the
-// operator's decision: the alternative was rebuilding the archive from a
-// Europe-wide extract. Two consequences to keep in view — every visitor's
-// viewport is disclosed to that host, and the OSM Foundation's tile usage
-// policy asks that busy sites not use tile.openstreetmap.org. Swapping in a
-// keyed provider is this constant plus the CSP origin in airbg.yaml.
-const RASTER_BASEMAP = {
-  type: 'raster',
-  tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-  tileSize: 256,
-  minzoom: 0,
-  maxzoom: 19,
-  attribution: '© OpenStreetMap contributors',
-}
-const RASTER_SOURCE_ID = 'airbg-raster'
-const RASTER_LAYER_ID = 'airbg-raster-base'
-
-const SOURCE_ID = 'airbg-data'
-const LAYER_ID = 'airbg-markers'
-const OFFICIAL_LAYER_ID = 'airbg-markers-official'
-const OFFICIAL_IMAGE_ID = 'airbg-diamond'
-const LABEL_LAYER_ID = 'airbg-marker-labels'
-
-export const HEX_SOURCE_ID = 'airbg-hexes'
-const HEX_LAYER_ID = 'airbg-hex-fill'
-const HEX_OUTLINE_LAYER_ID = 'airbg-hex-outline'
-const HEX_POINT_LAYER_ID = 'airbg-hex-point'
-export const HEX_LABEL_LAYER_ID = 'airbg-hex-labels'
-
-// Whether the colour key is unrolled. Its own key, not part of the layers
-// menu's state: the menu decides whether the key exists, this decides whether
-// it is folded, and conflating them would make turning the key back on undo a
-// fold the reader never touched.
-export const LEGEND_FOLD_KEY = 'airbg:legend-open'
-
-// Remembered, like the legend fold: a reader who needs the slow speed to
-// follow a cell needs it every visit, not once.
-export const PLAY_SPEED_KEY = 'airbg:play-speed'
-
-// MapLibre's own maxzoom default. setLayerZoomRange takes both ends, so a call
-// that only means to move the floor still has to name a ceiling.
-const MAX_ZOOM_CEILING = 24
-
-// How far a held reading is faded. Low enough to read as held, high enough to
-// stay legible over every band.
-export const CARRIED_OPACITY = 0.55
-
-// The two steps a newly arrived cell climbs before it is drawn like any other.
-// Both sit above CARRIED_OPACITY so a fading-in reading never reads as a held
-// one, which is a different fact about the same cell.
-export const FRESH_OPACITY = 0.6
-export const SETTLING_OPACITY = 0.8
 
 export function mount(el) {
   const cfg = readConfig(el)
@@ -1732,561 +1670,6 @@ export function urlFor(tier, slug) {
   return `/api/v1/area/${encodeURIComponent(slug)}/sensors`
 }
 
-// areaFeatures maps the choropleth payload straight onto point features.
-//
-// covered === false renders in the neutral no-data grey with no value label.
-// Fewer than three distinct STATIONS is not data — three boxes at one address
-// are one place — and drawing it in a band colour
-// would imply a confidence the pipeline explicitly refuses.
-export function areaFeatures(body, metric, scales, noDataColour) {
-  const bands = bandsFor(scales, metric)
-  return (body?.areas ?? []).map((a) => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
-    properties: {
-      slug: a.slug,
-      colour: a.covered ? rampColour(a.values?.[metric], bands, noDataColour) : noDataColour,
-      value: a.covered ? a.values?.[metric] ?? null : null,
-      sensor_count: a.sensor_count,
-    },
-  }))
-}
-
-// sensorFeatures reads the COLUMNAR payload: parallel arrays, each metric a
-// sibling key of the fixed columns. That shape was chosen precisely for this
-// consumer, so it maps onto features with no reshaping.
-//
-// A null in a metric column means the sensor does not report that metric, which
-// is distinct from reporting zero and must stay distinct.
-export function sensorFeatures(body, metric, scales, noDataColour) {
-  const bands = bandsFor(scales, metric)
-  const s = body?.sensors ?? {}
-  const features = []
-  // One dot per STATION, not per device: the two boxes at one address carry
-  // the same coordinate, so a dot each drew one exactly on top of the other
-  // and left the underneath one unclickable. See lib/stations.js.
-  for (const { station, indices } of stationsOf(body)) {
-    // The reading is the first member that HAS one for this metric — the
-    // climate box has no P2 and must not paint the address grey when the
-    // particulate box beside it is reporting.
-    const { value } = readingAt(body, indices, metric)
-    const i = indices[0]
-    features.push({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [s.lon[i], s.lat[i]] },
-      properties: {
-        id: station,
-        colour: rampColour(value, bands, noDataColour),
-        value,
-        quality: s.quality?.[i] ?? '',
-        source: s.source?.[i] ?? 'sensor.community',
-      },
-    })
-  }
-  return features
-}
-
-// markerMaxZoom: the zoom at which the dots hand over, for the tier the dots
-// currently ARE.
-//
-// The two tiers hand over to different things. Province and city markers are
-// aggregates, and so is the hex grid — one reading per bin instead of one per
-// province, but the same kind of claim about the same ground. Drawing both left
-// the map with 15 km cells and labelled aggregate dots on top of them, and with
-// dots in places (Перник, Банкя) where the grid had no bin at all: two answers
-// to one question, disagreeing. So an aggregate marker steps aside the moment
-// the grid appears.
-//
-// A sensor marker does not: it is a device at its own coordinate, which the
-// grid does not draw until the point tier, and it is the thing a reader clicks
-// to open a panel. It runs to the point-tier handover as it always did.
-export function markerMaxZoom(tier) {
-  return tier === 'sensors' ? POINT_TIER_MIN_ZOOM_FRACTIONAL : GRID_MIN_ZOOM_FRACTIONAL
-}
-
-// hexOutlinePaint: the border between one cell and the next.
-//
-// Drawn in the label ink — a dark colour — and NOT in either of the two that
-// have already been tried and failed. The cell's own `colour` outlines a fill
-// in the fill's own colour, which is by definition invisible. The marker stroke
-// is white, which is what lifts a dot off a dark map but disappears completely
-// into a pale one: over the OSM raster it left the cells edgeless, floating.
-//
-// A cell has to win against a busy street map, because the reading is what the
-// page is for. Full width and most of the way opaque; the streets stay legible
-// around the cell and through its fill.
-export function hexOutlinePaint(cfg) {
-  return {
-    'line-color': cfg.labelColour,
-    'line-width': 1.2,
-    'line-opacity': 0.7,
-  }
-}
-
-// bandsFor picks the scale table for one metric. The scales endpoint returns an
-// array of tables; matching on `metric` rather than on array position means a
-// reordered response cannot silently recolour the map.
-//
-// The scale's ceiling rides on its top band. The ceiling belongs to the scale,
-// not to any one band, but the only band it can change is the open one at the
-// top — and every consumer downstream (the ramp, the key) is handed bands, not
-// scales. Carrying it here rather than widening four signatures keeps the
-// ceiling one hop from the band whose width it sets.
-export function bandsFor(scales, metric) {
-  if (!Array.isArray(scales)) return []
-  const scale = scales.find((s) => s.metric === metric)
-  const bands = scale?.bands ?? []
-  if (bands.length === 0 || scale?.ceiling == null) return bands
-  return bands.map((band, i) =>
-    i === bands.length - 1 ? { ...band, ceiling: scale.ceiling } : band,
-  )
-}
-
-// 'street-names' -> 'tLayerStreetNames', the dataset spelling of
-// data-t-layer-street-names. Exported for its own test: it is the one place the
-// group keys and the template's attribute names have to agree, and they agree
-// by rule rather than by two lists kept in step by hand.
-export function layerLabelKey(group) {
-  const camel = group.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('')
-  return `tLayer${camel}`
-}
-
-export function readConfig(el) {
-  const d = el.dataset
-  return {
-    slug: d.slug || null,
-    // No fallbacks: the opening view is configuration
-    // (frontend.default_zoom/default_lon/default_lat, or the area's own
-    // centre), and the server renders all three on every map island. A
-    // hardcoded 7/25.4858/42.7339 here would numerically agree with today's
-    // airbg.yaml while masking a server that stopped rendering them.
-    zoom: Number(d.zoom),
-    lon: Number(d.lon),
-    lat: Number(d.lat),
-    // No fallback: series.default_metric is configuration. A hardcoded 'P2'
-    // here would silently mask a missing data-metric attribute AND would be
-    // the exact duplicated constant this phase removes — the server always
-    // renders data-metric now (see internal/web/render.go), so a missing
-    // attribute must surface as undefined, not a quiet default.
-    metric: d.metric,
-    // The full metric list (upstream.CanonicalMetrics, server-rendered) that
-    // getViewState needs to validate a metric before adopting it — same
-    // attribute, same parseMetricList, as the switcher island reads. No
-    // fallback beyond what parseMetricList itself already gives a blank/
-    // missing attribute ([]): a second default list here would be the
-    // duplicated-constant problem series.default_metric's comment above is
-    // about, one metric list instead of one metric.
-    metrics: parseMetricList(d.metrics),
-    // What the key calls the metric it is a key to, and what that metric is
-    // measured in. Zipped into lookups here rather than kept as two positional
-    // arrays, because the legend asks by metric name and never by index — and
-    // an index that has to be looked up first is the off-by-one zipLabels
-    // exists to prevent. Both fall back per-metric inside legendTitle.
-    metricLabels: byMetric(parseMetricList(d.metrics), splitAttr(d.metricLabels)),
-    metricUnits: byMetric(parseMetricList(d.metrics), splitAttr(d.metricUnits)),
-    basemap: d.basemap || '',
-    // Server-rendered: the language set is data, so no expression here could
-    // tell a language segment from a page segment. "" is the default language.
-    langPrefix: d.langPrefix || '',
-    // Which of the band table's two shipped label languages to show. Read off
-    // <html lang>, which base.gohtml already renders, rather than derived from
-    // langPrefix — the default language has an empty prefix.
-    // ownerDocument ?? document because readConfig is duck-typed on `dataset`
-    // and its tests pass a plain object rather than a mounted element.
-    lang: (el.ownerDocument ?? document).documentElement.lang,
-    // Paint values and zoom thresholds: configuration, arriving as data-*
-    // attributes, no fallback here — a hardcoded fallback that numerically
-    // agrees with today's airbg.yaml is exactly the duplicated constant this
-    // phase removes.
-    noDataColour: d.noDataColour,
-    unscaledColour: d.unscaledColour,
-    markerStrokeColour: d.markerStrokeColour,
-    // A WebGL paint value is configuration, not CSS: no rule can reach a
-    // canvas layer, which is why every colour this island paints with arrives
-    // as a data-* attribute. An earlier version read --fg through
-    // getComputedStyle with a hex fallback; literals.test.js caught the
-    // fallback, and it was right to — the fallback was the tell that the value
-    // was coming from the wrong place.
-    labelColour: d.markerLabelColour,
-    emptyBasemapColour: d.emptyBasemapColour,
-    // How solidly the hex grid paints. A paint value like the colours above,
-    // and server-rendered for the same reason: no CSS rule reaches a WebGL
-    // layer, and a fallback here that agreed with today's airbg.yaml would hide
-    // a server that stopped rendering the attribute.
-    hexOpacity: Number(d.hexOpacity),
-    // One positional list, in WINDOW_CHOICES order — the same idiom as
-    // data-metric-labels, and for the same reason a per-window attribute cannot
-    // work: data-t-window-24h arrives in the dataset as tWindow-24h.
-    windowLabels: splitAttr(d.tWindows),
-    zoomCity: Number(d.zoomCity),
-    zoomSensor: Number(d.zoomSensor),
-    // Strings come from the server, not from a JS catalogue: Go owns the
-    // catalogue, and a second copy here would drift on the first edit.
-    t: {
-      legend: d.tLegend || '',
-      // The name of the fold, not of the key: the summary is icon-only, and an
-      // icon-only control still has to be announced as something.
-      legendToggle: d.tLegendToggle || '',
-      legendNoData: d.tLegendNoData || '',
-      // The (i) beside the key and what its dialog says: the name of the
-      // button, the name of the outbound link, and the standing indicative-data
-      // disclaimer, which belongs anywhere the bands are explained.
-      legendAbout: d.tLegendAbout || '',
-      legendSource: d.tLegendSource || '',
-      disclaimer: d.tDisclaimer || '',
-      close: d.tClose || '',
-      // Keyed by the tier names tierFor returns, so the lookup in showLegend is
-      // a direct index rather than a branch that could drift from tier.js.
-      tier: {
-        country: d.tTierCountry || '',
-        city: d.tTierCity || '',
-        sensors: d.tTierSensors || '',
-      },
-      // Two names for one button: what it will do next, not what state it is
-      // in — aria-pressed already reports the state.
-      fullscreen: d.tFullscreen || '',
-      fullscreenExit: d.tFullscreenExit || '',
-      zoomIn: d.tZoomIn || '',
-      zoomOut: d.tZoomOut || '',
-      zoomReset: d.tZoomReset || '',
-      windowLabel: d.tWindowLabel || '',
-      playLabel: d.tPlayLabel || '',
-      speedLabel: d.tSpeedLabel || '',
-      pauseLabel: d.tPauseLabel || '',
-      timeLabel: d.tTimeLabel || '',
-      exitLabel: d.tExitLabel || '',
-      // The coverage guard's two sentences: one hour thinner than the rest of
-      // the animation, and a measurement with no history to animate at all.
-      replayThin: d.tReplayThin || '',
-      replayNoHistory: d.tReplayNoHistory || '',
-      layersButton: d.tLayersButton || '',
-      layersCaption: d.tLayersCaption || '',
-      viewLegend: d.tViewLegend || '',
-      viewBasemap: d.tViewBasemap || '',
-      viewCellValues: d.tViewCellValues || '',
-      viewInactiveSensors: d.tViewInactiveSensors || '',
-      // Its own string, not map.layer.boundaries: that one names the basemap's
-      // administrative lines, which are a different set of lines from a
-      // different source and switch independently.
-      viewBoundaries: d.tViewBoundaries || '',
-      viewCommunitySensors: d.tViewCommunitySensors || '',
-      viewOfficialStations: d.tViewOfficialStations || '',
-      notMeasured: d.tNotMeasured || '',
-      communitySensors: d.tViewCommunitySensors || '',
-      officialStations: d.tViewOfficialStations || '',
-      // One label per style group, keyed by the group's own name so the menu
-      // can look up whatever the style turns out to carry. Derived from
-      // LAYER_ORDER rather than written out, because the attribute name is a
-      // mechanical transform of the key — data-t-layer-street-names becomes
-      // d.tLayerStreetNames — and writing both would be two spellings of one
-      // fact. A group with no string falls back to its key at render time.
-      layers: Object.fromEntries(LAYER_ORDER.map((g) => [g, d[layerLabelKey(g)] || ''])),
-      hint: d.tHint || '',
-      noSources: d.tNoSources || '',
-      rateLimited: d.tRateLimited || '',
-      unavailable: d.tUnavailable || '',
-      unscaled: d.tUnscaled || '',
-      locateButton: d.tLocateButton || '',
-      locateDenied: d.tLocateDenied || '',
-      locateFailed: d.tLocateFailed || '',
-      windToggle: d.tWindToggle || '',
-      windAbout: d.tWindAbout || '',
-      windNote: d.tWindNote || '',
-      windAttribution: d.tWindAttribution || '',
-    },
-  }
-}
-
-function emptyCollection() {
-  return { type: 'FeatureCollection', features: [] }
-}
-
-// glyphsURL derives the font endpoint from the configured basemap URL. A
-// raster-only style still needs one: glyphs are where MapLibre gets the letter
-// shapes for EVERY symbol layer, so a style without them draws no marker
-// labels, no cell values and no wind arrows — the map keeps working and simply
-// stops saying anything.
-//
-// String surgery, not `new URL()`: the endpoint is a template, and new URL
-// percent-encodes the braces in {fontstack}/{range} into %7B…%7D, which
-// MapLibre then requests literally and gets a 404 for.
-export function glyphsURL(basemap) {
-  if (!basemap) return null
-  return basemap.replace(/[^/]*$/, '') + 'glyphs/{fontstack}/{range}.pbf'
-}
-
-// overlayLayers splits the self-hosted vector style into the part that may be
-// drawn over the world raster and the part that may not.
-//
-// The archive is a BULGARIA extract. Its `background` and `fill` layers are
-// opaque polygons clipped to the extract's rectangle, so laid over the raster
-// they painted a box across it: inside the box the Danube ended at Silistra,
-// the ground changed colour at the border, and the Black Sea carried no label
-// because its own is outside the extract. Every one of those defects is a
-// FILLED layer. The lines, symbols and circles — roads, boundaries, street
-// names, place names, the POI categories the layers menu is built from — cover
-// only what they trace, so outside the extract they simply draw nothing and
-// the raster shows through.
-//
-// So: keep the traced layers, drop the filled ones, and let OpenStreetMap's
-// own raster be the ground everywhere.
-export function overlayLayers(style) {
-  const layers = (style?.layers ?? []).filter((l) => l.type !== 'background' && l.type !== 'fill')
-  const used = new Set(layers.map((l) => l.source))
-  const sources = Object.fromEntries(
-    Object.entries(style?.sources ?? {}).filter(([id]) => used.has(id)),
-  )
-  return { sources, layers }
-}
-
-// addBasemapOverlay fetches the vector style and lays its traced layers over
-// the raster, beneath everything the map itself draws.
-//
-// Beneath, via beforeId: the readings are the point of the page and a POI label
-// must never be drawn on top of a value. A failure is logged and leaves the
-// raster standing alone — the ground is optional detail, the map is not.
-export async function addBasemapOverlay(map, basemap, beforeId, fetchStyle = fetchJSON) {
-  if (!basemap) return
-  let style
-  try {
-    style = await fetchStyle(basemap)
-  } catch (e) {
-    console.warn('basemap detail unavailable, showing the raster alone', e)
-    return
-  }
-  const { sources, layers } = overlayLayers(style)
-  for (const [id, source] of Object.entries(sources)) {
-    if (!map.getSource?.(id)) map.addSource(id, source)
-  }
-  const under = map.getLayer?.(beforeId) ? beforeId : undefined
-  for (const l of layers) map.addLayer(l, under)
-}
-
-// registerProtocols teaches MapLibre to read pmtiles:// URLs, which is how the
-// vector style references the single archive: the protocol turns each tile read
-// into an HTTP range request, so a visitor transfers only the ranges their
-// viewport needs.
-//
-// Idempotent, and takes `add` as a parameter, because MapLibre's addProtocol is
-// global module state: registering twice would silently replace the first
-// handler, and a test cannot observe a global it cannot inject into.
-let protocolsRegistered = false
-export function registerProtocols(add = addProtocol) {
-  if (protocolsRegistered) return
-  protocolsRegistered = true
-  add('pmtiles', new Protocol().tile)
-}
-
-async function fetchJSON(url) {
-  const r = await fetch(url)
-  if (!r.ok) throw new Error(`${url}: ${r.status}`)
-  return r.json()
-}
-
-// mapStyle is the style the map BOOTS with: the world raster and nothing else.
-// The vector detail arrives afterwards through addBasemapOverlay, which needs
-// the map loaded before it can position its layers under the readings.
-export function mapStyle(cfg) {
-  const glyphs = glyphsURL(cfg.basemap)
-  return {
-    version: 8,
-    ...(glyphs ? { glyphs } : {}),
-    sources: { [RASTER_SOURCE_ID]: RASTER_BASEMAP },
-    layers: [
-      { id: 'bg', type: 'background', paint: { 'background-color': cfg.emptyBasemapColour } },
-      { id: RASTER_LAYER_ID, type: 'raster', source: RASTER_SOURCE_ID },
-    ],
-  }
-}
-
-// installErrorHandler wires the 'error' event so a style-load failure cannot
-// take the sensor markers down with it: tiles unavailable degrades to a blank
-// background, it never fails the page. Logged once rather than per failed
-// tile, because a missing archive produces one error per range request.
-//
-// Takes `map` (needs only `.on`, not a real MapLibre instance) and `warn` as
-// parameters, same idiom as installErrorHandler's own injection, so a test can
-// drive it with a fake and assert the log-once behaviour without a real map.
-export function installErrorHandler(map, warn = console.warn) {
-  let errorLogged = false
-  map.on('error', (e) => {
-    if (errorLogged) return
-    errorLogged = true
-    warn('basemap unavailable, rendering markers only', e?.error?.message ?? e)
-  })
-}
-
-// layerPaint is the circle layer's INITIAL paint object, set once at
-// map.addLayer time. Pulled out of mount()'s map.on('load', ...) callback,
-// which is unreachable from a test (it needs a real MapLibre map), so the
-// paint values it reads from cfg can be proven directly.
-// hexLabelPaint mutes a held reading. During replay a cell that went silent for
-// an hour is drawn at its last reading rather than dropping its digit, and the
-// fade is what keeps a held number from reading as a measured one. A cell that
-// has just joined ramps up instead of popping in at full strength.
-export function hexLabelPaint(cfg) {
-  return {
-    ...labelPaint(cfg),
-    // carried is tested first so the mute wins outright rather than by
-    // evaluation luck: a held reading has a previous value by definition, so it
-    // can never also be an arrival.
-    'text-opacity': [
-      'case',
-      ['==', ['get', 'carried'], true], CARRIED_OPACITY,
-      ['==', ['get', 'fresh'], 0], FRESH_OPACITY,
-      ['==', ['get', 'fresh'], 1], SETTLING_OPACITY,
-      1,
-    ],
-  }
-}
-
-//
-// Named layerPaint, not markerPaint (its name before this task): 'circle-
-// color' here is only ever a placeholder — the source is empty at addLayer
-// time (see emptyCollection), and by the time features exist, onMetricChange
-// has already replaced 'circle-color' via setPaintProperty with the real,
-// metric-aware expression from markerPaint below. Two functions named
-// markerPaint, one returning a full paint object and one returning a single
-// paint VALUE, would have been the same kind of silent ambiguity this file's
-// other comments warn about elsewhere.
-export function layerPaint(cfg) {
-  return {
-    'circle-color': ['get', 'colour'],
-    'circle-radius': MARKER_RADIUS,
-    'circle-stroke-width': 1,
-    'circle-stroke-color': cfg.markerStrokeColour,
-  }
-}
-
-// The circle layer draws every marker the diamond layer does not. An area
-// marker carries no source at all, and ['get'] on an absent property is null,
-// which is not the official one — so the areas stay where they were.
-export const NOT_OFFICIAL = ['!=', ['get', 'source'], OFFICIAL_SOURCE]
-
-const MARKER_RADIUS = ['interpolate', ['linear'], ['zoom'], 5, 5, 12, 9]
-
-// The diamond raster is drawn at twice its nominal size, as the wind arrow is,
-// so it stays sharp on a retina screen and when icon-size scales it past 1.
-const MARKER_PIXEL_RATIO = 2
-
-// officialLayout/officialPaint: the diamond drawn at the radius the circles
-// use, so the two networks read as one population at one size and differ only
-// in shape. icon-size 1 puts the glyph's point at DIAMOND_RADIUS_PX image
-// pixels, which pixelRatio 2 halves into CSS px — so the stops are the circle
-// radii over that, and a change to either end stays a change to one number.
-export function officialLayout() {
-  const unit = DIAMOND_RADIUS_PX / MARKER_PIXEL_RATIO
-  return {
-    'icon-image': OFFICIAL_IMAGE_ID,
-    'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 5 / unit, 12, 9 / unit],
-    // Markers may overlap; dropping one would silently hide a station rather
-    // than a label, which is not a trade the label layer's rule was making.
-    'icon-allow-overlap': true,
-    'icon-ignore-placement': true,
-  }
-}
-
-export function officialPaint(cfg) {
-  return {
-    'icon-color': ['get', 'colour'],
-    'icon-halo-color': cfg.markerStrokeColour,
-    'icon-halo-width': 1,
-  }
-}
-
-// labelLayout and labelPaint are the symbol layer that prints each area's
-// reading beside its dot — the non-colour channel for the air-quality scale.
-//
-// text-allow-overlap stays FALSE, which is the whole crowding strategy: rather
-// than inventing a zoom threshold to guess when labels start colliding,
-// MapLibre drops the ones that would overlap and keeps the rest. The map thins
-// itself out as areas converge, and no number is ever drawn on top of another.
-//
-// The fontstack is the one the basemap style already ships (the tiles are an
-// OpenMapTiles build whose own label layers use Noto Sans Regular), so this
-// adds no font asset and no new origin.
-export function labelLayout(cfg) {
-  return {
-    // One decimal, matching the province list and the sensor panel: three
-    // surfaces showing the same reading to different precision would be three
-    // surfaces disagreeing. number-format localises the separator, so this
-    // reads 12,4 in Bulgarian and 12.4 in English without a second formatter.
-    'text-field': [
-      'number-format',
-      ['get', 'value'],
-      { locale: cfg.lang || 'bg', 'min-fraction-digits': 1, 'max-fraction-digits': 1 },
-    ],
-    'text-font': ['Noto Sans Regular'],
-    'text-size': 11,
-    // Beside the dot, not on it: the circle is 5-9px, so a centred number
-    // would sit on its own stroke and lose contrast against every band colour.
-    'text-offset': [0.9, 0],
-    'text-anchor': 'left',
-    'text-allow-overlap': false,
-    'text-ignore-placement': false,
-    'text-optional': true,
-  }
-}
-
-// hexLabelLayout is the same number, printed in the middle of a cell instead
-// of beside a dot. It reuses labelLayout's formatting — one decimal, the
-// basemap's own fontstack, overlap thinning — and differs only in placement:
-// there is no dot to clear, so the number is centred on the cell it describes.
-export function hexLabelLayout(cfg) {
-  const { 'text-offset': _offset, 'text-anchor': _anchor, ...shared } = labelLayout(cfg)
-  return { ...shared, 'text-anchor': 'center' }
-}
-
-export function labelPaint(cfg) {
-  return {
-    'text-color': cfg.labelColour,
-    // The halo is what makes the number legible on every band from the palest
-    // teal to the darkest purple, and over the basemap's own streets, without
-    // re-tinting the served colour underneath it.
-    'text-halo-color': cfg.markerStrokeColour,
-    'text-halo-width': 1.4,
-  }
-}
-
-// markerPaint is the circle layer's 'circle-color' paint VALUE for one
-// metric — recomputed on every metric switch and applied via
-// map.setPaintProperty, never at layer-creation time (see layerPaint above).
-//
-// Three different facts must not share one colour: "no reading" (grey,
-// noDataColour), "this metric has no band table" (unscaledColour), and a
-// real band value. An unscaled metric still distinguishes the first two —
-// only the third collapses, because there is no per-value meaning left to
-// draw once there are no bands. A flat unscaledColour return for the whole
-// !scaled branch was tried and rejected: it paints "no reading" and "has a
-// reading" identically, so on a metric most sensors don't report (e.g.
-// temperature), the map reads as full coverage when it is not — the same
-// class of defect this file's rampColour/noDataColour split exists to
-// prevent for scaled metrics. ['has', 'value'] (the shape this task's brief
-// originally suggested) is ALSO wrong here, for a reason worth stating
-// loudly: areaFeatures and sensorFeatures always set the `value` key, even
-// when its content is null (`value: a.covered ? ... : null` /
-// `column[i] ?? null`), so `has` is true unconditionally and that branch
-// would be dead code, always taking the "has a reading" side.
-export function markerPaint(bands, { noDataColour, unscaledColour, scaled }) {
-  if (!scaled) return ['case', ['==', ['get', 'value'], null], noDataColour, unscaledColour]
-
-  // `interpolate`, not `step`: the markers are on the same scale as the hexes
-  // and must not be the one thing on the map still painted in categories.
-  //
-  // The stops come from rampValueStops, which puts one at every point where the
-  // ramp's slope changes, so a linear blend between them is the same colour
-  // rampColour computes for that value — a dot and the cell under it agree.
-  // Computed here rather than per feature for the reason onMetricChange gives:
-  // switching metric must not re-walk every feature.
-  const stops = rampValueStops(bands)
-  if (stops.length < 2) return ['case', ['==', ['get', 'value'], null], noDataColour, unscaledColour]
-  return [
-    'case',
-    ['==', ['get', 'value'], null], noDataColour,
-    ['interpolate', ['linear'], ['get', 'value'], ...stops.flatMap((s) => [s.value, s.colour])],
-  ]
-}
-
 // The note is the only thing telling a reader why every dot on an unscaled
 // metric's map is the same colour. Returned rather than rendered here so the
 // caller (onMetricChange) owns the DOM, through chrome.showNote.
@@ -2613,3 +1996,19 @@ export function mountChrome(el, cfg) {
     },
   }
 }
+
+// Re-exports: task 6.1 moved this code to lib/, but map.js stays the Vite
+// chunk facade and every name it exported before must still be importable
+// from here. sensorFeatures is the one exception — its only external
+// importer now reads it straight from lib/mapfeatures.js.
+export { HEX_SOURCE_ID, HEX_LABEL_LAYER_ID } from '../lib/mapids.js'
+export { LEGEND_FOLD_KEY, PLAY_SPEED_KEY, readConfig, layerLabelKey } from '../lib/mapconfig.js'
+export { areaFeatures } from '../lib/mapfeatures.js'
+export {
+  CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY, markerMaxZoom, hexOutlinePaint, bandsFor,
+  hexLabelPaint, layerPaint, NOT_OFFICIAL, officialLayout, officialPaint, labelLayout,
+  hexLabelLayout, labelPaint, markerPaint,
+} from '../lib/mappaint.js'
+export {
+  glyphsURL, overlayLayers, registerProtocols, mapStyle, installErrorHandler, addBasemapOverlay,
+} from '../lib/mapstyle.js'
