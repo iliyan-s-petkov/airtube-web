@@ -653,6 +653,67 @@ describe('hexFeatures with a network filter', () => {
     expect(hexFeatures(legacy, 'P2', bands, '#cccccc', rampColour, 0, new Set(['eea'])))
       .toHaveLength(0)
   })
+
+  // "More than one network on" is not "every network on". With two networks
+  // the two coincide, which is the only reason a size check ever worked; a
+  // third network makes them differ, and the blended value then includes the
+  // one the reader switched off.
+  describe('with a third network', () => {
+    const three = {
+      resolution_km: 15,
+      hexes: [{
+        lon: 23.32, lat: 42.69, n: 6, values: { P2: 50 },
+        by_source: {
+          'sensor.community': { n: 3, values: { P2: 10 } },
+          eea: { n: 1, values: { P2: 30 } },
+          other: { n: 2, values: { P2: 120 } },
+        },
+      }],
+    }
+    const pick = (enabled) => hexFeatures(three, 'P2', bands, '#cccccc', rampColour, 0, enabled)
+
+    it('never paints a blend that includes a network that is off', () => {
+      const [f] = pick(new Set(['sensor.community', 'eea']))
+      expect(f.properties.value).not.toBe(50)
+      // Count is exact; the value is the enabled parts combined by count.
+      expect(f.properties.n).toBe(4)
+      expect(f.properties.value).toBe(15)
+    })
+
+    it('paints the blend only when every network in the cell is on', () => {
+      const [f] = pick(new Set(['sensor.community', 'eea', 'other']))
+      expect(f.properties).toMatchObject({ value: 50, n: 6 })
+    })
+
+    it('drops a cell none of whose networks are on', () => {
+      expect(pick(new Set(['nobody']))).toEqual([])
+    })
+  })
+
+  // The server omits a metric a network does not measure from that network's
+  // by_source entry rather than writing 0 (internal/snapshot pins that). The
+  // browser has to keep the absence: `?? 0` here would paint the cleanest
+  // colour on a cell that measured nothing.
+  it('reads an absent metric as null, never 0, in a network\'s own entry', () => {
+    const gas = {
+      resolution_km: 15,
+      hexes: [
+        {
+          lon: 23.32, lat: 42.69, n: 4, values: { P2: 25, NO2: 18 },
+          by_source: {
+            'sensor.community': { n: 3, values: { P2: 20 } },
+            eea: { n: 1, values: { P2: 100, NO2: 18 } },
+          },
+        },
+        { lon: 24.0, lat: 43.0, n: 2, source: 'eea', values: { P2: 30, NO2: 9 } },
+      ],
+    }
+    const f = hexFeatures(gas, 'NO2', bands, '#cccccc', rampColour, 0, new Set(['sensor.community']))
+    expect(f).toHaveLength(1)
+    expect(f[0].properties.value).toBeNull()
+    expect(f[0].properties.value).not.toBe(0)
+    expect(f[0].properties.colour).toBe('#cccccc')
+  })
 })
 
 // The point tier is the one tier that rewrites its own entries before they are
