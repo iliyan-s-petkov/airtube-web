@@ -85,7 +85,16 @@ export function areaSourceStats(body, metric) {
 
   const ids = body?.sensors?.id ?? []
   const sourceById = new Map()
-  for (let i = 0; i < ids.length; i += 1) sourceById.set(ids[i], sourceOf(sources[i]))
+  const present = new Set()
+  for (let i = 0; i < ids.length; i += 1) {
+    const src = sourceOf(sources[i])
+    sourceById.set(ids[i], src)
+    present.add(src)
+  }
+  // The gate is networks PRESENT, the same len(BySource) < 2 the server applies
+  // in render.go: a network silent on this metric still makes the other one's
+  // figures a breakdown rather than the area median under a second name.
+  if (present.size < 2) return []
 
   const grouped = new Map()
   for (const row of stationValues(body, metric)) {
@@ -93,7 +102,6 @@ export function areaSourceStats(body, metric) {
     if (!grouped.has(src)) grouped.set(src, [])
     grouped.get(src).push(row.value)
   }
-  if (grouped.size < 2) return []
 
   return [...grouped.entries()]
     .map(([source, values]) => ({ source, n: values.length, median: median(values) }))

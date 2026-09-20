@@ -128,9 +128,10 @@ describe('areaSourceCards', () => {
     expect(cards[1].tier).toBe('Citizen · 3 stations')
   })
 
-  it('returns nothing for a single network', () => {
-    expect(areaSourceCards([{ source: 'eea', n: 1, median: 100 }], { metricLabel: 'PM2.5', scale: null, lang: 'en', t: sourceT }))
-      .toEqual([])
+  it('renders the one row a silent network leaves behind', () => {
+    const cards = areaSourceCards([{ source: 'eea', n: 1, median: 100 }], { metricLabel: 'PM2.5', scale: null, lang: 'en', t: sourceT })
+    expect(cards).toHaveLength(1)
+    expect(cards[0].group).toBe('Official')
   })
 
   it('returns nothing for no rows', () => {

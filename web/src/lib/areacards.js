@@ -88,10 +88,11 @@ const SOURCE_LABEL = {
   'sensor.community': 'sourceCommunity',
 }
 
-// areaSourceCards mirrors AreaReadouts' breakdown group: one card per network,
-// [] for fewer than two, for the reason areaSourceStats gives.
+// areaSourceCards mirrors AreaReadouts' breakdown group: one card per row.
+// areaSourceStats owns the "is there a breakdown at all" decision, so a lone
+// row here is a network whose neighbour is silent on this metric.
 export function areaSourceCards(rows, { metricLabel, scale, lang, t }) {
-  if (!Array.isArray(rows) || rows.length < 2) return []
+  if (!Array.isArray(rows) || rows.length === 0) return []
   const unit = scale?.unit ?? ''
 
   return rows.map((row) => {

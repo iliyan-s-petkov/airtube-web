@@ -116,6 +116,13 @@ describe('areaSourceStats', () => {
     ]), 'P2')).toEqual([])
   })
 
+  it("keeps the reporting network's row when the other network is silent", () => {
+    expect(areaSourceStats(bodyWith([
+      { id: 1, source: 'sensor.community', P2: 10 },
+      { id: 2, source: 'eea', P2: null },
+    ]), 'P2')).toEqual([{ source: 'sensor.community', n: 1, median: 10 }])
+  })
+
   it('counts stations, not devices', () => {
     const got = areaSourceStats(bodyWith([
       { id: 1, station: 1, source: 'sensor.community', P2: 10 },
