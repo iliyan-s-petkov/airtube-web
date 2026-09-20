@@ -20,7 +20,7 @@ Flow: browser geolocation → `location.php?lat&long&bounds` → Mongo bbox → 
 ## 2. Security
 
 ### S1 — Leaked Google Maps API key (critical)
-`lib/geo2addr.class.php:39` hardcodes `AIzaSyBj97hu927Xtgd2IOzX26SCJsvEwb0T_As` in the Geocoding URL, and it is committed to git history. Anyone with repo access can bill against it.
+`lib/geo2addr.class.php:39` hardcodes a Google API key (`AIzaSy…`, redacted here; see `.gitleaksignore` for the finding) in the Geocoding URL, and it is committed to git history. Anyone with repo access can bill against it.
 **Action:** rotate the key in Google Cloud Console, move the new one to an env var / untracked config, and apply an API restriction (Geocoding API only, IP-restricted to the collector host). Rotation is required — removing the line does not un-leak a key already in history.
 
 ### S2 — InfluxQL injection via `geohash` (high)
