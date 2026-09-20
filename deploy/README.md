@@ -98,8 +98,25 @@ with arbitrary binds and command, which is already host root. The alternative
 that removes the surface instead of narrowing it is host systemd timers in
 place of ofelia, which would delete both this service and the scheduler.
 
-`pull = false` stays regardless: `airbg:latest` is built on the host and exists
-in no registry, so a pull could only ever fail.
+`pull = false` stays regardless: the only app image on the host is
+`airbg:<short-sha>`, tagged locally after the verified pull described below.
+There is no `airbg:latest`, and ofelia must never fetch anything itself.
+
+## image: pulled from GHCR by signed digest
+
+The Ansible role no longer builds `airbg` on the target host. Every push to
+`master` runs `.github/workflows/publish.yml`, which builds the image, scans it
+with Trivy, and only if the scan passes signs it keylessly with cosign via
+GitHub OIDC and pushes it to `ghcr.io/iliyan-s-petkov/airbg:<short-sha>`. The
+`airbg` role's `tasks/image.yml` then runs `cosign verify` against that tag on
+the target itself, so the host fetches its own Rekor and Fulcio trust material,
+extracts the signed digest from the verification output, and pulls and tags the
+image by that digest: never by `:latest` and never by a bare tag pull. If
+verification fails, the deploy fails closed with a message pointing at the
+publish workflow's Actions run.
+
+The GHCR package must be public for the anonymous pull to work. GitHub creates
+it private on first publish; flip it by hand once under the package settings.
 
 ## Why there is no collect job
 
