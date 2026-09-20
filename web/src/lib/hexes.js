@@ -262,9 +262,13 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
 
   // Which numbers a cell reports under the current network toggles. `null`
   // means no filter is in play (the timelapse, whose frames carry no source) and
-  // takes the blended values the payload leads with. A cell with nothing left to
-  // report is dropped rather than drawn grey: it holds no reading from any
-  // enabled network, which is not the same fact as a silent sensor.
+  // takes the blended values the payload leads with.
+  //
+  // Two different "nothing to show" facts, kept apart on purpose: a hole (pick
+  // returns null, dropped below) means no enabled network has a sensor in the
+  // cell at all; grey (pick returns values that lack the metric, kept and
+  // coloured noDataColour by the caller) means an enabled network is there but
+  // did not report this metric.
   const pick = (h) => {
     if (enabled === null) return { values: h.values, n: h.n }
     if (enabled.size === 0) return null
