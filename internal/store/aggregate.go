@@ -213,15 +213,29 @@ type SensorReading struct {
 // value expression may differ. Identity, quality and the measures list are the
 // live answer in both, so a marker does not change colour rules, or appear and
 // disappear, depending on which window the reader picked.
+// Two CTEs, because "latest" answers two different questions. latest is the
+// newest USABLE reading per sensor and metric: filtering after DISTINCT ON let
+// one rejected newer row mask the last good one, which emptied the whole
+// official layer (EEA publishes provisional hours as 'source_invalid').
+// measured is the newest reading of ANY quality — it drives which sensors and
+// metrics exist at all, and carries the flag the payload reports.
 func latestSensorsCTE(communityCutoff int) string {
 	return fmt.Sprintf(`
 latest AS (
     SELECT DISTINCT ON (r.sensor_id, r.metric)
-           r.sensor_id, r.metric, r.value, r.quality
+           r.sensor_id, r.metric, r.value
+      FROM reading r
+     WHERE `+freshnessPredicate+`
+       AND r.quality = ANY($2::quality_flag[])
+     ORDER BY r.sensor_id, r.metric, r.time DESC
+),
+measured AS (
+    SELECT DISTINCT ON (r.sensor_id, r.metric)
+           r.sensor_id, r.metric, r.quality
       FROM reading r
      WHERE `+freshnessPredicate+`
      ORDER BY r.sensor_id, r.metric, r.time DESC
-)`, OfficialSensorIDFloor, communityCutoff)
+)`, OfficialSensorIDFloor, communityCutoff, OfficialSensorIDFloor, communityCutoff)
 }
 
 // sensorsSelect is the projection, parameterised by where the published number
@@ -245,21 +259,22 @@ SELECT s.sensor_id, s.sensor_type,
        -- marks the sensor rather than being averaged away. The FILTER excludes
        -- 'ok' rows before max() runs, so any surviving non-ok flag wins; only
        -- if every metric is 'ok' does max() see nothing and COALESCE to 'ok'.
-       COALESCE(max(l.quality::text) FILTER (WHERE l.quality <> 'ok'), 'ok'),
+       COALESCE(max(m.quality::text) FILTER (WHERE m.quality <> 'ok'), 'ok'),
        -- The NOT NULL half of the filter matters only for the windowed variant,
        -- where a device with a live reading can still have no rollup row inside
        -- the window. jsonb_object_agg accepts a null value happily and would
        -- publish "P1": null, which is neither a reading nor an absence.
        jsonb_object_agg(l.metric, round((:value)::numeric, 2))
-           FILTER (WHERE l.quality = ANY($2::quality_flag[]) AND (:value) IS NOT NULL),
-       -- Unfiltered, unlike the values above: a metric whose latest reading was
-       -- rejected for quality is still a metric this device measures.
-       array_agg(DISTINCT l.metric::text),
+           FILTER (WHERE l.metric IS NOT NULL AND (:value) IS NOT NULL),
+       -- From measured, unlike the values above: a metric whose latest reading
+       -- was rejected for quality is still a metric this device measures.
+       array_agg(DISTINCT m.metric::text),
        s.first_seen, s.last_seen,
        s.source, COALESCE(s.station_code, ''), COALESCE(s.station_name, ''),
        COALESCE(s.station_type, ''), COALESCE(s.station_area, '')
   FROM sensor s
-  JOIN latest l ON l.sensor_id = s.sensor_id
+  JOIN measured m ON m.sensor_id = s.sensor_id
+  LEFT JOIN latest l ON l.sensor_id = m.sensor_id AND l.metric = m.metric
 :join
  GROUP BY s.sensor_id, s.sensor_type, s.location, s.country_code,
           s.first_seen, s.last_seen, s.source, s.station_code,

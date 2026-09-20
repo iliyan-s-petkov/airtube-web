@@ -23,7 +23,7 @@ func testStoreConfig() config.Store {
 	return config.Store{
 		CoverageThreshold:       3,
 		FreshnessWindow:         2 * time.Hour,
-		OfficialFreshnessWindow: 6 * time.Hour,
+		OfficialFreshnessWindow: 12 * time.Hour,
 	}
 }
 

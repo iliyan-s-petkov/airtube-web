@@ -286,9 +286,10 @@ export function setSourceViewAvailability(chrome, metric, t, coverage) {
     if (!span) continue
     // No coverage yet — the first paint runs before the grid has answered. The
     // bare label is the honest thing to show; a "0 with data" would be a claim
-    // about the network rather than about what we have loaded.
+    // about the network rather than about what we have loaded. An empty object
+    // is the same fact as a missing key, whatever the server sent.
     const per = coverage?.[source]
-    if (!per) {
+    if (!per || Object.keys(per).length === 0) {
       span.textContent = t[id]
       continue
     }

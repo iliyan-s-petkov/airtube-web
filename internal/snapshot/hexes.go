@@ -295,6 +295,13 @@ func coverageFrom(sensors []store.SensorReading) map[string]map[string]int {
 			}
 		}
 	}
+	// A network we hold nothing for is absent, never an empty object: the layer
+	// menu reads a present-but-empty entry as "does not measure this".
+	for src, per := range cov {
+		if len(per) == 0 {
+			delete(cov, src)
+		}
+	}
 	return cov
 }
 

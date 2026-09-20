@@ -690,6 +690,15 @@ describe('hexFeatures with a network filter', () => {
     })
   })
 
+  // With only the official layer on, a mixed cell must draw the EEA station's
+  // own number — never the blend, and never be dropped (OpenProject #500).
+  it('draws a mixed cell its eea numbers when only eea is on', () => {
+    const f = draw(new Set(['eea']))
+    const mixed = f.find((x) => x.properties.n === 1 && x.properties.value === 100)
+    expect(mixed).toBeDefined()
+    expect(mixed.properties.value).not.toBe(25)
+  })
+
   // The server omits a metric a network does not measure from that network's
   // by_source entry rather than writing 0 (internal/snapshot pins that). The
   // browser has to keep the absence: `?? 0` here would paint the cleanest

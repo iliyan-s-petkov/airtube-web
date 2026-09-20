@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -65,5 +66,19 @@ func TestCommittedConfigDecodesStrictly(t *testing.T) {
 	}
 	if got, want := *r.Listen.PermissionsPolicy, "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"; got != want {
 		t.Errorf("listen.permissions_policy = %q, want %q", got, want)
+	}
+}
+
+// The official window must cover the real EEA publication lag. Measured on
+// 2026-09-20, the newest USABLE hour per station was 6.6 h to 11.6 h old, so a
+// 6 h window left the official layer empty for most stations (OpenProject #500).
+func TestCommittedOfficialFreshnessWindowCoversEEALag(t *testing.T) {
+	t.Setenv(DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	cfg, err := LoadFile(repoConfigPath(t))
+	if err != nil {
+		t.Fatalf("LoadFile(airbg.yaml) error = %v, want nil", err)
+	}
+	if got, want := cfg.Store.OfficialFreshnessWindow, 12*time.Hour; got < want {
+		t.Errorf("store.official_freshness_window = %v, want at least %v", got, want)
 	}
 }
