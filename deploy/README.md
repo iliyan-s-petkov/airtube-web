@@ -219,3 +219,7 @@ daemon start. The result is containers with no masquerade and no DNS — image
 builds fail on `lookup proxy.golang.org ... i/o timeout` — while `nft list
 ruleset` looks perfectly correct. Recovering needs a `systemctl restart
 docker`. Delete only the table this file owns.
+
+## nftables.conf: SSH rate limit
+
+The SSH rule limits new connections to 6 per minute sustained, with a burst allowance of 10 packets. The `ct state new` condition counts only initial handshakes, not packets within an established session — existing SSH connections are unaffected. The local SSH forward to the app rides an existing session (opened once, then reused), so forwarding is unaffected too. A connection over the limit is simply dropped; the chain policy is `drop`, so no explicit drop rule is needed.
