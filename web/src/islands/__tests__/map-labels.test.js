@@ -1,7 +1,7 @@
 // Pure-logic tests, so no jsdom: labelLayout and labelPaint take a cfg and
 // return MapLibre style objects, with no DOM and no map involved.
 import { describe, it, expect } from 'vitest'
-import { labelLayout, labelPaint } from '../map.js'
+import { labelLayout, labelPaint } from '../../lib/mappaint.js'
 
 const cfg = { lang: 'bg', markerStrokeColour: '#ffffff', labelColour: '#161616' }
 

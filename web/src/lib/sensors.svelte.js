@@ -13,18 +13,18 @@ import { stationMembers, readingAt, measuresAt } from './stations.js'
 //
 // Holds the RAW response body (`{ generated_at, sensors: {...} }`) from
 // GET /api/v1/area/{slug}/sensors, not GeoJSON features. The map's features
-// (islands/map.js's sensorFeatures) carry only the CURRENTLY SELECTED
+// (lib/mapfeatures.js's sensorFeatures) carry only the CURRENTLY SELECTED
 // metric's value and scratch presentation fields (colour); the panel needs
 // every metric a sensor reports, which only the columnar body itself has.
 let body = $state(null)
 
-// scales is published from the SAME place map.js already fetches it
-// (loadScales, /api/v1/scales, cached — see map.js's initData) rather than
-// re-fetched here. Panel.js could import loadScales from islands/map.js
-// directly, but that would mean either duplicating map.js's chrome-banner
+// scales is published from the SAME place the map island already fetches it
+// (loadScales, /api/v1/scales, cached — see lib/mapdata.js's initData) rather
+// than re-fetched here. Panel.js could import loadScales from lib/mapdata.js
+// directly, but that would mean either duplicating the island's chrome-banner
 // error handling or silencing it with a stub chrome, for a value the map
 // island already has in hand. Publishing it into this registry the moment
-// map.js's initData resolves it means panel.js needs no network code at all
+// initData resolves it means panel.js needs no network code at all
 // and reacts the same way findSensor does: a plain $state read.
 let scales = $state(null)
 

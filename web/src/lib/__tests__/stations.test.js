@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { stationsOf, stationMembers, readingAt, measuresAt, metricColumnsOf, META_COLUMNS } from '../stations.js'
 import { normaliseSensor } from '../sensors.svelte.js'
 import { countSensors } from '../sensorcount.js'
-import { sensorFeatures } from '../../islands/map.js'
+import { sensorFeatures } from '../mapfeatures.js'
 
 // One address in Varna as upstream actually publishes it — a particulate box
 // and a climate box, same coordinate, disjoint metrics — plus a lone sensor
