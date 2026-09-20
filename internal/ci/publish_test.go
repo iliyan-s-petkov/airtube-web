@@ -119,12 +119,9 @@ func TestPullRequestRunsNeverPush(t *testing.T) {
 
 	jobStart := regexp.MustCompile(`^  [\w-]+:\s*$`)
 	jobIdx := map[string]int{}
-	var jobOrder []string
 	for i, line := range lines {
 		if jobStart.MatchString(line) {
-			name := strings.TrimSuffix(strings.TrimSpace(line), ":")
-			jobIdx[name] = i
-			jobOrder = append(jobOrder, name)
+			jobIdx[strings.TrimSuffix(strings.TrimSpace(line), ":")] = i
 		}
 	}
 	prCheckIdx, ok := jobIdx["pr-check"]
