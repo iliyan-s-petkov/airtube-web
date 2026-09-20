@@ -43,11 +43,11 @@ var pinnedVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+(-\S+)?$`)
 // reads identically whether the tools are pinned or absent.
 const wantToolSteps = 6
 
-func readWorkflow(t *testing.T) string {
+func readWorkflow(t *testing.T, path string) string {
 	t.Helper()
-	raw, err := os.ReadFile(workflowPath)
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read %s: %v", workflowPath, err)
+		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(raw)
 }
@@ -60,7 +60,7 @@ func readWorkflow(t *testing.T) string {
 // and red tomorrow because upstream added a check, which teaches people to
 // re-run CI rather than read it.
 func TestAnalysersArePinnedToExactVersions(t *testing.T) {
-	matches := goRunTool.FindAllStringSubmatch(readWorkflow(t), -1)
+	matches := goRunTool.FindAllStringSubmatch(readWorkflow(t, workflowPath), -1)
 
 	if len(matches) != wantToolSteps {
 		t.Fatalf("found %d `go run <tool>@<version>` steps in %s, want %d; "+
@@ -87,7 +87,7 @@ func TestAnalysersArePinnedToExactVersions(t *testing.T) {
 // that looks like coverage. That inertness is invisible in a green log, which
 // is why it is asserted rather than commented.
 func TestTaggedAnalyserRunsSurvive(t *testing.T) {
-	lines := strings.Split(readWorkflow(t), "\n")
+	lines := strings.Split(readWorkflow(t, workflowPath), "\n")
 
 	// Matched by substring rather than by exact command so that bumping a
 	// pinned version does not break this test — the version is
@@ -129,7 +129,7 @@ const wantContractSteps = 2
 // against the committed file, the build regenerated it, both present and the
 // diff step reachable after the build.
 func TestContractIsRegeneratedAndDiffed(t *testing.T) {
-	raw := readWorkflow(t)
+	raw := readWorkflow(t, workflowPath)
 	lines := strings.Split(raw, "\n")
 
 	regenIdx, diffIdx, remedyIdx, buildIdx, vetIdx := -1, -1, -1, -1, -1
@@ -168,7 +168,7 @@ func TestContractIsRegeneratedAndDiffed(t *testing.T) {
 	// and the message that says how to fix it lives in a `go test` step the
 	// abort never reaches.
 	if remedyIdx == -1 || remedyIdx < diffIdx {
-		t.Errorf("the contract diff step in %s does not print the regenerate command in its own failure path "+
+		t.Errorf("the contract diff step in %s does not print a ::error:: annotation naming the regenerate command after the diff "+
 			"(remedy=%d diff=%d); a developer sees an unexplained diff and reverts the file instead of regenerating it",
 			workflowPath, remedyIdx, diffIdx)
 	}

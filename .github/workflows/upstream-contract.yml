@@ -18,6 +18,8 @@ on:
   # Manual trigger, so the contract can be checked on demand after an upstream
   # incident without waiting for the next scheduled run.
   workflow_dispatch:
+permissions:
+  contents: read
 
 jobs:
   live-contract:
@@ -26,8 +28,8 @@ jobs:
     # repository. The run is a signal to read, not a gate.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7
         with:
           go-version: '1.26'
       - name: live upstream contract check

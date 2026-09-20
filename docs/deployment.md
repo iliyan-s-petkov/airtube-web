@@ -191,19 +191,10 @@ Run these in order. Each step depends on the one before it.
    `AIRBG_TILES_ARCHIVE` in `/srv/airbg/.env` to match the exact filename you
    installed.
 
-9. Build and load the image (see §4 Releases), then also tag it `latest`:
-
-   ```bash
-   docker tag airbg:$TAG airbg:latest
-   ```
-
-   This is required, not cosmetic: `deploy/ofelia.ini`'s `backup` job runs
-   `image = timescale/timescaledb-ha:pg18`, unrelated to the app image, but
-   its own `collect` job runs `image = airbg:latest` — ofelia's INI format has
-   no way to interpolate the current release tag into a job definition, so
-   `collect` always runs whatever `latest` currently points at. If you forget
-   this step, the scheduled collector keeps running the previous release
-   after every deploy.
+9. Pull the signed image and tag it `airbg:$TAG` (see §4 Releases). Nothing
+   on the host uses `airbg:latest`; do not create it. `deploy/ofelia.ini`'s
+   only job is `backup`, which runs `image = timescale/timescaledb-ha:pg18`,
+   unrelated to the app image.
 
 10. `cd /srv/airbg && docker compose -f docker-compose.prod.yml run --rm app validate-config`
 
@@ -287,30 +278,44 @@ Run every item below. Do not announce the site until all of them pass.
 
 ## 4. Releases
 
-Build on your workstation or CI host, ship the image over SSH, and update the
-running stack in one sequence:
+Nothing is built on the host or on your workstation. Every push to `master`
+runs `.github/workflows/publish.yml`, which builds the image, scans it with
+Trivy, signs it with cosign (keyless, GitHub OIDC) only when the scan passes,
+and pushes it to `ghcr.io/iliyan-s-petkov/airbg:<short-sha>`. The Ansible
+`airbg` role is the normal release path: it verifies the signature on the
+target, pulls by the signed digest, tags the result `airbg:<short-sha>`, writes
+`AIRBG_IMAGE_TAG`, runs `migrate`, and brings the stack up. See
+`deploy/README.md` § "image: pulled from GHCR by signed digest".
+
+Done by hand, the same sequence is:
 
 ```bash
-TAG=$(git rev-parse --short HEAD)
-docker build -t airbg:$TAG .
-docker save airbg:$TAG | gzip | ssh airbg 'gunzip | docker load'
-ssh airbg "docker tag airbg:$TAG airbg:latest \
+TAG=$(git rev-parse --short=7 HEAD)
+ssh airbg "DIGEST=\$(cosign verify \
+    --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp='^https://github\.com/iliyan-s-petkov/airtube-web/\.github/workflows/publish\.yml@refs/(heads/master|tags/v.*)$' \
+    --output=json ghcr.io/iliyan-s-petkov/airbg:$TAG \
+    | jq -r '.[0].critical.image[\"docker-manifest-digest\"]') \
+  && docker pull ghcr.io/iliyan-s-petkov/airbg@\$DIGEST \
+  && docker tag ghcr.io/iliyan-s-petkov/airbg@\$DIGEST airbg:$TAG \
   && sed -i 's/^AIRBG_IMAGE_TAG=.*/AIRBG_IMAGE_TAG=$TAG/' /srv/airbg/.env \
   && cd /srv/airbg \
   && docker compose -f docker-compose.prod.yml run --rm app migrate \
   && docker compose -f docker-compose.prod.yml up -d"
 ```
 
+`--short=7` matches the width publish.yml uses; a bare `--short` can widen on
+a large clone and then name a tag GHCR does not have. If `cosign verify`
+fails, stop: either master has not been pushed since this commit, the scan
+failed and the image was never signed, or the GHCR package is still private.
+
 `migrate` runs as a separate one-shot container, not as part of `app`'s
 startup, deliberately: a migration failure must stop the deploy outright, not
 crash-loop a serving container while `caddy` keeps sending it traffic.
 
-Also re-tag `latest` on every release (step above) — see §2.8 for why
-`ofelia`'s `collect` job depends on it.
-
 Rollback is the same sequence run with the previous commit's short SHA in
-place of `$TAG`: the previous image stays loaded on the host until something
-prunes it, so no rebuild or re-transfer is needed to go back.
+place of `$TAG`: the previous image stays on the host until something prunes
+it, and if it was pruned the verified pull fetches it again.
 
 ## 5. Development access
 
@@ -418,7 +423,7 @@ The `app` service runs `read_only: true` and `cap_drop: ["ALL"]`. Confirm the
 image tolerates that before relying on it in production:
 
 ```bash
-docker run --rm --read-only --cap-drop ALL airbg:latest validate-config
+docker run --rm --read-only --cap-drop ALL airbg:$TAG validate-config
 ```
 
 If this fails because something under the hood tries to write a temp file,

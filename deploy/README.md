@@ -98,8 +98,26 @@ with arbitrary binds and command, which is already host root. The alternative
 that removes the surface instead of narrowing it is host systemd timers in
 place of ofelia, which would delete both this service and the scheduler.
 
-`pull = false` stays regardless: `airbg:latest` is built on the host and exists
-in no registry, so a pull could only ever fail.
+`pull = false` stays regardless: the only app image on the host is
+`airbg:<short-sha>`, tagged locally after the verified pull described below.
+There is no `airbg:latest` on the host, and ofelia must never fetch anything
+itself.
+
+## image: pulled from GHCR by signed digest
+
+The Ansible role no longer builds `airbg` on the target host. Every push to
+`master` runs `.github/workflows/publish.yml`, which builds the image, scans it
+with Trivy, and only if the scan passes signs it keylessly with cosign via
+GitHub OIDC and pushes it to `ghcr.io/iliyan-s-petkov/airbg:<short-sha>`. The
+`airbg` role's `tasks/image.yml` then runs `cosign verify` against that tag on
+the target itself, so the host fetches its own Rekor and Fulcio trust material,
+extracts the signed digest from the verification output, and pulls and tags the
+image by that digest: never by `:latest` and never by a bare tag pull. If
+verification fails, the deploy fails closed with a message pointing at the
+publish workflow's Actions run.
+
+The GHCR package must be public for the anonymous pull to work. GitHub creates
+it private on first publish; flip it by hand once under the package settings.
 
 ## Why there is no collect job
 
@@ -146,6 +164,13 @@ re-deploy, never on a first deploy.
 The Ansible role runs bootstrap commands and area imports with plain
 `docker run` on the back network instead, the same shape ofelia's job-run
 containers use.
+
+## docker-compose.prod.yml: caddy does not wait on app health
+
+`caddy`'s `depends_on` on `app` is start-order only, not
+`condition: service_healthy`. A bad `app` release therefore surfaces as a 502
+on `airbg.org`, while `tiles.airbg.org` and ACME renewals keep working because
+`caddy` itself stays up.
 
 ## Caddyfile: the origin certificate
 
@@ -219,3 +244,7 @@ daemon start. The result is containers with no masquerade and no DNS — image
 builds fail on `lookup proxy.golang.org ... i/o timeout` — while `nft list
 ruleset` looks perfectly correct. Recovering needs a `systemctl restart
 docker`. Delete only the table this file owns.
+
+## nftables.conf: SSH rate limit
+
+The SSH rule limits new connections to 6 per minute sustained, with a burst allowance of 10 packets. The `ct state new` condition counts only initial handshakes, not packets within an established session — existing SSH connections are unaffected. The local SSH forward to the app rides an existing session (opened once, then reused), so forwarding is unaffected too. A connection over the limit is simply dropped; the chain policy is `drop`, so no explicit drop rule is needed.

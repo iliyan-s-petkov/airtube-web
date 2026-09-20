@@ -38,6 +38,53 @@ type composeService struct {
 	NetworkMode string                   `yaml:"network_mode"`
 	ReadOnly    bool                     `yaml:"read_only"`
 	Tmpfs       []string                 `yaml:"tmpfs"`
+	MemLimit    string                   `yaml:"mem_limit"`
+	PidsLimit   int                      `yaml:"pids_limit"`
+	CapDrop     []string                 `yaml:"cap_drop"`
+	CapAdd      []string                 `yaml:"cap_add"`
+	SecurityOpt []string                 `yaml:"security_opt"`
+	Healthcheck *struct {
+		Test []string `yaml:"test"`
+	} `yaml:"healthcheck"`
+	DependsOn composeDependsOn `yaml:"depends_on"`
+}
+
+// composeDependsOn handles both shapes this file uses: caddy's list form
+// (`depends_on: [app]`, now the condition-map form) and app's map form
+// (`depends_on: {db: {condition: service_healthy}}`). A custom unmarshal
+// picks the right one from the YAML node kind.
+type composeDependsOn map[string]struct {
+	Condition string `yaml:"condition"`
+}
+
+func (d *composeDependsOn) UnmarshalYAML(value *yaml.Node) error {
+	*d = composeDependsOn{}
+	switch value.Kind {
+	case yaml.SequenceNode:
+		var names []string
+		if err := value.Decode(&names); err != nil {
+			return err
+		}
+		for _, name := range names {
+			(*d)[name] = struct {
+				Condition string `yaml:"condition"`
+			}{}
+		}
+		return nil
+	case yaml.MappingNode:
+		var m map[string]struct {
+			Condition string `yaml:"condition"`
+		}
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		for k, v := range m {
+			(*d)[k] = v
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 type composeAttach struct {
@@ -563,6 +610,81 @@ func TestTheDevCaddyfileIsUnmistakableAndOpen(t *testing.T) {
 	}
 }
 
+// TestTheSiteVhostCapsRequestBodies asserts that the airbg.org block contains
+// a request_body directive with max_size 64KB, while tiles.airbg.org and
+// www.airbg.org do not contain request_body at all.
+func TestTheSiteVhostCapsRequestBodies(t *testing.T) {
+	blocks := caddyBlocks(t, "Caddyfile")
+
+	site, ok := blocks["airbg.org"]
+	if !ok {
+		t.Fatalf("Caddyfile has no airbg.org site block; found %v", keysOf(blocks))
+	}
+	if !strings.Contains(site, "request_body") {
+		t.Error("the airbg.org block does not cap request bodies — the app wraps bodies in http.MaxBytesReader, but this is the outer wall")
+	}
+	if !strings.Contains(site, "max_size 64KB") {
+		t.Error("the airbg.org block's request_body does not set max_size 64KB")
+	}
+
+	for _, name := range []string{"tiles.airbg.org", "www.airbg.org"} {
+		block, ok := blocks[name]
+		if !ok {
+			t.Fatalf("Caddyfile has no %s site block; found %v", name, keysOf(blocks))
+		}
+		if strings.Contains(block, "request_body") {
+			t.Errorf("the %s block contains request_body, which should only be in airbg.org", name)
+		}
+	}
+}
+
+// TestEncodeIsStaticOnly asserts that every `encode` line in the Caddyfile
+// has a matcher (starts with a `@` token before the algorithm names), and that
+// there is exactly one such line, in the airbg.org block, with matcher
+// `path /static/*`.
+func TestEncodeIsStaticOnly(t *testing.T) {
+	data, err := os.ReadFile("Caddyfile")
+	if err != nil {
+		t.Fatalf("ReadFile(Caddyfile) error = %v, want nil", err)
+	}
+
+	var encodeLines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "encode") {
+			encodeLines = append(encodeLines, stripCaddyComment(line))
+		}
+	}
+
+	if len(encodeLines) != 1 {
+		t.Fatalf("Caddyfile contains %d `encode` lines, want exactly 1; found: %v", len(encodeLines), encodeLines)
+	}
+
+	encodeLine := encodeLines[0]
+	fields := strings.Fields(strings.TrimSpace(encodeLine))
+
+	// The matcher should be the second field (after 'encode')
+	if len(fields) < 2 {
+		t.Fatalf("encode line has too few fields: %q", encodeLine)
+	}
+	matcher := fields[1]
+	if !strings.HasPrefix(matcher, "@") {
+		t.Errorf("encode line does not start with a matcher: %q — compress APIs that already carry Content-Encoding will be re-compressed", encodeLine)
+	}
+	if matcher != "@static" {
+		t.Errorf("encode line uses matcher %q, want @static: %q", matcher, encodeLine)
+	}
+
+	// Verify the matcher is declared with path /static/*
+	blocks := caddyBlocks(t, "Caddyfile")
+	site, ok := blocks["airbg.org"]
+	if !ok {
+		t.Fatalf("Caddyfile has no airbg.org site block; found %v", keysOf(blocks))
+	}
+	if !strings.Contains(site, "@static path /static/*") {
+		t.Error("the airbg.org block does not declare @static with path /static/* — static assets will not be compressed")
+	}
+}
+
 // ofeliaJobLines returns every `key = value` line inside a `[job-run "name"]`
 // section of ofelia.ini, in file order, with full-line `;` comments and blank
 // lines dropped. Deliberately simple, same spirit as caddyBlocks: sections
@@ -845,5 +967,131 @@ func TestTheGoStageCrossCompilesForTheTargetArch(t *testing.T) {
 		if !strings.Contains(df, want) {
 			t.Errorf("Dockerfile is missing %q; a --platform build would emulate the whole builder instead of cross-compiling", want)
 		}
+	}
+}
+
+// parseMemLimit parses a compose mem_limit like "1g" or "256m" into bytes.
+func parseMemLimit(t *testing.T, s string) int64 {
+	t.Helper()
+	if s == "" {
+		t.Fatal("mem_limit is empty")
+	}
+	unit := s[len(s)-1]
+	n, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+	if err != nil {
+		t.Fatalf("mem_limit %q does not parse as <number><unit>: %v", s, err)
+	}
+	switch unit {
+	case 'g', 'G':
+		return n * 1024 * 1024 * 1024
+	case 'm', 'M':
+		return n * 1024 * 1024
+	default:
+		t.Fatalf("mem_limit %q has unrecognised unit %q, want g or m", s, string(unit))
+		return 0
+	}
+}
+
+// app and caddy both handle internet-originated traffic or its proxy, so both
+// need a ceiling that turns a leak or an abuse pattern into a restart instead
+// of a host-wide OOM. The exact numbers are unmeasured — a first cut for the
+// operator to tune — so this pins presence and a ceiling, not the value.
+func TestAppAndCaddyAreResourceLimited(t *testing.T) {
+	c := loadCompose(t)
+	for _, tt := range []struct {
+		name   string
+		maxMem int64
+	}{
+		{"app", 2 * 1024 * 1024 * 1024},
+		{"caddy", 512 * 1024 * 1024},
+	} {
+		svc := service(t, c, tt.name)
+		mem := parseMemLimit(t, svc.MemLimit)
+		if mem > tt.maxMem {
+			t.Errorf("%s mem_limit %s exceeds the %d byte ceiling", tt.name, svc.MemLimit, tt.maxMem)
+		}
+		if svc.PidsLimit <= 0 {
+			t.Errorf("%s pids_limit = %d, want > 0", tt.name, svc.PidsLimit)
+		}
+	}
+}
+
+// caddy runs as root and binds 80/443, which needs CAP_NET_BIND_SERVICE even
+// from root once cap_drop removes it; every other capability must stay
+// dropped. app carries the same drop/security_opt pair with no cap_add, since
+// it never binds a privileged port.
+func TestCaddyDropsAllCapabilitiesButBind(t *testing.T) {
+	c := loadCompose(t)
+
+	caddy := service(t, c, "caddy")
+	if got := caddy.CapDrop; len(got) != 1 || got[0] != "ALL" {
+		t.Errorf("caddy cap_drop = %v, want [\"ALL\"]", got)
+	}
+	if got := caddy.CapAdd; len(got) != 1 || got[0] != "NET_BIND_SERVICE" {
+		t.Errorf("caddy cap_add = %v, want [\"NET_BIND_SERVICE\"]", got)
+	}
+	if !containsString(caddy.SecurityOpt, "no-new-privileges:true") {
+		t.Errorf("caddy security_opt = %v, want it to contain \"no-new-privileges:true\"", caddy.SecurityOpt)
+	}
+
+	app := service(t, c, "app")
+	if got := app.CapDrop; len(got) != 1 || got[0] != "ALL" {
+		t.Errorf("app cap_drop = %v, want [\"ALL\"]", got)
+	}
+	if !containsString(app.SecurityOpt, "no-new-privileges:true") {
+		t.Errorf("app security_opt = %v, want it to contain \"no-new-privileges:true\"", app.SecurityOpt)
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// app's healthcheck must invoke the binary directly, not a shell: the
+// distroless image has none, so a CMD-SHELL probe would fail forever and
+// flap the container. caddy's probe is busybox wget against the admin API,
+// the one endpoint that answers plainly (see compose file comments).
+func TestAppAndCaddyHaveHealthchecks(t *testing.T) {
+	c := loadCompose(t)
+
+	app := service(t, c, "app")
+	if app.Healthcheck == nil {
+		t.Fatal("app has no healthcheck")
+	}
+	want := []string{"CMD", "/airbg", "healthz"}
+	if len(app.Healthcheck.Test) != len(want) {
+		t.Fatalf("app healthcheck test = %v, want %v", app.Healthcheck.Test, want)
+	}
+	for i, part := range want {
+		if app.Healthcheck.Test[i] != part {
+			t.Errorf("app healthcheck test = %v, want %v", app.Healthcheck.Test, want)
+			break
+		}
+	}
+
+	caddy := service(t, c, "caddy")
+	if caddy.Healthcheck == nil {
+		t.Fatal("caddy has no healthcheck")
+	}
+	if len(caddy.Healthcheck.Test) < 2 || caddy.Healthcheck.Test[0] != "CMD" || caddy.Healthcheck.Test[1] != "wget" {
+		t.Errorf("caddy healthcheck test = %v, want it to start with [\"CMD\", \"wget\"", caddy.Healthcheck.Test)
+	}
+}
+
+// TestCaddyDoesNotWaitOnAppHealth pins depends_on to start-order only: a
+// service_healthy condition here would take tiles and ACME down with app.
+func TestCaddyDoesNotWaitOnAppHealth(t *testing.T) {
+	caddy := service(t, loadCompose(t), "caddy")
+	dep, ok := caddy.DependsOn["app"]
+	if !ok {
+		t.Fatal("caddy depends_on does not name app")
+	}
+	if dep.Condition == "service_healthy" {
+		t.Error("caddy depends_on.app.condition = \"service_healthy\", want start-order only")
 	}
 }
