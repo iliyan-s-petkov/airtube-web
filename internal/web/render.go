@@ -426,8 +426,12 @@ func (p PageData) areaSourceGroups() []Readout {
 	for _, src := range networks {
 		se := p.Area.BySource[src]
 		name := p.T("source.name." + strings.ReplaceAll(src, ".", "_"))
-		tier := strings.ReplaceAll(p.T("area.sources.row"), "{source}", name)
-		tier = strings.ReplaceAll(tier, "{n}", strconv.Itoa(se.N))
+		// Group already names the network; the tier says only the count.
+		tierKey := "area.sources.row"
+		if se.N == 1 {
+			tierKey = "area.sources.row_one"
+		}
+		tier := strings.ReplaceAll(p.T(tierKey), "{n}", strconv.Itoa(se.N))
 
 		cell := func(m string) {
 			v, ok := se.Values[m]

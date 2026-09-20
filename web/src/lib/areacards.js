@@ -97,11 +97,12 @@ export function areaSourceCards(rows, { metricLabel, scale, lang, t }) {
 
   return rows.map((row) => {
     const group = t[SOURCE_LABEL[row.source]] ?? row.source
+    const tier = row.n === 1 ? t.sourceRowOne : fill(t.sourceRow, { n: row.n })
     return {
       label: metricLabel,
       value: number(row.median, lang),
       unit,
-      tier: fill(t.sourceRow, { source: group, n: row.n }),
+      tier,
       gauge: gaugeFor(scale, row.median),
       group,
     }

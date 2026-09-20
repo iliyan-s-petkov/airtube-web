@@ -232,8 +232,8 @@ func TestAreaPageRendersTheNetworkBreakdown(t *testing.T) {
 	for _, want := range []string{
 		`class="readout__group">Official<`,
 		`class="readout__group">Citizen<`,
-		"Official · 1 stations",
-		"Citizen · 3 stations",
+		"1 station",
+		"3 stations",
 		">100.0<",
 		">20.0<",
 		">25.0<", // the blended figure is still the headline
@@ -247,5 +247,8 @@ func TestAreaPageRendersTheNetworkBreakdown(t *testing.T) {
 	// catalogue marker signals a real substitution failure here.
 	if strings.Contains(body, "!source.name.eea!") {
 		t.Error("a catalogue marker reached the page")
+	}
+	if !strings.Contains(body, `data-t-source-row-one="`) {
+		t.Error("rendered page does not carry the data-t-source-row-one attribute")
 	}
 }
