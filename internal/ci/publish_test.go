@@ -7,58 +7,179 @@ package ci
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 const publishWorkflowPath = "../../.github/workflows/publish.yml"
 
-// TestPublishPermissionsAreExact pins the top-level permissions block to
-// exactly the three keys the workflow needs: contents: read to check out,
-// packages: write to push to GHCR, id-token: write for cosign's keyless OIDC
-// flow. Any other key, or a missing one, changes the blast radius of the
-// GITHUB_TOKEN this workflow runs with.
-func TestPublishPermissionsAreExact(t *testing.T) {
-	raw := readWorkflow(t, publishWorkflowPath)
-	lines := strings.Split(raw, "\n")
-
-	permIdx := -1
-	for i, line := range lines {
-		if line == "permissions:" {
-			permIdx = i
-			break
-		}
-	}
-	if permIdx == -1 {
-		t.Fatalf("%s has no top-level (column-zero) `permissions:` block", publishWorkflowPath)
-	}
-
-	want := map[string]string{
-		"contents": "read",
-		"packages": "write",
-		"id-token": "write",
-	}
+// permBlockKeys reads the `key: value` lines of a permissions: block starting
+// at lines[startIdx+1], indented indent spaces, until a non-matching line
+// ends the block.
+func permBlockKeys(lines []string, startIdx, indent int) map[string]string {
 	got := map[string]string{}
-	keyLine := regexp.MustCompile(`^\s{2}([\w-]+):\s*(\S+)\s*$`)
-	for _, line := range lines[permIdx+1:] {
+	keyLine := regexp.MustCompile(`^\s{` + strconv.Itoa(indent) + `}([\w-]+):\s*(\S+)\s*$`)
+	for _, line := range lines[startIdx+1:] {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		m := keyLine.FindStringSubmatch(line)
 		if m == nil {
-			// A 2-space-indented, non-matching line means the permissions
-			// block ended (next top-level key at column 0 or a job key).
 			break
 		}
 		got[m[1]] = m[2]
 	}
+	return got
+}
 
+// TestPublishPermissionsAreExact pins the top-level permissions block to
+// contents: read only, and the write scopes to the job that actually pushes:
+// packages: write to push to GHCR, id-token: write for cosign's keyless OIDC
+// flow. A pull_request run must never see those two scopes.
+func TestPublishPermissionsAreExact(t *testing.T) {
+	raw := readWorkflow(t, publishWorkflowPath)
+	lines := strings.Split(raw, "\n")
+
+	topIdx := -1
+	for i, line := range lines {
+		if line == "permissions:" {
+			topIdx = i
+			break
+		}
+	}
+	if topIdx == -1 {
+		t.Fatalf("%s has no top-level (column-zero) `permissions:` block", publishWorkflowPath)
+	}
+	if got := permBlockKeys(lines, topIdx, 2); len(got) != 1 || got["contents"] != "read" {
+		t.Errorf("%s top-level permissions = %v, want exactly {contents: read}", publishWorkflowPath, got)
+	}
+
+	prCheckIdx, publishIdx := -1, -1
+	for i, line := range lines {
+		switch strings.TrimSpace(line) {
+		case "pr-check:":
+			prCheckIdx = i
+		case "publish:":
+			publishIdx = i
+		}
+	}
+	if prCheckIdx == -1 {
+		t.Fatalf("%s has no `pr-check:` job", publishWorkflowPath)
+	}
+	if publishIdx == -1 {
+		t.Fatalf("%s has no `publish:` job", publishWorkflowPath)
+	}
+
+	jobPermIdx := func(from, to int) int {
+		for i := from; i < to && i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "permissions:" {
+				return i
+			}
+		}
+		return -1
+	}
+
+	prPermIdx := jobPermIdx(prCheckIdx, publishIdx)
+	if prPermIdx == -1 {
+		t.Fatalf("%s: `pr-check` job has no `permissions:` block", publishWorkflowPath)
+	}
+	if got := permBlockKeys(lines, prPermIdx, 6); len(got) != 1 || got["contents"] != "read" {
+		t.Errorf("%s pr-check job permissions = %v, want exactly {contents: read}", publishWorkflowPath, got)
+	}
+
+	pubPermIdx := jobPermIdx(publishIdx, len(lines))
+	if pubPermIdx == -1 {
+		t.Fatalf("%s: `publish` job has no `permissions:` block", publishWorkflowPath)
+	}
+	want := map[string]string{
+		"contents": "read",
+		"packages": "write",
+		"id-token": "write",
+	}
+	got := permBlockKeys(lines, pubPermIdx, 6)
 	if len(got) != len(want) {
-		t.Fatalf("%s top-level permissions has %d keys (%v), want exactly %v", publishWorkflowPath, len(got), got, want)
+		t.Fatalf("%s publish job permissions has %d keys (%v), want exactly %v", publishWorkflowPath, len(got), got, want)
 	}
 	for k, v := range want {
 		if got[k] != v {
-			t.Errorf("%s permissions.%s = %q, want %q", publishWorkflowPath, k, got[k], v)
+			t.Errorf("%s publish job permissions.%s = %q, want %q", publishWorkflowPath, k, got[k], v)
+		}
+	}
+}
+
+// TestPullRequestRunsNeverPush proves the `pr-check` job — the one that runs
+// on a pull_request event — can never push, sign or alias an image: none of
+// those four strings appear in it, and every occurrence of any of them
+// elsewhere in the file sits inside the `publish` job, which is gated on
+// `github.event_name != 'pull_request'`.
+func TestPullRequestRunsNeverPush(t *testing.T) {
+	raw := readWorkflow(t, publishWorkflowPath)
+	lines := strings.Split(raw, "\n")
+
+	jobStart := regexp.MustCompile(`^  [\w-]+:\s*$`)
+	jobIdx := map[string]int{}
+	var jobOrder []string
+	for i, line := range lines {
+		if jobStart.MatchString(line) {
+			name := strings.TrimSuffix(strings.TrimSpace(line), ":")
+			jobIdx[name] = i
+			jobOrder = append(jobOrder, name)
+		}
+	}
+	prCheckIdx, ok := jobIdx["pr-check"]
+	if !ok {
+		t.Fatalf("%s has no `pr-check:` job", publishWorkflowPath)
+	}
+	publishIdx, ok := jobIdx["publish"]
+	if !ok {
+		t.Fatalf("%s has no `publish:` job", publishWorkflowPath)
+	}
+
+	jobEnd := func(start int) int {
+		end := len(lines)
+		for _, i := range jobIdx {
+			if i > start && i < end {
+				end = i
+			}
+		}
+		return end
+	}
+	prCheckEnd := jobEnd(prCheckIdx)
+	publishEnd := jobEnd(publishIdx)
+
+	dangerous := []string{"docker/login-action", "push: true", "cosign sign", "imagetools create"}
+
+	for i := prCheckIdx; i < prCheckEnd; i++ {
+		for _, d := range dangerous {
+			if strings.Contains(lines[i], d) {
+				t.Errorf("%s: pr-check job line %d contains %q; a PR run must never push, sign, or alias an image", publishWorkflowPath, i, d)
+			}
+		}
+	}
+	if !containsAll(strings.Join(lines[prCheckIdx:prCheckEnd], "\n"), []string{"push: false"}) {
+		t.Errorf("%s: pr-check job has no `push: false`", publishWorkflowPath)
+	}
+
+	publishIf := ""
+	for i := publishIdx; i < publishEnd; i++ {
+		if strings.Contains(lines[i], "if:") {
+			publishIf = lines[i]
+			break
+		}
+	}
+	if !strings.Contains(publishIf, "github.event_name != 'pull_request'") {
+		t.Errorf("%s: `publish` job's `if:` = %q, want it gated on github.event_name != 'pull_request'", publishWorkflowPath, publishIf)
+	}
+
+	for i, line := range lines {
+		if i >= publishIdx && i < publishEnd {
+			continue
+		}
+		for _, d := range dangerous {
+			if strings.Contains(line, d) {
+				t.Errorf("%s: line %d contains %q outside the `publish` job", publishWorkflowPath, i, d)
+			}
 		}
 	}
 }
@@ -241,11 +362,8 @@ func TestLatestIsTaggedOnlyAfterSigning(t *testing.T) {
 	}
 }
 
-// TestShortTagWidthIsPinned asserts that the git rev-parse step pins the
-// short SHA width to exactly 7 characters. Git's auto-abbrev width grows with
-// object count, and a shallow CI clone sees fewer objects than the operator's
-// full clone — the two sides can drift. The Ansible side is pinned to 7 in
-// the same change set, so this test pins the CI side to match.
+// TestShortTagWidthIsPinned asserts git rev-parse pins the short SHA width
+// to 7 characters, matching the Ansible side.
 func TestShortTagWidthIsPinned(t *testing.T) {
 	raw := readWorkflow(t, publishWorkflowPath)
 	if !strings.Contains(raw, "git rev-parse --short=7 HEAD") {
