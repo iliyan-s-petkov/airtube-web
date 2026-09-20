@@ -5,46 +5,39 @@
 // mismatch entirely.
 import { Map as MapLibreMap } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { tierFor } from '../lib/tier.js'
 import { LEGEND_CLASSES, legendRows, legendTitle, renderLegend } from '../lib/legend.js'
 import { createScaleDialog } from '../lib/scaledialog.js'
-import { scaleFor } from '../lib/scaleinfo.js'
 import { mountFullscreen, mountZoom, mountLocate, installZoom } from '../lib/mapcontrols.js'
 import { mountLayers, installLayers, LAYER_ORDER } from '../lib/maplayers.js'
 import { rampColour } from '../lib/ramp.js'
 import { getJSON, clearCache } from '../lib/api.js'
 import { getFreshness } from '../lib/freshness.svelte.js'
-import { parseMetricList, splitAttr, byMetric, hasScale } from '../lib/metrics.js'
+import { parseMetricList, splitAttr, byMetric } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
-import { setSensors, setScales, findSensor, getSensors } from '../lib/sensors.svelte.js'
 import { filterByStatus, getSensorStatus, setSensorStatus, onSensorStatusChange } from '../lib/sensorfilter.svelte.js'
 import {
-  filterBySource, getSources, onSourceChange, setSourceEnabled,
+  getSources, onSourceChange, setSourceEnabled,
   CITIZEN_SOURCE, OFFICIAL_SOURCE,
 } from '../lib/sourcefilter.svelte.js'
 import { diamondImage } from '../lib/markericon.js'
-import { applyLocate } from '../lib/locate.js'
 import { readChoice, readFlag, writeChoice, writeFlag, safeStorage } from '../lib/storage.js'
-import { nearestArea, nearestSensor } from '../lib/nearest.js'
 import {
-  chooseWindow, mountWindow, readWindow, windowOptions, withWindow,
+  chooseWindow, mountWindow, readWindow, windowOptions,
 } from '../lib/mapwindow.js'
 import {
   DEFAULT_SPEED, SPEEDS, cursor, fillForward, frameBody, frameCount, frameTime, frameDelay,
   hasHistory, mountPlayer, nextSpeed, seek, step, thinFrames, timelapseURL,
 } from '../lib/timelapse.js'
-import { setMapAreas, provideAreaSelect } from '../lib/mapareas.svelte.js'
+import { provideAreaSelect } from '../lib/mapareas.svelte.js'
 import {
-  hexesURL, hexFeatures, resolutionForZoom,
-  GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM,
+  hexFeatures, resolutionForZoom, GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL,
 } from '../lib/hexes.js'
 import {
-  WIND_SOURCE_ID, WIND_LAYER_ID, ARROW_IMAGE_ID, windFeatures, windField, windLabel, windIsStale,
-  arrowImage, arrowLayout, arrowPaint,
+  WIND_SOURCE_ID, WIND_LAYER_ID, ARROW_IMAGE_ID, arrowImage, arrowLayout, arrowPaint,
 } from './wind.js'
 import {
   BOUNDARY_SOURCE_ID, BOUNDARY_FILL_LAYER_ID, BOUNDARY_LINE_LAYER_ID,
-  BOUNDARY_SELECTED_LAYER_ID, BOUNDARY_LAYER_IDS,
+  BOUNDARY_SELECTED_LAYER_ID,
   boundaryFillPaint, boundaryLinePaint, boundarySelectedPaint,
   selectedFilter, boundsOf, findBoundary,
 } from '../lib/boundaries.js'
@@ -53,20 +46,29 @@ import {
   HEX_SOURCE_ID, HEX_LAYER_ID, HEX_OUTLINE_LAYER_ID, HEX_POINT_LAYER_ID, HEX_LABEL_LAYER_ID,
 } from '../lib/mapids.js'
 import {
-  LEGEND_FOLD_KEY, PLAY_SPEED_KEY, MIN_ZOOM, MAX_ZOOM_CEILING, readConfig,
+  LEGEND_FOLD_KEY, PLAY_SPEED_KEY, MIN_ZOOM, readConfig,
 } from '../lib/mapconfig.js'
-import { areaFeatures, sensorFeatures, emptyCollection } from '../lib/mapfeatures.js'
+import { emptyCollection } from '../lib/mapfeatures.js'
 import {
-  CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY, markerMaxZoom, hexOutlinePaint, bandsFor,
+  markerMaxZoom, hexOutlinePaint, bandsFor,
   hexLabelPaint, layerPaint, NOT_OFFICIAL, officialLayout, officialPaint, labelLayout,
-  hexLabelLayout, labelPaint, markerPaint, MARKER_PIXEL_RATIO,
+  hexLabelLayout, labelPaint, MARKER_PIXEL_RATIO,
 } from '../lib/mappaint.js'
 import { registerProtocols, mapStyle, installErrorHandler, addBasemapOverlay } from '../lib/mapstyle.js'
+import { setWind, refreshWind, paintWind } from '../lib/mapwind.js'
+import {
+  hit, boundaryChoice, highlightBoundary, setBoundaries, cellArea, BOUNDARY_FIT_PADDING,
+} from '../lib/mapboundaries.js'
+import {
+  MOVE_DEBOUNCE_MS, refresh, refreshHexes, onMetricChange, applyMetricColours, initData,
+  showArea, mapHint, repaintSensors, setSourceViewAvailability, setCellValues, debounce,
+  hintController,
+} from '../lib/mapdata.js'
+import {
+  locateVisitor, openDeepLinkedSensor, placeVisitor, prefetchPlacement, LOCATE_TIMEOUT_MS,
+  locateMe,
+} from '../lib/placement.js'
 
-// Debounce before any tier change fires a request. One pinch-zoom gesture emits
-// a dozen moveend events; undebounced, that is a dozen requests and the whole
-// burst.
-const MOVE_DEBOUNCE_MS = 250
 
 export function mount(el) {
   const cfg = readConfig(el)
@@ -631,537 +633,6 @@ export function mount(el) {
 // Padding in pixels around a province fitted into the frame. Enough that the
 // outline the reader just selected is not flush against the edge of the map,
 // where the highlight it was given would be half a line wide.
-const BOUNDARY_FIT_PADDING = 24
-
-// queryRenderedFeatures over whichever of the named layers the map actually
-// carries. MapLibre throws on a layer id it does not know, and every caller
-// here runs on a map whose layers were added in an async 'load' handler that
-// may not have reached them yet.
-function hit(map, point, layers) {
-  const present = layers.filter((id) => map.getLayer?.(id))
-  if (!present.length) return []
-  return map.queryRenderedFeatures(point, { layers: present }) ?? []
-}
-
-// boundaryChoice is the whole decision behind a click on open ground: the
-// province under the pointer, or nothing.
-//
-// Nothing on a map already scoped to one area — /area/{slug} is one province,
-// ever, and there is nothing to drill into — which is the same rule cellArea
-// applies to the cells, for the same reason. Separated from the handler because
-// the handler needs a real MapLibre instance the "no jsdom" rule puts out of
-// reach.
-export function boundaryChoice(state, feature) {
-  if (state.slug) return null
-  return feature?.properties?.slug || null
-}
-
-// highlightBoundary is the selection, expressed as a filter on the heavy
-// outline layer. One write, no geometry: the selected province is already in
-// the source.
-export function highlightBoundary(map, slug) {
-  if (!map.getLayer?.(BOUNDARY_SELECTED_LAYER_ID)) return
-  map.setFilter(BOUNDARY_SELECTED_LAYER_ID, selectedFilter(slug))
-}
-
-// setBoundaries is the outline control: fetch once, then show or hide.
-//
-// The same shape as setWind, and for the same reasons — it returns the state
-// actually reached so a failed fetch corrects the checkbox rather than leaving
-// it ticked over a map with no outlines on it, and it takes the state asked for
-// rather than flipping the one it finds.
-//
-// A failed fetch leaves the outlines off and raises no banner: the readings are
-// what the page is for, and they are all still there.
-export async function setBoundaries(map, state, bstate, on, fetchJSON = getJSON) {
-  if (!on) {
-    bstate.on = false
-    setBoundaryVisibility(map, 'none')
-    return false
-  }
-  if (bstate.loading) return bstate.on
-  if (!bstate.body) {
-    bstate.loading = true
-    try {
-      bstate.body = await fetchJSON('/api/v1/boundaries')
-    } catch {
-      setBoundaryVisibility(map, 'none')
-      return false
-    } finally {
-      bstate.loading = false
-    }
-  }
-  map.getSource?.(BOUNDARY_SOURCE_ID)?.setData(bstate.body)
-  // On /area/{slug} the province is already chosen, so the outlines arrive with
-  // that one already picked out.
-  highlightBoundary(map, state.slug)
-  setBoundaryVisibility(map, 'visible')
-  bstate.on = true
-  return true
-}
-
-function setBoundaryVisibility(map, visibility) {
-  for (const id of BOUNDARY_LAYER_IDS) {
-    if (map.getLayer?.(id)) map.setLayoutProperty(id, 'visibility', visibility)
-  }
-}
-
-// cellArea decides which area an aggregate cell click selects: the one whose
-// centroid the click falls nearest.
-//
-// Returns null rather than a slug in the three cases where selecting anything
-// would be wrong — a click MapLibre reported no position for, a map already
-// scoped to one area (there is nothing to drill into), and a map that has not
-// yet loaded the area list. Separated from the handler because that is the
-// whole decision, and the handler around it needs a real MapLibre instance the
-// "no jsdom" rule puts out of reach.
-export function cellArea(state, lngLat) {
-  if (!lngLat || state.slug) return null
-  return nearestArea([lngLat.lng, lngLat.lat], state.areas)?.slug ?? null
-}
-
-// setWind is the whole wind control: fetch once, then show or hide.
-//
-// It takes the state asked for rather than flipping the one it finds, because
-// the control is now a checkbox in the layers menu: a toggle would drift out of
-// step with the box the moment a fetch failed. It RETURNS the state actually
-// reached, which is what lets the box correct itself.
-//
-// Exported and given an injectable fetch for the same reason initData is —
-// the "no jsdom" rule puts a real MapLibre instance out of reach, so the
-// behaviour that matters (the disclosure appears with the arrows and never
-// without them) is only testable through a fake map and a fake chrome.
-//
-// A failed fetch leaves the layer off rather than raising the map's error
-// banner: /api/v1/wind answers 503 whenever no forecast covers the current
-// hour, which is an ordinary state for an optional overlay, and an error
-// banner is reserved for the data the page actually exists to show.
-export async function setWind(map, cfg, chrome, state, on, fetchJSON = getJSON) {
-  if (!on) {
-    state.on = false
-    map.setLayoutProperty(WIND_LAYER_ID, 'visibility', 'none')
-    chrome.showWind(false, '')
-    return false
-  }
-  // A second request while the first fetch is in flight is dropped, not queued:
-  // getJSON already dedupes the request, but two resolutions would each flip
-  // the layer and the later one could turn on a layer the visitor just asked
-  // to turn off.
-  if (state.loading) return state.on
-  if (!state.body) {
-    state.loading = true
-    try {
-      state.body = await fetchJSON('/api/v1/wind')
-    } catch {
-      chrome.showWind(false, '')
-      return false
-    } finally {
-      state.loading = false
-    }
-  }
-  paintWind(map, state)
-  map.setLayoutProperty(WIND_LAYER_ID, 'visibility', 'visible')
-  state.on = true
-  chrome.showWind(true, windLabel(state.body, cfg.t))
-  return true
-}
-
-// refreshWind is the wind layer's share of a refresh: nothing, until the hour
-// the held forecast is valid for has passed.
-//
-// Everything else the button reloads moves on the five-minute ingest cycle. The
-// forecast does not (see windIsStale), so this drops the body only on an hour
-// boundary — and refetches there and then only if the layer is on. With it off,
-// the cleared body is enough: the next toggle fetches the current hour.
-export async function refreshWind(map, cfg, chrome, state, now = new Date(), fetchJSON = getJSON) {
-  if (!windIsStale(state.body, now)) return false
-  state.body = null
-  if (state.on) await setWind(map, cfg, chrome, state, true, fetchJSON)
-  return true
-}
-
-// setCellValues moves the cell-label layer's floor, and nothing else.
-//
-// The number is normally reserved for the point tier, where a cell is one
-// sensor: below that a cell is an average of several, and a country covered in
-// printed figures reads as noise over the ramp that is the primary reading.
-// But a reader comparing two neighbourhoods should not have to zoom to sensor
-// level one cell at a time to get the figures, so the floor is theirs to lower.
-//
-// Down to the CELLS' own floor, not to zero: a number below that would print
-// over ground with no cell drawn under it. The label layer's own collision
-// thinning does the rest — where the cells are too small to hold a number, it
-// simply drops the ones that will not fit.
-export function setCellValues(map, on) {
-  map.setLayerZoomRange(
-    HEX_LABEL_LAYER_ID,
-    on ? GRID_MIN_ZOOM_FRACTIONAL : POINT_TIER_MIN_ZOOM_FRACTIONAL,
-    MAX_ZOOM_CEILING,
-  )
-}
-
-// paintWind redraws the arrows for the viewport the map is currently showing.
-//
-// The served field is one national lattice at the snapshot's hex resolution, so
-// drawing it as-is means the arrows thin out as the reader zooms in and are
-// gone entirely over a single neighbourhood — a layer that empties itself looks
-// exactly like a forecast that failed. windField resamples the same vectors
-// onto a screen-sized lattice instead; the values are still the model's, only
-// repeated, and the disclosure already names the grid they came from.
-// Every data-layer repaint goes through here. The event nothing in the app
-// listens to is how e2e/redraw.spec.js counts the draws a reader sees.
-export function paintSource(map, sourceId, features) {
-  map.getSource(sourceId)?.setData({ type: 'FeatureCollection', features })
-  map.getContainer?.()?.dispatchEvent?.(new CustomEvent('airbg:paint', { detail: { source: sourceId } }))
-}
-
-export function paintWind(map, state) {
-  if (!state.body) return
-  if (!map.getSource(WIND_SOURCE_ID)) return
-  const b = map.getBounds?.()
-  const features = b
-    ? windField(state.body, {
-      bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
-      zoom: map.getZoom(),
-    })
-    : windFeatures(state.body)
-  paintSource(map, WIND_SOURCE_ID, features)
-}
-
-// onMetricChange is what runs on every metric switch (and once, explicitly,
-// for the metric the page opened on): repaint the layer via setPaintProperty
-// — cheap, synchronous, and needs neither a new map nor a network round trip
-// — show or clear the unscaled-metric note, and catch up the ALREADY-loaded
-// features' stale `value`/`colour` (computed for the PREVIOUS metric) by
-// forcing refresh() to recompute them.
-//
-// That forced refresh is NOT a network request in practice: urlFor never
-// takes a metric (the aggregate/sensor endpoints return every metric's values
-// in one payload — see sensorFeatures/areaFeatures, which merely pick a
-// column), so it is the exact same URL as before and getJSON's cache serves
-// it. `force` exists only to bypass refresh()'s own tier:slug dedup key,
-// which does not change when just the metric does and would otherwise make
-// this a silent no-op.
-function onMetricChange(map, state, cfg, chrome, metric) {
-  applyMetricColours(map, state, cfg, chrome, metric)
-  // One metric's numbers, not a column per metric: it cannot be recoloured.
-  state.timelapse?.reset()
-  refresh(map, state, cfg, chrome, true)
-  // On every call the URL is unchanged, so refreshHexes recolours the body it
-  // holds rather than refetching.
-  refreshHexes(map, state, cfg)
-  setSourceViewAvailability(chrome, metric, cfg.t, state.coverage)
-}
-
-// The colour half of a metric change: which band table the markers are painted
-// from, and the note about a metric that has none. Split out because the map's
-// FIRST paint needs the colours without the two refreshes around them — at load
-// the data is about to be fetched anyway, and calling the whole of
-// onMetricChange for a metric nobody had changed yet was one of the redraws
-// that made a reload flicker.
-function applyMetricColours(map, state, cfg, chrome, metric) {
-  cfg.metric = metric
-  map.setPaintProperty(LAYER_ID, 'circle-color', markerPaint(bandsFor(state.scales, metric), {
-    noDataColour: cfg.noDataColour,
-    unscaledColour: cfg.unscaledColour,
-    scaled: hasScale(state.scales, metric),
-  }))
-  chrome.showNote(metricNote(state.scales, metric, cfg.t.unscaled))
-}
-
-// initData is the whole body of the MapLibre 'load' handler after the source and
-// layer exist: load the colour scales, then paint.
-//
-// Exported as ONE unit, and tested as one, because the ORDER of these two steps
-// is load-bearing and a per-function test cannot see it. Round 1 of this fix
-// tested loadScales in isolation and passed while being unreachable in
-// production: refresh calls showHint('') on the ordinary path, which used to
-// erase the scales-failure explanation set moments earlier. The bug lived
-// between the two functions, so the test has to span both.
-// `place`, when given, runs between the scales and the first paint: it is
-// where the opening camera is decided. Before it existed the map painted the
-// server's default view, then the visitor's city, then whatever the moveend
-// from that jump asked for — three draws of the same first screen.
-// `alongside`, when given, is painted in the same pass as the markers rather
-// than after them: two layers of one screen arriving a request apart is the
-// second draw a reader sees.
-export async function initData(map, state, cfg, chrome, place = null, alongside = null) {
-  state.scales = await loadScales(chrome, cfg)
-  // Published into the registry the moment it resolves (null included, on a
-  // failed fetch) — see lib/sensors.svelte.js's own comment on why the panel
-  // reads scales from there rather than calling loadScales a second time.
-  setScales(state.scales)
-  if (place) await place()
-  const paints = await Promise.all([
-    refresh(map, state, cfg, chrome, false, { defer: true }),
-    alongside ? alongside() : null,
-  ])
-  for (const paint of paints) if (typeof paint === 'function') paint()
-  setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.coverage)
-}
-
-// loadScales fetches the band tables once per page load. Cache-Control: public,
-// so it costs nothing on a repeat visit.
-//
-// A null result is NOT silent. Without the band tables, bandsFor returns [] and
-// rampColour paints every marker NO_DATA_COLOUR — a uniformly grey map, which on
-// an air-quality site reads as "the whole country has insufficient data" rather
-// than "we could not load the colour scale".
-//
-// Reported through showError, not showHint: the scales are fetched exactly once
-// per page load and never retried, so an all-grey map is permanent for the
-// lifetime of the page and its explanation has to be too. showHint's text is
-// recomputed on every refresh and cleared when it does not apply — which is
-// precisely what silently erased this message before.
-//
-// Given its dependencies as arguments so a test can drive both branches with a
-// stub chrome — the call site is inside a MapLibre 'load' handler.
-export async function loadScales(chrome, cfg, fetchJSON = getJSON) {
-  const scales = await fetchJSON('/api/v1/scales').catch(() => null)
-  if (scales === null) chrome.showError(cfg.t.unavailable)
-  return scales
-}
-
-// The caption says what one CELL is, so the grid's resolution decides it, not
-// the marker tier.
-export function cellTier(zoom, markerTier) {
-  if (zoom >= POINT_TIER_MIN_ZOOM_FRACTIONAL) return 'sensors'
-  return markerTier === 'sensors' ? 'city' : markerTier
-}
-
-// refresh fetches the tier the current zoom permits and repaints.
-//
-// `force` bypasses the tier:slug dedup key below. Ordinary callers (moveend,
-// a marker click) never need it: those genuinely change the tier or the slug.
-// onMetricChange does — the tier and slug are untouched by a metric switch,
-// so without `force` the dedup key would make repainting for the new metric a
-// silent no-op.
-// `defer` returns the paint instead of performing it, so a caller loading two
-// layers at once can hold both until both are ready — see onMoveEnd.
-async function refresh(map, state, cfg, chrome, force = false, { defer = false } = {}) {
-  const tier = tierFor(map.getZoom(), cfg.zoomCity, cfg.zoomSensor)
-
-  // The sensor tier needs a slug and must not invent one. With none selected,
-  // fall back to the city aggregate and show the hint — a real friction cost,
-  // accepted so that enumeration breadth is bounded by deliberate clicks rather
-  // than by pan distance.
-  const effective = tier === 'sensors' && !state.slug ? 'city' : tier
-  // Held for the source-toggle handler, which recomputes the hint without a
-  // refresh and cannot work the fallback out for itself.
-  state.fellBack = effective !== tier
-  setSourceViewAvailability(chrome, cfg.metric, cfg.t, state.coverage)
-  chrome.showHint(mapHint(cfg.t, { fellBack: state.fellBack, sources: getSources() }))
-
-  // EFFECTIVE, not tier: on an area page opened at the sensor zoom with no slug
-  // adopted, the dots are city aggregates while the page prints a sensor count.
-  // Naming the raw tier here would restate that contradiction instead of
-  // resolving it. Placed before the dedup return below so the legend is correct
-  // even on the passes that fetch nothing.
-  chrome.showLegend({
-    bands: bandsFor(state.scales, cfg.metric),
-    tier: cellTier(map.getZoom(), effective),
-    metric: cfg.metric,
-    scale: scaleFor(state.scales, cfg.metric),
-  })
-
-  // Before the dedup return, like the legend: the handover depends on what the
-  // markers are, and a pass that fetches nothing can still be the pass where
-  // that changed (an area click adopts a slug without moving the map).
-  applyMarkerZoomRange(map, effective)
-
-  const url = withWindow(urlFor(effective, state.slug), state.window)
-  // Unchanged tier, slug and window: nothing to do. getJSON would serve from
-  // cache anyway, but repainting the same features on every moveend is visible
-  // churn. The window is part of the key even though every pick forces a
-  // refresh, because a key that omits it would be a key two different answers
-  // share.
-  const key = `${effective}:${state.slug ?? ''}:${state.window}`
-  if (!force && key === state.tier) return
-
-  let body
-  try {
-    body = await getJSON(url)
-  } catch (err) {
-    chrome.showHint(cfg.t.unavailable)
-    console.error('map data:', err)
-    return
-  }
-  state.tier = key
-
-  // Published for the panel to read (see lib/sensors.svelte.js) whenever
-  // this fetch actually carried sensor coordinates. Left untouched on a
-  // city/country tier response: those responses have no sensor columns at
-  // all (see areaPayload), and clearing the registry here would blank an
-  // already-open panel the instant a visitor zooms out past the sensor
-  // tier, rather than leaving its last-known content on screen.
-  if (effective === 'sensors') {
-    setSensors(body, state.slug ?? null)
-    state.sensorBody = body
-  } else {
-    state.sensorBody = null
-    // The raw payload, not areaFeatures' output: features drop `zoom`
-    // entirely and fold lon/lat into GeoJSON geometry, but locateMe needs
-    // exactly {slug, lon, lat, zoom} per area (see nearestArea's signature).
-    state.areas = body?.areas ?? []
-    setMapAreas(state.areas)
-  }
-
-  const features = effective === 'sensors'
-    ? filterBySource(
-      filterByStatus(sensorFeatures(body, cfg.metric, state.scales, cfg.noDataColour), getSensorStatus()),
-      getSources(),
-    )
-    : areaFeatures(body, cfg.metric, state.scales, cfg.noDataColour)
-  const paint = () => paintSource(map, SOURCE_ID, features)
-  if (defer) return paint
-  paint()
-}
-
-// showArea is what the finder's pick does: fly to the area and select it, on
-// the page the reader is already on.
-//
-// The area payload carries its own centre and zoom, so nothing here decides how
-// close is close enough. refresh is forced because the slug changed while the
-// tier may not have; the hex grid is left to the moveend the flight ends with,
-// which is the only pass that knows the viewport it landed on.
-export async function showArea(map, state, cfg, chrome, area) {
-  if (!area || area.slug === undefined) return false
-  state.slug = area.slug
-  map.flyTo({ center: [area.lon, area.lat], zoom: area.zoom })
-  await refresh(map, state, cfg, chrome, true)
-  return true
-}
-
-// applyMarkerZoomRange moves both marker layers onto the handover the current
-// tier calls for. Exported for its own test; guarded because refresh() runs on
-// every moveend and a style reload can leave a layer briefly absent.
-export function applyMarkerZoomRange(map, tier) {
-  const max = markerMaxZoom(tier)
-  for (const id of [LAYER_ID, OFFICIAL_LAYER_ID, LABEL_LAYER_ID]) {
-    if (map.getLayer?.(id)) map.setLayerZoomRange(id, 0, max)
-  }
-}
-
-// mapHint picks the one routine hint that applies now. Both networks unticked
-// outranks the select-an-area hint: it empties the map completely, and with no
-// message the reader is looking at a blank canvas with nothing to explain it.
-// Returns '' when neither applies, because showHint's clear-on-empty is what
-// makes a hint disappear once it stops applying (see hintController).
-export function mapHint(t, { fellBack, sources }) {
-  if (sources && sources.size === 0) return t.noSources
-  return fellBack ? t.hint : ''
-}
-
-// repaintSensors redraws the sensor tier from the payload already in hand.
-// Exported for its own test, and a no-op away from the sensor tier: the filter
-// is a control over sensors, so a click on it while the map is showing province
-// aggregates must not blank them.
-export function repaintSensors(map, state, cfg) {
-  if (!state.sensorBody) return
-  const features = filterBySource(
-    filterByStatus(
-      sensorFeatures(state.sensorBody, cfg.metric, state.scales, cfg.noDataColour),
-      getSensorStatus(),
-    ),
-    getSources(),
-  )
-  paintSource(map, SOURCE_ID, features)
-}
-
-// setSourceViewAvailability notes a network that does not measure the selected
-// metric at all, so an empty layer says why rather than looking broken.
-//
-// Never disables, and never counts. A per-metric station count used to be
-// appended here; it wrapped the option onto three lines and pushed the menu out
-// of shape, and the network total is already reported below the map.
-export function setSourceViewAvailability(chrome, metric, t, coverage) {
-  for (const [id, source] of [['communitySensors', 'sensor.community'], ['officialStations', 'eea']]) {
-    const input = chrome.layersUI?.fieldset?.querySelector(`[data-layer-key="view:${id}"]`)
-    if (!input) continue
-    // Not the first span: the shape glyph is one too, and it sits ahead of the
-    // name. Writing the label into it printed the count rotated 45 degrees.
-    const span = input.parentElement?.querySelector('span:not(.colmenu__mark)')
-    if (!span) continue
-    // No coverage yet — the first paint runs before the grid has answered. The
-    // bare label is the honest thing to show; a "0 with data" would be a claim
-    // about the network rather than about what we have loaded.
-    const per = coverage?.[source]
-    if (!per) {
-      span.textContent = t[id]
-      continue
-    }
-    const n = per[metric] ?? 0
-    // Composed from catalogue parts: i18n.Catalogue.T takes no parameters, so a
-    // sentence built from two strings is assembled here.
-    span.textContent = n > 0 ? t[id] : `${t[id]} — ${t.notMeasured}`
-  }
-}
-
-// refreshHexes fetches the hex grid for the current zoom and viewport and
-// repaints the background layer.
-//
-// This is the ONE layer that follows the viewport. It is allowed to, and the
-// area tiers still are not, because the two answer different questions: an
-// aggregate bin names no area and spends no enumeration budget, whereas
-// /area/{slug}/sensors returns identified sensors and is bounded by deliberate
-// clicks. See the §7.1 amendment in the Phase 1 design.
-//
-// Separate from refresh() rather than folded into it: the hex grid changes on
-// every zoom step and most pans, and the area tier changes on neither, so
-// sharing one dedup key would refetch the areas on every pinch.
-//
-// The response body is retained so a metric switch repaints from memory. Only
-// the colours change — the bins, their counts and their geometry do not — so a
-// refetch would return bytes the client already holds.
-export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer = false } = {}) {
-  // The window rides on the URL, so it is also what makes the dedup below let a
-  // window change through: the same viewport under a different window is a
-  // different URL, and therefore a fetch rather than a repaint.
-  const url = withWindow(hexesURL(map.getZoom(), map.getBounds?.()), state.window)
-  if (url !== state.hexUrl) {
-    // A pan superseded by another pan is answering a viewport the reader has
-    // already left: cancel it rather than let it finish and be discarded.
-    state.hexAbort?.abort()
-    const controller = new AbortController()
-    state.hexAbort = controller
-    let body
-    try {
-      body = await fetchJSON(url, { signal: controller.signal })
-    } catch (err) {
-      // A pan we cancelled ourselves is not a failure to report.
-      if (err?.name === 'AbortError') return
-      // Deliberately quiet, unlike refresh()'s own failure. The hex grid is a
-      // background layer over a working map: the markers, the panel and the
-      // legend are all unaffected, so a hint claiming the data is unavailable
-      // would misdescribe the page the visitor is looking at. The last good
-      // grid stays on screen.
-      console.error('hex grid:', err)
-      return
-    }
-    state.hexUrl = url
-    state.hexBody = body
-  }
-  // Held for the layer menu, which says how many stations of each network have
-  // data for the selected metric. Read off whichever body was drawn last, so a
-  // window or viewport change updates it without a second request.
-  state.coverage = state.hexBody?.coverage ?? null
-  const bands = bandsFor(state.scales, cfg.metric)
-  // The point tier is drawn at the size this zoom would have asked the grid for
-  // — rounded the same way hexesURL rounds it, so the cell the reader sees is
-  // the one the URL describes. That is what keeps the grid on screen past the
-  // finest published cell instead of collapsing it into marks hidden under the
-  // sensor markers.
-  const features = hexFeatures(
-    state.hexBody, cfg.metric, bands, cfg.noDataColour, rampColour,
-    resolutionForZoom(Math.round(map.getZoom())), getSources(),
-  )
-  // The same filter the markers answer to. The grid is the tier that covers the
-  // country, so leaving it out made "hide inactive sensors" a control with no
-  // visible effect anywhere a reader was likely to be looking.
-  const paint = () => paintSource(map, HEX_SOURCE_ID, filterByStatus(features, getSensorStatus()))
-  if (defer) return paint
-  paint()
-}
 
 // installTimelapse swaps a past hour's numbers into the hex layer the map
 // already draws, and nothing else — state.hexBody is never written, so the live
@@ -1491,236 +962,6 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
   }
 }
 
-// locateVisitor asks the server where the visitor is and, only for a genuine
-// "geoip" placement (see applyLocate's own comment on why "default" must
-// never move the map or adopt a slug), jumps the map straight there and
-// adopts the slug so refresh()'s next call may use the per-area sensor tier.
-//
-// map.jumpTo, never map.easeTo: a multi-second flight away from the national
-// view on first paint reads as a bug, not a feature, on a page the visitor
-// has been looking at for less than a second.
-//
-// The fetch is wrapped so a rejected promise (network failure, an endpoint
-// that does not exist in a given environment) lands in applyLocate's own
-// "stay put" branch rather than throwing out of this async 'load' handler.
-export async function locateVisitor(map, state, cfg, chrome, fetchJSON = getJSON) {
-  if (!await placeVisitor(map, state, cfg, fetchJSON)) return
-  await refresh(map, state, cfg, chrome, true)
-}
-
-// How long the opening camera will wait for /api/v1/locate.
-//
-// The lookup runs BEFORE the first data paint (see mount), so every millisecond
-// here is a millisecond of map with no readings on it. A geoip lookup that has
-// not answered in this long is not worth an emptier page than the one the
-// server already rendered for: past it the map draws the national view, and the
-// answer — when it lands — moves it in the old way, one extra draw on a slow
-// connection only.
-export const LOCATE_TIMEOUT_MS = 400
-
-// placeVisitor is locateVisitor's camera half: it decides where the map opens
-// and adopts the slug that unlocks the per-area sensor tier, and paints
-// nothing. Separate because the paint is the caller's to schedule — the whole
-// reason the placement moved ahead of the first refresh is so there is only one
-// paint, at the position the map is going to stay at.
-//
-// Returns whether it moved, so the caller knows whether a national-view paint
-// still needs correcting later.
-export async function placeVisitor(map, state, cfg, fetchJSON = getJSON, { timeoutMs = null } = {}) {
-  const lookup = fetchJSON('/api/v1/locate').catch(() => null)
-  const body = timeoutMs === null ? await lookup : await Promise.race([lookup, sleep(timeoutMs)])
-  const located = applyLocate(body ?? null, { defaultView: { lon: cfg.lon, lat: cfg.lat, zoom: cfg.zoom } })
-  if (!located.move) return false
-  map.jumpTo({ center: located.centre, zoom: located.zoom })
-  state.slug = located.slug
-  return true
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(() => resolve(null), ms))
-}
-
-// prefetchPlacement starts the request the opening camera will wait on, one
-// step before anything awaits it. It asks the same URL the placement itself
-// asks, and getJSON hands the same in-flight promise to both, so this costs no
-// second request and its only effect is when the answer arrives.
-//
-// The rejection is swallowed here as well as at the call site: an unawaited
-// promise that rejects is an unhandled rejection, whatever the later caller
-// does with its own copy.
-export function prefetchPlacement(vs, cfg, fetchJSON = getJSON) {
-  const id = vs.sensorId
-  if (id !== null && id !== undefined && !findSensor(id)) {
-    fetchJSON(`/api/v1/sensor/${id}/locate`).catch(() => null)
-    return
-  }
-  // Area pages open at their own centre and never ask (see mount).
-  if (!cfg.slug) fetchJSON('/api/v1/locate').catch(() => null)
-}
-
-// The zoom a #sensor= link opens at.
-//
-// Not cfg.zoomSensor: that is only the zoom at which the map may ask for
-// per-area sensor DATA, and at it the cells are still bins holding several
-// devices. POINT_TIER_MIN_ZOOM is where a cell becomes one device — the floor,
-// not a readable view: on a wide screen it still shows half a city, and the
-// sensor the link named is one cell among hundreds. Two levels in is a
-// neighbourhood, which is the scale at which "this sensor, here" reads.
-export const DEEP_LINK_ZOOM = POINT_TIER_MIN_ZOOM + 2
-
-// openDeepLinkedSensor resolves a #sensor=<id> the page was opened on into the
-// view that link promises: the map at the sensor tier, over the sensor, with
-// its area adopted so refresh() loads the sensors the panel then reads.
-//
-// The fragment never reaches the server, so this is the only moment the id can
-// be acted on, and /api/v1/sensor/{id}/locate exists for exactly this question.
-// Skipped entirely when the map already holds the sensor — that is the
-// marker-click path, where the panel opens with no request at all.
-//
-// Returns whether it moved the map, so mount() can leave the visitor where the
-// deep link put them rather than overriding it with a geoip placement. Any
-// failure — a refusal by the enumeration limiter, a sensor the snapshot does
-// not know — returns false and leaves the map exactly where it was.
-// `move: false`: the cell-click path is already looking at the sensor.
-export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSON = getJSON, { move = true, paint = true } = {}) {
-  const id = vs.sensorId
-  if (id === null || id === undefined || findSensor(id)) return false
-
-  const body = await fetchJSON(`/api/v1/sensor/${id}/locate`).catch(() => null)
-  if (typeof body?.lon !== 'number' || typeof body?.lat !== 'number') return false
-
-  if (move) map.jumpTo({ center: [body.lon, body.lat], zoom: DEEP_LINK_ZOOM })
-
-  // /locate names the area that CONTAINS the sensor; nearestArea only names
-  // the one whose centre is closest, which for a sensor near a boundary is an
-  // area it does not stand in — and the readout strip would then rank it
-  // against neighbours it has none of. Kept as the fallback for a sensor no
-  // area holds.
-  const slug = body.slug || nearestArea([body.lon, body.lat], state.areas ?? [])?.slug
-
-  // The city list, because that is the tier those slugs belong to. On a reload
-  // this runs before the first refresh, so nothing has loaded one yet, and the
-  // strip has no way to turn the adopted slug into a place name — it falls back
-  // to counting sensors without saying where.
-  if (slug && (!state.areas || state.areas.length === 0)) {
-    const overview = await fetchJSON(urlFor('city')).catch(() => null)
-    if (overview?.areas?.length) {
-      state.areas = overview.areas
-      setMapAreas(state.areas)
-    }
-  }
-  // Only a real slug: a sensor outside every area still deserves the flight,
-  // and adopting '' would make refresh() ask for an area page that cannot exist.
-  if (slug) state.slug = slug
-  // paint: false on the opening path only, where the caller paints once after
-  // the camera has settled. Everywhere else this IS the paint.
-  if (paint) {
-    await refresh(map, state, cfg, chrome, true)
-    // The cells too, and not left to the moveend jumpTo will fire: that pass is
-    // debounced, and the sensor the link named is drawn by this layer.
-    await refreshHexes(map, state, cfg)
-  }
-  return true
-}
-
-// locateMe: the precise, user-initiated fix. Stays on this page — it zooms the
-// map the visitor is looking at, instead of navigating to the area page. The
-// coordinate never reaches the network (see nearest.js).
-export function locateMe(map, state, cfg, chrome, { geolocation = navigator.geolocation } = {}) {
-  if (!geolocation) {
-    chrome.showHint(cfg.t.locateFailed)
-    return Promise.resolve(false)
-  }
-  return new Promise((resolve) => {
-    geolocation.getCurrentPosition(
-      (pos) => resolve(showNearestSensor(map, state, cfg, chrome, [pos.coords.longitude, pos.coords.latitude])),
-      (err) => {
-        // PERMISSION_DENIED === 1 per the Geolocation API.
-        chrome.showHint(err?.code === 1 ? cfg.t.locateDenied : cfg.t.locateFailed)
-        resolve(false)
-      },
-    )
-  })
-}
-
-// Two jumps, not one: sensor positions are only known once the area holding the
-// fix has been loaded, so the map goes to the fix first and re-centres on the
-// nearest sensor after. Hexes refreshed explicitly — the moveend pass is
-// debounced, and at this zoom the cells are the sensors.
-export async function showNearestSensor(map, state, cfg, chrome, point) {
-  // A null from nearestArea means the area list has not loaded, never
-  // "outside coverage" — it has no distance cutoff. Hence locateFailed.
-  if (!state.areas || state.areas.length === 0) {
-    chrome.showHint(cfg.t.locateFailed)
-    return false
-  }
-  map.jumpTo({ center: point, zoom: DEEP_LINK_ZOOM })
-  state.slug = nearestArea(point, state.areas).slug
-  await refresh(map, state, cfg, chrome, true)
-
-  const sensor = nearestSensor(point, getSensors())
-  if (sensor) map.jumpTo({ center: [sensor.lon, sensor.lat], zoom: DEEP_LINK_ZOOM })
-  await refreshHexes(map, state, cfg)
-  return true
-}
-
-export function urlFor(tier, slug) {
-  if (tier === 'country') return '/api/v1/overview'
-  if (tier === 'city') return '/api/v1/overview?tier=city'
-  return `/api/v1/area/${encodeURIComponent(slug)}/sensors`
-}
-
-// The note is the only thing telling a reader why every dot on an unscaled
-// metric's map is the same colour. Returned rather than rendered here so the
-// caller (onMetricChange) owns the DOM, through chrome.showNote.
-export function metricNote(scales, metric, text) {
-  return hasScale(scales, metric) ? '' : text
-}
-
-// hintController owns the ONE rule about the hint banner: an error outranks the
-// routine hint, permanently.
-//
-// showHint is called on every refresh with the text that applies right now, and
-// with '' when none does — that clear-on-empty is what makes the tier hint
-// disappear when it stops applying. It is also what silently erased the
-// scales-failure explanation, because refresh runs immediately after the scales
-// load and calls showHint('') whenever the zoom's tier is served as-is (the
-// common case: zoom 7 on / and zoom ~10 on an area page). ANYONE ADDING A
-// showHint CALL SHOULD KNOW IT CAN ERASE A REAL ERROR MESSAGE — use showError
-// for anything the visitor must keep seeing.
-//
-// Pure and separate from the DOM on purpose: `render` is the only side effect,
-// so the precedence rule itself can be driven by a test with an array as the
-// sink instead of a browser, and the rule the test exercises is the same code
-// the page runs.
-export function hintController(render) {
-  let stickyError = ''
-  return {
-    showHint(text) {
-      // Deliberately not "only ignore the empty string": once the map is known
-      // to be uncoloured, the tier hint is the lesser message too.
-      if (stickyError) return
-      render(text)
-    },
-    showError(text) {
-      stickyError = text
-      render(text)
-    },
-  }
-}
-
-export function debounce(fn, ms) {
-  let timer
-  const debounced = (...args) => {
-    clearTimeout(timer)
-    timer = setTimeout(() => fn(...args), ms)
-  }
-  // For a move the caller made itself and has already answered: the opening
-  // jumpTo queues a moveend like any other, and letting it through would
-  // repaint the whole map a quarter-second after it settled.
-  debounced.cancel = () => clearTimeout(timer)
-  return debounced
-}
 
 // mountChrome builds the legend and the hint banner as plain DOM, appended
 // beside the MapLibre canvas inside the same container. Plain DOM rather than
@@ -2009,6 +1250,21 @@ export {
   hexLabelPaint, layerPaint, NOT_OFFICIAL, officialLayout, officialPaint, labelLayout,
   hexLabelLayout, labelPaint, markerPaint,
 } from '../lib/mappaint.js'
+export {
+  setWind, refreshWind, paintWind,
+} from '../lib/mapwind.js'
+export {
+  boundaryChoice, highlightBoundary, setBoundaries, cellArea,
+} from '../lib/mapboundaries.js'
+export {
+  paintSource, initData, loadScales, cellTier, showArea,
+  applyMarkerZoomRange, mapHint, repaintSensors, setSourceViewAvailability, refreshHexes,
+  metricNote, hintController, debounce, setCellValues,
+} from '../lib/mapdata.js'
+export {
+  LOCATE_TIMEOUT_MS, placeVisitor, prefetchPlacement, DEEP_LINK_ZOOM, openDeepLinkedSensor,
+  locateMe, showNearestSensor, urlFor, locateVisitor,
+} from '../lib/placement.js'
 export {
   glyphsURL, overlayLayers, registerProtocols, mapStyle, installErrorHandler, addBasemapOverlay,
 } from '../lib/mapstyle.js'
