@@ -116,8 +116,10 @@ image by that digest: never by `:latest` and never by a bare tag pull. If
 verification fails, the deploy fails closed with a message pointing at the
 publish workflow's Actions run.
 
-The GHCR package must be public for the anonymous pull to work. GitHub creates
-it private on first publish; flip it by hand once under the package settings.
+The GHCR package must be public for the anonymous pull to work. It came out
+public on the first publish (the repository is public); confirm with an
+anonymous `GET https://ghcr.io/v2/iliyan-s-petkov/airbg/tags/list` if a pull
+ever starts failing with 401.
 
 ## Why there is no collect job
 
