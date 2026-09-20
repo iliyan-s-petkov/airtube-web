@@ -132,7 +132,7 @@ export function mount(el) {
   // One object rather than four `let`s because the handler is async: by the
   // time it runs, mount() has returned and cannot receive them.
   const subs = {}
-  installMapLoad(map, state, cfg, chrome, vs, windState, boundaryState, onMoveEnd, subs)
+  installMapLoad({ map, state, cfg, chrome, vs, windState, boundaryState, onMoveEnd, subs })
 
   map.on('moveend', onMoveEnd)
 

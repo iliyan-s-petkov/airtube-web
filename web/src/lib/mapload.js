@@ -44,10 +44,12 @@ import {
 } from './placement.js'
 import { installTimelapse } from './timelapse-island.js'
 
-export function installMapLoad(map, state, cfg, chrome, vs, windState, boundaryState, onMoveEnd, subs) {
+// Named rather than positional: windState and boundaryState are structurally
+// identical objects, so a transposed pair would be silent here and at runtime.
+export function installMapLoad({ map, state, cfg, chrome, vs, windState, boundaryState, onMoveEnd, subs }) {
   map.on('load', async () => {
-    // Not awaited: this handler's metric subscription must be registered before its
-    // handler's first await (see below), and the ground is detail the map does
+    // Not awaited: the metric subscription below must be registered before
+    // this handler's first await, and the ground is detail the map does
     // not need in order to be a map. It slots itself under the grid when it
     // arrives, by id.
     addBasemapOverlay(map, cfg.basemap, HEX_LAYER_ID)
