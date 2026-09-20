@@ -7,6 +7,7 @@ import (
 
 	"airbg.org/internal/api"
 	"airbg.org/internal/upstream"
+	"airbg.org/internal/upstream/eea"
 )
 
 // TestScaleBandsAreMonotonic. Bands out of order, or with a repeated upper
@@ -216,4 +217,74 @@ func TestGuidelineScalesLinkTheirSource(t *testing.T) {
 			t.Errorf("%s/%s source = %q, want an https link to the published guideline", s.Name, s.Metric, s.Source)
 		}
 	}
+}
+
+// Every gas table is written in µg/m³ and every EEA reading is converted to
+// µg/m³ by eea.NormaliseValue before it is stored. Nothing else ties the two
+// together: a table added in mg/m³ would classify a 1000× reading into a
+// plausible band and nobody would see it. So a real reading of each gas, in
+// the unit EEA delivers it in, goes through NormaliseValue and must land where
+// the table says an ordinary elevated hour lands — inside the ramp, and not in
+// its lowest or highest band.
+func TestGasScalesAgreeWithTheStoredUnit(t *testing.T) {
+	// An elevated but unremarkable hour at a Bulgarian station, as delivered.
+	// CO is the one gas EEA reports in mg.m-3.
+	delivered := map[string]struct {
+		value float64
+		unit  string
+	}{
+		"NO2":  {90, "ug.m-3"},
+		"O3":   {110, "ug.m-3"},
+		"SO2":  {60, "ug.m-3"},
+		"CO":   {0.8, "mg.m-3"},
+		"C6H6": {3, "ug.m-3"},
+		"NOX":  {150, "ug.m-3"},
+	}
+	seen := map[string]bool{}
+	for _, s := range api.Scales() {
+		d, ok := delivered[s.Metric]
+		if !ok {
+			continue
+		}
+		seen[s.Metric] = true
+		if s.Unit != "µg/m³" {
+			t.Errorf("%s/%s unit = %q, but the store holds µg/m³", s.Name, s.Metric, s.Unit)
+		}
+		v, err := eea.NormaliseValue(s.Metric, d.value, d.unit)
+		if err != nil {
+			t.Fatalf("%s: %v", s.Metric, err)
+		}
+		if s.Ceiling == nil {
+			t.Errorf("%s/%s has no ceiling", s.Name, s.Metric)
+			continue
+		}
+		// Inside the drawn ramp, and not hugging its floor: a table 1000× too
+		// small puts every reading above the ceiling, one 1000× too large puts
+		// every reading in the bottom hundredth.
+		if v >= *s.Ceiling || v <= *s.Ceiling/100 {
+			t.Errorf("%s/%s: %v %s normalises to %v µg/m³, outside (%v, %v); the table and the store disagree on the unit",
+				s.Name, s.Metric, d.value, d.unit, v, *s.Ceiling/100, *s.Ceiling)
+		}
+		// On a health scale the hour is neither "Good" nor "Extremely poor".
+		if s.Name == "eaqi" {
+			band := bandIndex(s.Bands, v)
+			if band == 0 || band == len(s.Bands)-1 {
+				t.Errorf("%s/%s: %v µg/m³ lands in band %d (%q), want an interior band", s.Name, s.Metric, v, band, s.Bands[band].Label)
+			}
+		}
+	}
+	for m := range delivered {
+		if !seen[m] {
+			t.Errorf("no scale for %s, which eea.MetricFor carries", m)
+		}
+	}
+}
+
+func bandIndex(bands []api.Band, v float64) int {
+	for i, b := range bands {
+		if b.Upper == nil || v <= *b.Upper {
+			return i
+		}
+	}
+	return len(bands) - 1
 }
