@@ -182,7 +182,7 @@ export function installLayers(map, ui, { labels, caption, views = [], storage })
     remember(key, reached)
   }
 
-  const addOption = (key, text, extraClass, apply, { defer = false, defaultOff = false, mark = '' } = {}) => {
+  const addOption = (key, text, extraClass, apply, { defer = false, defaultOff = false, mark = '', initial } = {}) => {
     const label = document.createElement('label')
     label.className = extraClass ? `colmenu__opt ${extraClass}` : 'colmenu__opt'
     const input = document.createElement('input')
@@ -191,7 +191,11 @@ export function installLayers(map, ui, { labels, caption, views = [], storage })
     // shown is the map they keep, and a stored `false` is the only thing that
     // changes it. A defaultOff option is the other case — it is not part of the
     // map they were shown, so it waits to be asked for.
-    input.checked = defaultOff ? state[key] === true : state[key] !== false
+    // initial, when given, overrides the stored value: a source view's real
+    // default is the URL hash (already applied to getSources() by the time
+    // this runs), and the remembered checkbox state must not fight it.
+    input.checked = typeof initial === 'boolean' ? initial
+      : defaultOff ? state[key] === true : state[key] !== false
     input.setAttribute('data-layer-key', key)
     const span = document.createElement('span')
     span.textContent = text
@@ -233,6 +237,7 @@ export function installLayers(map, ui, { labels, caption, views = [], storage })
       defer: true,
       defaultOff: view.defaultOff === true,
       mark: view.mark || '',
+      initial: view.initial,
     })
   }
 

@@ -273,6 +273,22 @@ describe('installLayers', () => {
     expect(views[0].apply).toHaveBeenCalledWith(false, expect.anything())
   })
 
+  // `initial` is how a source view (mapload.js's network checkboxes) starts
+  // from the hash-restored selection rather than the remembered checkbox
+  // state: an untouched store defaults a non-defaultOff view to checked, but
+  // `initial: false` must win, and apply() must never see `true` for it.
+  it('takes its initial checked state from `initial`, overriding the stored value', () => {
+    const store = fakeStorage()
+    const ui = mountLayers(frame(), { label: 'Layers' })
+    const apply = vi.fn()
+    const views = [{ id: 'official', label: 'Official', initial: false, apply }]
+    installLayers(fakeMap(style), ui, { labels, caption: 'c', views, storage: store })
+
+    expect(ui.fieldset.querySelector('[data-layer-key="view:official"]').checked).toBe(false)
+    expect(apply).not.toHaveBeenCalledWith(true, expect.anything())
+    expect(apply).toHaveBeenCalledWith(false, expect.anything())
+  })
+
   it('remembers a defaultOff view the reader switched ON', () => {
     const store = fakeStorage()
     const first = mountLayers(frame(), { label: 'Layers' })

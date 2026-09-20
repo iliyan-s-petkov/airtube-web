@@ -282,12 +282,16 @@ export function installMapLoad({ map, state, cfg, chrome, vs, windState, boundar
         // and a key that named them in words would still leave a reader
         // guessing which of two shapes the words meant.
         mark: 'circle',
+        // Reflects the hash-restored selection, not the remembered checkbox:
+        // getSources() already holds the #layers= result by the time this runs.
+        initial: getSources().has(CITIZEN_SOURCE),
         apply: (on) => { setSourceEnabled(CITIZEN_SOURCE, on); return on },
       },
       {
         id: 'officialStations',
         label: cfg.t.viewOfficialStations,
         mark: 'diamond',
+        initial: getSources().has(OFFICIAL_SOURCE),
         apply: (on) => { setSourceEnabled(OFFICIAL_SOURCE, on); return on },
       },
     ]
