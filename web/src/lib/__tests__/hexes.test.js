@@ -654,6 +654,49 @@ describe('hexFeatures with a network filter', () => {
       .toHaveLength(0)
   })
 
+  // Hole vs grey, pinned: a single-network cell whose network is off has no
+  // enabled sensor in it at all and is dropped; a single-network cell whose
+  // network is on but silent on this metric has a sensor in it and is kept,
+  // painted the no-data colour rather than removed.
+  it('drops a single-network cell entirely when its network is disabled', () => {
+    const soleNetwork = {
+      resolution_km: 15,
+      hexes: [{ lon: 24.0, lat: 43.0, n: 2, source: 'sensor.community', values: { P2: 30 } }],
+    }
+    expect(hexFeatures(soleNetwork, 'P2', bands, '#cccccc', rampColour, 0, new Set(['eea'])))
+      .toEqual([])
+  })
+
+  it('keeps a single-network cell grey when its network is enabled but silent on the metric', () => {
+    const soleNetworkNoReading = {
+      resolution_km: 15,
+      hexes: [{ lon: 24.0, lat: 43.0, n: 2, source: 'sensor.community', values: { P1: 5 } }],
+    }
+    const f = hexFeatures(soleNetworkNoReading, 'P2', bands, '#cccccc', rampColour, 0,
+      new Set(['sensor.community']))
+    expect(f).toHaveLength(1)
+    expect(f[0].properties.value).toBeNull()
+    expect(f[0].properties.colour).toBe('#cccccc')
+  })
+
+  it('keeps a mixed cell grey when the one enabled network has a sensor there but no reading for the metric', () => {
+    const mixedOneSilent = {
+      resolution_km: 15,
+      hexes: [{
+        lon: 23.32, lat: 42.69, n: 4, values: { P2: 25 },
+        by_source: {
+          'sensor.community': { n: 3, values: { P1: 20 } },
+          eea: { n: 1, values: { P2: 100 } },
+        },
+      }],
+    }
+    const f = hexFeatures(mixedOneSilent, 'P2', bands, '#cccccc', rampColour, 0,
+      new Set(['sensor.community']))
+    expect(f).toHaveLength(1)
+    expect(f[0].properties.value).toBeNull()
+    expect(f[0].properties.colour).toBe('#cccccc')
+  })
+
   // "More than one network on" is not "every network on". With two networks
   // the two coincide, which is the only reason a size check ever worked; a
   // third network makes them differ, and the blended value then includes the
