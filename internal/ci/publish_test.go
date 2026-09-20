@@ -6,7 +6,6 @@
 package ci
 
 import (
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -14,33 +13,24 @@ import (
 
 const publishWorkflowPath = "../../.github/workflows/publish.yml"
 
-func readWorkflowFile(t *testing.T, path string) string {
-	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return string(raw)
-}
-
 // TestPublishPermissionsAreExact pins the top-level permissions block to
 // exactly the three keys the workflow needs: contents: read to check out,
 // packages: write to push to GHCR, id-token: write for cosign's keyless OIDC
 // flow. Any other key, or a missing one, changes the blast radius of the
 // GITHUB_TOKEN this workflow runs with.
 func TestPublishPermissionsAreExact(t *testing.T) {
-	raw := readWorkflowFile(t, publishWorkflowPath)
+	raw := readWorkflow(t, publishWorkflowPath)
 	lines := strings.Split(raw, "\n")
 
 	permIdx := -1
 	for i, line := range lines {
-		if strings.TrimSpace(line) == "permissions:" {
+		if line == "permissions:" {
 			permIdx = i
 			break
 		}
 	}
 	if permIdx == -1 {
-		t.Fatalf("%s has no top-level `permissions:` block", publishWorkflowPath)
+		t.Fatalf("%s has no top-level (column-zero) `permissions:` block", publishWorkflowPath)
 	}
 
 	want := map[string]string{
@@ -86,7 +76,7 @@ var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 // publish.yml is pinned to an immutable commit, matching the pin form 7.1
 // established for ci.yml.
 func TestPublishActionsArePinnedToFullSHA(t *testing.T) {
-	raw := readWorkflowFile(t, publishWorkflowPath)
+	raw := readWorkflow(t, publishWorkflowPath)
 	lines := strings.Split(raw, "\n")
 
 	usesCount := 0
@@ -118,16 +108,14 @@ func TestPublishActionsArePinnedToFullSHA(t *testing.T) {
 // Task 7.5's verify step refuses it. It also pins exit-code: '1', without
 // which a Trivy finding would not fail the job at all.
 func TestTrivyRunsBeforeCosignSign(t *testing.T) {
-	raw := readWorkflowFile(t, publishWorkflowPath)
+	raw := readWorkflow(t, publishWorkflowPath)
 	lines := strings.Split(raw, "\n")
 
-	trivyIdx, exitCodeIdx, cosignSignIdx := -1, -1, -1
+	trivyIdx, cosignSignIdx := -1, -1
 	for i, line := range lines {
 		switch {
 		case trivyIdx == -1 && containsAll(line, []string{"uses:", "aquasecurity/trivy-action"}):
 			trivyIdx = i
-		case exitCodeIdx == -1 && containsAll(line, []string{"exit-code:", "'1'"}):
-			exitCodeIdx = i
 		case cosignSignIdx == -1 && containsAll(line, []string{"cosign sign"}):
 			cosignSignIdx = i
 		}
@@ -139,8 +127,29 @@ func TestTrivyRunsBeforeCosignSign(t *testing.T) {
 	if cosignSignIdx == -1 {
 		t.Fatalf("%s: no `cosign sign` step found", publishWorkflowPath)
 	}
+
+	// The Trivy step's own with: block ends at the next step ("- uses:",
+	// "- name:" or "- run:" at the same indentation as the trivy step's
+	// leading "- "). exit-code: '1' must appear within that span, not merely
+	// somewhere in the file, or moving it to another step would still pass.
+	stepIndent := line0Indent(lines[trivyIdx])
+	stepEnd := len(lines)
+	for i := trivyIdx + 1; i < len(lines); i++ {
+		if isStepStart(lines[i], stepIndent) {
+			stepEnd = i
+			break
+		}
+	}
+	exitCodeIdx := -1
+	for i := trivyIdx; i < stepEnd; i++ {
+		if containsAll(lines[i], []string{"exit-code:", "'1'"}) {
+			exitCodeIdx = i
+			break
+		}
+	}
+
 	if exitCodeIdx == -1 {
-		t.Errorf("%s: trivy step has no `exit-code: '1'`; a HIGH/CRITICAL finding would not fail the job", publishWorkflowPath)
+		t.Errorf("%s: trivy step (lines %d-%d) has no `exit-code: '1'`; a HIGH/CRITICAL finding would not fail the job", publishWorkflowPath, trivyIdx, stepEnd-1)
 	}
 	if !(trivyIdx < cosignSignIdx) {
 		t.Errorf("%s: trivy step (line %d) is not before `cosign sign` (line %d); a scan failure must leave the image unsigned",
@@ -170,7 +179,7 @@ var cosignSignsDigest = regexp.MustCompile(`cosign sign --yes \S+@\$\{\{\s*steps
 // TestCosignSignsTheDigestNotATag proves cosign signs the immutable digest
 // docker/build-push-action produced, not a tag another push could repoint.
 func TestCosignSignsTheDigestNotATag(t *testing.T) {
-	raw := readWorkflowFile(t, publishWorkflowPath)
+	raw := readWorkflow(t, publishWorkflowPath)
 	if !cosignSignsDigest.MatchString(raw) {
 		t.Errorf("%s: no `cosign sign` step found targeting `@${{ steps.build.outputs.digest }}`", publishWorkflowPath)
 	}
@@ -182,7 +191,7 @@ func TestCosignSignsTheDigestNotATag(t *testing.T) {
 // is only aliased onto the already-signed digest by an `imagetools create`
 // step that runs after `cosign sign`.
 func TestLatestIsTaggedOnlyAfterSigning(t *testing.T) {
-	raw := readWorkflowFile(t, publishWorkflowPath)
+	raw := readWorkflow(t, publishWorkflowPath)
 	lines := strings.Split(raw, "\n")
 
 	buildIdx, buildEnd := -1, -1
