@@ -563,6 +563,81 @@ func TestTheDevCaddyfileIsUnmistakableAndOpen(t *testing.T) {
 	}
 }
 
+// TestTheSiteVhostCapsRequestBodies asserts that the airbg.org block contains
+// a request_body directive with max_size 64KB, while tiles.airbg.org and
+// www.airbg.org do not contain request_body at all.
+func TestTheSiteVhostCapsRequestBodies(t *testing.T) {
+	blocks := caddyBlocks(t, "Caddyfile")
+
+	site, ok := blocks["airbg.org"]
+	if !ok {
+		t.Fatalf("Caddyfile has no airbg.org site block; found %v", keysOf(blocks))
+	}
+	if !strings.Contains(site, "request_body") {
+		t.Error("the airbg.org block does not cap request bodies — the app wraps bodies in http.MaxBytesReader, but this is the outer wall")
+	}
+	if !strings.Contains(site, "max_size 64KB") {
+		t.Error("the airbg.org block's request_body does not set max_size 64KB")
+	}
+
+	for _, name := range []string{"tiles.airbg.org", "www.airbg.org"} {
+		block, ok := blocks[name]
+		if !ok {
+			t.Fatalf("Caddyfile has no %s site block; found %v", name, keysOf(blocks))
+		}
+		if strings.Contains(block, "request_body") {
+			t.Errorf("the %s block contains request_body, which should only be in airbg.org", name)
+		}
+	}
+}
+
+// TestEncodeIsStaticOnly asserts that every `encode` line in the Caddyfile
+// has a matcher (starts with a `@` token before the algorithm names), and that
+// there is exactly one such line, in the airbg.org block, with matcher
+// `path /static/*`.
+func TestEncodeIsStaticOnly(t *testing.T) {
+	data, err := os.ReadFile("Caddyfile")
+	if err != nil {
+		t.Fatalf("ReadFile(Caddyfile) error = %v, want nil", err)
+	}
+
+	var encodeLines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "encode") {
+			encodeLines = append(encodeLines, stripCaddyComment(line))
+		}
+	}
+
+	if len(encodeLines) != 1 {
+		t.Fatalf("Caddyfile contains %d `encode` lines, want exactly 1; found: %v", len(encodeLines), encodeLines)
+	}
+
+	encodeLine := encodeLines[0]
+	fields := strings.Fields(strings.TrimSpace(encodeLine))
+
+	// The matcher should be the second field (after 'encode')
+	if len(fields) < 2 {
+		t.Fatalf("encode line has too few fields: %q", encodeLine)
+	}
+	matcher := fields[1]
+	if !strings.HasPrefix(matcher, "@") {
+		t.Errorf("encode line does not start with a matcher: %q — compress APIs that already carry Content-Encoding will be re-compressed", encodeLine)
+	}
+	if matcher != "@static" {
+		t.Errorf("encode line uses matcher %q, want @static: %q", matcher, encodeLine)
+	}
+
+	// Verify the matcher is declared with path /static/*
+	blocks := caddyBlocks(t, "Caddyfile")
+	site, ok := blocks["airbg.org"]
+	if !ok {
+		t.Fatalf("Caddyfile has no airbg.org site block; found %v", keysOf(blocks))
+	}
+	if !strings.Contains(site, "@static path /static/*") {
+		t.Error("the airbg.org block does not declare @static with path /static/* — static assets will not be compressed")
+	}
+}
+
 // ofeliaJobLines returns every `key = value` line inside a `[job-run "name"]`
 // section of ofelia.ini, in file order, with full-line `;` comments and blank
 // lines dropped. Deliberately simple, same spirit as caddyBlocks: sections

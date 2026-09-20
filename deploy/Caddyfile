@@ -22,6 +22,14 @@ airbg.org {
 		}
 	}
 
+	request_body {
+		max_size 64KB
+	}
+
+	# API bodies are pre-gzipped; pages are compressed at the edge
+	@static path /static/*
+	encode @static zstd gzip
+
 	# CF-Connecting-IP passes through untouched: it is the rate-limit bucket
 	# key, and the app trusts it only from this container's subnet.
 	reverse_proxy app:8080
