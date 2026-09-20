@@ -31,7 +31,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|rollup|import-areas|purge-outside-boundary|validate-config|contract>")
+		fmt.Fprintln(os.Stderr, "usage: airbg <migrate|collect|serve|backfill|rollup|import-areas|purge-outside-boundary|validate-config|contract|healthz>")
 		os.Exit(2)
 	}
 
@@ -68,6 +68,17 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+
+	// healthz is the container healthcheck's probe: it must not open the
+	// database pool, or a probe run every 30s would hold a connection the
+	// request handlers need.
+	if os.Args[1] == "healthz" {
+		if err := runHealthz(cfg.Listen.MetricsAddr, 3*time.Second); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
 	pool, err := db.Open(ctx, cfg.Database)
