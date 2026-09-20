@@ -332,37 +332,61 @@ func TestTilesListenerIsCapped(t *testing.T) {
 	// connection that never sends a byte must still occupy a slot. That is the
 	// whole failure mode — tens of thousands of these complete no request, so
 	// no rate limiter or admission cap ever sees them.
-	for i := 0; i < maxConns; i++ {
+	//
+	// One more than the cap, and the assertion is "at least one was shed", not
+	// "the last one was": start's readiness probe dialed this listener and
+	// closed, but its slot comes back only when the server goroutine reads the
+	// EOF. If that lands between two of these dials, the shed connection is an
+	// earlier one and the last gets the freed slot. CI hit exactly that once.
+	conns := make([]net.Conn, 0, maxConns+1)
+	for i := 0; i <= maxConns; i++ {
 		c, err := net.Dial("tcp", tilesAddr)
 		if err != nil {
 			t.Fatalf("dial %d: %v", i, err)
 		}
 		defer c.Close()
+		conns = append(conns, c)
 	}
 
-	// The listener accepts in FIFO order, so both slots are taken by the time
-	// this one is accepted.
-	over, err := net.Dial("tcp", tilesAddr)
-	if err != nil {
-		t.Fatalf("dial over-cap: %v", err)
-	}
-	defer over.Close()
-
-	// An over-cap connection is accepted from the kernel and closed at once, so
-	// this read ends instead of blocking. Two seconds is deliberately well under
-	// the 5s ReadHeaderTimeout that would eventually close an ACCEPTED silent
+	// A shed connection is accepted from the kernel and closed at once, so its
+	// read ends instead of blocking. Two seconds is deliberately well under the
+	// 5s ReadHeaderTimeout that would eventually close an ACCEPTED silent
 	// connection: a longer deadline would pass with or without the cap.
-	_ = over.SetReadDeadline(time.Now().Add(2 * time.Second))
-	n, err := over.Read(make([]byte, 1))
-	switch {
-	case err == nil:
-		t.Fatalf("the over-cap connection read %d bytes and stayed open; the tiles listener has no connection cap", n)
-	case errors.Is(err, os.ErrDeadlineExceeded):
-		t.Fatalf("the over-cap connection was still open 2s after connecting; the tiles listener has no connection cap")
+	//
+	// Read concurrently: a Read issued after its deadline has passed reports the
+	// deadline without touching the socket, so a sequential loop would call a
+	// shed connection open.
+	results := make([]error, len(conns))
+	var wg sync.WaitGroup
+	for i, c := range conns {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_, results[i] = c.Read(make([]byte, 1))
+		}()
+	}
+	wg.Wait()
+	shed, open := 0, 0
+	for i, err := range results {
+		switch {
+		case err == nil:
+			t.Fatalf("connection %d read a byte from a listener that serves nothing unprompted", i)
+		case errors.Is(err, os.ErrDeadlineExceeded):
+			open++
+		default:
+			shed++
+		}
+	}
+	if shed < 1 {
+		t.Fatalf("%d connections against a cap of %d and all still open after 2s; the tiles listener has no connection cap", len(conns), maxConns)
+	}
+	if open < 1 {
+		t.Fatalf("every one of %d connections was closed; the listener sheds everything, not the excess", len(conns))
 	}
 
 	if got := httpx.ConnectionsRejectedCountForTesting() - before; got < 1 {
-		t.Errorf("airbg_connections_rejected_total rose by %d over the over-cap connection, want at least 1", got)
+		t.Errorf("airbg_connections_rejected_total rose by %d over %d shed connections, want at least 1", got, shed)
 	}
 }
 
