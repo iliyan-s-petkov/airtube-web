@@ -394,6 +394,24 @@ func TestCoverageCountsSensorsWithAReadingPerNetwork(t *testing.T) {
 	}
 }
 
+// A network we hold nothing usable for must be ABSENT from coverage, not
+// present as an empty object: the layer menu reads a present-but-empty entry as
+// "this network does not measure the metric" (OpenProject #500).
+func TestCoverageOmitsANetworkWithNoUsableReading(t *testing.T) {
+	cov := coverageFrom([]store.SensorReading{
+		sensorFrom(1, 23.32, 42.69, "sensor.community", map[string]float64{"P1": 10}),
+		sensorFrom(2, 24.00, 43.00, "eea", nil),
+		sensorFrom(3, 24.10, 43.10, "eea", map[string]float64{}),
+	})
+
+	if per, ok := cov["eea"]; ok {
+		t.Errorf("coverage carries an eea entry %#v with no eea reading; the key must be absent", per)
+	}
+	if got := cov["sensor.community"]["P1"]; got != 1 {
+		t.Errorf("community P1 = %d, want 1", got)
+	}
+}
+
 // Every tier answers the same question about coverage, so the block survives
 // the viewport clip. Without this a reader who has panned sees the counts
 // vanish from the layer menu.

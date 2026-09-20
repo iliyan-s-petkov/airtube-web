@@ -345,7 +345,7 @@ func TestLatestSensorsKeepsOfficialStationsPastTheCommunityWindow(t *testing.T) 
 
 	now := time.Now().UTC().Truncate(time.Minute)
 	const officialID = store.OfficialSensorIDFloor + 7
-	// Older than freshness_window (2h), inside official_freshness_window (6h).
+	// Older than freshness_window (2h), inside official_freshness_window (12h).
 	seedOfficialSensorReading(t, ctx, pool, officialID, 23.0, 42.0, "P1", 21, now.Add(-3*time.Hour))
 	seedSensorReading(t, ctx, pool, 61, 23.0, 42.0, "P1", 15, "ok", now.Add(-3*time.Hour))
 
@@ -363,13 +363,105 @@ func TestLatestSensorsKeepsOfficialStationsPastTheCommunityWindow(t *testing.T) 
 		}
 	}
 	if !sawOfficial {
-		t.Errorf("official station %d absent with a 3h-old reading; official_freshness_window (6h) must admit it", officialID)
+		t.Errorf("official station %d absent with a 3h-old reading; official_freshness_window (12h) must admit it", officialID)
 	}
 	// The wider window is for official stations only. Applying it to citizen
 	// devices would leave dead sensors on the map for six hours.
 	if sawCommunity {
 		t.Errorf("community sensor 61 present with a 3h-old reading; freshness_window (2h) must exclude it")
 	}
+}
+
+// seedReadingWithQuality adds one reading of any quality to a sensor that has
+// already been seeded.
+func seedReadingWithQuality(t *testing.T, ctx contextT, pool poolT, id int64, metric string, value float64, quality string, at time.Time) {
+	t.Helper()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO reading (time, sensor_id, metric, value, quality)
+		 VALUES ($1, $2, $3, $4, $5::quality_flag)`,
+		at, id, metric, value, quality)
+	if err != nil {
+		t.Fatalf("seed %s reading %d/%s: %v", quality, id, metric, err)
+	}
+}
+
+// The EEA collector writes the newest published hours as provisional rows
+// flagged 'source_invalid'. Picking the newest row of ANY quality threw the
+// last usable reading away, so every official station published an empty
+// values object and the official layer drew nothing.
+func TestLatestSensorsIgnoresANewerUnusableReading(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	const officialID = store.OfficialSensorIDFloor + 11
+	seedOfficialSensorReading(t, ctx, pool, officialID, 23.0, 42.0, "P1", 21, now.Add(-8*time.Hour))
+	seedReadingWithQuality(t, ctx, pool, officialID, "P1", 999, "source_invalid", now.Add(-1*time.Hour))
+
+	sensors, err := s.LatestSensors(ctx)
+	if err != nil {
+		t.Fatalf("LatestSensors: %v", err)
+	}
+	var got *store.SensorReading
+	for i := range sensors {
+		if sensors[i].SensorID == officialID {
+			got = &sensors[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("official station %d absent; a station with a rejected newest row must still be listed", officialID)
+	}
+	if v, ok := got.Values["P1"]; !ok || v != 21 {
+		t.Errorf("Values[P1] = %v (present %v), want 21: the newest USABLE row, not the masked one", v, ok)
+	}
+	// Measures says what the hardware measures, so it must stay unfiltered even
+	// when every fresh reading for the metric was rejected.
+	if !containsString(got.Measures, "P1") {
+		t.Errorf("Measures = %v, want it to contain P1", got.Measures)
+	}
+	if got.Quality != "source_invalid" {
+		t.Errorf("Quality = %q, want %q: the flag reports the newest row, of any quality", got.Quality, "source_invalid")
+	}
+}
+
+// A metric whose only fresh reading is rejected has no value but is still
+// measured — the panel says "no reading right now" rather than going silent.
+func TestLatestSensorsKeepsMeasuresWhenEveryFreshReadingIsRejected(t *testing.T) {
+	ctx, pool := migrated(t)
+	s := store.New(pool, testStoreConfig(), testSeriesTimeout)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	seedSensorReading(t, ctx, pool, 62, 23.0, 42.0, "P1", 10, "ok", now)
+	seedReadingWithQuality(t, ctx, pool, 62, "P2", 900, "out_of_range", now)
+
+	sensors, err := s.LatestSensors(ctx)
+	if err != nil {
+		t.Fatalf("LatestSensors: %v", err)
+	}
+	var got *store.SensorReading
+	for i := range sensors {
+		if sensors[i].SensorID == 62 {
+			got = &sensors[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("sensor 62 absent")
+	}
+	if _, ok := got.Values["P2"]; ok {
+		t.Errorf("Values carries P2 = %v from an out_of_range reading", got.Values["P2"])
+	}
+	if !containsString(got.Measures, "P2") {
+		t.Errorf("Measures = %v, want it to contain P2", got.Measures)
+	}
+}
+
+func containsString(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestAreaAggregatesExcludesFlaggedReadings asserts the quality filter. Written

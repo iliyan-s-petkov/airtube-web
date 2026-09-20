@@ -819,6 +819,16 @@ describe('setSourceViewAvailability', () => {
     expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors')
   })
 
+  // An empty per-network object is "we hold nothing for this network yet", not
+  // "this network does not measure the metric" (OpenProject #500).
+  it('reads an empty per-network object as no coverage yet, not as not-measured', () => {
+    const { chrome, boxes } = menu()
+    setSourceViewAvailability(chrome, 'P2', t, { 'sensor.community': { P2: 1180 }, eea: {} })
+
+    expect(boxes.officialStations.span.textContent).toBe('Official stations')
+    expect(boxes.communitySensors.span.textContent).toBe('Citizen sensors')
+  })
+
   it('never writes on the shape glyph', () => {
     const { chrome, boxes } = menu()
     setSourceViewAvailability(chrome, 'O3', t, coverage)
