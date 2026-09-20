@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stationValues, median, areaStats } from '../areastats.js'
+import { stationValues, median, areaStats, areaSourceStats } from '../areastats.js'
 
 const body = (sensors) => ({ sensors })
 
@@ -81,5 +81,59 @@ describe('areaStats', () => {
   // number, which is not a comparison.
   it('says nothing at all where a single station reports', () => {
     expect(areaStats(body({ id: [1], station: [1], P2: [5] }), 'P2', 1)).toBe(null)
+  })
+})
+
+// bodyWith builds the columnar per-area sensors body the map already holds.
+function bodyWith(rows) {
+  return {
+    sensors: {
+      id: rows.map((r) => r.id),
+      station: rows.map((r) => r.station ?? r.id),
+      source: rows.map((r) => r.source),
+      P2: rows.map((r) => r.P2),
+    },
+  }
+}
+
+describe('areaSourceStats', () => {
+  it('gives each network its own median and station count', () => {
+    expect(areaSourceStats(bodyWith([
+      { id: 1, source: 'sensor.community', P2: 10 },
+      { id: 2, source: 'sensor.community', P2: 20 },
+      { id: 3, source: 'sensor.community', P2: 30 },
+      { id: 4, source: 'eea', P2: 100 },
+    ]), 'P2')).toEqual([
+      { source: 'eea', n: 1, median: 100 },
+      { source: 'sensor.community', n: 3, median: 20 },
+    ])
+  })
+
+  it('returns nothing when one network reports the metric', () => {
+    expect(areaSourceStats(bodyWith([
+      { id: 1, source: 'sensor.community', P2: 10 },
+      { id: 2, source: 'sensor.community', P2: 20 },
+    ]), 'P2')).toEqual([])
+  })
+
+  it('counts stations, not devices', () => {
+    const got = areaSourceStats(bodyWith([
+      { id: 1, station: 1, source: 'sensor.community', P2: 10 },
+      { id: 2, station: 1, source: 'sensor.community', P2: 12 },
+      { id: 3, station: 3, source: 'sensor.community', P2: 30 },
+      { id: 4, station: 4, source: 'eea', P2: 100 },
+    ]), 'P2')
+    expect(got.find((r) => r.source === 'sensor.community').n).toBe(2)
+  })
+
+  it('reads a blank source as the citizen network', () => {
+    expect(areaSourceStats(bodyWith([
+      { id: 1, source: '', P2: 10 },
+      { id: 2, source: 'eea', P2: 100 },
+    ]), 'P2').map((r) => r.source)).toEqual(['eea', 'sensor.community'])
+  })
+
+  it('returns nothing when the body carries no source column', () => {
+    expect(areaSourceStats({ sensors: { id: [1, 2], station: [1, 2], P2: [10, 20] } }, 'P2')).toEqual([])
   })
 })

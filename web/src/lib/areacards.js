@@ -80,3 +80,29 @@ export function areaCards(stats, { metric, metricLabel, scale, area, lang, t }) 
   }
   return cards
 }
+
+// The t key for a network name, matching the server's
+// strings.ReplaceAll(src, ".", "_") in internal/web/render.go.
+const SOURCE_LABEL = {
+  eea: 'sourceOfficial',
+  'sensor.community': 'sourceCommunity',
+}
+
+// areaSourceCards mirrors AreaReadouts' breakdown group: one card per network,
+// [] for fewer than two, for the reason areaSourceStats gives.
+export function areaSourceCards(rows, { metricLabel, scale, lang, t }) {
+  if (!Array.isArray(rows) || rows.length < 2) return []
+  const unit = scale?.unit ?? ''
+
+  return rows.map((row) => {
+    const group = t[SOURCE_LABEL[row.source]] ?? row.source
+    return {
+      label: metricLabel,
+      value: number(row.median, lang),
+      unit,
+      tier: fill(t.sourceRow, { source: group, n: row.n }),
+      gauge: gaugeFor(scale, row.median),
+      group,
+    }
+  })
+}

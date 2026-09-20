@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { areaCards, gaugeFor, bandColour } from '../areacards.js'
+import { areaCards, areaSourceCards, gaugeFor, bandColour } from '../areacards.js'
 
 const bands = [
   { upper: 10, colour: '#0a0' },
@@ -105,5 +105,35 @@ describe('areaCards', () => {
   // rather than showing four blanks.
   it('returns nothing where there are no stats', () => {
     expect(areaCards(null, { metric: 'P2', metricLabel: 'PM2.5', scale: pm, area: 'x', lang: 'en', t })).toEqual([])
+  })
+})
+
+const sourceT = {
+  sourceRow: '{source} · {n} stations',
+  sourceCommunity: 'Citizen',
+  sourceOfficial: 'Official',
+}
+
+describe('areaSourceCards', () => {
+  it('labels each network and substitutes its count', () => {
+    const cards = areaSourceCards(
+      [{ source: 'eea', n: 1, median: 100 }, { source: 'sensor.community', n: 3, median: 20 }],
+      { metricLabel: 'PM2.5', scale: null, lang: 'en', t: sourceT },
+    )
+    expect(cards).toHaveLength(2)
+    expect(cards[0].group).toBe('Official')
+    expect(cards[0].value).toBe('100')
+    expect(cards[0].tier).toBe('Official · 1 stations')
+    expect(cards[1].group).toBe('Citizen')
+    expect(cards[1].tier).toBe('Citizen · 3 stations')
+  })
+
+  it('returns nothing for a single network', () => {
+    expect(areaSourceCards([{ source: 'eea', n: 1, median: 100 }], { metricLabel: 'PM2.5', scale: null, lang: 'en', t: sourceT }))
+      .toEqual([])
+  })
+
+  it('returns nothing for no rows', () => {
+    expect(areaSourceCards([], { metricLabel: 'PM2.5', scale: null, lang: 'en', t: sourceT })).toEqual([])
   })
 })

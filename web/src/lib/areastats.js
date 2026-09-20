@@ -70,3 +70,32 @@ export function areaStats(body, metric, sensorId) {
     rank: mine ? values.filter((v) => v < mine.value).length + 1 : null,
   }
 }
+
+// A row written before the source column existed is the citizen network, the
+// same rule snapshot.sourceOf applies on the server.
+function sourceOf(src) {
+  return src ? src : 'sensor.community'
+}
+
+// areaSourceStats is stationValues split by network. [] for fewer than two
+// networks: one network's median is the area median under a second name.
+export function areaSourceStats(body, metric) {
+  const sources = body?.sensors?.source
+  if (!Array.isArray(sources)) return []
+
+  const ids = body?.sensors?.id ?? []
+  const sourceById = new Map()
+  for (let i = 0; i < ids.length; i += 1) sourceById.set(ids[i], sourceOf(sources[i]))
+
+  const grouped = new Map()
+  for (const row of stationValues(body, metric)) {
+    const src = sourceById.get(row.id) ?? 'sensor.community'
+    if (!grouped.has(src)) grouped.set(src, [])
+    grouped.get(src).push(row.value)
+  }
+  if (grouped.size < 2) return []
+
+  return [...grouped.entries()]
+    .map(([source, values]) => ({ source, n: values.length, median: median(values) }))
+    .sort((a, b) => (a.source < b.source ? -1 : a.source > b.source ? 1 : 0))
+}

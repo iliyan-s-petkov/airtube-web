@@ -7,8 +7,9 @@
 </script>
 
 <div class="readouts">
-  {#each cards as card (card.label)}
+  {#each cards as card (card.label + '|' + (card.group ?? ''))}
     <div class="readout card">
+      {#if card.group}<span class="readout__group">{card.group}</span>{/if}
       <span class="readout__label">{card.label}</span>
       {#if card.gauge}
         <span class="gauge">

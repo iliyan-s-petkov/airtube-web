@@ -203,4 +203,7 @@
      data-t-at="{{.T "read.sensor.at_median"}}"
      data-t-area-sensors="{{.T "read.sensor.area_sensors"}}"
      data-t-sensors-only="{{.T "read.sensor.sensors_only"}}"
+     data-t-source-row="{{.T "area.sources.row"}}"
+     data-t-source-community="{{.T "source.name.sensor_community"}}"
+     data-t-source-official="{{.T "source.name.eea"}}"
   >{{with .StripReadouts}}{{template "readouts" .}}{{end}}</div>{{end}}
