@@ -342,6 +342,16 @@ func (p PageData) StripReadouts() []Readout {
 	return p.Readouts()
 }
 
+// SensorReadoutRow reports whether the readouts island should also mount its
+// own client-side row for the open sensor. False on an area page: its strip
+// already states the area's medians and the sensor card already states the
+// open sensor's readings, so the row would restate both. True everywhere else
+// the readouts-island partial appears, including the index page, where the
+// strip is national rather than area-scoped and the row is additive.
+func (p PageData) SensorReadoutRow() bool {
+	return p.Area == nil
+}
+
 // AreaReadouts is the strip at the top of one area's page: what this area is
 // currently measuring, one cell per metric, then how many sensors the figures
 // come from.

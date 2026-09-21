@@ -190,6 +190,7 @@
      replaced, so closing the sensor restores exactly what was rendered here
      instead of a second implementation's guess at it. */}}
 {{define "readouts-island"}}<div data-island="readouts"
+     data-sensor-row="{{if .SensorReadoutRow}}on{{else}}off{{end}}"
      data-metrics="{{.MetricsAttr}}"
      data-metric-labels="{{.MetricLabelsAttr}}"
      data-metric="{{.DefaultMetric}}"
