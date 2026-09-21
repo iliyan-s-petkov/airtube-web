@@ -2,17 +2,26 @@
   import { untrack } from 'svelte'
   import Chart from './Chart.svelte'
   import PeriodPicker from './PeriodPicker.svelte'
+  import MetricMenu from './MetricMenu.svelte'
   import ResetButton from './ResetButton.svelte'
   import { CUSTOM, periodQuery } from '../lib/period.js'
 
   // periods/labels arrive as parallel lists from the server (the config's own
   // vocabulary), never as a list written here: the API rejects any period
   // outside it, so a hard-coded option is a button that returns 400.
+  //
+  // metric is NOT owned here the way period is: it lives in the shared view
+  // state (islands/chart.js passes it as a getter), so a change from the
+  // page's top switcher reaches this chart too — one metric for the whole
+  // page, not a private copy that can drift from it. metricOptions/metricUnits
+  // resolve the heading label and the y-axis unit from that metric without a
+  // round trip to the server.
   let {
-    slug, metric, periods, periodLabels, initialPeriod,
-    metricLabel, tier, periodLegend, customLabel, fromLabel, toLabel, nowLabel,
+    slug, metric, metricOptions, metricUnits, onMetricChange, metricLegend,
+    periods, periodLabels, initialPeriod,
+    tier, periodLegend, customLabel, fromLabel, toLabel, nowLabel,
     resetLabel, rangeInvalid,
-    lineColour, valueLabel, valueUnit = '', timeLabel, empty, unavailable,
+    lineColour, valueLabel, timeLabel, empty, unavailable,
   } = $props()
 
   // Seeded from the server's default and owned here after that — untrack says
@@ -27,10 +36,13 @@
   const query = $derived(periodQuery(period, from, to))
   const periodLabel = $derived(
     period === CUSTOM ? customLabel : (periodLabels[periods.indexOf(period)] ?? period))
+  const metricLabel = $derived(metricOptions.find((o) => o.metric === metric)?.label ?? metric)
+  const valueUnit = $derived(metricUnits[metric] ?? '')
   // Metric · period · tier, the kit's own heading (§ area-detail). Composed
   // here rather than server-side because the middle part changes when the
-  // reader picks another window, and a pre-composed sentence cannot be
-  // rewritten without shipping the catalogue to the browser.
+  // reader picks another window, the first when they pick another metric, and
+  // a pre-composed sentence cannot be rewritten without shipping the
+  // catalogue to the browser.
   const heading = $derived([metricLabel, periodLabel, tier].filter(Boolean).join(' · '))
 
   const url = $derived(
@@ -43,12 +55,26 @@
     from = ''
     to = ''
     resetToken += 1
+    // The metric is not reset: it is the page-wide selection, and Reset only
+    // undoes what this chart's own period controls did.
   }
 </script>
 
 <div class="chart-head">
   <h2 class="t-section">{heading}</h2>
   <div class="chart-controls">
+    {#if metricOptions.length > 1}
+      <!-- Hidden for a one-metric area: a menu whose only option is already
+           selected offers nothing, and the heading already names the metric. -->
+      <MetricMenu
+        options={metricOptions}
+        selected={metric}
+        onselect={onMetricChange}
+        legend={metricLegend}
+        id="area-chart-metric"
+        name="area-chart-metric"
+      />
+    {/if}
     <PeriodPicker
       {periods}
       {periodLabels}

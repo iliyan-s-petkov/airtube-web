@@ -510,6 +510,59 @@ func (p PageData) MetricUnitsAttr() string  { return strings.Join(p.MetricUnits,
 func (p PageData) PeriodsAttr() string      { return strings.Join(p.Periods, ",") }
 func (p PageData) PeriodLabelsAttr() string { return strings.Join(p.PeriodLabels, ",") }
 
+// areaMeasuredMetrics is the metric keys the chart offers for this one area:
+// the default metric always first (even unmeasured, so a silent area still
+// gets a heading and a chart attempt), then whichever of the rest this area
+// actually reports, in canonical order — the same rule AreaReadouts cells by.
+// Kept separate from Metrics/MetricLabels/MetricUnits above, which are the
+// site's whole vocabulary (what the top switcher and the map offer) — a
+// metric this area has no sensor for still belongs on those, but a menu
+// entry for it on the chart would ask the API for a series it can never
+// return.
+func (p PageData) areaMeasuredMetrics() []string {
+	if p.Area == nil {
+		return nil
+	}
+	out := make([]string, 0, len(p.Metrics))
+	// The default metric always leads, even on a silent area with no reading
+	// yet: it is what the chart opens on and its heading names regardless, and
+	// the same guarantee AreaReadouts and the old single data-t-metric gave.
+	out = append(out, p.DefaultMetric)
+	for _, m := range p.Metrics {
+		if m == p.DefaultMetric {
+			continue
+		}
+		if _, ok := p.Area.Values[m]; ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// AreaMetricsAttr, AreaMetricLabelsAttr and AreaMetricUnitsAttr are the
+// area-scoped counterpart to MetricsAttr/MetricLabelsAttr/MetricUnitsAttr,
+// comma-joined the same way. The chart island's own metric menu reads these,
+// not the global lists.
+func (p PageData) AreaMetricsAttr() string { return strings.Join(p.areaMeasuredMetrics(), ",") }
+
+func (p PageData) AreaMetricLabelsAttr() string {
+	metrics := p.areaMeasuredMetrics()
+	labels := make([]string, len(metrics))
+	for i, m := range metrics {
+		labels[i] = p.T("metric." + m)
+	}
+	return strings.Join(labels, ",")
+}
+
+func (p PageData) AreaMetricUnitsAttr() string {
+	metrics := p.areaMeasuredMetrics()
+	units := make([]string, len(metrics))
+	for i, m := range metrics {
+		units[i] = p.T("unit." + m)
+	}
+	return strings.Join(units, ",")
+}
+
 // AreaTier is the wording for what an aggregate on this page covers — a
 // province or a city. The chart's heading is composed in the browser from the
 // metric, the period and this, so it has to arrive as its own string; the

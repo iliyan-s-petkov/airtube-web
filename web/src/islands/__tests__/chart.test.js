@@ -1,4 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+// @vitest-environment jsdom
+//
+// jsdom, not the default node environment: chart.js now calls the real
+// getViewState, which reads win.location.hash — absent under node.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { resetViewStateForTests } from '../../lib/viewstate.svelte.js'
 
 // chart.js is now only a mount point: it decides whether to mount at all (the
 // no-slug case) and builds the URL from the dataset (the island's business,
@@ -9,11 +14,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 //
 // 'svelte''s mount is mocked so this suite can assert on what chart.js hands
 // the component (the target element, the built URL, the passed-through
-// props) without needing jsdom or a real Chart.svelte render.
+// props) without needing a real Chart.svelte render.
 const mountCalls = []
 vi.mock('svelte', () => ({
   mount: vi.fn((component, opts) => { mountCalls.push({ component, opts }) }),
 }))
+// jsdom lacks matchMedia, which uPlot's real module touches at import time —
+// unreachable under node, where this suite ran before chart.js started
+// calling getViewState. The plot itself is out of scope here regardless.
+vi.mock('uplot', () => ({ default: vi.fn(function () { this.setSize = vi.fn() }) }))
 
 const { mount } = await import('../chart.js')
 
@@ -24,6 +33,7 @@ function fakeEl(dataset) {
 const CFG = {
   slug: 'sofia',
   metric: 'P2',
+  metrics: 'P2,P1',
   period: '24h',
   tEmpty: 'No readings in the last 24 hours',
   tUnavailable: 'Data is unavailable right now',
@@ -32,6 +42,13 @@ const CFG = {
 beforeEach(() => {
   vi.restoreAllMocks()
   mountCalls.length = 0
+  resetViewStateForTests()
+  history.replaceState(null, '', '/')
+})
+
+afterEach(() => {
+  resetViewStateForTests()
+  history.replaceState(null, '', '/')
 })
 
 describe('mount, no slug', () => {

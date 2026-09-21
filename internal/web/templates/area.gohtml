@@ -217,16 +217,31 @@
   <div id="chart" data-island="chart"
        data-slug="{{.Area.Slug}}"
        data-metric="{{.DefaultMetric}}"
+       {{/* The site's whole metric vocabulary, only so the chart's shared
+            view-state store (see lib/viewstate.svelte.js) validates a metric
+            change the same way the switcher and map islands do, whichever of
+            the three happens to initialise it first. The menu below offers a
+            narrower list. */}}
+       data-metrics="{{.MetricsAttr}}"
+       {{/* What THIS area reports — positional triples the chart's own metric
+            menu reads, and re-resolves its heading label and y-axis unit
+            from, so a metric change never needs a round trip. Not the global
+            lists above: a menu entry for a metric this area has no sensor for
+            would ask the API for a series it can never return. */}}
+       data-area-metrics="{{.AreaMetricsAttr}}"
+       data-area-metric-labels="{{.AreaMetricLabelsAttr}}"
+       data-area-metric-units="{{.AreaMetricUnitsAttr}}"
        data-period="{{.DefaultPeriod}}"
        data-periods="{{.PeriodsAttr}}"
        data-period-labels="{{.PeriodLabelsAttr}}"
        data-line-colour="{{.ChartLineColour}}"
        {{/* The three parts of the chart's heading. Composed in the browser
-            rather than server-side, because the period part changes when the
-            reader picks another window and a pre-composed sentence could not
-            be rewritten. */}}
-       data-t-metric="{{.T (printf "metric.%s" .DefaultMetric)}}"
+            rather than server-side: the period part changes when the reader
+            picks another window and the metric part when they pick another
+            metric, and a pre-composed sentence could not be rewritten for
+            either. */}}
        data-t-tier="{{.AreaTier}}"
+       data-t-legend="{{.T "metric.legend"}}"
        data-t-period-legend="{{.T "period.legend"}}"
        data-t-period-custom="{{.T "period.custom"}}"
        data-t-period-from="{{.T "period.from"}}"
@@ -236,7 +251,6 @@
        data-t-range-invalid="{{.T "chart.range_invalid"}}"
        data-t-empty="{{.T "chart.empty"}}"
        data-t-value="{{.T "chart.axis.value"}}"
-       data-t-unit="{{.T (printf "unit.%s" .DefaultMetric)}}"
        data-t-time="{{.T "chart.axis.time"}}"
        {{/* Reuses map.error.unavailable rather than adding a chart-specific
             key: the sentence is generic ("data is unavailable right now") and

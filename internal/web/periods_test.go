@@ -49,7 +49,11 @@ func TestChartIslandCarriesTheHeadingParts(t *testing.T) {
 	body := fetch(t, rr, "/en/area/silent").Body.String()
 
 	for _, want := range []string{
-		`data-t-metric="PM2.5"`,
+		// The heading's metric part is composed client-side from the area's own
+		// metric/label/unit lists (see AreaMetricsAttr et al.), not a single
+		// server-rendered data-t-metric — the chart's own menu needs the whole
+		// list to relabel the heading without a round trip.
+		`data-area-metric-labels="PM2.5"`,
 		`data-t-tier="province median"`,
 		`data-t-period-legend="Period"`,
 	} {

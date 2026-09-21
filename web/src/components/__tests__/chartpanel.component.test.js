@@ -1,18 +1,23 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { mount, unmount } from 'svelte'
+import { mount, unmount, tick } from 'svelte'
 import ChartPanel from '../ChartPanel.svelte'
 // lib/api.js caches by URL for the page's lifetime, and a test file is one
 // "page": without this the second case to mount on 24h would be answered from
 // the first case's cache and record no fetch at all.
 import { clearCache } from '../../lib/api.js'
+import { getViewState, resetViewStateForTests } from '../../lib/viewstate.svelte.js'
 
 // uPlot needs layout jsdom does not provide. This suite is about the panel's
 // own two jobs — the composed heading and the period switcher's effect on the
-// URL — so the plot itself is stubbed out.
+// URL — so the plot itself is stubbed out. Imported (not just mocked) so the
+// metric-menu tests below can read what Chart.svelte handed the constructor —
+// the y-axis unit lives in the opts, not anywhere the DOM exposes with the
+// plot itself faked out.
 vi.mock('uplot', () => ({
   default: vi.fn(function () { this.setSize = vi.fn() }),
 }))
+import uPlot from 'uplot'
 
 // Every fetch the panel makes, in order: the URL is the observable proof that
 // picking a period changed what the chart asks for.
@@ -21,10 +26,13 @@ const urls = []
 const props = {
   slug: 'sofia',
   metric: 'P2',
+  metricOptions: [{ metric: 'P2', label: 'PM2.5' }, { metric: 'P1', label: 'PM10' }],
+  metricUnits: { P2: 'µg/m³', P1: 'µg/m³' },
+  onMetricChange: () => {},
+  metricLegend: 'Metric',
   periods: ['24h', '7d', '30d', '1y'],
   periodLabels: ['24 hours', '7 days', '30 days', '1 year'],
   initialPeriod: '24h',
-  metricLabel: 'PM2.5',
   tier: 'province average',
   periodLegend: 'Period',
   customLabel: 'Custom range',
@@ -44,6 +52,8 @@ let component
 afterEach(() => {
   if (component) unmount(component)
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  uPlot.mockClear()
   urls.length = 0
   clearCache()
 })
@@ -161,7 +171,7 @@ describe('ChartPanel.svelte', () => {
     setValue(periodSelect(target), '7d')
     await vi.waitFor(() => expect(urls).toHaveLength(2))
 
-    target.querySelector('.chart-controls button.btn--secondary').click()
+    target.querySelector('.chart-controls .chart-reset').click()
     await vi.waitFor(() => expect(periodSelect(target).value).toBe('24h'))
     expect(target.querySelector('.chart-head .t-section').textContent)
       .toBe('PM2.5 · 24 hours · province average')
@@ -172,5 +182,119 @@ describe('ChartPanel.svelte', () => {
   it('gives the chart a real section heading', () => {
     const target = render()
     expect(target.querySelector('.chart-head > h2')).not.toBeNull()
+  })
+
+  // The point of the control: picking another metric must reach the API and
+  // relabel the heading and the y-axis, the same proof the period picker gets
+  // above — but with the period held still. metric is wired the same way
+  // switcher.js and map.js wire it in production — a getter over the shared
+  // view state — so these cases prove the real reactivity path, not a prop
+  // the test re-supplies by hand.
+  describe('the metric menu', () => {
+    const metricOptions = [
+      { metric: 'P2', label: 'PM2.5' },
+      { metric: 'temperature', label: 'Temperature' },
+    ]
+    const metricUnits = { P2: 'µg/m³', temperature: '°C' }
+    const metricButton = (t) => t.querySelector('#area-chart-metric')
+    const metricRadio = (t, metric) => t.querySelector(`input[type="radio"][value="${metric}"]`)
+
+    // At least two points: Chart.svelte treats a single point as 'empty' and
+    // never constructs uPlot, and the y-axis unit only reaches uPlot's opts.
+    function fetchTwoPoints() {
+      vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+        urls.push(String(url))
+        return Promise.resolve(new Response(
+          '{"t":["2026-08-01T00:00:00Z","2026-08-01T01:00:00Z"],"v":[1,2]}',
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ))
+      })
+      // Two real points reach uPlot construction (unlike the empty-payload
+      // cases above), which wires a ResizeObserver jsdom does not provide.
+      vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    }
+
+    function renderWithViewState() {
+      resetViewStateForTests()
+      // setMetric writes the real hash (see viewstate.svelte.js), so a
+      // leftover hash from a prior case would seed the new store's metric
+      // before this test's own click ever happens.
+      history.replaceState(null, '', '/')
+      fetchTwoPoints()
+      const vs = getViewState({ metrics: metricOptions.map((o) => o.metric), defaultMetric: 'P2' })
+      const target = document.createElement('div')
+      document.body.appendChild(target)
+      component = mount(ChartPanel, {
+        target,
+        props: {
+          ...props,
+          metricOptions,
+          metricUnits,
+          onMetricChange: (m) => vs.setMetric(m),
+          get metric() { return vs.metric },
+        },
+      })
+      return { target, vs }
+    }
+
+    afterEach(() => resetViewStateForTests())
+
+    it('offers a menu when the area reports more than one metric', () => {
+      const { target } = renderWithViewState()
+      expect(metricButton(target)).not.toBeNull()
+    })
+
+    it('changes the requested URL to the chosen metric, keeping the period', async () => {
+      const { target } = renderWithViewState()
+      await vi.waitFor(() => expect(urls).toHaveLength(1))
+      expect(urls[0]).toContain('metric=P2')
+      expect(urls[0]).toContain('period=24h')
+
+      metricButton(target).click()
+      metricRadio(target, 'temperature').click()
+
+      await vi.waitFor(() => expect(urls).toHaveLength(2))
+      expect(urls[1]).toContain('metric=temperature')
+      expect(urls[1]).toContain('period=24h')
+    })
+
+    it('updates the heading label and the y-axis unit for the chosen metric', async () => {
+      const { target } = renderWithViewState()
+      await vi.waitFor(() => expect(urls).toHaveLength(1))
+
+      metricButton(target).click()
+      metricRadio(target, 'temperature').click()
+
+      await vi.waitFor(() => expect(target.querySelector('.chart-head .t-section').textContent)
+        .toBe('Temperature · 24 hours · province average'))
+      await vi.waitFor(() => expect(uPlot).toHaveBeenCalledTimes(2))
+      const secondCallOpts = uPlot.mock.calls[1][0]
+      expect(secondCallOpts.axes[1].label).toBe('°C')
+    })
+
+    // The chart follows a metric change made through the shared view state —
+    // i.e. by the top switcher, not only through its own menu.
+    it('follows a metric change made through the shared view state', async () => {
+      const { target, vs } = renderWithViewState()
+      await vi.waitFor(() => expect(urls).toHaveLength(1))
+
+      vs.setMetric('temperature')
+      await tick()
+
+      await vi.waitFor(() => expect(urls).toHaveLength(2))
+      expect(urls[1]).toContain('metric=temperature')
+      expect(target.querySelector('.chart-head .t-section').textContent)
+        .toBe('Temperature · 24 hours · province average')
+    })
+
+    it('renders without a menu when the area reports a single metric', () => {
+      const target = render({
+        metricOptions: [{ metric: 'P2', label: 'PM2.5' }],
+        metricUnits: { P2: 'µg/m³' },
+      })
+      expect(metricButton(target)).toBeNull()
+      expect(target.querySelector('.chart-head .t-section').textContent)
+        .toBe('PM2.5 · 24 hours · province average')
+    })
   })
 })
