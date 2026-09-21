@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount, unmount } from 'svelte'
 import SensorPanel from '../SensorPanel.svelte'
+import { needlePoint } from '../../lib/gauge.js'
 
 const scaledModel = {
   fraction: 0.4,
@@ -48,18 +49,20 @@ describe('SensorPanel.svelte', () => {
     expect(missingGauge.getAttribute('aria-label')).toBe('PM10: no reading')
   })
 
-  it('omits the fill arc for a missing row', () => {
+  it('omits the needle for a missing row', () => {
     const target = render()
     const missingGauge = target.querySelectorAll('.gauge')[1]
-    expect(missingGauge.querySelector('.gauge__fill')).toBeNull()
+    expect(missingGauge.querySelector('.gauge__needle')).toBeNull()
   })
 
-  it('draws the fill arc in the model colour for a scaled, present row', () => {
+  it('draws the needle to the model fraction for a scaled, present row', () => {
     const target = render()
     const presentGauge = target.querySelectorAll('.gauge')[0]
-    const fill = presentGauge.querySelector('.gauge__fill')
-    expect(fill).not.toBeNull()
-    expect(fill.getAttribute('stroke')).toBe(scaledModel.colour)
+    const needle = presentGauge.querySelector('.gauge__needle')
+    expect(needle).not.toBeNull()
+    const tip = needlePoint(scaledModel.fraction)
+    expect(Number(needle.getAttribute('x2'))).toBeCloseTo(tip.x, 5)
+    expect(Number(needle.getAttribute('y2'))).toBeCloseTo(tip.y, 5)
   })
 
   it('shows the quality warning only when there is one', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { gaugeModel, gaugeRange, arcPath } from '../gauge.js'
+import { gaugeModel, gaugeRange, arcPath, needlePoint } from '../gauge.js'
 import { rampColour } from '../ramp.js'
 
 const p2Bands = [
@@ -60,7 +60,7 @@ describe('gaugeRange', () => {
     expect(gaugeRange('P1', p1Bands, 500)).toEqual({ min: 0, max: 345 })
     expect(gaugeRange('temperature', temperatureBands, 45)).toEqual({ min: -20, max: 40 })
     expect(gaugeRange('humidity', humidityBands, 100)).toEqual({ min: 0, max: 100 })
-    expect(gaugeRange('pressure', pressureBands, 1050)).toEqual({ min: 950, max: 1050 })
+    expect(gaugeRange('pressure', pressureBands, 1050)).toEqual({ min: 930, max: 1050 })
     expect(gaugeRange('CO', coBands, 10000)).toEqual({ min: 0, max: 8000 })
   })
 })
@@ -92,7 +92,22 @@ describe('gaugeModel', () => {
 
   it('places a pressure reading at its fraction of the pressure arc', () => {
     const model = gaugeModel({ metric: 'pressure', value: 1010.22, missing: false }, scales)
-    expect(model.fraction).toBeCloseTo(0.6022, 4)
+    expect(model.fraction).toBeCloseTo(0.6685, 4)
+  })
+
+  // Sofia and mountain stations sit near 940-950 hPa; the floor must not pin them at 0.
+  it('keeps a low prod pressure reading off the floor', () => {
+    const bands = [
+      { upper: 990, colour: '#00a' },
+      { upper: 1005, colour: '#0aa' },
+      { upper: 1020, colour: '#0a0' },
+      { upper: 1035, colour: '#fa0' },
+      { upper: null, colour: '#f80' },
+    ]
+    const prodScales = [{ metric: 'pressure', unit: 'hPa', ceiling: 1050, bands }]
+    const model = gaugeModel({ metric: 'pressure', value: 947.76, missing: false }, prodScales)
+    expect(model.fraction).toBeGreaterThan(0)
+    expect(model.fraction).toBeLessThan(0.2)
   })
 
   it('places a temperature reading at its fraction of the temperature arc', () => {
@@ -126,5 +141,23 @@ describe('arcPath', () => {
 
   it('always uses a large-arc flag of 0', () => {
     expect(arcPath(0, 0.9)).toContain(' 0 0 1 ')
+  })
+})
+
+describe('needlePoint', () => {
+  it('sits at the left end at fraction 0', () => {
+    expect(needlePoint(0)).toEqual({ x: 10, y: 50 })
+  })
+
+  it('sits at the top at fraction 0.5', () => {
+    expect(needlePoint(0.5)).toEqual({ x: 50, y: 10 })
+  })
+
+  it('sits at the right end at fraction 1', () => {
+    expect(needlePoint(1)).toEqual({ x: 90, y: 50 })
+  })
+
+  it('honours a shorter radius for the needle base', () => {
+    expect(needlePoint(0.5, 22)).toEqual({ x: 50, y: 28 })
   })
 })

@@ -1,6 +1,6 @@
 <script>
   // Draws the model from lib/gauge.js; no arithmetic here.
-  import { arcPath } from '../lib/gauge.js'
+  import { arcPath, needlePoint } from '../lib/gauge.js'
 
   let { label, value, unit, model = { fraction: null, colour: null, stops: [] }, missing = false } = $props()
 
@@ -22,7 +22,10 @@
       <path class="gauge__track-path" d={arcPath(0, 1)} />
     {/if}
     {#if model.fraction !== null}
-      <path class="gauge__fill" d={arcPath(0, model.fraction)} stroke={model.colour ?? 'var(--accent)'} />
+      {@const tip = needlePoint(model.fraction)}
+      {@const base = needlePoint(model.fraction, 22)}
+      <line class="gauge__needle" x1={base.x} y1={base.y} x2={tip.x} y2={tip.y} />
+      <circle class="gauge__pivot" cx="50" cy="50" r="3" />
     {/if}
   </svg>
   <div class="gauge__value">{missing ? value : `${value} ${unit}`}</div>
