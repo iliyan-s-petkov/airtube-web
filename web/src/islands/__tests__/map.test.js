@@ -22,6 +22,7 @@ import { resetViewStateForTests, getViewState } from '../../lib/viewstate.svelte
 import { findSensor, setSensors } from '../../lib/sensors.svelte.js'
 import { setSensorStatus, resetSensorFilterForTests } from '../../lib/sensorfilter.svelte.js'
 import { setSourceEnabled, resetSourceFilterForTests } from '../../lib/sourcefilter.svelte.js'
+import * as mapboundaries from '../../lib/mapboundaries.js'
 
 // mount() constructs a REAL MapLibreMap, which needs a working WebGL canvas —
 // out of reach under jsdom (see the "no jsdom" rule respected everywhere else
@@ -61,6 +62,9 @@ vi.mock('maplibre-gl', () => {
       this.zoomIn = vi.fn()
       this.zoomOut = vi.fn()
       this.flyTo = vi.fn()
+      this.easeTo = vi.fn()
+      // Empty by default: a test that cares who was hit sets its own return.
+      this.queryRenderedFeatures = vi.fn(() => [])
       // One object per source id, every setData recorded in order.
       this.painted = []
       this.sources = {}
@@ -80,14 +84,19 @@ vi.mock('maplibre-gl', () => {
       // jumps the map, and that a "default"/rejected response does not.
       this.jumpTo = vi.fn()
       this.clickHandlers = {}
+      this.bareClickHandlers = []
     }
     // map.on('click', LAYER_ID, cb) carries the layer id as a second
-    // argument; every other event map.js registers is map.on(event, cb).
+    // argument; a bare map.on('click', cb) (the boundary handler, and the
+    // panel-closing handler added alongside it) does not.
     // Clicks are ALSO kept per layer: the map binds one click handler to the
     // markers and another to the cells, and a single `handlers.click` slot
-    // would silently hand every test the last one registered.
+    // would silently hand every test the last one registered. Bare handlers
+    // go on their own list, in registration order, since MapLibre fires every
+    // one of them on every click regardless of what else it hit.
     on(event, a, b) {
       if (event !== 'click') { this.handlers[event] = a; return }
+      if (b === undefined) { this.bareClickHandlers.push(a); return }
       this.handlers.click ??= b
       this.clickHandlers[a] = b
     }
@@ -655,6 +664,140 @@ describe('cellTier', () => {
       expect(el.parentNode?.querySelector('.legend__tier')?.textContent ?? el.querySelector('.legend__tier')?.textContent)
         .toBe('each cell is one sensor')
     }, { timeout: 2000 })
+  })
+})
+
+// A click that opens nothing (no marker, no named cell) closes whatever panel
+// is already open — otherwise the panel sits over the map with no way back to
+// the ground behind it.
+describe('mount() closes the panel on a click that opens nothing', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests() })
+  afterEach(() => { resetViewStateForTests() })
+
+  // Fires every bare handler map.js registered, the same way a real MapLibre
+  // click dispatch would — the boundary handler sits alongside the one under
+  // test and must not interfere (boundaryState.on is false by default).
+  const fireBareClick = (map, e) => { for (const h of map.bareClickHandlers) h(e) }
+
+  it('closes the panel when the click lands on a multi-station cell', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const vs = getViewState()
+    vs.openSensor(42)
+    const spy = vi.spyOn(vs, 'closeSensor')
+    map.queryRenderedFeatures = vi.fn(() => [{ properties: { n: 3 } }])
+
+    fireBareClick(map, { point: [10, 10] })
+
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes the panel when the click lands on empty ground', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const vs = getViewState()
+    vs.openSensor(42)
+    const spy = vi.spyOn(vs, 'closeSensor')
+    map.queryRenderedFeatures = vi.fn(() => [])
+
+    fireBareClick(map, { point: [10, 10] })
+
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing on an empty click when nothing is open', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const vs = getViewState()
+    const spy = vi.spyOn(vs, 'closeSensor')
+    map.queryRenderedFeatures = vi.fn(() => [])
+
+    fireBareClick(map, { point: [10, 10] })
+
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('leaves the panel open when the click hits a feature naming a sensor', () => {
+    const { map } = mountTestMap({ metric: 'P2' })
+    const vs = getViewState()
+    vs.openSensor(42)
+    const spy = vi.spyOn(vs, 'closeSensor')
+    map.queryRenderedFeatures = vi.fn(() => [{ properties: { sensorId: 42 } }])
+
+    fireBareClick(map, { point: [10, 10] })
+
+    expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+// A cell naming several stations has no single one to open — the click zooms
+// toward the point tier instead, so the next click there names one.
+describe('mount() zooms into a multi-station cell', () => {
+  beforeEach(() => { clearCache(); resetViewStateForTests() })
+  afterEach(() => { resetViewStateForTests(); vi.restoreAllMocks() })
+
+  const polygonFeature = () => ({
+    properties: { n: 3, value: 5 },
+    geometry: { type: 'Polygon', coordinates: [[[23, 42], [24, 42], [23.5, 43], [23, 42]]] },
+  })
+
+  it('eases in on the ring centroid, and does not refresh synchronously', () => {
+    vi.spyOn(mapboundaries, 'cellArea').mockReturnValue('sofia')
+    const { map } = mountTestMap({ metric: 'P2' })
+    map.getZoom = vi.fn(() => 9)
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    map.clickHandlers['airbg-hex-fill']({
+      features: [polygonFeature()],
+      lngLat: { lng: 23.5, lat: 42.4 },
+    })
+
+    expect(map.easeTo).toHaveBeenCalledWith({
+      center: [23.5, (42 + 42 + 43) / 3],
+      zoom: Math.min(9 + 2, POINT_TIER_MIN_ZOOM),
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('caps the target zoom at the point tier', () => {
+    vi.spyOn(mapboundaries, 'cellArea').mockReturnValue('sofia')
+    const { map } = mountTestMap({ metric: 'P2' })
+    const zoom = POINT_TIER_MIN_ZOOM - 1
+    map.getZoom = vi.fn(() => zoom)
+
+    map.clickHandlers['airbg-hex-fill']({
+      features: [polygonFeature()],
+      lngLat: { lng: 23.5, lat: 42.4 },
+    })
+
+    expect(map.easeTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: POINT_TIER_MIN_ZOOM }))
+  })
+
+  it('refreshes in place, with no easeTo, once already at the point tier', () => {
+    vi.spyOn(mapboundaries, 'cellArea').mockReturnValue('sofia')
+    const { map } = mountTestMap({ metric: 'P2' })
+    map.getZoom = vi.fn(() => POINT_TIER_MIN_ZOOM)
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    map.clickHandlers['airbg-hex-fill']({
+      features: [polygonFeature()],
+      lngLat: { lng: 23.5, lat: 42.4 },
+    })
+
+    expect(map.easeTo).not.toHaveBeenCalled()
+    expect(fetchSpy).toHaveBeenCalled()
+  })
+
+  it('centres on the click point for a Point feature, not a ring', () => {
+    vi.spyOn(mapboundaries, 'cellArea').mockReturnValue('sofia')
+    const { map } = mountTestMap({ metric: 'P2' })
+    map.getZoom = vi.fn(() => 9)
+
+    map.clickHandlers['airbg-hex-fill']({
+      features: [{ properties: { n: 3, value: 5 }, geometry: { type: 'Point', coordinates: [23.5, 42.4] } }],
+      lngLat: { lng: 23.5, lat: 42.4 },
+    })
+
+    expect(map.easeTo).toHaveBeenCalledWith(expect.objectContaining({ center: [23.5, 42.4] }))
   })
 })
 
