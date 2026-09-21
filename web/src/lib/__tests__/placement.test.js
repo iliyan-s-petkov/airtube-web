@@ -4,7 +4,7 @@ import {
 } from '../placement.js'
 import { clearCache } from '../api.js'
 import { resetViewStateForTests } from '../viewstate.svelte.js'
-import { setSensors } from '../sensors.svelte.js'
+import { setSensors, findSensor } from '../sensors.svelte.js'
 import { getMapAreas, setMapAreas } from '../mapareas.svelte.js'
 import { POINT_TIER_MIN_ZOOM } from '../hexes.js'
 
@@ -246,8 +246,9 @@ describe('openDeepLinkedSensor', () => {
     await openDeepLinkedSensor(fakeMap(), state, cfg, chrome(), viewState(11338), fetchJSON, { move: false })
 
     expect(state.slug).toBe('ovcha-kupel')
-    // The list is already loaded; nothing to fetch beyond the locate call.
-    expect(fetchJSON).toHaveBeenCalledTimes(1)
+    // The list is already loaded, so only the locate call and the
+    // aggregate-tier registry fill (fakeMap's zoom is 7) run.
+    expect(fetchJSON).toHaveBeenCalledTimes(2)
   })
 
   // A reload resolves the deep link before the first refresh, so the list has
@@ -295,6 +296,84 @@ describe('openDeepLinkedSensor', () => {
     expect(await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(7), fetchJSON)).toBe(true)
     expect(map.jumpTo).toHaveBeenCalledWith({ center: [25, 43], zoom: DEEP_LINK_ZOOM })
     expect(state.slug).toBeNull()
+  })
+
+  // At an aggregate zoom refresh() paints cells, not sensors, so the registry
+  // the panel reads would stay empty without the fill-in.
+  it('fills the sensor registry at an aggregate zoom', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const sensorsBody = {
+      sensors: { id: [55555], lon: [23.31], lat: [42.69], quality: ['ok'], type: ['SDS011'], P2: [12] },
+    }
+    const fetchJSON = vi.fn(async (url) => {
+      if (url === '/api/v1/sensor/55555/locate') return { lon: 23.31, lat: 42.69, slug: 'sofia' }
+      if (url === '/api/v1/overview?tier=city') return { areas: [] }
+      if (url === '/api/v1/area/sofia/sensors') return sensorsBody
+      return null
+    })
+
+    await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(55555), fetchJSON, { move: false })
+
+    expect(findSensor(55555)).not.toBeNull()
+  })
+
+  // A hex names the station by its smallest member id; the climate twin at the
+  // same address must resolve to that station (stations.js stationMembers).
+  it('fills the registry for a two-device station named by its smaller id', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    const map = fakeMap()
+    const state = { slug: null, tier: null, scales: null }
+    const sensorsBody = {
+      sensors: {
+        id: [12348, 12349],
+        station: [12348, 12348],
+        lon: [23.31, 23.31],
+        lat: [42.69, 42.69],
+        quality: ['ok', 'ok'],
+        type: ['SDS011', 'BME280'],
+        P2: [12, null],
+      },
+    }
+    const fetchJSON = vi.fn(async (url) => {
+      if (url === '/api/v1/sensor/12348/locate') return { lon: 23.31, lat: 42.69, slug: 'sofia' }
+      if (url === '/api/v1/overview?tier=city') return { areas: [] }
+      if (url === '/api/v1/area/sofia/sensors') return sensorsBody
+      return null
+    })
+
+    await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(12348), fetchJSON, { move: false })
+
+    expect(findSensor(12348)).not.toBeNull()
+  })
+
+  // At the sensor tier refresh() already publishes the area's sensors; the
+  // fill-in must not fetch them again.
+  it('fetches the sensors URL only once at the sensor tier', async () => {
+    const sensorsBody = {
+      sensors: { id: [22222], lon: [23.31], lat: [42.69], quality: ['ok'], type: ['SDS011'], P2: [12] },
+    }
+    const globalFetch = vi.fn(async (url) => ({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => (String(url).includes('/sensors') ? sensorsBody : { areas: [] }),
+    }))
+    vi.stubGlobal('fetch', globalFetch)
+    const map = { ...fakeMap(), getZoom: vi.fn(() => 12) }
+    const state = { slug: null, tier: null, scales: null }
+    const fetchJSON = vi.fn(async (url) => {
+      if (url === '/api/v1/sensor/22222/locate') return { lon: 23.31, lat: 42.69, slug: 'sofia' }
+      if (url === '/api/v1/overview?tier=city') return { areas: [] }
+      return null
+    })
+
+    await openDeepLinkedSensor(map, state, cfg, chrome(), viewState(22222), fetchJSON, { move: false })
+
+    expect(findSensor(22222)).not.toBeNull()
+    expect(globalFetch.mock.calls.filter(([url]) => String(url).includes('/sensors')).length).toBe(1)
+    expect(fetchJSON).not.toHaveBeenCalledWith('/api/v1/area/sofia/sensors')
   })
 })
 

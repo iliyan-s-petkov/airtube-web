@@ -1,6 +1,6 @@
 import { getJSON } from './api.js'
 import { applyLocate } from './locate.js'
-import { findSensor, getSensors } from './sensors.svelte.js'
+import { findSensor, getSensors, setSensors } from './sensors.svelte.js'
 import { nearestArea, nearestSensor } from './nearest.js'
 import { setMapAreas } from './mapareas.svelte.js'
 import { POINT_TIER_MIN_ZOOM } from './hexes.js'
@@ -134,6 +134,12 @@ export async function openDeepLinkedSensor(map, state, cfg, chrome, vs, fetchJSO
     // The cells too, and not left to the moveend jumpTo will fire: that pass is
     // debounced, and the sensor the link named is drawn by this layer.
     await refreshHexes(map, state, cfg)
+    // An aggregate-tier refresh paints cells, not sensors, so the registry the
+    // panel reads stays empty. Fill it without painting.
+    if (slug && !findSensor(id)) {
+      const sensorsBody = await fetchJSON(urlFor('sensors', slug)).catch(() => null)
+      if (sensorsBody) setSensors(sensorsBody, slug)
+    }
   }
   return true
 }
