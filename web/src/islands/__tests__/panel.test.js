@@ -556,7 +556,7 @@ describe('mount() puts the panel copy on screen', () => {
       expect(el.querySelector('.sensor-panel')).not.toBeNull()
     })
     expect(el.textContent).toContain('PM10')
-    expect(el.querySelector('dl').textContent).toContain(PANEL_ATTR_FIXTURES.tNoValue)
+    expect(el.querySelector('.gauges').textContent).toContain(PANEL_ATTR_FIXTURES.tNoValue)
     el.remove()
   })
 

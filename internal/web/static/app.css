@@ -348,6 +348,18 @@ strong, b { font-weight: var(--weight-emphasis); }
 .sensor-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space-2); margin: 0; }
 .sensor-panel dt { color: var(--fg-2); }
 .sensor-panel dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+/* Panel readings as arc gauges; scoped under .sensor-panel to avoid the readout strip's .gauge ring. */
+.gauges { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin: var(--space-2) 0; }
+.sensor-panel .gauges .gauge {
+  position: static; display: block; inline-size: 88px; block-size: auto; flex: 0 0 auto;
+}
+.gauge__svg { inline-size: 100%; block-size: auto; }
+.gauge__track-path, .gauge__band, .gauge__fill { fill: none; stroke-width: 10; stroke-linecap: butt; }
+/* Same neutral as the readout strip's ring track. */
+.gauge__track-path { stroke: var(--border-faint); }
+.gauge__band { opacity: 0.35; }
+.gauge__value { font-weight: var(--weight-emphasis); font-variant-numeric: tabular-nums; text-align: center; }
+.gauge__label { color: var(--fg-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); text-align: center; }
 /* The station's own description, under its readings and quieter than them:
    hardware and coordinates answer "what am I looking at", not "how is the air". */
 .panel-details { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-faint); }
