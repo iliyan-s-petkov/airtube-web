@@ -788,13 +788,11 @@ body {
 }
 body.has-faux-full { overflow: hidden; }
 
-.chart-head {
-  display: flex; flex-wrap: wrap; align-items: end;
-  justify-content: space-between; gap: var(--space-4);
+.chart-controls {
+  display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-6);
   margin-block: var(--space-8) var(--space-4);
 }
-.chart-head > .t-section { margin: 0; }
-.chart-controls { display: flex; flex-wrap: wrap; gap: var(--space-6); }
+.chart-caption { margin-block: var(--space-4) 0; color: var(--fg-2); }
 
 /* The custom window is disclosed by the "Избран" option rather than shown
  * always: two datetime fields standing open would imply the presets are the
@@ -814,7 +812,7 @@ body.has-faux-full { overflow: hidden; }
 .field--inline .input { inline-size: auto; min-inline-size: 14rem; }
 
 @media (max-width: 672px) {
-  .chart-head { flex-direction: column; align-items: stretch; }
+  .chart-controls { flex-direction: column; align-items: stretch; }
   .field--inline .input { min-inline-size: 0; inline-size: 100%; }
 }
 
