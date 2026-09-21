@@ -128,10 +128,9 @@ var _ canonicalisable = hexPayload{}
 type hexEntry struct {
 	Lon float64 `json:"lon"`
 	Lat float64 `json:"lat"`
-	// SensorID names the device, and is set ONLY on the point tier, where an
-	// entry is one sensor rather than a bin of them. Omitted everywhere else:
-	// a bin has no single sensor to name, and an id of 0 on an aggregate would
-	// read as a device rather than as "not applicable".
+	// SensorID names a STATION (see stationKey), not a device — a station is
+	// several devices at one key. Set when the bin holds exactly one station,
+	// using pointsFrom's smallest-member tie-break; omitted for 2+.
 	SensorID int64              `json:"sensor_id,omitempty"`
 	N        int                `json:"n"`
 	Country  string             `json:"country"`
@@ -696,6 +695,11 @@ type hexBin struct {
 	// bySource repeats vals per network. A network's median is not derivable
 	// from the blended one, so a bin fed by both has to keep both sets.
 	bySource map[string]*sourceBin
+	// stations holds the distinct stationKeys in the bin. N cannot stand in:
+	// a device count of 2 is one routine station, not two.
+	stations map[stationKey]bool
+	// sensorID is the smallest member id seen. Only meaningful at len(stations) == 1.
+	sensorID int64
 }
 
 type sourceBin struct {
@@ -732,10 +736,16 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 		b := bins[c]
 		if b == nil {
 			b = &hexBin{coord: c, vals: map[string][]float64{},
-				countries: map[string]int{}, bySource: map[string]*sourceBin{}}
+				countries: map[string]int{}, bySource: map[string]*sourceBin{},
+				stations: map[stationKey]bool{}, sensorID: sr.SensorID}
 			bins[c] = b
 		}
 		b.n++
+		b.stations[stationKeyOf(sr)] = true
+		// pointsFrom's tie-break, so a cell and its point-tier marker agree.
+		if sr.SensorID < b.sensorID {
+			b.sensorID = sr.SensorID
+		}
 		if sr.Country != "" {
 			b.countries[sr.Country]++
 		}
@@ -789,6 +799,10 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 			N:       b.n,
 			Country: b.modalCountry(),
 			Values:  values,
+		}
+		// One station names the bin; two or more do not. See hexEntry.SensorID.
+		if len(b.stations) == 1 {
+			e.SensorID = b.sensorID
 		}
 		if len(b.bySource) == 1 {
 			for src := range b.bySource {
