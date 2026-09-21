@@ -50,6 +50,22 @@
     `?metric=${encodeURIComponent(metric)}&${query}`,
   )
 
+  // metric is seeded from the SITE default and can be moved to any site
+  // metric by the top switcher — neither is constrained to what this area
+  // measures. When it names a metric outside metricOptions, correct it
+  // through onMetricChange (the same setter the switcher itself writes
+  // through) rather than falling back locally: that keeps the heading, the
+  // y-axis unit, the map and the switcher all agreeing on one metric instead
+  // of this chart quietly plotting one the rest of the page disagrees with.
+  // Skipped when metricOptions is empty (area measures nothing) — there is no
+  // measured metric to fall back to, so the chart keeps its existing
+  // unavailable state for the unconstrained metric.
+  $effect(() => {
+    if (metricOptions.length > 0 && !metricOptions.some((o) => o.metric === metric)) {
+      onMetricChange(metricOptions[0].metric)
+    }
+  })
+
   function reset() {
     period = initialPeriod
     from = ''

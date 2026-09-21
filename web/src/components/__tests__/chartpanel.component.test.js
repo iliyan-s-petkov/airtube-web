@@ -307,6 +307,92 @@ describe('ChartPanel.svelte', () => {
       expect(target.querySelector('.chart-head .t-section').textContent)
         .toBe('PM2.5 · 24 hours · province average')
     })
+
+    // The page-wide metric is seeded from the SITE default (here 'P2'), which
+    // this area does not measure — only P1. Left uncorrected, the heading
+    // falls back to the raw key and the unit comes out empty (both lookups
+    // miss over an options list that only has P1), and the menu hides itself
+    // (one option) with no way back to the metric the area actually reports.
+    describe('an area measuring only a non-default metric', () => {
+      function renderPm10Only() {
+        resetViewStateForTests()
+        history.replaceState(null, '', '/')
+        fetchTwoPoints()
+        const vs = getViewState({ metrics: ['P2', 'P1'], defaultMetric: 'P2' })
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        component = mount(ChartPanel, {
+          target,
+          props: {
+            ...props,
+            metricOptions: [{ metric: 'P1', label: 'PM10' }],
+            metricUnits: { P1: 'µg/m³' },
+            onMetricChange: (m) => vs.setMetric(m),
+            get metric() { return vs.metric },
+          },
+        })
+        return { target, vs }
+      }
+
+      afterEach(() => resetViewStateForTests())
+
+      // The initial render still asks for the seeded site default (P2)
+      // before the correcting effect runs — that first, throwaway request is
+      // not the point here; the metric the page SETTLES on is.
+      it('requests the area-measured metric and labels the heading and unit for it', async () => {
+        const { target } = renderPm10Only()
+
+        await vi.waitFor(() => expect(urls.at(-1)).toContain('metric=P1'))
+        expect(target.querySelector('.chart-head .t-section').textContent)
+          .toBe('PM10 · 24 hours · province average')
+        await vi.waitFor(() => expect(uPlot).toHaveBeenCalled())
+        expect(uPlot.mock.calls.at(-1)[0].axes[1].label).toBe('µg/m³')
+      })
+
+      // Assert the end state the whole page shares, not the mechanism that
+      // got there: the shared metric itself lands on what the area measures.
+      it('leaves the shared view state on the metric the area measures', async () => {
+        const { vs } = renderPm10Only()
+        await vi.waitFor(() => expect(vs.metric).toBe('P1'))
+      })
+
+      // The top switcher writes to the same shared store as the chart's own
+      // menu (see onMetricChange above). On an area page, picking a metric
+      // this area does not measure must not leave the chart showing one
+      // thing and the switcher/map claiming another: the chart pulls the
+      // shared metric back to one it can plot.
+      it('pulls the shared metric back when the top switcher picks one the area does not measure', async () => {
+        const { target, vs } = renderPm10Only()
+        await vi.waitFor(() => expect(vs.metric).toBe('P1'))
+
+        vs.setMetric('temperature')
+        await tick()
+
+        expect(vs.metric).toBe('P1')
+        await vi.waitFor(() => expect(target.querySelector('.chart-head .t-section').textContent)
+          .toBe('PM10 · 24 hours · province average'))
+      })
+    })
+
+    // No measured metric at all (see internal/web/render.go's
+    // TestChartIslandOffersNoMetricsForASilentArea for the server-side half
+    // of this contract): the menu has nothing to offer, so it stays hidden,
+    // and there is no area-measured metric to fall back to either — the
+    // effect above must leave the page-wide metric alone rather than loop.
+    it('renders no menu and does not touch the shared metric when the area measures nothing', () => {
+      resetViewStateForTests()
+      history.replaceState(null, '', '/')
+      const vs = getViewState({ metrics: ['P2', 'P1'], defaultMetric: 'P2' })
+      const target = render({
+        metricOptions: [],
+        metricUnits: {},
+        onMetricChange: (m) => vs.setMetric(m),
+        get metric() { return vs.metric },
+      })
+      expect(metricButton(target)).toBeNull()
+      expect(vs.metric).toBe('P2')
+      resetViewStateForTests()
+    })
   })
 
   // The sensor card renders in the same slot when a sensor is open; this
