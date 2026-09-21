@@ -316,6 +316,9 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
     const value = h.values?.[metric] ?? null
     return {
       type: 'Feature',
+      // Feature-state addressing for the hover highlight. Keyed on the centre,
+      // not the array index: the partition above reorders on every refresh.
+      id: hexFeatureId(h.lon, h.lat),
       // A device with no size to draw at stays a Point: it is a position we
       // were given outright, and inventing a cell radius for it would be
       // inventing the one thing a cell claims. The two geometries share a
@@ -333,8 +336,8 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
         // Only the point tier has one to carry: an aggregate cell is a bin, and
         // a bin under both networks belongs to neither.
         source: points ? sourceOf(h) : undefined,
-        // Undefined on every aggregate tier, so a popup can tell a device from
-        // a bin without also having to know which resolution it asked for.
+        // The station a cell stands for, when it stands for exactly one.
+        // Undefined on a bin of several — the click handler branches on it.
         sensorId: h.sensor_id,
         // Set only by the replay, where a silent hour is held at the cell's last
         // reading; the live map never carries anything.
@@ -342,6 +345,18 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
       },
     }
   })
+}
+
+// hexFeatureId encodes a bin centre as the integer feature `id` feature-state
+// needs. Co-located features share one id (a station's two devices); harmless,
+// they are drawn at the same place. See docs/map-rendering.md.
+const ID_DEGREE_SCALE = 1e5
+const ID_LAT_MULTIPLIER = 2e7
+
+function hexFeatureId(lon, lat) {
+  const lonPart = Math.round((lon + 180) * ID_DEGREE_SCALE)
+  const latPart = Math.round((lat + 90) * ID_DEGREE_SCALE)
+  return lonPart * ID_LAT_MULTIPLIER + latPart
 }
 
 // ringFor picks a cell's outline: a diamond for an official station on the

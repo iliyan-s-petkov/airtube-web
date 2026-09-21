@@ -11,7 +11,7 @@ import { getViewState } from '../lib/viewstate.svelte.js'
 import { readWindow } from '../lib/mapwindow.js'
 import { provideAreaSelect } from '../lib/mapareas.svelte.js'
 import { BOUNDARY_FILL_LAYER_ID, boundsOf, findBoundary } from '../lib/boundaries.js'
-import { LAYER_ID, HEX_LAYER_ID } from '../lib/mapids.js'
+import { LAYER_ID, HEX_LAYER_ID, HEX_POINT_LAYER_ID, HEX_SOURCE_ID } from '../lib/mapids.js'
 import { MIN_ZOOM, readConfig } from '../lib/mapconfig.js'
 import { registerProtocols, mapStyle, installErrorHandler } from '../lib/mapstyle.js'
 import { paintWind } from '../lib/mapwind.js'
@@ -160,17 +160,9 @@ export function mount(el) {
     if (props.id !== undefined) vs.openSensor(Number(props.id))
   })
 
-  // The cells inherit that click wherever the markers have stepped aside,
-  // which is now everywhere the grid draws. A point-tier cell names its device
-  // and opens the panel.
-  //
-  // An aggregate cell names none — it stands for a bin, not a device — but it
-  // used to answer nothing at all, and with the markers hidden that left the
-  // map with no way to drill into a province by clicking it. It resolves to the
-  // area its centre falls nearest instead, by the same nearest-centroid rule
-  // the locate button already navigates by. In place, like the marker click:
-  // the bin is not the area, so it selects the area rather than claiming to be
-  // one.
+  // The cells inherit that click wherever the markers have stepped aside.
+  // A cell naming one station opens the panel; a bin of several has none to
+  // name, so it selects the area its centre falls nearest instead.
   map.on('click', HEX_LAYER_ID, (e) => {
     const id = e.features?.[0]?.properties?.sensorId
     if (id !== undefined && id !== null) {
@@ -184,6 +176,37 @@ export function mount(el) {
     if (!slug) return
     state.slug = slug
     refresh(map, state, cfg, chrome)
+  })
+
+  // The hover highlight. Tracked explicitly rather than left to mouseleave:
+  // sliding from a cell straight onto a point circle fires no leave, and a
+  // refresh can replace the source under a cell the pointer never left.
+  let hoveredHexId = null
+  const clearHexHover = () => {
+    if (hoveredHexId === null) return
+    map.setFeatureState({ source: HEX_SOURCE_ID, id: hoveredHexId }, { hover: false })
+    hoveredHexId = null
+  }
+  const hoverHex = (e) => {
+    const id = e.features?.[0]?.id
+    if (id === undefined || id === hoveredHexId) return
+    clearHexHover()
+    hoveredHexId = id
+    map.setFeatureState({ source: HEX_SOURCE_ID, id }, { hover: true })
+  }
+  // Both layers: a feature is a polygon or a point, never both.
+  for (const id of [HEX_LAYER_ID, HEX_POINT_LAYER_ID]) {
+    map.on('mousemove', id, hoverHex)
+    map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer' })
+    map.on('mouseleave', id, () => {
+      map.getCanvas().style.cursor = ''
+      clearHexHover()
+    })
+  }
+  // A refresh replaces the source wholesale, so a held id can land on an
+  // unrelated new cell. Reuses the paint event the e2e specs already listen for.
+  map.getContainer?.()?.addEventListener?.('airbg:paint', (e) => {
+    if (e.detail?.source === HEX_SOURCE_ID) clearHexHover()
   })
 
   // The province outlines answer a click the two handlers above did not.

@@ -80,11 +80,12 @@ func TestPointBodyClipsToTheBox(t *testing.T) {
 	}
 }
 
-// A bin must never carry an id: there is no single device to name, and a 0
-// would read as one rather than as "not applicable".
-func TestBinnedHexesCarryNoSensorID(t *testing.T) {
+// A bin of 2+ DISTINCT stations must never carry an id: there is no single
+// station to name, and a 0 would read as one rather than as "not applicable".
+func TestBinnedHexesWithTwoStationsCarryNoSensorID(t *testing.T) {
 	p := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorAt(77, 23.3219, 42.6977, map[string]float64{"P1": 20}),
+		sensorAt(78, 23.3220, 42.6978, map[string]float64{"P1": 22}),
 	}, HexResolutionKM)
 	b, err := encode(p)
 	if err != nil {
@@ -92,6 +93,40 @@ func TestBinnedHexesCarryNoSensorID(t *testing.T) {
 	}
 	if body := string(b.JSON); strings.Contains(body, "sensor_id") {
 		t.Errorf("aggregate payload names a sensor: %s", body)
+	}
+}
+
+// A bin of exactly one station names it, even at a coarse aggregate tier: the
+// id survives the roll-up rather than being discarded with the rest of the
+// bin's per-sensor detail.
+func TestBinnedHexWithOneStationCarriesSensorID(t *testing.T) {
+	p := hexPayloadFrom(time.Now(), []store.SensorReading{
+		sensorAt(77, 23.3219, 42.6977, map[string]float64{"P1": 20}),
+	}, HexResolutionKM)
+	if len(p.Hexes) != 1 {
+		t.Fatalf("want 1 hex, got %d", len(p.Hexes))
+	}
+	if p.Hexes[0].SensorID != 77 {
+		t.Errorf("SensorID = %d, want 77", p.Hexes[0].SensorID)
+	}
+}
+
+// The station's two co-located devices (same lon/lat/source — a community
+// station's dust sensor and climate twin) are ONE station, not two, and the
+// bin must name it with the smaller id.
+func TestBinnedHexWithCoLocatedStationDevicesCarriesSmallerID(t *testing.T) {
+	p := hexPayloadFrom(time.Now(), []store.SensorReading{
+		sensorAt(77, 23.3219, 42.6977, map[string]float64{"P1": 20}),
+		sensorAt(50, 23.3219, 42.6977, map[string]float64{"temperature": 18}),
+	}, HexResolutionKM)
+	if len(p.Hexes) != 1 {
+		t.Fatalf("want 1 hex, got %d", len(p.Hexes))
+	}
+	if p.Hexes[0].N != 2 {
+		t.Fatalf("N = %d, want 2", p.Hexes[0].N)
+	}
+	if p.Hexes[0].SensorID != 50 {
+		t.Errorf("SensorID = %d, want 50 (the smaller of the station's two ids)", p.Hexes[0].SensorID)
 	}
 }
 

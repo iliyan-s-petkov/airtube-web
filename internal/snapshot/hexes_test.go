@@ -146,20 +146,64 @@ func TestAbsentMetricIsOmittedRatherThanZero(t *testing.T) {
 	}
 }
 
-// The payload must carry no sensor identity — that is the tier's reason to
-// exist. A field added later that leaks an ID would pass every test above.
-func TestHexEntryCarriesNoSensorIdentity(t *testing.T) {
+// A bin holding two DISTINCT stations must carry no sensor identity: there is
+// no single station to name, and naming one of several would open the wrong
+// one. (Different coordinates -> different stationKey, even same network.)
+func TestHexEntryWithTwoStationsCarriesNoSensorIdentity(t *testing.T) {
 	p := hexPayloadFrom(time.Now(), []store.SensorReading{
 		sensorAt(4242, 23.3219, 42.6977, map[string]float64{"P1": 20}),
+		sensorAt(4243, 23.3220, 42.6978, map[string]float64{"P1": 22}),
 	}, HexResolutionKM)
 	body, err := encode(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"4242", "sensor_id", "SDS011", "quality"} {
+	for _, forbidden := range []string{"4242", "4243", "sensor_id", "SDS011", "quality"} {
 		if containsBytes(body.JSON, forbidden) {
 			t.Errorf("hex payload leaks %q", forbidden)
 		}
+	}
+}
+
+// A bin of exactly one station, one device, is unambiguous and names it: this
+// is the whole point of threading the id through the aggregate tiers.
+func TestHexEntryWithOneStationCarriesSensorIdentity(t *testing.T) {
+	p := hexPayloadFrom(time.Now(), []store.SensorReading{
+		sensorAt(4242, 23.3219, 42.6977, map[string]float64{"P1": 20}),
+	}, HexResolutionKM)
+	if len(p.Hexes) != 1 {
+		t.Fatalf("want 1 hex, got %d", len(p.Hexes))
+	}
+	if got := p.Hexes[0].SensorID; got != 4242 {
+		t.Errorf("SensorID = %d, want 4242", got)
+	}
+	body, err := encode(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsBytes(body.JSON, "sensor_id") {
+		t.Error("hex payload for a single-station bin does not carry sensor_id")
+	}
+}
+
+// The case this predicate change exists for: a community station's two
+// co-located devices — dust sensor and climate twin, same lon/lat/source —
+// are ONE station and must name it, with the smaller id, the same tie-break
+// pointsFrom uses. Under the old device-count predicate this bin was n==2
+// and wrongly emitted nothing.
+func TestHexEntryWithCoLocatedStationDevicesEmitsSmallerID(t *testing.T) {
+	p := hexPayloadFrom(time.Now(), []store.SensorReading{
+		sensorAt(4242, 23.3219, 42.6977, map[string]float64{"P1": 20}),
+		sensorAt(4200, 23.3219, 42.6977, map[string]float64{"temperature": 18}),
+	}, HexResolutionKM)
+	if len(p.Hexes) != 1 {
+		t.Fatalf("want 1 hex, got %d", len(p.Hexes))
+	}
+	if got := p.Hexes[0].N; got != 2 {
+		t.Fatalf("N = %d, want 2 (N stays a device count)", got)
+	}
+	if got := p.Hexes[0].SensorID; got != 4200 {
+		t.Errorf("SensorID = %d, want 4200 (the smaller of the station's two ids)", got)
 	}
 }
 
