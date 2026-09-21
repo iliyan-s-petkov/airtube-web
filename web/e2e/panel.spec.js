@@ -80,8 +80,9 @@ test.describe.serial('sensor panel', () => {
     // 'stuck' is not a usable quality (store/aggregate.go's usableQuality), so
     // this station measures PM2.5 and has no number for it — the placeholder,
     // in that row's OWN value cell rather than anywhere in the panel.
-    const pm25Value = panel.locator('dt', { hasText: 'PM2.5' }).locator('xpath=following-sibling::dd[1]')
-    await expect(pm25Value).toHaveText('no reading')
+    const pm25Gauge = panel.getByRole('group', { name: /^PM2\.5:/ })
+    await expect(pm25Gauge).toHaveAttribute('aria-label', 'PM2.5: no reading')
+    await expect(pm25Gauge.locator('.gauge__value')).toHaveText('no reading')
   })
 
   // Sensor 103: no P1 row at all, so nothing standing there measures PM10 and
@@ -91,8 +92,8 @@ test.describe.serial('sensor panel', () => {
     await page.goto('/en/area/sofia#sensor=103')
     const panel = sensorPanel()
     await expect(panel).toBeVisible({ timeout: 10000 })
-    await expect(panel.locator('dt', { hasText: 'PM10' })).toHaveCount(0)
-    await expect(panel.locator('dt', { hasText: 'PM2.5' })).toHaveCount(1)
+    await expect(panel.getByRole('group', { name: /^PM10:/ })).toHaveCount(0)
+    await expect(panel.getByRole('group', { name: /^PM2\.5:/ })).toHaveCount(1)
   })
 
   test('a sensor id that is not on this map leaves the page usable', async () => {

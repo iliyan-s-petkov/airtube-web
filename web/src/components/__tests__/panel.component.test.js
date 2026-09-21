@@ -3,9 +3,17 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount, unmount } from 'svelte'
 import SensorPanel from '../SensorPanel.svelte'
 
+const scaledModel = {
+  fraction: 0.4,
+  colour: '#fa0',
+  stops: [{ fraction: 1, colour: '#fa0' }],
+  range: { min: 0, max: 50 },
+}
+const missingModel = { fraction: null, colour: null, stops: [{ fraction: 1, colour: '#fa0' }], range: { min: 0, max: 50 } }
+
 const rows = [
-  { metric: 'P2', label: 'PM2.5', value: 12.4, unit: 'µg/m³', missing: false },
-  { metric: 'P1', label: 'PM10', value: null, unit: 'µg/m³', missing: true },
+  { metric: 'P2', label: 'PM2.5', value: 12.4, unit: 'µg/m³', missing: false, model: scaledModel },
+  { metric: 'P1', label: 'PM10', value: null, unit: 'µg/m³', missing: true, model: missingModel },
 ]
 
 let component
@@ -22,17 +30,36 @@ function render(props) {
 }
 
 describe('SensorPanel.svelte', () => {
-  it('shows each row with its value and unit', () => {
+  it('renders one gauge per row, with its label, value and unit', () => {
     const target = render()
-    expect(target.textContent).toContain('PM2.5')
-    expect(target.textContent).toContain('12.4')
-    expect(target.textContent).toContain('µg/m³')
+    const gauges = target.querySelectorAll('.gauge')
+    expect(gauges.length).toBe(2)
+    expect(gauges[0].getAttribute('aria-label')).toBe('PM2.5: 12.4 µg/m³')
+    expect(gauges[0].textContent).toContain('PM2.5')
+    expect(gauges[0].textContent).toContain('12.4')
+    expect(gauges[0].textContent).toContain('µg/m³')
   })
 
   // A blank cell reads as zero on an air-quality page. It must say so in words.
   it('spells out a missing value instead of leaving a blank', () => {
     const target = render()
-    expect(target.textContent).toContain('no reading')
+    const missingGauge = target.querySelectorAll('.gauge')[1]
+    expect(missingGauge.textContent).toContain('no reading')
+    expect(missingGauge.getAttribute('aria-label')).toBe('PM10: no reading')
+  })
+
+  it('omits the fill arc for a missing row', () => {
+    const target = render()
+    const missingGauge = target.querySelectorAll('.gauge')[1]
+    expect(missingGauge.querySelector('.gauge__fill')).toBeNull()
+  })
+
+  it('draws the fill arc in the model colour for a scaled, present row', () => {
+    const target = render()
+    const presentGauge = target.querySelectorAll('.gauge')[0]
+    const fill = presentGauge.querySelector('.gauge__fill')
+    expect(fill).not.toBeNull()
+    expect(fill.getAttribute('stroke')).toBe(scaledModel.colour)
   })
 
   it('shows the quality warning only when there is one', () => {

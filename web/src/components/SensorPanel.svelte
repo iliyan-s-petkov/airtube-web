@@ -26,6 +26,8 @@
   // for. `network` is a single precomposed sentence, the same idiom as
   // `flagText`. Both default empty so every sensor without them (every
   // citizen device today) renders neither block.
+  import Gauge from './Gauge.svelte'
+
   let {
     rows, title, flagText, closeLabel, noValue, onclose,
     details = [], detailsLabel = '', chart = null, open = true,
@@ -75,12 +77,17 @@
 
   {#if network}<p class="panel-network">{network}</p>{/if}
 
-  <dl>
+  <div class="gauges">
     {#each rows as row (row.metric)}
-      <dt>{row.label}</dt>
-      <dd>{#if row.missing}{noValue}{:else}{row.value} {row.unit}{/if}</dd>
+      <Gauge
+        label={row.label}
+        value={row.missing ? noValue : row.value}
+        unit={row.unit}
+        model={row.model}
+        missing={row.missing}
+      />
     {/each}
-  </dl>
+  </div>
 
   {#if details.length}
     <!-- A native <details>, like the language picker: the same three states

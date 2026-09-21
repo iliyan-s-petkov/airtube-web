@@ -19,6 +19,7 @@ import { panelRows, detailRows, stationMeta, networkText } from '../lib/sensorvi
 import { parseMetricList, zipLabels } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
 import { findSensor, getScales, normaliseSensor } from '../lib/sensors.svelte.js'
+import { gaugeModel } from '../lib/gauge.js'
 
 // Re-exported, not re-implemented: the projection lives in
 // lib/sensors.svelte.js because findSensor (the registry's own lookup) needs
@@ -100,9 +101,13 @@ export function mount(el) {
     target: el,
     props: {
       get open() { return findSensor(vs.sensorId) !== null },
+      // Each row carries its own gauge model (SensorPanel stays dumb: it only
+      // hands the model to Gauge.svelte, never reads scales itself).
       get rows() {
         const sensor = findSensor(vs.sensorId)
-        return sensor ? panelRows(sensor, options, getScales()) : []
+        if (!sensor) return []
+        const scales = getScales()
+        return panelRows(sensor, options, scales).map((row) => ({ ...row, model: gaugeModel(row, scales) }))
       },
       // Composed from the (non-templated) i18n label plus the sensor id —
       // see SensorPanel.svelte's own comment on why `sensor` itself is not
