@@ -4,7 +4,6 @@ package web
 // PageData.cat is unexported and AreaReadouts reads the catalogue.
 
 import (
-	"strings"
 	"testing"
 
 	"airbg.org/internal/i18n"
@@ -198,126 +197,26 @@ func TestEveryAreaReadoutIsLabelledAndTiered(t *testing.T) {
 	}
 }
 
-// mixed is a covered area fed by both networks.
-func mixed(kind string, sensors int, values map[string]float64) AreaRow {
-	a := area(kind, sensors, values)
+// When per-network rows are removed, all cells should have empty Group fields
+// and the count should be exactly N+1 (N metrics + sensor count, no breakdown).
+func TestAreaReadoutsAllCellsHaveEmptyGroupAfterNetworkRowRemoval(t *testing.T) {
+	// Area with two networks reporting P2 and temperature.
+	a := area("oblast", 4, map[string]float64{"P2": 25, "temperature": 20})
 	a.BySource = map[string]snapshot.SourceEntry{
-		"sensor.community": {N: 3, Values: map[string]float64{"P2": 20}},
-		"eea":              {N: 1, Values: map[string]float64{"P2": 100}},
+		"sensor.community": {N: 3, Values: map[string]float64{"P2": 20, "temperature": 19}},
+		"eea":              {N: 1, Values: map[string]float64{"P2": 100, "temperature": 25}},
 	}
-	return a
-}
-
-// groupsOf collects the cells that belong to a network heading.
-func groupsOf(rs []Readout) []Readout {
-	var out []Readout
-	for _, r := range rs {
-		if r.Group != "" {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-func TestAreaReadoutsAddARowPerNetwork(t *testing.T) {
-	got := areaReadoutsFor(t, "en", mixed("oblast", 4, map[string]float64{"P2": 25}))
-
-	// The main row is untouched: one metric cell plus the station count.
-	if got[0].Value != "25.0" || got[0].Group != "" {
-		t.Errorf("first cell = %q group %q, want the blended 25.0 with no group", got[0].Value, got[0].Group)
-	}
-	if got[1].Label != "Sensors" || got[1].Value != "4" || got[1].Group != "" {
-		t.Errorf("count cell = %q %q group %q, want Sensors 4 ungrouped", got[1].Label, got[1].Value, got[1].Group)
-	}
-
-	gs := groupsOf(got)
-	if len(gs) != 2 {
-		t.Fatalf("got %d grouped cells, want 2 — one per network", len(gs))
-	}
-	// sort.Strings puts eea first, on every run.
-	if gs[0].Group != "Official" || gs[0].Value != "100.0" {
-		t.Errorf("first group = %q %q, want Official 100.0", gs[0].Group, gs[0].Value)
-	}
-	if gs[0].Tier != "1 station" {
-		t.Errorf("first group tier = %q, want \"1 station\"", gs[0].Tier)
-	}
-	if gs[1].Group != "Citizen" || gs[1].Value != "20.0" {
-		t.Errorf("second group = %q %q, want Citizen 20.0", gs[1].Group, gs[1].Value)
-	}
-	if gs[1].Tier != "3 stations" {
-		t.Errorf("second group tier = %q, want \"3 stations\"", gs[1].Tier)
-	}
-	if strings.Contains(gs[0].Tier, "Official") || strings.Contains(gs[0].Tier, "·") {
-		t.Errorf("tier %q still carries the network name or its separator", gs[0].Tier)
-	}
-}
-
-// The group order is a contract, not a coincidence: two requests for the same
-// page must produce a byte-identical strip.
-func TestAreaReadoutsOrderNetworkGroupsBySortedKey(t *testing.T) {
-	gs := groupsOf(areaReadoutsFor(t, "en", mixed("oblast", 4, map[string]float64{"P2": 25})))
-	if len(gs) != 2 {
-		t.Fatalf("got %d grouped cells, want 2", len(gs))
-	}
-	if gs[0].Group != "Official" || gs[1].Group != "Citizen" {
-		t.Errorf("group order = %q, %q — eea sorts before sensor.community, so Official leads",
-			gs[0].Group, gs[1].Group)
-	}
-}
-
-// One network feeding the area is not a breakdown: the strip already IS that
-// network's numbers.
-func TestAreaReadoutsAddNoRowForASingleNetwork(t *testing.T) {
-	a := area("oblast", 4, map[string]float64{"P2": 25})
-	a.Source = "sensor.community"
 	got := areaReadoutsFor(t, "en", a)
 
-	if gs := groupsOf(got); len(gs) != 0 {
-		t.Errorf("got %d grouped cells, want none for a one-network area", len(gs))
+	// 2 metrics + 1 sensor count = 3 cells total; no per-network rows.
+	if len(got) != 3 {
+		t.Fatalf("got %d readouts, want 3 (2 metrics + 1 sensor count)", len(got))
 	}
-	if len(got) != 2 {
-		t.Errorf("got %d cells, want the unchanged 2", len(got))
-	}
-}
 
-// The Bulgarian page says it in Bulgarian, from bg.json.
-func TestAreaReadoutsNameNetworksInBulgarian(t *testing.T) {
-	gs := groupsOf(areaReadoutsFor(t, "bg", mixed("oblast", 4, map[string]float64{"P2": 25})))
-	if len(gs) != 2 {
-		t.Fatalf("got %d grouped cells, want 2", len(gs))
-	}
-	if gs[0].Group != "Официални" || gs[1].Group != "Граждански" {
-		t.Errorf("groups = %q, %q — want Официални then Граждански", gs[0].Group, gs[1].Group)
-	}
-	if gs[0].Tier != "1 станция" {
-		t.Errorf("tier = %q, want \"1 станция\"", gs[0].Tier)
-	}
-}
-
-func TestAreaReadoutsBreakdownIsAbsentWithoutCoverage(t *testing.T) {
-	a := mixed("oblast", 4, map[string]float64{"P2": 25})
-	a.Covered = false
-	if got := areaReadoutsFor(t, "bg", a); got != nil {
-		t.Errorf("AreaReadouts() = %v, want nil for an uncovered area", got)
-	}
-}
-
-// A network reporting nothing for a metric gets no cell for it.
-func TestAreaReadoutsSkipMetricsANetworkDoesNotReport(t *testing.T) {
-	a := area("oblast", 4, map[string]float64{"P2": 25, "humidity": 55})
-	a.BySource = map[string]snapshot.SourceEntry{
-		"sensor.community": {N: 3, Values: map[string]float64{"P2": 20, "humidity": 55}},
-		"eea":              {N: 1, Values: map[string]float64{"P2": 100}},
-	}
-	gs := groupsOf(areaReadoutsFor(t, "en", a))
-	// eea: one cell. sensor.community: two.
-	if len(gs) != 3 {
-		t.Fatalf("got %d grouped cells, want 3", len(gs))
-	}
-	for _, r := range gs {
-		// unit.humidity is "%" in en.json.
-		if r.Group == "Official" && r.Unit == "%" {
-			t.Error("the official row carries a humidity cell it has no reading for")
+	// Every cell must have an empty Group field.
+	for i, r := range got {
+		if r.Group != "" {
+			t.Errorf("cell %d (label %q) has Group=%q, want empty", i, r.Label, r.Group)
 		}
 	}
 }

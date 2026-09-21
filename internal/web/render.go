@@ -406,55 +406,6 @@ func (p PageData) AreaReadouts() []Readout {
 		Value: strconv.Itoa(p.Area.SensorCount),
 		Tier:  p.T("area.tier_sensors"),
 	})
-	return append(out, p.areaSourceGroups()...)
-}
-
-// areaSourceGroups is one labelled cell per metric per contributing network.
-// Empty for one network: the main row already is that network's numbers.
-func (p PageData) areaSourceGroups() []Readout {
-	if len(p.Area.BySource) < 2 {
-		return nil
-	}
-	networks := make([]string, 0, len(p.Area.BySource))
-	for src := range p.Area.BySource {
-		networks = append(networks, src)
-	}
-	// Sorted, so two requests for the same page produce the same strip.
-	sort.Strings(networks)
-
-	var out []Readout
-	for _, src := range networks {
-		se := p.Area.BySource[src]
-		name := p.T("source.name." + strings.ReplaceAll(src, ".", "_"))
-		// Group already names the network; the tier says only the count.
-		tierKey := "area.sources.row"
-		if se.N == 1 {
-			tierKey = "area.sources.row_one"
-		}
-		tier := strings.ReplaceAll(p.T(tierKey), "{n}", strconv.Itoa(se.N))
-
-		cell := func(m string) {
-			v, ok := se.Values[m]
-			if !ok {
-				return
-			}
-			c := Readout{
-				Label: p.T("metric." + m),
-				Value: formatValue(v, p.Lang),
-				Unit:  p.T("unit." + m),
-				Tier:  tier,
-				Group: name,
-			}
-			c.gauge(m, v)
-			out = append(out, c)
-		}
-		cell(p.DefaultMetric)
-		for _, m := range p.Metrics {
-			if m != p.DefaultMetric {
-				cell(m)
-			}
-		}
-	}
 	return out
 }
 
