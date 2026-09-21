@@ -199,6 +199,14 @@ type PageData struct {
 	Periods      []string
 	PeriodLabels []string
 
+	// PanelHostClass is an extra class on the sensor card's host div, beside
+	// the kit's own "place-host" — "" everywhere except the embed route,
+	// which needs "embed__panel" to cap the card inside its frame. The one
+	// real difference between the three pages' otherwise identical host
+	// markup (see the "sensorCardHost" partial), so it travels as data
+	// rather than a second copy of the block.
+	PanelHostClass string
+
 	cat *i18n.Catalogue
 }
 

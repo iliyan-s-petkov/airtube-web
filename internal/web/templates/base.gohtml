@@ -156,6 +156,54 @@
      data-t-nearby-median="{{.T "chart.nearby.median"}}"
      data-t-nearby-high="{{.T "chart.nearby.high"}}"{{end}}
 
+{{/* The sensor card's host div: the kit's .place-host slot, carrying the
+     panel island's whole translated vocabulary as data-t-* attributes.
+     Mounted unchanged by three pages — home, area and the embed — so one
+     definition is what keeps a translation key from drifting out of step
+     across copies. PanelHostClass is the one real difference: the embed
+     needs an extra class to cap the card inside its frame. */}}
+{{define "sensorCardHost"}}<div class="place-host{{with .PanelHostClass}} {{.}}{{end}}" data-island="panel"
+     data-metrics="{{.MetricsAttr}}"
+     data-metric-labels="{{.MetricLabelsAttr}}"
+     data-metric="{{.DefaultMetric}}"
+     data-period="{{.DefaultPeriod}}"
+     data-line-colour="{{.ChartLineColour}}"
+     data-compare-colour="{{.ChartCompareColour}}"
+     data-t-title="{{.T "panel.title"}}"
+     data-t-close="{{.T "panel.close"}}"
+     data-t-no-value="{{.T "panel.no_value"}}"
+     data-t-flag-out-of-range="{{.T "panel.flag.out_of_range"}}"
+     data-t-flag-stuck="{{.T "panel.flag.stuck"}}"
+     data-t-flag-spatial-outlier="{{.T "panel.flag.spatial_outlier"}}"
+     data-t-flag-source-invalid="{{.T "panel.flag.source_invalid"}}"
+     data-t-chart-title="{{.T "chart.title"}}"
+     data-t-chart-value="{{.T "chart.axis.value"}}"
+     data-t-chart-time="{{.T "chart.axis.time"}}"
+     data-t-chart-empty="{{.T "chart.empty"}}"
+     data-t-chart-unavailable="{{.T "map.error.unavailable"}}"
+     data-periods="{{.PeriodsAttr}}"
+     data-period-labels="{{.PeriodLabelsAttr}}"
+     data-t-chart-metric-legend="{{.T "metric.legend"}}"
+     data-t-chart-period-legend="{{.T "period.legend"}}"
+     data-series-colours="{{.ChartSeriesColours}}"
+     data-t-chart-reset="{{.T "chart.reset"}}"
+     data-t-period-custom="{{.T "period.custom"}}"
+     data-t-period-from="{{.T "period.from"}}"
+     data-t-period-to="{{.T "period.to"}}"
+     data-t-period-now="{{.T "period.now"}}"
+     data-t-chart-range-invalid="{{.T "chart.range_invalid"}}"
+     {{template "panelNearbyLabels" .}}
+     data-t-details="{{.T "panel.details"}}"
+     data-t-detail-devices="{{.T "panel.detail.devices"}}"
+     data-t-detail-hardware="{{.T "panel.detail.hardware"}}"
+     data-t-detail-since="{{.T "panel.detail.since"}}"
+     data-t-detail-updated="{{.T "panel.detail.updated"}}"
+     data-t-detail-coords="{{.T "panel.detail.coords"}}"
+     data-t-network="{{.T "panel.network"}}"
+     data-t-station-code="{{.T "panel.station.code"}}"
+     data-t-station-type="{{.T "panel.station.type"}}"
+     data-t-station-area="{{.T "panel.station.area"}}"></div>{{end}}
+
 {{/* The figures strip, given a []Readout. Shared because the home page and an
      area page draw the same cells from different sums, and a second copy of
      this markup is how the two start rendering differently. Each cell keeps its

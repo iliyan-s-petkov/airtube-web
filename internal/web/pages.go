@@ -170,6 +170,9 @@ func (rr *Renderer) handleEmbed(w http.ResponseWriter, r *http.Request) {
 
 	lang, path := rr.cat.LangFromPath(r.URL.Path)
 	data := rr.newPageData(lang, path, generatedAt)
+	// The one real difference in the sensor card's host markup across the
+	// three pages that mount it — see PanelHostClass and "sensorCardHost".
+	data.PanelHostClass = "embed__panel"
 
 	query := r.URL.Query()
 	if metric := query.Get("metric"); slices.Contains(data.Metrics, metric) {
