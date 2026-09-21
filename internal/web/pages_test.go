@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"airbg.org/internal/snapshot"
 	"airbg.org/internal/web"
 )
 
@@ -104,6 +106,43 @@ func TestHandWrittenStaticIsImmutableOnlyWhenStamped(t *testing.T) {
 		if got, want := rec.Header().Get("Cache-Control"), shortRevalidateCC; got != want {
 			t.Errorf("%s: Cache-Control = %q, want %q", path, got, want)
 		}
+	}
+}
+
+// The per-network breakdown this test used to cover was removed along with
+// areaSourceGroups; these two assertions describe behaviour that is still
+// current and isn't covered elsewhere against the full rendered body:
+//   - the blended headline figure, still the area page's PM2.5 readout
+//   - data-t-source-row-one, emitted unconditionally by the shared
+//     readouts-island partial, which still renders on the area page
+func TestAreaPageRendersTheBlendedHeadlineAndSourceRowAttribute(t *testing.T) {
+	snap := &snapshot.Snapshot{
+		GeneratedAt: time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC),
+		KnownSlugs: map[string]snapshot.AreaMeta{
+			"sofia": {
+				Slug: "sofia", Kind: "oblast", NameBG: "София", NameEN: "Sofia",
+				CentroidLon: 23.32, CentroidLat: 42.69, DefaultZoom: 9,
+				Covered: true, SensorCount: 4,
+				Values: map[string]float64{"P2": 25},
+				BySource: map[string]snapshot.SourceEntry{
+					"sensor.community": {N: 3, Values: map[string]float64{"P2": 20}},
+					"eea":              {N: 1, Values: map[string]float64{"P2": 100}},
+				},
+			},
+		},
+	}
+	rr := renderer(t, snap)
+	rec := fetch(t, rr, "/en/area/sofia")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /en/area/sofia = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+
+	if !strings.Contains(body, ">25.0<") {
+		t.Error("rendered page does not contain the blended headline figure >25.0<")
+	}
+	if !strings.Contains(body, `data-t-source-row-one="`) {
+		t.Error("rendered page does not carry the data-t-source-row-one attribute")
 	}
 }
 
