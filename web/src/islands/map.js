@@ -13,6 +13,7 @@ import { provideAreaSelect } from '../lib/mapareas.svelte.js'
 import { BOUNDARY_FILL_LAYER_ID, boundsOf, findBoundary } from '../lib/boundaries.js'
 import { LAYER_ID, HEX_LAYER_ID, HEX_POINT_LAYER_ID, HEX_SOURCE_ID } from '../lib/mapids.js'
 import { MIN_ZOOM, readConfig } from '../lib/mapconfig.js'
+import { POINT_TIER_MIN_ZOOM } from '../lib/hexes.js'
 import { registerProtocols, mapStyle, installErrorHandler } from '../lib/mapstyle.js'
 import { paintWind } from '../lib/mapwind.js'
 import {
@@ -25,6 +26,16 @@ import { openDeepLinkedSensor, locateMe } from '../lib/placement.js'
 import { mountChrome } from '../lib/chrome.js'
 import { installMapLoad } from '../lib/mapload.js'
 
+
+// Mean of a polygon ring's vertices, dropping the closing vertex GeoJSON
+// repeats to match the first — averaging it in would double-weight one corner.
+function ringCentroid(ring) {
+  const [fx, fy] = ring[0]
+  const last = ring[ring.length - 1]
+  const pts = (last[0] === fx && last[1] === fy) ? ring.slice(0, -1) : ring
+  const sum = pts.reduce(([sx, sy], [x, y]) => [sx + x, sy + y], [0, 0])
+  return [sum[0] / pts.length, sum[1] / pts.length]
+}
 
 export function mount(el) {
   const cfg = readConfig(el)
@@ -175,7 +186,27 @@ export function mount(el) {
     const slug = cellArea(state, e.lngLat)
     if (!slug) return
     state.slug = slug
+    // A bin naming several stations has no single one to open, so the click
+    // zooms in toward the point tier instead of selecting an area outright.
+    const geom = e.features?.[0]?.geometry
+    const center = geom?.type === 'Polygon' ? ringCentroid(geom.coordinates[0]) : [e.lngLat.lng, e.lngLat.lat]
+    const target = Math.min(map.getZoom() + 2, POINT_TIER_MIN_ZOOM)
+    if (target > map.getZoom()) {
+      // moveend (already wired above) repaints markers and hexes once the
+      // camera settles — a refresh here would just be repainted over.
+      map.easeTo({ center, zoom: target })
+      return
+    }
     refresh(map, state, cfg, chrome)
+  })
+
+  // A click that opens neither a marker nor a named cell closes the open panel.
+  // Registered after the layer handlers, which claim clicks that open something.
+  map.on('click', (e) => {
+    if (vs.sensorId == null) return
+    const feats = hit(map, e.point, [LAYER_ID, HEX_LAYER_ID])
+    if (feats.some((f) => f.properties?.id != null || f.properties?.sensorId != null)) return
+    vs.closeSensor()
   })
 
   // The hover highlight. Tracked explicitly rather than left to mouseleave:
