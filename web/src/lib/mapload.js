@@ -28,7 +28,7 @@ import {
 } from './mapids.js'
 import { emptyCollection } from './mapfeatures.js'
 import {
-  markerMaxZoom, hexOutlinePaint,
+  markerMaxZoom, hexOutlinePaint, hexFillPaint, hexPointPaint,
   hexLabelPaint, layerPaint, NOT_OFFICIAL, officialLayout, officialPaint, labelLayout,
   hexLabelLayout, labelPaint, MARKER_PIXEL_RATIO,
 } from './mappaint.js'
@@ -68,7 +68,7 @@ export function installMapLoad({ map, state, cfg, chrome, vs, windState, boundar
       type: 'fill',
       source: HEX_SOURCE_ID,
       minzoom: GRID_MIN_ZOOM_FRACTIONAL,
-      paint: { 'fill-color': ['get', 'colour'], 'fill-opacity': cfg.hexOpacity },
+      paint: hexFillPaint(cfg),
     })
     // A separate hairline outline rather than a fill-outline-color: MapLibre's
     // fill outline is always one pixel and cannot be faded, and at the address
@@ -100,18 +100,13 @@ export function installMapLoad({ map, state, cfg, chrome, vs, windState, boundar
       source: HEX_SOURCE_ID,
       minzoom: GRID_MIN_ZOOM_FRACTIONAL,
       filter: ['==', ['geometry-type'], 'Point'],
-      paint: {
-        'circle-color': ['get', 'colour'],
-        // Grows with zoom so a dense city does not read as one blob when a
-        // reader zooms in to separate it — which is the reason to be at this
-        // tier at all.
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 4, 18, 9],
-        'circle-stroke-width': 1,
-        // The same stroke the sensor dots use, not a new config key: this IS a
-        // sensor dot — the difference is which endpoint delivered it, which is
-        // not a distinction a reader should have to see.
-        'circle-stroke-color': cfg.markerStrokeColour,
-      },
+      // circle-radius grows with zoom so a dense city does not read as one
+      // blob when a reader zooms in to separate it — which is the reason to
+      // be at this tier at all. circle-stroke-color is the same stroke the
+      // sensor dots use, not a new config key: this IS a sensor dot — the
+      // difference is which endpoint delivered it, which is not a distinction
+      // a reader should have to see. See hexPointPaint for the hover case.
+      paint: hexPointPaint(cfg),
     })
 
     // The reading, printed in the middle of the cell it belongs to. It takes

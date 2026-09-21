@@ -126,8 +126,17 @@ describe('hexOutlinePaint', () => {
     // vanishes into a pale one, which over the OSM raster left the cells with
     // no visible edge at all.
     expect(paint['line-color']).not.toBe('#ffffff')
-    expect(paint['line-width']).toBeGreaterThanOrEqual(1)
-    expect(paint['line-opacity']).toBeGreaterThanOrEqual(0.6)
+    // 'line-width'/'line-opacity' are now ['case', hovered?, <boosted>,
+    // <normal>] rather than bare numbers — the hover highlight (see
+    // islands/map.js) reuses this same paint, boosted through feature-state
+    // instead of a colour change. Both branches checked: the normal one
+    // (last element) against the old floor, the hovered one against it.
+    const [, , hovered, normal] = paint['line-width']
+    expect(normal).toBeGreaterThanOrEqual(1)
+    expect(hovered).toBeGreaterThan(normal)
+    const [, , hoveredOpacity, normalOpacity] = paint['line-opacity']
+    expect(normalOpacity).toBeGreaterThanOrEqual(0.6)
+    expect(hoveredOpacity).toBeGreaterThan(normalOpacity)
   })
 })
 

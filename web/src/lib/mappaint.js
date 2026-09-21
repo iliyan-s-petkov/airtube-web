@@ -67,6 +67,9 @@ export function applyMarkerZoomRange(map, tier) {
   }
 }
 
+// Shared by the fill, outline and point paints so one flag drives all three.
+const HOVERED = ['boolean', ['feature-state', 'hover'], false]
+
 // hexOutlinePaint: the border between one cell and the next.
 //
 // Drawn in the label ink — a dark colour — and NOT in either of the two that
@@ -78,11 +81,33 @@ export function applyMarkerZoomRange(map, tier) {
 // A cell has to win against a busy street map, because the reading is what the
 // page is for. Full width and most of the way opaque; the streets stay legible
 // around the cell and through its fill.
+//
+// Hover thickens the line instead of recolouring it: colour here is the reading.
 export function hexOutlinePaint(cfg) {
   return {
     'line-color': cfg.labelColour,
-    'line-width': 1.2,
-    'line-opacity': 0.7,
+    'line-width': ['case', HOVERED, 2, 1.2],
+    'line-opacity': ['case', HOVERED, 0.95, 0.7],
+  }
+}
+
+// hexFillPaint: the grid's fill. Lives here, not inline in mapload.js, so the
+// hover expression is testable without a live map. Capped opacity lift only.
+export function hexFillPaint(cfg) {
+  return {
+    'fill-color': ['get', 'colour'],
+    'fill-opacity': ['case', HOVERED, Math.min(1, cfg.hexOpacity + 0.15), cfg.hexOpacity],
+  }
+}
+
+// hexPointPaint: the point tier's circles. Hover thickens the stroke rather
+// than the radius, which would shift the circle against its label.
+export function hexPointPaint(cfg) {
+  return {
+    'circle-color': ['get', 'colour'],
+    'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 4, 18, 9],
+    'circle-stroke-width': ['case', HOVERED, 2.5, 1],
+    'circle-stroke-color': cfg.markerStrokeColour,
   }
 }
 
