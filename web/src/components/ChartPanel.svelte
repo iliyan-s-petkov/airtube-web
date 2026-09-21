@@ -17,7 +17,7 @@
   // resolve the heading label and the y-axis unit from that metric without a
   // round trip to the server.
   let {
-    slug, metric, metricOptions, metricUnits, onMetricChange, metricLegend,
+    slug, selected, metric, metricOptions, metricUnits, onMetricChange, metricLegend,
     periods, periodLabels, initialPeriod,
     tier, periodLegend, customLabel, fromLabel, toLabel, nowLabel,
     resetLabel, rangeInvalid,
@@ -60,6 +60,12 @@
   }
 </script>
 
+<!-- While a sensor is selected, the sensor card is the whole view: this
+     region-wide chart renders nothing, not an empty frame. `period` and
+     `resetToken` above stay declared regardless — hiding here, at the
+     template level, leaves that $state untouched, so closing the card
+     restores the same window without a save/restore dance. -->
+{#if !selected}
 <div class="chart-head">
   <h2 class="t-section">{heading}</h2>
   <div class="chart-controls">
@@ -118,3 +124,4 @@
     {/key}
   {/if}
 </div>
+{/if}

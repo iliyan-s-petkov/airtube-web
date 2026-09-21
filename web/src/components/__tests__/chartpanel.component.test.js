@@ -7,6 +7,7 @@ import ChartPanel from '../ChartPanel.svelte'
 // the first case's cache and record no fetch at all.
 import { clearCache } from '../../lib/api.js'
 import { getViewState, resetViewStateForTests } from '../../lib/viewstate.svelte.js'
+import { setSensors } from '../../lib/sensors.svelte.js'
 
 // uPlot needs layout jsdom does not provide. This suite is about the panel's
 // own two jobs — the composed heading and the period switcher's effect on the
@@ -25,6 +26,7 @@ const urls = []
 
 const props = {
   slug: 'sofia',
+  selected: false,
   metric: 'P2',
   metricOptions: [{ metric: 'P2', label: 'PM2.5' }, { metric: 'P1', label: 'PM10' }],
   metricUnits: { P2: 'µg/m³', P1: 'µg/m³' },
@@ -56,6 +58,7 @@ afterEach(() => {
   uPlot.mockClear()
   urls.length = 0
   clearCache()
+  setSensors(null)
 })
 
 function render(extra) {
@@ -79,6 +82,14 @@ function setValue(el, value) {
 const periodSelect = (target) => target.querySelector('#area-period-select')
 
 describe('ChartPanel.svelte', () => {
+  // No sensor selected: the region chart mounts and asks for its own series.
+  it('mounts and requests its series URL when nothing is selected', async () => {
+    const target = render({ selected: false })
+    expect(target.querySelector('.chart-head')).not.toBeNull()
+    await vi.waitFor(() => expect(urls).toHaveLength(1))
+    expect(urls[0]).toContain('/api/v1/area/sofia/series')
+  })
+
   // The kit's heading is metric · period · tier. Three separate parts, because
   // the middle one is rewritten when the reader picks another window.
   it('composes the heading from the metric, the period and the tier', () => {
@@ -295,6 +306,97 @@ describe('ChartPanel.svelte', () => {
       expect(metricButton(target)).toBeNull()
       expect(target.querySelector('.chart-head .t-section').textContent)
         .toBe('PM2.5 · 24 hours · province average')
+    })
+  })
+
+  // The sensor card renders in the same slot when a sensor is open; this
+  // region-wide chart must yield to it entirely, not sit underneath it.
+  describe('a sensor is selected', () => {
+    it('mounts nothing: no heading, no toolbar, no data frame', () => {
+      const target = render({ selected: true })
+      expect(target.querySelector('.chart-head')).toBeNull()
+      expect(target.querySelector('.chart-controls')).toBeNull()
+      expect(target.querySelector('.data-frame')).toBeNull()
+    })
+
+    it('makes no series request while hidden', async () => {
+      render({ selected: true })
+      await Promise.resolve()
+      expect(urls).toHaveLength(0)
+    })
+
+    // Real vs.sensorId/findSensor, the same wiring islands/chart.js uses, so
+    // this proves the close button's actual path: openSensor/closeSensor
+    // toggling `selected`, not a hand-supplied boolean.
+    describe('closing the card', () => {
+      afterEach(() => resetViewStateForTests())
+
+      it('restores the chart with the metric and period it had, not the defaults', async () => {
+        resetViewStateForTests()
+        history.replaceState(null, '', '/')
+        setSensors({ sensors: { id: [42], quality: ['ok'], P2: [1] } })
+        const vs = getViewState({ metrics: ['P2', 'temperature'], defaultMetric: 'P2' })
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+          urls.push(String(url))
+          return Promise.resolve(new Response('{"points":[]}', {
+            status: 200, headers: { 'Content-Type': 'application/json' },
+          }))
+        })
+        component = mount(ChartPanel, {
+          target,
+          props: {
+            ...props,
+            get selected() { return vs.sensorId === 42 },
+            get metric() { return vs.metric },
+            onMetricChange: (m) => vs.setMetric(m),
+          },
+        })
+        await vi.waitFor(() => expect(urls).toHaveLength(1))
+
+        setValue(periodSelect(target), '7d')
+        await vi.waitFor(() => expect(urls).toHaveLength(2))
+        expect(urls[1]).toContain('period=7d')
+
+        vs.openSensor(42)
+        await tick()
+        expect(target.querySelector('.chart-head')).toBeNull()
+
+        vs.closeSensor()
+        await tick()
+        expect(periodSelect(target).value).toBe('7d')
+        expect(target.querySelector('.chart-head .t-section').textContent)
+          .toBe('PM2.5 · 7 days · province average')
+      })
+    })
+
+    it('selecting a second sensor while one is open still renders nothing', async () => {
+      resetViewStateForTests()
+      history.replaceState(null, '', '/')
+      setSensors({ sensors: { id: [42, 43], quality: ['ok', 'ok'], P2: [1, 2] } })
+      const vs = getViewState({ metrics: ['P2'], defaultMetric: 'P2' })
+      const target = document.createElement('div')
+      document.body.appendChild(target)
+      vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+        urls.push(String(url))
+        return Promise.resolve(new Response('{"points":[]}', {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }))
+      })
+      component = mount(ChartPanel, {
+        target,
+        props: { ...props, get selected() { return vs.sensorId === 42 || vs.sensorId === 43 } },
+      })
+      vs.openSensor(42)
+      await tick()
+      expect(target.querySelector('.chart-head')).toBeNull()
+
+      vs.openSensor(43)
+      await tick()
+      expect(target.querySelector('.chart-head')).toBeNull()
+      expect(target.querySelectorAll('.data-frame')).toHaveLength(0)
+      resetViewStateForTests()
     })
   })
 })

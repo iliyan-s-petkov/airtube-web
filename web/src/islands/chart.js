@@ -7,6 +7,7 @@ import { mount as mountComponent } from 'svelte'
 import ChartPanel from '../components/ChartPanel.svelte'
 import { parseMetricList, zipLabels } from '../lib/metrics.js'
 import { getViewState } from '../lib/viewstate.svelte.js'
+import { findSensor } from '../lib/sensors.svelte.js'
 
 // Positional lists, comma-joined by the server — the same shape the metric
 // switcher reads. An empty attribute must not become [''].
@@ -32,6 +33,11 @@ export function mount(el) {
     target: el,
     props: {
       slug: d.slug,
+      // Same getter-prop idiom islands/panel.js uses for `open`: a sensor is
+      // "selected" only if the id resolves through the registry, not merely
+      // because vs.sensorId is non-null (a stale/unknown id must not blank
+      // this chart).
+      get selected() { return findSensor(vs.sensorId) !== null },
       get metric() { return vs.metric },
       metricOptions: areaMetricOptions,
       // Positional against areaMetrics, read by ChartPanel to re-resolve the
