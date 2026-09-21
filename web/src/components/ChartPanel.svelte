@@ -41,12 +41,12 @@
   // False for any metric outside metricOptions, including the silent area
   // where the list is empty.
   const metricMeasured = $derived(metricOptions.some((o) => o.metric === metric))
-  // Metric · period · tier, the kit's own heading (§ area-detail). Composed
-  // here rather than server-side because the middle part changes when the
-  // reader picks another window, the first when they pick another metric, and
-  // a pre-composed sentence cannot be rewritten without shipping the
-  // catalogue to the browser.
-  const heading = $derived([metricLabel, periodLabel, tier].filter(Boolean).join(' · '))
+  // Metric · period · tier, the kit's own caption (§ area-detail), printed
+  // below the chart it describes. Composed here rather than server-side
+  // because the middle part changes when the reader picks another window,
+  // the first when they pick another metric, and a pre-composed sentence
+  // cannot be rewritten without shipping the catalogue to the browser.
+  const caption = $derived([metricLabel, periodLabel, tier].filter(Boolean).join(' · '))
 
   const url = $derived(
     `/api/v1/area/${encodeURIComponent(slug)}/series` +
@@ -70,44 +70,41 @@
      restores the same window without a save/restore dance. -->
 {#if !selected}
 {#if metricMeasured}
-<div class="chart-head">
-  <h2 class="t-section">{heading}</h2>
-  <div class="chart-controls">
-    {#if metricOptions.length > 1}
-      <!-- Hidden for a one-metric area: a menu whose only option is already
-           selected offers nothing, and the heading already names the metric. -->
-      <MetricMenu
-        options={metricOptions}
-        selected={metric}
-        onselect={onMetricChange}
-        legend={metricLegend}
-        id="area-chart-metric"
-        name="area-chart-metric"
-      />
-    {/if}
-    <PeriodPicker
-      {periods}
-      {periodLabels}
-      {period}
-      {from}
-      {to}
-      legend={periodLegend}
-      {customLabel}
-      {fromLabel}
-      {toLabel}
-      {nowLabel}
-      id="area-period"
-      onchange={(next) => { period = next.period; from = next.from; to = next.to }}
+<div class="chart-controls">
+  {#if metricOptions.length > 1}
+    <!-- Hidden for a one-metric area: a menu whose only option is already
+         selected offers nothing, and the caption below already names it. -->
+    <MetricMenu
+      options={metricOptions}
+      selected={metric}
+      onselect={onMetricChange}
+      legend={metricLegend}
+      id="area-chart-metric"
+      name="area-chart-metric"
     />
-    <ResetButton label={resetLabel} onreset={reset} />
-  </div>
+  {/if}
+  <PeriodPicker
+    {periods}
+    {periodLabels}
+    {period}
+    {from}
+    {to}
+    legend={periodLegend}
+    {customLabel}
+    {fromLabel}
+    {toLabel}
+    {nowLabel}
+    id="area-period"
+    onchange={(next) => { period = next.period; from = next.from; to = next.to }}
+  />
+  <ResetButton label={resetLabel} onreset={reset} />
 </div>
 
 <!-- No {#key url} around this: Chart's effect already re-runs on a new url,
      destroying the old plot and returning itself to 'loading', so remounting
      the component would only repeat work the effect does.
 
-     title="" because the heading above IS the title — uPlot would otherwise
+     title="" because the caption below IS the title — uPlot would otherwise
      paint a second copy of it inside the plot. -->
 <div class="data-frame chart">
   {#if period === CUSTOM && !query}
@@ -128,6 +125,7 @@
     {/key}
   {/if}
 </div>
+<p class="chart-caption t-caption">{caption}</p>
 {:else}
 <!-- The page-wide metric is not one this area measures. Nothing is fetched;
      the top switcher is the way back to a metric that plots. -->

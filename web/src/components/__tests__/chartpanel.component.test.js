@@ -85,17 +85,18 @@ describe('ChartPanel.svelte', () => {
   // No sensor selected: the region chart mounts and asks for its own series.
   it('mounts and requests its series URL when nothing is selected', async () => {
     const target = render({ selected: false })
-    expect(target.querySelector('.chart-head')).not.toBeNull()
+    expect(target.querySelector('.chart-controls')).not.toBeNull()
     await vi.waitFor(() => expect(urls).toHaveLength(1))
     expect(urls[0]).toContain('/api/v1/area/sofia/series')
   })
 
   // The kit's heading is metric · period · tier. Three separate parts, because
-  // the middle one is rewritten when the reader picks another window.
-  it('composes the heading from the metric, the period and the tier', () => {
+  // the middle one is rewritten when the reader picks another window. It now
+  // renders as a caption below the chart frame, not a heading above it.
+  it('composes the caption from the metric, the period and the tier', () => {
     const target = render()
-    const h2 = target.querySelector('.chart-head .t-section')
-    expect(h2.textContent).toBe('PM2.5 · 24 hours · province average')
+    const caption = target.querySelector('.chart-caption')
+    expect(caption.textContent).toBe('PM2.5 · 24 hours · province average')
   })
 
   // A select, not a row of segments: the list now carries a custom range too,
@@ -128,7 +129,7 @@ describe('ChartPanel.svelte', () => {
     expect(urls[1]).toContain('/api/v1/area/sofia/series')
     expect(urls[1]).toContain('metric=P2')
     expect(urls[1]).toContain('period=7d')
-    expect(target.querySelector('.chart-head .t-section').textContent)
+    expect(target.querySelector('.chart-caption').textContent)
       .toBe('PM2.5 · 7 days · province average')
   })
 
@@ -184,15 +185,27 @@ describe('ChartPanel.svelte', () => {
 
     target.querySelector('.chart-controls .chart-reset').click()
     await vi.waitFor(() => expect(periodSelect(target).value).toBe('24h'))
-    expect(target.querySelector('.chart-head .t-section').textContent)
+    expect(target.querySelector('.chart-caption').textContent)
       .toBe('PM2.5 · 24 hours · province average')
   })
 
-  // The heading is an <h2>, not a styled <div>: it is the section's place in
-  // the document outline, which the page's heading-order test depends on.
-  it('gives the chart a real section heading', () => {
+  // The composed text sits below the chart it describes, so it is no longer
+  // acting as a heading: an <h2> printed after its content breaks the page's
+  // heading outline. It renders as a caption paragraph instead, and nothing
+  // in the app references it as a heading (no aria-labelledby, no locator).
+  it('renders the caption as a paragraph, not a section heading', () => {
     const target = render()
-    expect(target.querySelector('.chart-head > h2')).not.toBeNull()
+    expect(target.querySelector('h2')).toBeNull()
+    expect(target.querySelector('p.chart-caption.t-caption')).not.toBeNull()
+  })
+
+  // The metric menu is the toolbar's own leftmost control now that the
+  // heading no longer shares the row and pushes it right of centre.
+  it('places the metric menu first among the toolbar controls', () => {
+    const target = render()
+    const controls = target.querySelector('.chart-controls')
+    expect(controls.firstElementChild.querySelector('#area-chart-metric'))
+      .not.toBeNull()
   })
 
   // The point of the control: picking another metric must reach the API and
@@ -276,7 +289,7 @@ describe('ChartPanel.svelte', () => {
       metricButton(target).click()
       metricRadio(target, 'temperature').click()
 
-      await vi.waitFor(() => expect(target.querySelector('.chart-head .t-section').textContent)
+      await vi.waitFor(() => expect(target.querySelector('.chart-caption').textContent)
         .toBe('Temperature · 24 hours · province average'))
       await vi.waitFor(() => expect(uPlot).toHaveBeenCalledTimes(2))
       const secondCallOpts = uPlot.mock.calls[1][0]
@@ -294,7 +307,7 @@ describe('ChartPanel.svelte', () => {
 
       await vi.waitFor(() => expect(urls).toHaveLength(2))
       expect(urls[1]).toContain('metric=temperature')
-      expect(target.querySelector('.chart-head .t-section').textContent)
+      expect(target.querySelector('.chart-caption').textContent)
         .toBe('Temperature · 24 hours · province average')
     })
 
@@ -304,7 +317,7 @@ describe('ChartPanel.svelte', () => {
         metricUnits: { P2: 'µg/m³' },
       })
       expect(metricButton(target)).toBeNull()
-      expect(target.querySelector('.chart-head .t-section').textContent)
+      expect(target.querySelector('.chart-caption').textContent)
         .toBe('PM2.5 · 24 hours · province average')
     })
 
@@ -353,7 +366,7 @@ describe('ChartPanel.svelte', () => {
       it('renders the unavailable state instead of the chart, and fetches nothing', async () => {
         const { target } = renderPm10Only()
 
-        expect(target.querySelector('.chart-head')).toBeNull()
+        expect(target.querySelector('.chart-controls')).toBeNull()
         expect(target.querySelector('.data-frame .chart-message').textContent)
           .toBe(props.unavailable)
         await Promise.resolve()
@@ -366,12 +379,12 @@ describe('ChartPanel.svelte', () => {
       // area measures.
       it('renders the chart once the shared metric moves to one this area measures', async () => {
         const { target, vs } = renderPm10Only()
-        expect(target.querySelector('.chart-head')).toBeNull()
+        expect(target.querySelector('.chart-controls')).toBeNull()
 
         vs.setMetric('P1')
         await tick()
 
-        await vi.waitFor(() => expect(target.querySelector('.chart-head .t-section')?.textContent)
+        await vi.waitFor(() => expect(target.querySelector('.chart-caption')?.textContent)
           .toBe('PM10 · 24 hours · province average'))
         await vi.waitFor(() => expect(urls.at(-1)).toContain('metric=P1'))
       })
@@ -382,7 +395,7 @@ describe('ChartPanel.svelte', () => {
     // of this contract): metricOptions.some() over an empty list is always
     // false, so this falls into the same unavailable branch as an area that
     // measures something but not the page's current metric — there is no
-    // menu, no chart-head, and the shared metric is left alone.
+    // menu, no toolbar, no caption, and the shared metric is left alone.
     it('renders the unavailable state and does not touch the shared metric when the area measures nothing', () => {
       resetViewStateForTests()
       history.replaceState(null, '', '/')
@@ -394,7 +407,7 @@ describe('ChartPanel.svelte', () => {
         get metric() { return vs.metric },
       })
       expect(metricButton(target)).toBeNull()
-      expect(target.querySelector('.chart-head')).toBeNull()
+      expect(target.querySelector('.chart-controls')).toBeNull()
       expect(target.querySelector('.data-frame .chart-message').textContent).toBe(props.unavailable)
       expect(vs.metric).toBe('P2')
       resetViewStateForTests()
@@ -404,9 +417,9 @@ describe('ChartPanel.svelte', () => {
   // The sensor card renders in the same slot when a sensor is open; this
   // region-wide chart must yield to it entirely, not sit underneath it.
   describe('a sensor is selected', () => {
-    it('mounts nothing: no heading, no toolbar, no data frame', () => {
+    it('mounts nothing: no caption, no toolbar, no data frame', () => {
       const target = render({ selected: true })
-      expect(target.querySelector('.chart-head')).toBeNull()
+      expect(target.querySelector('.chart-caption')).toBeNull()
       expect(target.querySelector('.chart-controls')).toBeNull()
       expect(target.querySelector('.data-frame')).toBeNull()
     })
@@ -453,12 +466,12 @@ describe('ChartPanel.svelte', () => {
 
         vs.openSensor(42)
         await tick()
-        expect(target.querySelector('.chart-head')).toBeNull()
+        expect(target.querySelector('.chart-controls')).toBeNull()
 
         vs.closeSensor()
         await tick()
         expect(periodSelect(target).value).toBe('7d')
-        expect(target.querySelector('.chart-head .t-section').textContent)
+        expect(target.querySelector('.chart-caption').textContent)
           .toBe('PM2.5 · 7 days · province average')
       })
     })
@@ -482,11 +495,11 @@ describe('ChartPanel.svelte', () => {
       })
       vs.openSensor(42)
       await tick()
-      expect(target.querySelector('.chart-head')).toBeNull()
+      expect(target.querySelector('.chart-controls')).toBeNull()
 
       vs.openSensor(43)
       await tick()
-      expect(target.querySelector('.chart-head')).toBeNull()
+      expect(target.querySelector('.chart-controls')).toBeNull()
       expect(target.querySelectorAll('.data-frame')).toHaveLength(0)
       resetViewStateForTests()
     })
