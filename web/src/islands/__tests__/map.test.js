@@ -799,6 +799,49 @@ describe('mount() zooms into a multi-station cell', () => {
 
     expect(map.easeTo).toHaveBeenCalledWith(expect.objectContaining({ center: [23.5, 42.4] }))
   })
+
+  // cellArea returns null once an area is already selected (see its own
+  // comment in mapboundaries.js) — the zoom-in must not depend on it resolving.
+  it('zooms even when the map is already scoped to an area', () => {
+    vi.spyOn(mapboundaries, 'cellArea').mockReturnValue(null)
+    const { map } = mountTestMap({ metric: 'P2', dataset: { slug: 'sofia' } })
+    map.getZoom = vi.fn(() => 9)
+    // A resolving stub, not a bare one: this leaks past restoreAllMocks (see
+    // the note on the other stubGlobal calls in this describe) and a bare
+    // vi.fn() left standing broke unrelated fetches in later describes.
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    map.clickHandlers['airbg-hex-fill']({
+      features: [polygonFeature()],
+      lngLat: { lng: 23.5, lat: 42.4 },
+    })
+
+    expect(map.easeTo).toHaveBeenCalledWith({
+      center: [23.5, (42 + 42 + 43) / 3],
+      zoom: 11,
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  // Already at the point tier, and no area resolves: there is nothing to zoom
+  // toward and nothing to select, so the click is a no-op.
+  it('does nothing at the point tier when no area resolves', () => {
+    vi.spyOn(mapboundaries, 'cellArea').mockReturnValue(null)
+    const { map } = mountTestMap({ metric: 'P2' })
+    map.getZoom = vi.fn(() => POINT_TIER_MIN_ZOOM)
+    // A resolving stub — see the note on the previous test's fetchSpy.
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ areas: [] }) }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    map.clickHandlers['airbg-hex-fill']({
+      features: [polygonFeature()],
+      lngLat: { lng: 23.5, lat: 42.4 },
+    })
+
+    expect(map.easeTo).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })
 
 // The two ways of showing one reading must never be on screen at once: the dot
