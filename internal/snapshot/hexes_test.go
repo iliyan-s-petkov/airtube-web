@@ -207,6 +207,93 @@ func TestHexEntryWithCoLocatedStationDevicesEmitsSmallerID(t *testing.T) {
 	}
 }
 
+// Two stations, different metrics: SensorID stays 0 (two stations), but a
+// metric only one of them reports is namable per se.
+func TestSensorIDByMetricNamesTheSoleContributor(t *testing.T) {
+	p := hexPayloadFrom(time.Now(), []store.SensorReading{
+		sensorFrom(100, 23.3219, 42.6977, "sensor.community", map[string]float64{"P1": 20, "P2": 15}),
+		sensorFrom(200, 23.3260, 42.7001, "eea", map[string]float64{"P1": 30, "NO2": 40}),
+	}, HexResolutionKM)
+	if len(p.Hexes) != 1 {
+		t.Fatalf("want 1 hex, got %d", len(p.Hexes))
+	}
+	h := p.Hexes[0]
+	if h.SensorID != 0 {
+		t.Errorf("SensorID = %d, want 0 (two stations)", h.SensorID)
+	}
+	if _, ok := h.SensorIDByMetric["P1"]; ok {
+		t.Errorf("P1 has two contributing stations, want absent, got %v", h.SensorIDByMetric["P1"])
+	}
+	if got := h.SensorIDByMetric["P2"]; got != 100 {
+		t.Errorf("P2 sole contributor = %d, want 100", got)
+	}
+	if got := h.SensorIDByMetric["NO2"]; got != 200 {
+		t.Errorf("NO2 sole contributor = %d, want 200", got)
+	}
+}
+
+// A station's per-metric id is the station's smallest MEMBER id, not the id of
+// the row that happened to carry the metric — so a cell agrees with the point
+// tier and findSensor regardless of which co-located device reports what.
+func TestSensorIDByMetricUsesStationsSmallestMemberID(t *testing.T) {
+	p := hexPayloadFrom(time.Now(), []store.SensorReading{
+		sensorAt(12349, 23.3219, 42.6977, map[string]float64{"P1": 20, "P2": 15}),
+		sensorAt(12348, 23.3219, 42.6977, map[string]float64{"temperature": 18, "humidity": 55}),
+	}, HexResolutionKM)
+	if len(p.Hexes) != 1 {
+		t.Fatalf("want 1 hex, got %d", len(p.Hexes))
+	}
+	h := p.Hexes[0]
+	if got := h.SensorIDByMetric["P2"]; got != 12348 {
+		t.Errorf("P2 = %d, want 12348 (station's smallest member id, not the dust device's own)", got)
+	}
+	if got := h.SensorIDByMetric["temperature"]; got != 12348 {
+		t.Errorf("temperature = %d, want 12348", got)
+	}
+}
+
+// A single-station bin names every metric it reports, all under the same id
+// SensorID already carries.
+func TestSensorIDByMetricMatchesSensorIDOnASingleStationBin(t *testing.T) {
+	p := hexPayloadFrom(time.Now(), []store.SensorReading{
+		sensorAt(4242, 23.3219, 42.6977, map[string]float64{"P1": 20, "P2": 15}),
+	}, HexResolutionKM)
+	if len(p.Hexes) != 1 {
+		t.Fatalf("want 1 hex, got %d", len(p.Hexes))
+	}
+	h := p.Hexes[0]
+	if h.SensorID != 4242 {
+		t.Fatalf("SensorID = %d, want 4242", h.SensorID)
+	}
+	for _, m := range []string{"P1", "P2"} {
+		if got, ok := h.SensorIDByMetric[m]; !ok || got != 4242 {
+			t.Errorf("SensorIDByMetric[%q] = %d, ok=%v, want 4242, true", m, got, ok)
+		}
+	}
+}
+
+// Both stations report the same, only, metric: no metric is unique, so the
+// whole map is empty and the field is omitted from the JSON entirely.
+func TestSensorIDByMetricOmittedWhenNoMetricIsUnique(t *testing.T) {
+	p := hexPayloadFrom(time.Now(), []store.SensorReading{
+		sensorFrom(1, 23.3219, 42.6977, "sensor.community", map[string]float64{"P2": 10}),
+		sensorFrom(2, 23.3260, 42.7001, "eea", map[string]float64{"P2": 90}),
+	}, HexResolutionKM)
+	if len(p.Hexes) != 1 {
+		t.Fatalf("want 1 hex, got %d", len(p.Hexes))
+	}
+	if h := p.Hexes[0]; h.SensorIDByMetric != nil {
+		t.Errorf("SensorIDByMetric = %v, want nil (both stations report P2)", h.SensorIDByMetric)
+	}
+	body, err := encode(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsBytes(body.JSON, "sensor_id_by_metric") {
+		t.Error("sensor_id_by_metric present in JSON though the map is empty")
+	}
+}
+
 func containsBytes(b []byte, s string) bool {
 	return len(s) > 0 && len(b) >= len(s) && indexOf(string(b), s) >= 0
 }
