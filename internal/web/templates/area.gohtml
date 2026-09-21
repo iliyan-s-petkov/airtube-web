@@ -28,15 +28,6 @@
 {{end}}
 </div>
 
-{{/* What this area is measuring right now — one cell per metric it reports,
-     then the sensors behind them (PageData.AreaReadouts).
-
-     The kit prints the sensor count twice, once as an intro sentence under the
-     title and again as the fourth cell. Only the cell survives here: it is the
-     same number, and the cell carries a tier line saying what the sensors are
-     counted in, which the bare sentence did not. */}}
-{{template "readouts-island" .}}
-
 {{if not .Area.Covered}}
   <div class="notice">
     <p><strong>{{.T "area.no_coverage"}}</strong></p>
@@ -146,6 +137,15 @@
 <div class="map-freshness">{{template "dataFreshness" .}}</div>
 </div>
 <p id="area-map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
+
+{{/* What this area is measuring right now — one cell per metric it reports,
+     then the sensors behind them (PageData.AreaReadouts).
+
+     The kit prints the sensor count twice, once as an intro sentence under the
+     title and again as the fourth cell. Only the cell survives here: it is the
+     same number, and the cell carries a tier line saying what the sensors are
+     counted in, which the bare sentence did not. */}}
+{{template "readouts-island" .}}
 
 {{/* #sensor= is honoured only here, never on index.gohtml: resolving it
      needs the sensor already loaded through the map island above (the
