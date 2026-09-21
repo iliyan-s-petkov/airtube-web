@@ -138,15 +138,6 @@
 </div>
 <p id="area-map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
 
-{{/* What this area is measuring right now — one cell per metric it reports,
-     then the sensors behind them (PageData.AreaReadouts).
-
-     The kit prints the sensor count twice, once as an intro sentence under the
-     title and again as the fourth cell. Only the cell survives here: it is the
-     same number, and the cell carries a tier line saying what the sensors are
-     counted in, which the bare sentence did not. */}}
-{{template "readouts-island" .}}
-
 {{/* #sensor= is honoured only here, never on index.gohtml: resolving it
      needs the sensor already loaded through the map island above (the
      registry in web/src/lib/sensors.svelte.js), and there is no
@@ -157,11 +148,12 @@
 {{template "sensorCardHost" .}}
 
 {{if .Area.Covered}}
-  {{/* The chart island, last on the page — after the map and the card the map
-       opens. The kit reads top-down from "where" to "how much, over time", and
-       a chart printed above the map answers a question the reader has not
-       asked yet. It used to sit above the toolbar, which also put the metric
-       switcher below the first thing that metric governs.
+  {{/* The chart island, after the map and the card the map opens, before the
+       gauges. The kit reads top-down from "where" to "how much, over time" to
+       the gauges that summarise it, and a chart printed above the map answers
+       a question the reader has not asked yet. It used to sit above the
+       toolbar, which also put the metric switcher below the first thing that
+       metric governs.
 
        Server-side we render nothing of the series itself —
        the numbers live behind the API so there is exactly one place that
@@ -218,5 +210,16 @@
             both catalogues, and would say the same thing. */}}
        data-t-unavailable="{{.T "map.error.unavailable"}}"></div>
 {{end}}
+
+{{/* What this area is measuring right now — one cell per metric it reports,
+     then the sensors behind them (PageData.AreaReadouts). Last on the page:
+     the kit reads top-down from "where" to "how much, over time" to the
+     gauges that summarise it.
+
+     The kit prints the sensor count twice, once as an intro sentence under the
+     title and again as the fourth cell. Only the cell survives here: it is the
+     same number, and the cell carries a tier line saying what the sensors are
+     counted in, which the bare sentence did not. */}}
+{{template "readouts-island" .}}
 </div>
 {{end}}

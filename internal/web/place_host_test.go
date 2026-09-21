@@ -40,22 +40,25 @@ func TestSensorPanelComesAfterTheMapAndItsFreshnessOverlay(t *testing.T) {
 }
 
 // The kit reads top-down: where (map), then which sensor (the card), then how
-// much over time (the chart). The chart used to be printed above the toolbar
-// and the map — an answer before its question, and a metric switcher below the
-// first thing that metric governs.
-func TestChartIsLastOnTheAreaPage(t *testing.T) {
+// much over time (the chart), then the gauges last. The chart used to be
+// printed above the toolbar and the map — an answer before its question, and
+// a metric switcher below the first thing that metric governs. The card sits
+// right above the chart: with a sensor open the chart renders nothing and the
+// card is the view, so the two stay adjacent.
+func TestChartComesAfterThePanelAndBeforeTheReadouts(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
 	body := fetch(t, rr, "/en/area/high").Body.String()
 
 	mapAt := strings.Index(body, `id="area-map"`)
 	panelAt := strings.Index(body, `class="place-host"`)
 	chartAt := strings.Index(body, `id="chart"`)
+	readoutAt := strings.Index(body, `data-island="readouts"`)
 
-	if mapAt < 0 || panelAt < 0 || chartAt < 0 {
-		t.Fatalf("the area page is missing one of its parts: map=%d panel=%d chart=%d", mapAt, panelAt, chartAt)
+	if mapAt < 0 || panelAt < 0 || chartAt < 0 || readoutAt < 0 {
+		t.Fatalf("the area page is missing one of its parts: map=%d panel=%d chart=%d readouts=%d", mapAt, panelAt, chartAt, readoutAt)
 	}
-	if chartAt < panelAt || chartAt < mapAt {
-		t.Errorf("the chart is not last: map=%d panel=%d chart=%d", mapAt, panelAt, chartAt)
+	if !(mapAt < panelAt && panelAt < chartAt && chartAt < readoutAt) {
+		t.Errorf("the area page order is wrong: map=%d panel=%d chart=%d readouts=%d", mapAt, panelAt, chartAt, readoutAt)
 	}
 }
 
