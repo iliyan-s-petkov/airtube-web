@@ -336,9 +336,9 @@ export function hexFeatures(body, metric, bands, noDataColour, colourOf, pointRe
         // Only the point tier has one to carry: an aggregate cell is a bin, and
         // a bin under both networks belongs to neither.
         source: points ? sourceOf(h) : undefined,
-        // The station a cell stands for, when it stands for exactly one.
-        // Undefined on a bin of several — the click handler branches on it.
-        sensorId: h.sensor_id,
+        // The station a cell stands for on the current metric: the whole-cell
+        // id if set, else the per-metric one, else undefined (several stations).
+        sensorId: h.sensor_id ?? h.sensor_id_by_metric?.[metric],
         // Set only by the replay, where a silent hour is held at the cell's last
         // reading; the live map never carries anything.
         carried: h.carried === true ? true : undefined,

@@ -131,10 +131,13 @@ type hexEntry struct {
 	// SensorID names a STATION (see stationKey), not a device — a station is
 	// several devices at one key. Set when the bin holds exactly one station,
 	// using pointsFrom's smallest-member tie-break; omitted for 2+.
-	SensorID int64              `json:"sensor_id,omitempty"`
-	N        int                `json:"n"`
-	Country  string             `json:"country"`
-	Values   map[string]float64 `json:"values"`
+	SensorID int64 `json:"sensor_id,omitempty"`
+	// SensorIDByMetric names, per metric, the one station reporting it (its
+	// smallest member id). A metric two stations report is absent; nil omitted.
+	SensorIDByMetric map[string]int64   `json:"sensor_id_by_metric,omitempty"`
+	N                int                `json:"n"`
+	Country          string             `json:"country"`
+	Values           map[string]float64 `json:"values"`
 	// Source names the ONE network behind this entry: every sensor on the point
 	// tier, and an aggregate bin that only one network reaches. Omitted on a bin
 	// fed by both, which carries BySource instead — an entry cannot be both.
@@ -695,11 +698,15 @@ type hexBin struct {
 	// bySource repeats vals per network. A network's median is not derivable
 	// from the blended one, so a bin fed by both has to keep both sets.
 	bySource map[string]*sourceBin
-	// stations holds the distinct stationKeys in the bin. N cannot stand in:
-	// a device count of 2 is one routine station, not two.
-	stations map[stationKey]bool
-	// sensorID is the smallest member id seen. Only meaningful at len(stations) == 1.
+	// stations maps each stationKey in the bin to its smallest member id.
+	// N cannot stand in: a device count of 2 is one routine station, not two.
+	stations map[stationKey]int64
+	// sensorID is the smallest member id seen across the whole bin. Only
+	// meaningful at len(stations) == 1.
 	sensorID int64
+	// metricStations holds, per metric, the stationKeys that contributed a
+	// value for it — the input to SensorIDByMetric's single-contributor test.
+	metricStations map[string]map[stationKey]bool
 }
 
 type sourceBin struct {
@@ -737,12 +744,17 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 		if b == nil {
 			b = &hexBin{coord: c, vals: map[string][]float64{},
 				countries: map[string]int{}, bySource: map[string]*sourceBin{},
-				stations: map[stationKey]bool{}, sensorID: sr.SensorID}
+				stations: map[stationKey]int64{}, sensorID: sr.SensorID,
+				metricStations: map[string]map[stationKey]bool{}}
 			bins[c] = b
 		}
 		b.n++
-		b.stations[stationKeyOf(sr)] = true
-		// pointsFrom's tie-break, so a cell and its point-tier marker agree.
+		sk := stationKeyOf(sr)
+		// pointsFrom's tie-break, per station and for the bin overall, so a cell
+		// and its point-tier marker agree.
+		if id, ok := b.stations[sk]; !ok || sr.SensorID < id {
+			b.stations[sk] = sr.SensorID
+		}
 		if sr.SensorID < b.sensorID {
 			b.sensorID = sr.SensorID
 		}
@@ -760,6 +772,10 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 			if v, ok := sr.Values[m]; ok {
 				b.vals[m] = append(b.vals[m], v)
 				sb.vals[m] = append(sb.vals[m], v)
+				if b.metricStations[m] == nil {
+					b.metricStations[m] = map[stationKey]bool{}
+				}
+				b.metricStations[m][sk] = true
 			}
 		}
 	}
@@ -803,6 +819,19 @@ func hexPayloadFrom(now time.Time, sensors []store.SensorReading, resKM float64)
 		// One station names the bin; two or more do not. See hexEntry.SensorID.
 		if len(b.stations) == 1 {
 			e.SensorID = b.sensorID
+		}
+		// Per metric, one contributing station names it, whatever the bin as a
+		// whole holds. See hexEntry.SensorIDByMetric.
+		for m, sks := range b.metricStations {
+			if len(sks) != 1 {
+				continue
+			}
+			for sk := range sks {
+				if e.SensorIDByMetric == nil {
+					e.SensorIDByMetric = make(map[string]int64, len(b.metricStations))
+				}
+				e.SensorIDByMetric[m] = b.stations[sk]
+			}
 		}
 		if len(b.bySource) == 1 {
 			for src := range b.bySource {

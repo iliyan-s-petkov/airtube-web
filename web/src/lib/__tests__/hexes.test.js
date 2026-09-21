@@ -375,6 +375,24 @@ describe('hexFeatures at the point tier', () => {
     expect(hexFeatures(body, 'P1', [], '#eee', rampColour, 0.08)[0].properties.sensorId).toBe(2888)
   })
 
+  it('falls back to the per-metric sensor id when the cell has no whole-cell one', () => {
+    const byMetric = {
+      resolution_km: 0,
+      hexes: [{ lon: 23.356, lat: 42.676, n: 1, values: { P2: 12 }, sensor_id_by_metric: { P2: 96570 } }],
+    }
+    expect(hexFeatures(byMetric, 'P2', [], '#eee', rampColour)[0].properties.sensorId).toBe(96570)
+    expect(hexFeatures(byMetric, 'P1', [], '#eee', rampColour)[0].properties.sensorId).toBeUndefined()
+  })
+
+  it('prefers the whole-cell sensor id over the per-metric one', () => {
+    const both = {
+      resolution_km: 0,
+      hexes: [{ lon: 23.356, lat: 42.676, sensor_id: 5, n: 1, values: { P2: 12 }, sensor_id_by_metric: { P2: 5 } }],
+    }
+    expect(hexFeatures(both, 'P2', [], '#eee', rampColour)[0].properties.sensorId).toBe(5)
+    expect(hexFeatures(both, 'P1', [], '#eee', rampColour)[0].properties.sensorId).toBe(5)
+  })
+
   // The drawn size is for the point tier alone. An aggregate cell is the
   // server's bin and must be drawn at the size the server binned it to, or the
   // cells stop tiling the ground their counts came from.
