@@ -3,7 +3,7 @@ import { rampColour } from './ramp.js'
 import { hasScale } from './metrics.js'
 
 // Arc floors for metrics whose first band is open below; everything else starts at 0.
-export const FLOORS = { temperature: -20, pressure: 950 }
+export const FLOORS = { temperature: -20, pressure: 930 }
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
@@ -63,6 +63,11 @@ function round(n) {
 function pointAt(fraction, r, cx, cy) {
   const angle = Math.PI * (1 - fraction)
   return { x: round(cx + r * Math.cos(angle)), y: round(cy - r * Math.sin(angle)) }
+}
+
+// needlePoint(fraction, r, cx, cy) -> point on the arc's centreline; used for the needle tip/base.
+export function needlePoint(fraction, r = 40, cx = 50, cy = 50) {
+  return pointAt(fraction, r, cx, cy)
 }
 
 // arcPath draws the semicircle segment from one fraction to another.

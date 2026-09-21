@@ -352,10 +352,12 @@ strong, b { font-weight: var(--weight-emphasis); }
 .gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: var(--space-2) var(--space-3); margin: var(--space-2) 0; justify-items: center; }
 .sensor-panel .gauges .gauge { position: static; display: block; inline-size: 100%; max-inline-size: 132px; block-size: auto; }
 .gauge__svg { inline-size: 100%; block-size: auto; }
-.gauge__track-path, .gauge__band, .gauge__fill { fill: none; stroke-width: 10; stroke-linecap: butt; }
+.gauge__track-path, .gauge__band { fill: none; stroke-width: 10; stroke-linecap: butt; }
 /* Same neutral as the readout strip's ring track. */
 .gauge__track-path { stroke: var(--border-faint); }
-.gauge__band { opacity: 0.35; }
+.gauge__band { opacity: 0.85; }
+.gauge__needle { stroke: var(--fg); stroke-width: 2.5; stroke-linecap: round; }
+.gauge__pivot { fill: var(--fg); }
 .gauge__value { font-weight: var(--weight-emphasis); font-variant-numeric: tabular-nums; text-align: center; }
 .gauge__label { color: var(--fg-2); font-size: var(--text-caption); letter-spacing: var(--track-caption); text-align: center; }
 /* The station's own description, under its readings and quieter than them:
