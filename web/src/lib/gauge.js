@@ -1,55 +1,57 @@
 // Pure gauge model for Gauge.svelte; no DOM.
-import { rampColour, rampSpans } from './ramp.js'
+import { rampColour } from './ramp.js'
 import { hasScale } from './metrics.js'
 
-// Display ranges for metrics the server publishes no bands for.
-export const FIXED_RANGES = {
-  humidity: { min: 0, max: 100 },
-  temperature: { min: -20, max: 45 },
-  pressure: { min: 950, max: 1050 },
-}
+// Arc floors for metrics whose first band is open below; everything else starts at 0.
+export const FLOORS = { temperature: -20, pressure: 950 }
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
+}
+
+// gaugeRange(metric, bands, ceiling) -> { min, max }, the arc's own scale.
+// The top open band (upper: null) is given one band-width past the last
+// stated boundary, clamped to the server's ceiling.
+export function gaugeRange(metric, bands, ceiling) {
+  const min = FLOORS[metric] ?? 0
+  const u = bands.map((b) => b.upper).filter(Number.isFinite)
+  let max
+  if (u.length >= 2) {
+    max = u[u.length - 1] + (u[u.length - 1] - u[u.length - 2])
+  } else if (u.length === 1) {
+    max = 2 * u[0]
+  } else {
+    max = ceiling
+  }
+  if (Number.isFinite(ceiling) && ceiling > min) max = Math.min(max, ceiling)
+  return { min, max }
 }
 
 // gaugeModel(row, scales) -> { fraction, colour, stops, range }
 export function gaugeModel(row, scales) {
   const { metric, value, missing } = row
   const scaled = hasScale(scales, metric)
+  if (!scaled) return { fraction: null, colour: null, stops: [], range: null }
 
-  if (scaled) {
-    const scale = scales.find((s) => s.metric === metric)
-    const bands = scale.bands
-    const ceiling = scale.ceiling > 0 ? scale.ceiling : rampSpans(bands)[bands.length - 1]?.upper
-    const range = { min: 0, max: ceiling }
-    const stops = bandStops(bands, ceiling)
-    if (missing) return { fraction: null, colour: null, stops, range }
-    return {
-      fraction: clamp((value - range.min) / (range.max - range.min), 0, 1),
-      colour: rampColour(value, bands),
-      stops,
-      range,
-    }
-  }
-
-  const range = FIXED_RANGES[metric] ?? null
-  if (!range) return { fraction: null, colour: null, stops: [], range: null }
-  if (missing) return { fraction: null, colour: null, stops: [], range }
+  const scale = scales.find((s) => s.metric === metric)
+  const bands = scale.bands
+  const range = gaugeRange(metric, bands, scale.ceiling)
+  const stops = bandStops(bands, range)
+  if (missing) return { fraction: null, colour: null, stops, range }
   return {
     fraction: clamp((value - range.min) / (range.max - range.min), 0, 1),
-    colour: null,
-    stops: [],
+    colour: rampColour(value, bands),
+    stops,
     range,
   }
 }
 
-// One stop per band at its upper value; top band runs to the gauge ceiling.
-function bandStops(bands, ceiling) {
-  const spans = rampSpans(bands)
-  return bands.map((band, i) => {
-    const upper = i === bands.length - 1 ? ceiling : spans[i].upper
-    return { fraction: clamp(upper / ceiling, 0, 1), colour: band.colour }
+// One stop per band at its upper value; the open top band runs to the arc's max.
+function bandStops(bands, range) {
+  const { min, max } = range
+  return bands.map((band) => {
+    const upper = band.upper === null ? max : band.upper
+    return { fraction: clamp((upper - min) / (max - min), 0, 1), colour: band.colour }
   })
 }
 
@@ -67,6 +69,6 @@ function pointAt(fraction, r, cx, cy) {
 export function arcPath(fromFraction, toFraction, r = 40, cx = 50, cy = 50) {
   const from = pointAt(fromFraction, r, cx, cy)
   const to = pointAt(toFraction, r, cx, cy)
-  const largeArc = Math.abs(toFraction - fromFraction) > 0.5 ? 1 : 0
-  return `M ${from.x} ${from.y} A ${r} ${r} 0 ${largeArc} 1 ${to.x} ${to.y}`
+  // Segments of a semicircle never exceed 180°, so the large-arc flag is always 0.
+  return `M ${from.x} ${from.y} A ${r} ${r} 0 0 1 ${to.x} ${to.y}`
 }

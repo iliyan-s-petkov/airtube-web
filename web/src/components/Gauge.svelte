@@ -25,6 +25,6 @@
       <path class="gauge__fill" d={arcPath(0, model.fraction)} stroke={model.colour ?? 'var(--accent)'} />
     {/if}
   </svg>
-  <div class="gauge__value">{value}{#if !missing} {unit}{/if}</div>
+  <div class="gauge__value">{missing ? value : `${value} ${unit}`}</div>
   <div class="gauge__label">{label}</div>
 </div>
