@@ -38,6 +38,9 @@
     period === CUSTOM ? customLabel : (periodLabels[periods.indexOf(period)] ?? period))
   const metricLabel = $derived(metricOptions.find((o) => o.metric === metric)?.label ?? metric)
   const valueUnit = $derived(metricUnits[metric] ?? '')
+  // False for any metric outside metricOptions, including the silent area
+  // where the list is empty.
+  const metricMeasured = $derived(metricOptions.some((o) => o.metric === metric))
   // Metric · period · tier, the kit's own heading (§ area-detail). Composed
   // here rather than server-side because the middle part changes when the
   // reader picks another window, the first when they pick another metric, and
@@ -49,22 +52,6 @@
     `/api/v1/area/${encodeURIComponent(slug)}/series` +
     `?metric=${encodeURIComponent(metric)}&${query}`,
   )
-
-  // metric is seeded from the SITE default and can be moved to any site
-  // metric by the top switcher — neither is constrained to what this area
-  // measures. When it names a metric outside metricOptions, correct it
-  // through onMetricChange (the same setter the switcher itself writes
-  // through) rather than falling back locally: that keeps the heading, the
-  // y-axis unit, the map and the switcher all agreeing on one metric instead
-  // of this chart quietly plotting one the rest of the page disagrees with.
-  // Skipped when metricOptions is empty (area measures nothing) — there is no
-  // measured metric to fall back to, so the chart keeps its existing
-  // unavailable state for the unconstrained metric.
-  $effect(() => {
-    if (metricOptions.length > 0 && !metricOptions.some((o) => o.metric === metric)) {
-      onMetricChange(metricOptions[0].metric)
-    }
-  })
 
   function reset() {
     period = initialPeriod
@@ -82,6 +69,7 @@
      template level, leaves that $state untouched, so closing the card
      restores the same window without a save/restore dance. -->
 {#if !selected}
+{#if metricMeasured}
 <div class="chart-head">
   <h2 class="t-section">{heading}</h2>
   <div class="chart-controls">
@@ -140,4 +128,11 @@
     {/key}
   {/if}
 </div>
+{:else}
+<!-- The page-wide metric is not one this area measures. Nothing is fetched;
+     the top switcher is the way back to a metric that plots. -->
+<div class="data-frame chart">
+  <p class="chart-message">{unavailable}</p>
+</div>
+{/if}
 {/if}

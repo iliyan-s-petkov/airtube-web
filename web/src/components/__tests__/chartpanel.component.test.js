@@ -309,10 +309,13 @@ describe('ChartPanel.svelte', () => {
     })
 
     // The page-wide metric is seeded from the SITE default (here 'P2'), which
-    // this area does not measure — only P1. Left uncorrected, the heading
-    // falls back to the raw key and the unit comes out empty (both lookups
-    // miss over an options list that only has P1), and the menu hides itself
-    // (one option) with no way back to the metric the area actually reports.
+    // this area does not measure — only P1. The chart must not write that
+    // correction back to the shared metric (that was the regression: it
+    // stomped an explicit deep link and the switcher's own choice for the
+    // whole page — see web/e2e/metric.spec.js "a deep-linked metric is
+    // selected on load"). Instead it renders its own unavailable state and
+    // leaves the shared metric alone; the top switcher remains the way back
+    // to a metric this area does measure.
     describe('an area measuring only a non-default metric', () => {
       function renderPm10Only() {
         resetViewStateForTests()
@@ -336,50 +339,51 @@ describe('ChartPanel.svelte', () => {
 
       afterEach(() => resetViewStateForTests())
 
-      // The initial render still asks for the seeded site default (P2)
-      // before the correcting effect runs — that first, throwaway request is
-      // not the point here; the metric the page SETTLES on is.
-      it('requests the area-measured metric and labels the heading and unit for it', async () => {
+      // The regression, as a component test: the deep-linked/default metric
+      // this area does not measure must not be rewritten. The top switcher
+      // (vs.metric) still names it, even though this chart cannot plot it.
+      it('leaves the shared view state on the page-wide metric, unmeasured or not', () => {
+        const { vs } = renderPm10Only()
+        expect(vs.metric).toBe('P2')
+      })
+
+      // No heading naming a metric this area does not report, no y-axis unit
+      // lookup miss, and no request for a series that cannot exist — the
+      // chart renders the unavailable state instead.
+      it('renders the unavailable state instead of the chart, and fetches nothing', async () => {
         const { target } = renderPm10Only()
 
-        await vi.waitFor(() => expect(urls.at(-1)).toContain('metric=P1'))
-        expect(target.querySelector('.chart-head .t-section').textContent)
-          .toBe('PM10 · 24 hours · province average')
-        await vi.waitFor(() => expect(uPlot).toHaveBeenCalled())
-        expect(uPlot.mock.calls.at(-1)[0].axes[1].label).toBe('µg/m³')
+        expect(target.querySelector('.chart-head')).toBeNull()
+        expect(target.querySelector('.data-frame .chart-message').textContent)
+          .toBe(props.unavailable)
+        await Promise.resolve()
+        expect(urls).toHaveLength(0)
+        expect(uPlot).not.toHaveBeenCalled()
       })
 
-      // Assert the end state the whole page shares, not the mechanism that
-      // got there: the shared metric itself lands on what the area measures.
-      it('leaves the shared view state on the metric the area measures', async () => {
-        const { vs } = renderPm10Only()
-        await vi.waitFor(() => expect(vs.metric).toBe('P1'))
-      })
-
-      // The top switcher writes to the same shared store as the chart's own
-      // menu (see onMetricChange above). On an area page, picking a metric
-      // this area does not measure must not leave the chart showing one
-      // thing and the switcher/map claiming another: the chart pulls the
-      // shared metric back to one it can plot.
-      it('pulls the shared metric back when the top switcher picks one the area does not measure', async () => {
+      // A metric change made through the top switcher (the shared view
+      // state) still reaches the chart normally once it names something this
+      // area measures.
+      it('renders the chart once the shared metric moves to one this area measures', async () => {
         const { target, vs } = renderPm10Only()
-        await vi.waitFor(() => expect(vs.metric).toBe('P1'))
+        expect(target.querySelector('.chart-head')).toBeNull()
 
-        vs.setMetric('temperature')
+        vs.setMetric('P1')
         await tick()
 
-        expect(vs.metric).toBe('P1')
-        await vi.waitFor(() => expect(target.querySelector('.chart-head .t-section').textContent)
+        await vi.waitFor(() => expect(target.querySelector('.chart-head .t-section')?.textContent)
           .toBe('PM10 · 24 hours · province average'))
+        await vi.waitFor(() => expect(urls.at(-1)).toContain('metric=P1'))
       })
     })
 
     // No measured metric at all (see internal/web/render.go's
     // TestChartIslandOffersNoMetricsForASilentArea for the server-side half
-    // of this contract): the menu has nothing to offer, so it stays hidden,
-    // and there is no area-measured metric to fall back to either — the
-    // effect above must leave the page-wide metric alone rather than loop.
-    it('renders no menu and does not touch the shared metric when the area measures nothing', () => {
+    // of this contract): metricOptions.some() over an empty list is always
+    // false, so this falls into the same unavailable branch as an area that
+    // measures something but not the page's current metric — there is no
+    // menu, no chart-head, and the shared metric is left alone.
+    it('renders the unavailable state and does not touch the shared metric when the area measures nothing', () => {
       resetViewStateForTests()
       history.replaceState(null, '', '/')
       const vs = getViewState({ metrics: ['P2', 'P1'], defaultMetric: 'P2' })
@@ -390,6 +394,8 @@ describe('ChartPanel.svelte', () => {
         get metric() { return vs.metric },
       })
       expect(metricButton(target)).toBeNull()
+      expect(target.querySelector('.chart-head')).toBeNull()
+      expect(target.querySelector('.data-frame .chart-message').textContent).toBe(props.unavailable)
       expect(vs.metric).toBe('P2')
       resetViewStateForTests()
     })
