@@ -10,6 +10,7 @@ const APP_CSS = '../internal/web/static/app.css'
 const THEME_CSS = '../internal/web/static/theme.css'
 const INDEX = '../internal/web/templates/index.gohtml'
 const AREA = '../internal/web/templates/area.gohtml'
+const BASE = '../internal/web/templates/base.gohtml'
 
 describe('chart line colours', () => {
   it('are configured, both of them', () => {
@@ -18,9 +19,13 @@ describe('chart line colours', () => {
     expect(yaml).toMatch(/^\s+chart_compare_colour:\s*"#[0-9a-fA-F]{6}"/m)
   })
 
+  // The attribute itself lives once, in the "sensorCardHost" partial; each
+  // page reaches it by invoking that partial rather than by carrying its own
+  // copy.
   it('reach the panel island on every page that mounts it', () => {
+    expect(readFileSync(BASE, 'utf8')).toContain('data-compare-colour="{{.ChartCompareColour}}"')
     for (const path of [INDEX, AREA]) {
-      expect(readFileSync(path, 'utf8')).toContain('data-compare-colour="{{.ChartCompareColour}}"')
+      expect(readFileSync(path, 'utf8')).toContain('{{template "sensorCardHost" .}}')
     }
   })
 

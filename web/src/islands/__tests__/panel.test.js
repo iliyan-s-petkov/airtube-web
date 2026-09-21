@@ -94,13 +94,21 @@ const PANEL_ATTR_FIXTURES = {
 // hand-built one proves nothing about whether the SERVER renders a mount point
 // on that page. That was the defect this covers — the panel island existed and
 // worked, and index.gohtml simply never rendered it.
+// Per-page invocation (does area.gohtml/index.gohtml actually mount this
+// block?) is covered separately by internal/web/sensor_card_host_test.go's
+// golden tests against rendered output; this file only proves the markup
+// itself carries every data-* the island reads.
 function islandFrom(templateName, island) {
   // join(dirname(fileURLToPath(...))) rather than new URL(path, import.meta.url):
   // Vite rewrites the latter into an ASSET import at transform time and then
   // refuses the path for being outside the project root — it never reaches
   // readFileSync at all.
   const here = dirname(fileURLToPath(import.meta.url))
-  const path = join(here, '..', '..', '..', '..', 'internal', 'web', 'templates', templateName)
+  // The panel island's markup was factored out of the per-page templates into
+  // one "sensorCardHost" partial in base.gohtml; read it from there rather
+  // than from templateName, which no longer contains it.
+  const file = island === 'panel' ? 'base.gohtml' : templateName
+  const path = join(here, '..', '..', '..', '..', 'internal', 'web', 'templates', file)
   const src = readFileSync(path, 'utf8').replace(/\{\{[\s\S]*?\}\}/g, '')
   const doc = new DOMParser().parseFromString(src, 'text/html')
   return doc.querySelector(`[data-island="${island}"]`)
