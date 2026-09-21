@@ -511,23 +511,28 @@ func (p PageData) PeriodsAttr() string      { return strings.Join(p.Periods, ","
 func (p PageData) PeriodLabelsAttr() string { return strings.Join(p.PeriodLabels, ",") }
 
 // areaMeasuredMetrics is the metric keys the chart offers for this one area:
-// the default metric always first (even unmeasured, so a silent area still
-// gets a heading and a chart attempt), then whichever of the rest this area
-// actually reports, in canonical order — the same rule AreaReadouts cells by.
-// Kept separate from Metrics/MetricLabels/MetricUnits above, which are the
-// site's whole vocabulary (what the top switcher and the map offer) — a
-// metric this area has no sensor for still belongs on those, but a menu
-// entry for it on the chart would ask the API for a series it can never
-// return.
+// the default metric first if this area measures it, then whichever of the
+// rest this area actually reports, in canonical order — the same rule
+// AreaReadouts cells by, including the default: a menu entry that cannot
+// plot is worse than one fewer entry. Kept separate from
+// Metrics/MetricLabels/MetricUnits above, which are the site's whole
+// vocabulary (what the top switcher and the map offer) — a metric this area
+// has no sensor for still belongs on those, but a menu entry for it on the
+// chart would ask the API for a series it can never return.
+//
+// Nil for an area with no measured metric at all: the chart still mounts
+// (data-metric keeps naming the site default, for the heading and the
+// fetch), but with no menu to offer, and a fetch for an unmeasured metric
+// resolves through the chart's own existing failed-fetch path to its
+// unavailable message — no second "no metrics" string is needed.
 func (p PageData) areaMeasuredMetrics() []string {
 	if p.Area == nil {
 		return nil
 	}
 	out := make([]string, 0, len(p.Metrics))
-	// The default metric always leads, even on a silent area with no reading
-	// yet: it is what the chart opens on and its heading names regardless, and
-	// the same guarantee AreaReadouts and the old single data-t-metric gave.
-	out = append(out, p.DefaultMetric)
+	if _, ok := p.Area.Values[p.DefaultMetric]; ok {
+		out = append(out, p.DefaultMetric)
+	}
 	for _, m := range p.Metrics {
 		if m == p.DefaultMetric {
 			continue
