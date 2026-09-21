@@ -183,9 +183,10 @@ export function mount(el) {
       openDeepLinkedSensor(map, state, cfg, chrome, vs, getJSON, { move: false })
       return
     }
+    // cellArea returns null once an area is already selected — that must not
+    // block the zoom-in, only the area selection it would otherwise carry.
     const slug = cellArea(state, e.lngLat)
-    if (!slug) return
-    state.slug = slug
+    if (slug) state.slug = slug
     // A bin naming several stations has no single one to open, so the click
     // zooms in toward the point tier instead of selecting an area outright.
     const geom = e.features?.[0]?.geometry
@@ -197,7 +198,7 @@ export function mount(el) {
       map.easeTo({ center, zoom: target })
       return
     }
-    refresh(map, state, cfg, chrome)
+    if (slug) refresh(map, state, cfg, chrome)
   })
 
   // A click that opens neither a marker nor a named cell closes the open panel.
