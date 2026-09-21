@@ -46,7 +46,7 @@ test.describe.serial('the network layers', () => {
   })
 
   test('a metric only one network measures explains itself', async () => {
-    await page.getByRole('button', { name: /^Metric:/ }).click()
+    await page.getByRole('button', { name: /^Metric:/ }).and(page.locator('#metric-menu')).click()
     await page.getByRole('radio', { name: 'Ozone' }).check()
     // The metric switcher is its own disclosure, outside the layers root, so
     // picking a metric there closes the layers panel (mountLayers' own

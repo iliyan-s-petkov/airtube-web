@@ -230,6 +230,34 @@ func TestAreaPageCarriesTheDisclaimer(t *testing.T) {
 	}
 }
 
+func TestSensorReadoutRowIsOffOnlyWithAnArea(t *testing.T) {
+	withArea := web.PageData{Area: &web.AreaRow{Slug: "sofia"}}
+	if withArea.SensorReadoutRow() {
+		t.Error("SensorReadoutRow() = true with an area set, want false")
+	}
+	withoutArea := web.PageData{}
+	if !withoutArea.SensorReadoutRow() {
+		t.Error("SensorReadoutRow() = false with no area, want true")
+	}
+}
+
+// TestSensorReadoutRowAttribute: the area page must gate the client-side
+// sensor row off, the index page must leave it on. This is what the readouts
+// island's mount() reads to decide whether to insert anything at all.
+func TestSensorReadoutRowAttribute(t *testing.T) {
+	rr := renderer(t, fixture(t))
+
+	area := fetch(t, rr, "/area/sofia")
+	if !strings.Contains(area.Body.String(), `data-sensor-row="off"`) {
+		t.Error(`the area page does not carry data-sensor-row="off"`)
+	}
+
+	index := fetch(t, rr, "/")
+	if !strings.Contains(index.Body.String(), `data-sensor-row="on"`) {
+		t.Error(`the index page does not carry data-sensor-row="on"`)
+	}
+}
+
 // TestUnknownAreaIs404WithAPage: an unknown slug must produce a rendered 404,
 // not a blank body under a 404 status and not a 200.
 func TestUnknownAreaIs404WithAPage(t *testing.T) {

@@ -86,3 +86,24 @@ func TestNoCoverageNoticeStaysAboveTheMap(t *testing.T) {
 		t.Errorf("the no-coverage notice sank below the map: notice=%d map=%d", noticeAt, mapAt)
 	}
 }
+
+// The map shell comes before the readouts strip so the reader sees where first,
+// then which sensors are there. The strip would answer a question the map has
+// not yet posed.
+func TestMapComesBeforeTheReadoutsStrip(t *testing.T) {
+	rr := renderer(t, rankingSnapshot())
+	body := fetch(t, rr, "/en/area/high").Body.String()
+
+	mapAt := strings.Index(body, `id="area-map"`)
+	readoutAt := strings.Index(body, `data-island="readouts"`)
+
+	if mapAt < 0 {
+		t.Fatal("the area page lost its map")
+	}
+	if readoutAt < 0 {
+		t.Fatal("the area page lost its readouts strip")
+	}
+	if mapAt > readoutAt {
+		t.Errorf("the map comes after the readouts strip: map=%d readouts=%d", mapAt, readoutAt)
+	}
+}

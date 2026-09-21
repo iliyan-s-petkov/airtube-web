@@ -15,6 +15,6 @@ test('the area page renders server-side with JavaScript disabled', async ({ brow
 test('the metric switcher is mounted and reflects the default metric', async ({ ctx }) => {
   const page = await ctx.newPage()
   await page.goto('/en/area/sofia')
-  await expect(page.getByRole('button', { name: 'Metric: PM2.5' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Metric: PM2.5' }).and(page.locator('#metric-menu'))).toBeVisible()
   await page.close()
 })

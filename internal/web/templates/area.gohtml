@@ -28,15 +28,6 @@
 {{end}}
 </div>
 
-{{/* What this area is measuring right now — one cell per metric it reports,
-     then the sensors behind them (PageData.AreaReadouts).
-
-     The kit prints the sensor count twice, once as an intro sentence under the
-     title and again as the fourth cell. Only the cell survives here: it is the
-     same number, and the cell carries a tier line saying what the sensors are
-     counted in, which the bare sentence did not. */}}
-{{template "readouts-island" .}}
-
 {{if not .Area.Covered}}
   <div class="notice">
     <p><strong>{{.T "area.no_coverage"}}</strong></p>
@@ -147,6 +138,15 @@
 </div>
 <p id="area-map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
 
+{{/* What this area is measuring right now — one cell per metric it reports,
+     then the sensors behind them (PageData.AreaReadouts).
+
+     The kit prints the sensor count twice, once as an intro sentence under the
+     title and again as the fourth cell. Only the cell survives here: it is the
+     same number, and the cell carries a tier line saying what the sensors are
+     counted in, which the bare sentence did not. */}}
+{{template "readouts-island" .}}
+
 {{/* #sensor= is honoured only here, never on index.gohtml: resolving it
      needs the sensor already loaded through the map island above (the
      registry in web/src/lib/sensors.svelte.js), and there is no
@@ -154,47 +154,7 @@
      On an area page the map's own slug is fixed (see the map island's data-
      slug above), so the sensor tier — and therefore this container's data —
      is reachable without a click, unlike on /. */}}
-<div class="place-host" data-island="panel"
-     data-metrics="{{.MetricsAttr}}"
-     data-metric-labels="{{.MetricLabelsAttr}}"
-     data-metric="{{.DefaultMetric}}"
-     data-period="{{.DefaultPeriod}}"
-     data-line-colour="{{.ChartLineColour}}"
-     data-compare-colour="{{.ChartCompareColour}}"
-     data-t-title="{{.T "panel.title"}}"
-     data-t-close="{{.T "panel.close"}}"
-     data-t-no-value="{{.T "panel.no_value"}}"
-     data-t-flag-out-of-range="{{.T "panel.flag.out_of_range"}}"
-     data-t-flag-stuck="{{.T "panel.flag.stuck"}}"
-     data-t-flag-spatial-outlier="{{.T "panel.flag.spatial_outlier"}}"
-     data-t-flag-source-invalid="{{.T "panel.flag.source_invalid"}}"
-     data-t-chart-title="{{.T "chart.title"}}"
-     data-t-chart-value="{{.T "chart.axis.value"}}"
-     data-t-chart-time="{{.T "chart.axis.time"}}"
-     data-t-chart-empty="{{.T "chart.empty"}}"
-     data-t-chart-unavailable="{{.T "map.error.unavailable"}}"
-     data-periods="{{.PeriodsAttr}}"
-     data-period-labels="{{.PeriodLabelsAttr}}"
-     data-t-chart-metric-legend="{{.T "metric.legend"}}"
-     data-t-chart-period-legend="{{.T "period.legend"}}"
-     data-series-colours="{{.ChartSeriesColours}}"
-     data-t-chart-reset="{{.T "chart.reset"}}"
-     data-t-period-custom="{{.T "period.custom"}}"
-     data-t-period-from="{{.T "period.from"}}"
-     data-t-period-to="{{.T "period.to"}}"
-     data-t-period-now="{{.T "period.now"}}"
-     data-t-chart-range-invalid="{{.T "chart.range_invalid"}}"
-     {{template "panelNearbyLabels" .}}
-     data-t-details="{{.T "panel.details"}}"
-     data-t-detail-devices="{{.T "panel.detail.devices"}}"
-     data-t-detail-hardware="{{.T "panel.detail.hardware"}}"
-     data-t-detail-since="{{.T "panel.detail.since"}}"
-     data-t-detail-updated="{{.T "panel.detail.updated"}}"
-     data-t-detail-coords="{{.T "panel.detail.coords"}}"
-     data-t-network="{{.T "panel.network"}}"
-     data-t-station-code="{{.T "panel.station.code"}}"
-     data-t-station-type="{{.T "panel.station.type"}}"
-     data-t-station-area="{{.T "panel.station.area"}}"></div>
+{{template "sensorCardHost" .}}
 
 {{if .Area.Covered}}
   {{/* The chart island, last on the page — after the map and the card the map
@@ -217,16 +177,31 @@
   <div id="chart" data-island="chart"
        data-slug="{{.Area.Slug}}"
        data-metric="{{.DefaultMetric}}"
+       {{/* The site's whole metric vocabulary, only so the chart's shared
+            view-state store (see lib/viewstate.svelte.js) validates a metric
+            change the same way the switcher and map islands do, whichever of
+            the three happens to initialise it first. The menu below offers a
+            narrower list. */}}
+       data-metrics="{{.MetricsAttr}}"
+       {{/* What THIS area reports — positional triples the chart's own metric
+            menu reads, and re-resolves its heading label and y-axis unit
+            from, so a metric change never needs a round trip. Not the global
+            lists above: a menu entry for a metric this area has no sensor for
+            would ask the API for a series it can never return. */}}
+       data-area-metrics="{{.AreaMetricsAttr}}"
+       data-area-metric-labels="{{.AreaMetricLabelsAttr}}"
+       data-area-metric-units="{{.AreaMetricUnitsAttr}}"
        data-period="{{.DefaultPeriod}}"
        data-periods="{{.PeriodsAttr}}"
        data-period-labels="{{.PeriodLabelsAttr}}"
        data-line-colour="{{.ChartLineColour}}"
        {{/* The three parts of the chart's heading. Composed in the browser
-            rather than server-side, because the period part changes when the
-            reader picks another window and a pre-composed sentence could not
-            be rewritten. */}}
-       data-t-metric="{{.T (printf "metric.%s" .DefaultMetric)}}"
+            rather than server-side: the period part changes when the reader
+            picks another window and the metric part when they pick another
+            metric, and a pre-composed sentence could not be rewritten for
+            either. */}}
        data-t-tier="{{.AreaTier}}"
+       data-t-legend="{{.T "metric.legend"}}"
        data-t-period-legend="{{.T "period.legend"}}"
        data-t-period-custom="{{.T "period.custom"}}"
        data-t-period-from="{{.T "period.from"}}"
@@ -236,7 +211,6 @@
        data-t-range-invalid="{{.T "chart.range_invalid"}}"
        data-t-empty="{{.T "chart.empty"}}"
        data-t-value="{{.T "chart.axis.value"}}"
-       data-t-unit="{{.T (printf "unit.%s" .DefaultMetric)}}"
        data-t-time="{{.T "chart.axis.time"}}"
        {{/* Reuses map.error.unavailable rather than adding a chart-specific
             key: the sentence is generic ("data is unavailable right now") and

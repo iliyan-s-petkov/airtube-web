@@ -33,6 +33,7 @@ beforeEach(() => {
   setSensors(null, null)
   setScales(null)
   setMapAreas(null)
+  history.replaceState(null, '', location.pathname)
 })
 
 afterEach(() => {
@@ -41,6 +42,7 @@ afterEach(() => {
   document.body.innerHTML = ''
   resetViewStateForTests()
   setSensors(null, null)
+  history.replaceState(null, '', location.pathname)
 })
 
 // The server's own strip, exactly as base.gohtml writes it. The island must
@@ -120,6 +122,48 @@ describe('readouts island', () => {
     flushSync()
     expect(shown(el)).toHaveLength(1)
     expect(shown(el)[0].textContent).toContain('national')
+  })
+
+  // The area page: data-sensor-row="off" means the whole top row is server-gated
+  // off, not just empty. Nothing is inserted, so there is nothing to hide.
+  it('mounts nothing at all when data-sensor-row is off', () => {
+    setSensors(BODY, 'ovcha-kupel')
+    setScales(SCALES)
+    setMapAreas([{ slug: 'ovcha-kupel', name_bg: 'Овча купел', name_en: 'Ovcha Kupel' }])
+    // mount() returns before it ever calls getViewState(), so the sensor has
+    // to be opened through a store initialised the same way it would be.
+    getViewState({ metrics: ['P1', 'P2'], defaultMetric: 'P2' }).openSensor(1)
+    const el = document.createElement('div')
+    Object.assign(el.dataset, ATTRS, { sensorRow: 'off' })
+    el.innerHTML = '<div class="readouts"><div class="readout card">national</div></div>'
+    document.body.appendChild(el)
+    stop = mount(el)
+    flushSync()
+
+    expect(el.children).toHaveLength(1)
+    expect(shown(el)).toHaveLength(1)
+    expect(shown(el)[0].textContent).toContain('national')
+  })
+
+  // data-sensor-row="on" is the same as the attribute being absent, which the
+  // rest of this suite already exercises.
+  it('mounts the sensor row as usual when data-sensor-row is on', () => {
+    setSensors(BODY, 'ovcha-kupel')
+    setScales(SCALES)
+    setMapAreas([{ slug: 'ovcha-kupel', name_bg: 'Овча купел', name_en: 'Ovcha Kupel' }])
+    const el = document.createElement('div')
+    Object.assign(el.dataset, ATTRS, { sensorRow: 'on' })
+    el.innerHTML = '<div class="readouts"><div class="readout card">national</div></div>'
+    document.body.appendChild(el)
+    stop = mount(el)
+    flushSync()
+
+    getViewState().openSensor(1)
+    flushSync()
+
+    const strip = shown(el)
+    expect(strip).toHaveLength(2)
+    expect(strip[0].textContent).toContain('Овча купел · 3 сензора')
   })
 })
 

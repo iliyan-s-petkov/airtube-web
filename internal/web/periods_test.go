@@ -44,17 +44,43 @@ func TestPeriodLabelsAreTranslatedServerSide(t *testing.T) {
 // The chart's heading is composed in the browser from these three parts, so
 // each has to arrive separately. A single pre-composed sentence could not be
 // rewritten when the reader changes the period.
+//
+// "high" rather than "silent": the area-scoped metric list is gated on the
+// area actually measuring the metric (see areaMeasuredMetrics), same as
+// AreaReadouts gates its cells, and "silent" measures nothing. "high"
+// measures P2 the default metric, so it still pins all three heading parts.
 func TestChartIslandCarriesTheHeadingParts(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
-	body := fetch(t, rr, "/en/area/silent").Body.String()
+	body := fetch(t, rr, "/en/area/high").Body.String()
 
 	for _, want := range []string{
-		`data-t-metric="PM2.5"`,
+		// The heading's metric part is composed client-side from the area's own
+		// metric/label/unit lists (see AreaMetricsAttr et al.), not a single
+		// server-rendered data-t-metric — the chart's own menu needs the whole
+		// list to relabel the heading without a round trip.
+		`data-area-metric-labels="PM2.5"`,
 		`data-t-tier="province median"`,
 		`data-t-period-legend="Period"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the chart island is missing %s", want)
 		}
+	}
+}
+
+// An area that measures nothing must not offer a menu entry for a metric it
+// cannot plot: the list is empty rather than falling back to the site
+// default, and the chart still mounts (data-metric keeps naming the site
+// default for the heading and the initial fetch) so an unmeasured fetch
+// resolves through the chart's own existing unavailable-message path.
+func TestChartIslandOffersNoMetricsForASilentArea(t *testing.T) {
+	rr := renderer(t, rankingSnapshot())
+	body := fetch(t, rr, "/en/area/silent").Body.String()
+
+	if !strings.Contains(body, `data-area-metrics=""`) {
+		t.Error("the chart island should offer no metrics for an area that measures nothing")
+	}
+	if !strings.Contains(body, `data-metric="P2"`) {
+		t.Error("the chart island should still carry the site default metric for its heading and initial fetch")
 	}
 }

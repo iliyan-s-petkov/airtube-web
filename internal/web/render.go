@@ -199,6 +199,14 @@ type PageData struct {
 	Periods      []string
 	PeriodLabels []string
 
+	// PanelHostClass is an extra class on the sensor card's host div, beside
+	// the kit's own "place-host" — "" everywhere except the embed route,
+	// which needs "embed__panel" to cap the card inside its frame. The one
+	// real difference between the three pages' otherwise identical host
+	// markup (see the "sensorCardHost" partial), so it travels as data
+	// rather than a second copy of the block.
+	PanelHostClass string
+
 	cat *i18n.Catalogue
 }
 
@@ -342,6 +350,16 @@ func (p PageData) StripReadouts() []Readout {
 	return p.Readouts()
 }
 
+// SensorReadoutRow reports whether the readouts island should also mount its
+// own client-side row for the open sensor. False on an area page: its strip
+// already states the area's medians and the sensor card already states the
+// open sensor's readings, so the row would restate both. True everywhere else
+// the readouts-island partial appears, including the index page, where the
+// strip is national rather than area-scoped and the row is additive.
+func (p PageData) SensorReadoutRow() bool {
+	return p.Area == nil
+}
+
 // AreaReadouts is the strip at the top of one area's page: what this area is
 // currently measuring, one cell per metric, then how many sensors the figures
 // come from.
@@ -406,55 +424,6 @@ func (p PageData) AreaReadouts() []Readout {
 		Value: strconv.Itoa(p.Area.SensorCount),
 		Tier:  p.T("area.tier_sensors"),
 	})
-	return append(out, p.areaSourceGroups()...)
-}
-
-// areaSourceGroups is one labelled cell per metric per contributing network.
-// Empty for one network: the main row already is that network's numbers.
-func (p PageData) areaSourceGroups() []Readout {
-	if len(p.Area.BySource) < 2 {
-		return nil
-	}
-	networks := make([]string, 0, len(p.Area.BySource))
-	for src := range p.Area.BySource {
-		networks = append(networks, src)
-	}
-	// Sorted, so two requests for the same page produce the same strip.
-	sort.Strings(networks)
-
-	var out []Readout
-	for _, src := range networks {
-		se := p.Area.BySource[src]
-		name := p.T("source.name." + strings.ReplaceAll(src, ".", "_"))
-		// Group already names the network; the tier says only the count.
-		tierKey := "area.sources.row"
-		if se.N == 1 {
-			tierKey = "area.sources.row_one"
-		}
-		tier := strings.ReplaceAll(p.T(tierKey), "{n}", strconv.Itoa(se.N))
-
-		cell := func(m string) {
-			v, ok := se.Values[m]
-			if !ok {
-				return
-			}
-			c := Readout{
-				Label: p.T("metric." + m),
-				Value: formatValue(v, p.Lang),
-				Unit:  p.T("unit." + m),
-				Tier:  tier,
-				Group: name,
-			}
-			c.gauge(m, v)
-			out = append(out, c)
-		}
-		cell(p.DefaultMetric)
-		for _, m := range p.Metrics {
-			if m != p.DefaultMetric {
-				cell(m)
-			}
-		}
-	}
 	return out
 }
 
@@ -548,6 +517,64 @@ func (p PageData) MetricLabelsAttr() string { return strings.Join(p.MetricLabels
 func (p PageData) MetricUnitsAttr() string  { return strings.Join(p.MetricUnits, ",") }
 func (p PageData) PeriodsAttr() string      { return strings.Join(p.Periods, ",") }
 func (p PageData) PeriodLabelsAttr() string { return strings.Join(p.PeriodLabels, ",") }
+
+// areaMeasuredMetrics is the metric keys the chart offers for this one area:
+// the default metric first if this area measures it, then whichever of the
+// rest this area actually reports, in canonical order — the same rule
+// AreaReadouts cells by, including the default: a menu entry that cannot
+// plot is worse than one fewer entry. Kept separate from
+// Metrics/MetricLabels/MetricUnits above, which are the site's whole
+// vocabulary (what the top switcher and the map offer) — a metric this area
+// has no sensor for still belongs on those, but a menu entry for it on the
+// chart would ask the API for a series it can never return.
+//
+// Nil for an area with no measured metric at all: the chart still mounts
+// (data-metric keeps naming the site default, for the heading and the
+// fetch), but with no menu to offer, and a fetch for an unmeasured metric
+// resolves through the chart's own existing failed-fetch path to its
+// unavailable message — no second "no metrics" string is needed.
+func (p PageData) areaMeasuredMetrics() []string {
+	if p.Area == nil {
+		return nil
+	}
+	out := make([]string, 0, len(p.Metrics))
+	if _, ok := p.Area.Values[p.DefaultMetric]; ok {
+		out = append(out, p.DefaultMetric)
+	}
+	for _, m := range p.Metrics {
+		if m == p.DefaultMetric {
+			continue
+		}
+		if _, ok := p.Area.Values[m]; ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// AreaMetricsAttr, AreaMetricLabelsAttr and AreaMetricUnitsAttr are the
+// area-scoped counterpart to MetricsAttr/MetricLabelsAttr/MetricUnitsAttr,
+// comma-joined the same way. The chart island's own metric menu reads these,
+// not the global lists.
+func (p PageData) AreaMetricsAttr() string { return strings.Join(p.areaMeasuredMetrics(), ",") }
+
+func (p PageData) AreaMetricLabelsAttr() string {
+	metrics := p.areaMeasuredMetrics()
+	labels := make([]string, len(metrics))
+	for i, m := range metrics {
+		labels[i] = p.T("metric." + m)
+	}
+	return strings.Join(labels, ",")
+}
+
+func (p PageData) AreaMetricUnitsAttr() string {
+	metrics := p.areaMeasuredMetrics()
+	units := make([]string, len(metrics))
+	for i, m := range metrics {
+		units[i] = p.T("unit." + m)
+	}
+	return strings.Join(units, ",")
+}
 
 // AreaTier is the wording for what an aggregate on this page covers — a
 // province or a city. The chart's heading is composed in the browser from the

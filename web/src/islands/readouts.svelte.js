@@ -4,7 +4,9 @@
 // server's cards below them, always. The lower row is never rebuilt in JS —
 // that would be a second implementation of numbers the page already carries,
 // free to drift from them — and closing the panel only has to drop the row
-// above it.
+// above it. The top row is server-gated: `data-sensor-row="off"` (the area
+// page) skips it entirely, since that page's strip and sensor card already
+// state what it would restate.
 import { mount as mountComponent, unmount } from 'svelte'
 import Readouts from '../components/Readouts.svelte'
 import { areaStats, areaSourceStats } from '../lib/areastats.js'
@@ -25,6 +27,7 @@ export function areaName(areas, slug, lang) {
 
 export function mount(el, doc = document) {
   const d = el.dataset
+  if (d.sensorRow === 'off') return () => {}
   const lang = doc.documentElement.getAttribute('lang') || 'bg'
   const metrics = parseMetricList(d.metrics)
   const labels = zipLabels(metrics, parseMetricList(d.metricLabels))

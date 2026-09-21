@@ -28,7 +28,7 @@ test.describe.serial('metric switcher', () => {
 
   // The switcher is a pop-up (MetricMenu.svelte): the button names the metric
   // in force, the radios inside the panel change it.
-  const chooser = () => page.getByRole('button', { name: /^Metric: / })
+  const chooser = () => page.getByRole('button', { name: /^Metric: / }).and(page.locator('#metric-menu'))
 
   async function choose(label) {
     await chooser().click()
