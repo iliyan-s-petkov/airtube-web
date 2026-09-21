@@ -98,6 +98,6 @@ test.describe.serial('sensor panel', () => {
   test('a sensor id that is not on this map leaves the page usable', async () => {
     await page.goto('/en/area/sofia#sensor=999999')
     await expect(sensorPanel()).toHaveCount(0)
-    await expect(page.getByRole('button', { name: /^Metric: / })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Metric: / }).and(page.locator('#metric-menu'))).toBeVisible()
   })
 })
