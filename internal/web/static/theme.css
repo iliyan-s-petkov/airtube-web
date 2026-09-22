@@ -50,6 +50,8 @@
      pixel value: 926:382 is a maximum aspect, so a wider box crops the country
      top and bottom while a taller one is always safe. */
   --map-cap: 78vh;
+  /* Horizontal scale ramp; legend.js sets it at runtime from /api/v1/scales. */
+  --ramp-h: none;
 
   --text-caption: 12px;
   --text-compact: 14px;

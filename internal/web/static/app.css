@@ -617,7 +617,7 @@ html:has(> body.embed) { block-size: 100%; }
 @media (max-width: 672px) {
   /* Fixed 48px height forced the layout viewport past 390px. */
   .masthead {
-    height: auto; min-height: 48px;
+    block-size: auto; min-block-size: 48px;
     flex-wrap: wrap; gap: var(--space-2) var(--space-3);
     padding-block: var(--space-2);
   }
