@@ -170,14 +170,15 @@ export function rampValueStops(bands) {
 }
 
 /**
- * rampGradient is the same ramp as a CSS gradient, bottom to top — so the key
- * cannot show a colour the map does not paint.
+ * rampGradient is the same ramp as a CSS gradient, bottom to top by default —
+ * so the key cannot show a colour the map does not paint. `direction` picks
+ * the CSS gradient axis; the phone key draws the same stops `to right`.
  */
-export function rampGradient(bands) {
+export function rampGradient(bands, direction = 'to top') {
   const stops = rampStops(bands)
   if (stops.length === 0) return ''
   const css = stops.map((s) => `${s.colour} ${s.pos.toFixed(3)}%`)
-  return `linear-gradient(to top, ${css.join(', ')})`
+  return `linear-gradient(${direction}, ${css.join(', ')})`
 }
 
 /**
