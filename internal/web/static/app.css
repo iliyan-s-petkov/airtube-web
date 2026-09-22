@@ -754,31 +754,55 @@ html:has(> body.embed) { block-size: 100%; }
     /* The (i) is a 24px background-image; grown to 44px it tiled 2x2. */
     background-repeat: no-repeat; background-position: center;
   }
-  /* Raised clear of the taller locate/zoom row and the attribution button
-     above it, both 44px now. */
-  .map-wind-label { inset-block-end: calc(44px + 24px + var(--space-4)); }
+  /* Owner feedback (Task 7c): collapsed, this drew as an ~80px white card
+     with the ⓘ in its corner — two causes stacked. The <details> is closed,
+     so only the <summary> should have layout, but the visually-hidden label
+     inside it is `position: absolute`, which some engines still box for
+     `fit-content` sizing even while its ancestor is display:none-collapsed.
+     And the toggle carries the 44px tap-target floor below, padded again by
+     the card's own padding on top of that. Fix: no card at all when closed —
+     icon only, in the bottom-right column above .map-locate rather than a
+     card floating over empty map. */
+  .map-wind-label {
+    bottom: auto; inset-block-end: calc(var(--space-2) + 44px + var(--space-2));
+    inset-inline-end: var(--space-2);
+  }
+  .map-wind-label:not([open]) {
+    inline-size: fit-content; max-inline-size: none;
+    background: none; box-shadow: none; border: 0; padding: 0;
+  }
+  /* The glyph over dark hexes: a halo since there is no card behind it now. */
+  .map-wind-label:not([open]) .map-wind-label__toggle::before {
+    filter: drop-shadow(0 0 2px var(--bg));
+  }
+  /* Open, the card returns and grows leftward from the same anchor — capped
+     so it cannot run past the viewport's start edge on a narrow phone. */
+  .map-wind-label[open] { max-inline-size: min(18rem, calc(100% - 4rem)); }
   /* The toggle keeps only the ::before (i) on a phone; the sentence it names
      is what the disclosure itself already unrolls into. */
   .map-wind-label__toggle .map-wind-label__text-label {
     position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
   }
-  /* Collapsed, the box shrinks to the icon: with the label hidden above, the
-     kit's max-inline-size still drew an empty card beside the ⓘ. */
-  .map-wind-label:not([open]) { inline-size: fit-content; padding: 0; }
   .map-note { inset-inline-start: calc(12px + 44px + var(--space-2)); }
-  .map-locate { bottom: var(--space-2); }
+  /* Transparent: a circle with no fill reads as less furniture over the map. */
+  .map-locate { bottom: var(--space-2); background: none; box-shadow: none; }
+  .map-locate__ico { filter: drop-shadow(0 0 2px var(--bg)); }
   /* One button until there is something to play: the row unfolds across the
      map only while a timelapse is loaded. The speed and exit buttons carry
      .map-play__btn too, so only the scrubber, clock and note fold away. */
-  .map-play { block-size: 48px; padding-inline: var(--space-1); flex-wrap: nowrap; }
+  .map-play { padding-inline: var(--space-1); flex-wrap: nowrap; }
   .map-play:not(.map-play--open) > :not(.map-play__btn) { display: none; }
-  .map-play--open { flex: 1 1 auto; min-inline-size: 0; }
+  /* Owner feedback (Task 7c): idle, the row was 48px tall with one button in
+     it, and the shared card (padding space-1 either side) measured 56px.
+     36px row + 36px button keeps the card at 44px; the open bar is unchanged. */
+  .map-play:not(.map-play--open) { block-size: 36px; }
+  .map-play--open { block-size: 48px; flex: 1 1 auto; min-inline-size: 0; }
   .map-play--open .map-play__scrub { flex: 1 1 auto; inline-size: auto; min-inline-size: 0; }
   .map-play__note { max-inline-size: none; }
-  /* Real touch targets in the corner row. The window button keeps its text, so
-     it grows past the floor rather than being squared off at it. */
-  .map-play__btn, .map-window__btn { inline-size: 44px; block-size: 44px; min-block-size: 44px; }
+  /* 36px, not the 44px tap-target floor: the card's own space-1 padding
+     already brings the tap band up to 44px without the button growing. */
+  .map-play__btn, .map-window__btn { block-size: 36px; min-block-size: 36px; }
   .map-window__btn { inline-size: auto; min-inline-size: 44px; }
   .data-refresh__auto, .data-refresh__btn--icon { inline-size: 44px; block-size: 44px; }
 

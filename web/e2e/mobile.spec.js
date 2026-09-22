@@ -180,6 +180,60 @@ test.describe('phone layout does not widen the viewport', () => {
     await page.close()
   })
 
+  // Owner feedback (Task 7c): the collapsed note used to draw as an ~80px
+  // white card. Icon only now, no fill, parked in the bottom-right column
+  // above the locate button rather than floating in empty map.
+  test('/en collapsed wind note: icon only, transparent, stacked above locate', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    const note = page.locator('.map-wind-label')
+    const map = page.locator('#map')
+    await expect.poll(async () => {
+      await page.evaluate(() => {
+        const el = document.querySelector('.map-wind-label')
+        if (el) el.hidden = false
+      })
+      const box = await note.boundingBox()
+      return box ? Math.max(box.width, box.height) : 999
+    }).toBeLessThanOrEqual(44)
+    const bg = await note.evaluate((el) => getComputedStyle(el).backgroundColor)
+    expect(bg).toBe('rgba(0, 0, 0, 0)')
+    const noteBox = await note.boundingBox()
+    const mapBox = await map.boundingBox()
+    expect(mapBox.x + mapBox.width - (noteBox.x + noteBox.width)).toBeLessThanOrEqual(8)
+    const locateBox = await page.locator('.map-locate').boundingBox()
+    expect(noteBox.y + noteBox.height).toBeLessThanOrEqual(locateBox.y)
+    await page.close()
+  })
+
+  // Owner feedback (Task 7c): the shared bottom-left card was 56px tall with
+  // 44/48px buttons inside; both fold to a 44px card.
+  test('/en freshness card and idle play button are 44/36px, not 56/48px', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    await expect.poll(async () => (await page.locator('.map-freshness').boundingBox())?.height ?? 0)
+      .toBeLessThanOrEqual(44)
+    await expect.poll(async () => (await page.locator('.map-freshness').boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(40)
+    const play = page.getByRole('button', { name: 'Play the animation' })
+    await expect.poll(async () => (await play.boundingBox())?.height ?? 0).toBeLessThanOrEqual(36)
+    const windowBtn = page.locator('.map-window__btn')
+    await expect.poll(async () => (await windowBtn.boundingBox())?.height ?? 0).toBeLessThanOrEqual(36)
+    await page.close()
+  })
+
+  // Owner feedback (Task 7c): a white circle read as furniture; bare now.
+  test('/en locate button has no background fill', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    const bg = await page.locator('.map-locate').evaluate((el) => getComputedStyle(el).backgroundColor)
+    expect(bg).toBe('rgba(0, 0, 0, 0)')
+    await page.close()
+  })
+
   // Task 9: two readout cards per row, a compact card, and a footer whose
   // links are still real touch targets.
   test('/en readouts: two per row, compact card, metric prefix hidden', async ({ mobileCtx }) => {
