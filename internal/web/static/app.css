@@ -689,7 +689,7 @@ html:has(> body.embed) { block-size: 100%; }
   /* One shared card (.map-freshness above) instead of a card per button — the
      window toggle and the idle play button used to draw two overlapping
      white pills. */
-  .map-window__btn { background: none; box-shadow: none; font-size: var(--text-compact); }
+  .map-window__btn { background: none; box-shadow: none; }
   .map-play:not(.map-play--open) { background: none; box-shadow: none; padding: 0; }
   /* The phone's home for the refresh controls: chrome.js moves them in here so
      the corner holds one control instead of two. */
