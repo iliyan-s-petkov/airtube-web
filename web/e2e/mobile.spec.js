@@ -1,14 +1,7 @@
 import { test as base, expect } from './fixtures.js'
 
-// One phone-emulating context reused by every test in this file, worker-scoped
-// like fixtures.js's own `ctx`. Four separate browser.newContext() calls here
-// (390x844 x2, 844x390 x2) each meant a cold Chromium profile re-fetching the
-// whole static bundle, burning ratelimit.api's per-IP burst budget by the
-// third context and 429ing the fourth's navigation — the same mechanism
-// fixtures.js's `ctx` comment documents, just re-triggered inside this file.
-// isMobile/hasTouch/deviceScaleFactor are fixed for the context; viewport
-// dimensions move per test via page.setViewportSize before goto, which does
-// not need a fresh context.
+// One worker-scoped mobile context for the file: a fresh context per test
+// re-downloads the bundle and trips the app's per-IP rate limit (429).
 const test = base.extend({
   mobileCtx: [async ({ browser }, use) => {
     const context = await browser.newContext({ isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
