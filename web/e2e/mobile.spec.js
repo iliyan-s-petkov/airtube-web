@@ -207,6 +207,53 @@ test.describe('phone layout does not widen the viewport', () => {
     await page.close()
   })
 
+  // Review round 1 (Task 7c): the open note's z-index (1) lost to the
+  // freshness card (3) and the open legend key (2) in the same corner —
+  // a click on the note's own text hit whichever card was drawn on top.
+  test('/en open wind note draws above the freshness card, clear of the map edge', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    await page.waitForSelector('.map-wind-label', { state: 'attached' })
+    // No seeded forecast in this fixture, so the empty note never grows wide
+    // enough to actually overlap the freshness card — a real forecast
+    // sentence (see chrome.js's showWind) is two sentences and a model name,
+    // which is what pushes the open card out toward max-inline-size.
+    await page.evaluate(() => {
+      const el = document.querySelector('.map-wind-label')
+      el.hidden = false
+      el.querySelector('.map-wind-label__text').textContent =
+        'Forecast wind arrows are modelled, not measured, and may diverge from the sensors below. Source: a placeholder weather model used for this test.'
+    })
+    await page.locator('.map-wind-label__toggle').click()
+    const note = page.locator('.map-wind-label')
+    await expect(note).toHaveAttribute('open', '')
+
+    const map = await page.locator('#map').boundingBox()
+    await expect.poll(async () => {
+      const box = await note.boundingBox()
+      return box ? box.x + box.width : 999
+    }).toBeLessThanOrEqual(map.x + map.width)
+
+    // The overlap point the review flagged: the freshness card's own centre,
+    // which the open note's wide card now covers. elementFromPoint there
+    // must resolve inside the note, not the card underneath it.
+    const hit = await page.evaluate(() => {
+      const note = document.querySelector('.map-wind-label')
+      const fresh = document.querySelector('.map-freshness')
+      const nr = note.getBoundingClientRect()
+      const fr = fresh.getBoundingClientRect()
+      const x = Math.max(nr.left, fr.left) + Math.min(nr.right, fr.right - Math.max(nr.left, fr.left)) / 2
+      const y = Math.max(nr.top, fr.top) + Math.min(nr.bottom, fr.bottom - Math.max(nr.top, fr.top)) / 2
+      const overlaps = nr.left < fr.right && nr.right > fr.left && nr.top < fr.bottom && nr.bottom > fr.top
+      const top = document.elementFromPoint(x, y)
+      return { overlaps, insideNote: note.contains(top) || note === top }
+    })
+    expect(hit.overlaps).toBe(true)
+    expect(hit.insideNote).toBe(true)
+    await page.close()
+  })
+
   // Owner feedback (Task 7c): the shared bottom-left card was 56px tall with
   // 44/48px buttons inside; both fold to a 44px card.
   test('/en freshness card and idle play button are 44/36px, not 56/48px', async ({ mobileCtx }) => {

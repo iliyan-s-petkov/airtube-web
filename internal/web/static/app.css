@@ -754,15 +754,9 @@ html:has(> body.embed) { block-size: 100%; }
     /* The (i) is a 24px background-image; grown to 44px it tiled 2x2. */
     background-repeat: no-repeat; background-position: center;
   }
-  /* Owner feedback (Task 7c): collapsed, this drew as an ~80px white card
-     with the ⓘ in its corner — two causes stacked. The <details> is closed,
-     so only the <summary> should have layout, but the visually-hidden label
-     inside it is `position: absolute`, which some engines still box for
-     `fit-content` sizing even while its ancestor is display:none-collapsed.
-     And the toggle carries the 44px tap-target floor below, padded again by
-     the card's own padding on top of that. Fix: no card at all when closed —
-     icon only, in the bottom-right column above .map-locate rather than a
-     card floating over empty map. */
+  /* Task 7c: closed card was an artifact of fit-content sizing plus the
+     tap-target padding stacking (see task-7c-report.md); icon-only now,
+     stacked above .map-locate rather than floating over empty map. */
   .map-wind-label {
     bottom: auto; inset-block-end: calc(var(--space-2) + 44px + var(--space-2));
     inset-inline-end: var(--space-2);
@@ -775,9 +769,12 @@ html:has(> body.embed) { block-size: 100%; }
   .map-wind-label:not([open]) .map-wind-label__toggle::before {
     filter: drop-shadow(0 0 2px var(--bg));
   }
-  /* Open, the card returns and grows leftward from the same anchor — capped
-     so it cannot run past the viewport's start edge on a narrow phone. */
-  .map-wind-label[open] { max-inline-size: min(18rem, calc(100% - 4rem)); }
+  /* Card returns, grows leftward, capped short of the viewport's start edge.
+     z-index 4 matches the open legend key's tier above the freshness card. */
+  .map-wind-label[open] {
+    z-index: 4; inset-inline-end: var(--space-2); inset-block-end: calc(var(--space-2) + 44px + var(--space-2));
+    max-inline-size: min(18rem, calc(100% - 4rem));
+  }
   /* The toggle keeps only the ::before (i) on a phone; the sentence it names
      is what the disclosure itself already unrolls into. */
   .map-wind-label__toggle .map-wind-label__text-label {
@@ -793,9 +790,8 @@ html:has(> body.embed) { block-size: 100%; }
      .map-play__btn too, so only the scrubber, clock and note fold away. */
   .map-play { padding-inline: var(--space-1); flex-wrap: nowrap; }
   .map-play:not(.map-play--open) > :not(.map-play__btn) { display: none; }
-  /* Owner feedback (Task 7c): idle, the row was 48px tall with one button in
-     it, and the shared card (padding space-1 either side) measured 56px.
-     36px row + 36px button keeps the card at 44px; the open bar is unchanged. */
+  /* Task 7c: idle row was 48px, doubling the card to 56px; 36px keeps the
+     shared card at 44px. Open bar (below) is unchanged. */
   .map-play:not(.map-play--open) { block-size: 36px; }
   .map-play--open { block-size: 48px; flex: 1 1 auto; min-inline-size: 0; }
   .map-play--open .map-play__scrub { flex: 1 1 auto; inline-size: auto; min-inline-size: 0; }
