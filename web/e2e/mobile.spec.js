@@ -195,8 +195,25 @@ test.describe('phone layout does not widen the viewport', () => {
       return a && b ? a.y === b.y : null
     }).toBe(true)
     const firstBox = await first.boundingBox()
-    expect(firstBox.height).toBeLessThanOrEqual(200)
-    await expect(first.locator('.readout__metric')).toBeHidden()
+    expect(firstBox.height).toBeLessThanOrEqual(175)
+
+    // Metric span: visually gone (a near-zero box, not a real reading a
+    // sighted user could mistake for content) but still in the DOM text a
+    // screen reader gets — innerText honours display:none, textContent
+    // doesn't, so this pair only agrees if the span is merely clipped.
+    const metric = first.locator('.readout__metric')
+    const metricBox = await metric.boundingBox()
+    expect(metricBox.width).toBeLessThanOrEqual(1)
+    expect(metricBox.height).toBeLessThanOrEqual(1)
+    const label = first.locator('.readout__label')
+    const [inner, raw] = await Promise.all([label.innerText(), label.evaluate((el) => el.textContent)])
+    expect(inner.replace(/\s+/g, ' ').trim()).toBe(raw.replace(/\s+/g, ' ').trim())
+
+    // The caption is one line at the same size as the footnote, not the
+    // body-text default that would wrap a two-line label.
+    await expect(label).toHaveCSS('font-size', '12px')
+    await expect(label).toHaveCSS('white-space', 'nowrap')
+
     const footerLink = page.locator('.footer a').first()
     const footerBox = await footerLink.boundingBox()
     expect(footerBox.height).toBeGreaterThanOrEqual(40)
