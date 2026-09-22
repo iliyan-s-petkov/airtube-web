@@ -20,7 +20,7 @@ import {
   hit, boundaryChoice, highlightBoundary, cellArea, BOUNDARY_FIT_PADDING,
 } from '../lib/mapboundaries.js'
 import {
-  MOVE_DEBOUNCE_MS, refresh, refreshHexes, showArea, debounce,
+  MOVE_DEBOUNCE_MS, refresh, refreshHexes, showArea, debounce, watchHexTier,
 } from '../lib/mapdata.js'
 import { openDeepLinkedSensor, locateMe } from '../lib/placement.js'
 import { mountChrome } from '../lib/chrome.js'
@@ -154,6 +154,10 @@ export function mount(el) {
   installMapLoad({ map, state, cfg, chrome, vs, windState, boundaryState, onMoveEnd, subs })
 
   map.on('moveend', onMoveEnd)
+  // Rotating a phone can cross the width at which the hex tier changes, and a
+  // rotation emits no moveend. Through the same debounced refresh, so a turn
+  // mid-pan is one request rather than two.
+  watchHexTier(map, onMoveEnd)
   // Phone-only inside chrome.closeLegend: an open key drawn over the sensor
   // the reader just panned to. movestart, not moveend — close as the pan
   // begins, not after the debounced repaint above.

@@ -17,6 +17,14 @@ middle, and `hexes.test.js` pins both limits.
 
 Lowering it costs bandwidth — a finer tier means more bins in the response.
 
+A map narrower than 672 px gets half that target (`targetHexPx`), because 32 px
+cells leave a phone about four across the screen where a desktop gets thirteen.
+The width comes from `map.getContainer().clientWidth` on every call, and a
+resize that crosses the breakpoint refetches (`watchHexTier`), so a rotation
+asks again. `POINT_TIER_MIN_ZOOM` and `GRID_MIN_ZOOM` stay on the desktop
+target; `pointTierMinZoom(width)` is the per-width value, one zoom lower on a
+phone because the halved target passes 0.25 km a zoom sooner.
+
 ## Where the grid starts and stops
 
 `GRID_MIN_ZOOM` is the first zoom at which a cell of the **coarsest published

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   resolutionForZoom,
+  targetHexPx,
+  pointTierMinZoom,
+  PHONE_BREAKPOINT_PX,
   hexesURL,
   bboxParam,
   hexPolygon,
@@ -889,5 +892,56 @@ describe('the official cell shape', () => {
     for (const f of draw(15, 0.5)) {
       expect(f.geometry.coordinates[0]).toHaveLength(7)
     }
+  })
+})
+
+// The viewport-aware tier. A phone gets half the desktop target, so it gets
+// the next finer tier at the same zoom and about twice the cells across.
+describe('targetHexPx', () => {
+  it('halves the target below the phone breakpoint and not at it', () => {
+    expect(targetHexPx(PHONE_BREAKPOINT_PX - 1)).toBe(TARGET_HEX_PX / 2)
+    expect(targetHexPx(PHONE_BREAKPOINT_PX)).toBe(TARGET_HEX_PX)
+    expect(targetHexPx(390)).toBe(TARGET_HEX_PX / 2)
+  })
+
+  it('treats an unknown width as desktop', () => {
+    expect(targetHexPx(undefined)).toBe(TARGET_HEX_PX)
+    expect(targetHexPx(Infinity)).toBe(TARGET_HEX_PX)
+  })
+})
+
+describe('resolutionForZoom at a phone width', () => {
+  it('leaves every existing caller on the desktop resolution', () => {
+    expect(resolutionForZoom(7)).toBeCloseTo(28.7061, 3)
+    expect(resolutionForZoom(7, 1400)).toBe(resolutionForZoom(7))
+  })
+
+  it('asks for half the ground distance on a 390 px screen', () => {
+    expect(resolutionForZoom(7, 390)).toBeCloseTo(14.3531, 3)
+    expect(resolutionForZoom(7, 390)).toBe(resolutionForZoom(7) / 2)
+  })
+})
+
+describe('hexesURL at a phone width', () => {
+  const bounds = { getWest: () => 22.5, getSouth: () => 42.0, getEast: () => 24.5, getNorth: () => 43.5 }
+  const res = (z, w) => new URL(hexesURL(z, bounds, w), 'https://airbg.org').searchParams.get('resolution_km')
+
+  it('asks for the 15 km tier where the desktop asks for 25 km', () => {
+    expect(res(7)).toBe('28.7061')
+    expect(res(7, 390)).toBe('14.3531')
+  })
+
+  // The point tier is where a requested cell is finer than anything published,
+  // so the halved target reaches it a zoom sooner, not later.
+  it('reaches the point tier one zoom before the desktop does', () => {
+    expect(pointTierMinZoom(390)).toBe(POINT_TIER_MIN_ZOOM - 1)
+    expect(res(POINT_TIER_MIN_ZOOM - 1, 390)).toBe('0')
+    expect(res(POINT_TIER_MIN_ZOOM - 1)).not.toBe('0')
+  })
+
+  it('derives the phone point tier rather than stating it', () => {
+    expect(pointTierMinZoom()).toBe(POINT_TIER_MIN_ZOOM)
+    expect(resolutionForZoom(pointTierMinZoom(390), 390)).toBeLessThan(contract.hex.tiers_km.at(-1))
+    expect(resolutionForZoom(pointTierMinZoom(390) - 1, 390)).toBeGreaterThanOrEqual(contract.hex.tiers_km.at(-1))
   })
 })
