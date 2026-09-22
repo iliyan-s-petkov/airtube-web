@@ -675,3 +675,11 @@ html:has(> body.embed) { block-size: 100%; }
 
   h1 { font-size: var(--text-section); }
 }
+
+/* Landscape phone: the kit's width-derived budget goes negative under 416px
+   of height and the shell collapses to 0. Height-led instead, chrome on top. */
+@media (orientation: landscape) and (max-height: 520px) and (hover: none) {
+  .map-shell:has(.map--hero) { max-inline-size: none; block-size: auto; max-block-size: none; }
+  .map--hero { aspect-ratio: auto; block-size: calc(100svh - 5.5rem); min-block-size: 12rem; }
+  .map--wide { block-size: calc(100svh - 5.5rem); min-block-size: 12rem; }
+}

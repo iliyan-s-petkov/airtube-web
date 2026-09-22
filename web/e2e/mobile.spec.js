@@ -16,3 +16,32 @@ test.describe('phone layout does not widen the viewport', () => {
     })
   }
 })
+
+const LANDSCAPE = { viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }
+
+test.describe('landscape phone keeps the map', () => {
+  test('/en map has width at 844x390', async ({ browser }) => {
+    const context = await browser.newContext(LANDSCAPE)
+    const page = await context.newPage()
+    await page.goto('/en')
+    const box = await page.locator('#map').boundingBox()
+    expect(box.width).toBeGreaterThan(700)
+    expect(box.height).toBeGreaterThan(150)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(844)
+    await context.close()
+  })
+
+  test('/en rotating 390x844 -> 844x390 keeps the map, no reload', async ({ browser }) => {
+    const context = await browser.newContext(PHONE)
+    const page = await context.newPage()
+    await page.goto('/en')
+    const before = await page.locator('#map').boundingBox()
+    expect(before.width).toBe(390)
+    await page.setViewportSize({ width: 844, height: 390 })
+    const after = await page.locator('#map').boundingBox()
+    expect(after.width).toBeGreaterThan(700)
+    expect(after.height).toBeGreaterThan(150)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(844)
+    await context.close()
+  })
+})
