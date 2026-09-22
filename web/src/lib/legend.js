@@ -107,6 +107,10 @@ export function renderLegend(el, { title, toggleLabel, bands, noData, info }) {
   // those are per-element and this is one declaration on the container.
   if (ramp) el.style.setProperty('--ramp', ramp)
   else el.style.removeProperty('--ramp')
+  // Same stops, horizontal: the phone layout lays the bar left-to-right.
+  const rampH = ramp ? rampGradient(bands, 'to right') : ''
+  if (rampH) el.style.setProperty('--ramp-h', rampH)
+  else el.style.removeProperty('--ramp-h')
 
   // Icon-only: the triangle already says what it does, and a word beside it
   // pushed the whole bar to the right of itself. An icon-only control still

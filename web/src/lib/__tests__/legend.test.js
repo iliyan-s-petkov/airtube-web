@@ -133,6 +133,15 @@ describe('renderLegend', () => {
     expect(bare.style.getPropertyValue('--ramp')).toBe('')
   })
 
+  // The phone key lays the same bar left-to-right; --ramp-h carries that axis.
+  it('sets a horizontal ramp alongside the vertical one', () => {
+    const el = draw()
+    const rampH = el.style.getPropertyValue('--ramp-h')
+    expect(rampH.startsWith('linear-gradient(to right')).toBe(true)
+    const bare = draw({ ...legendRows([], OPTS) })
+    expect(bare.style.getPropertyValue('--ramp-h')).toBe('')
+  })
+
   // The bar is not a band, and the rows underneath it are the accessible copy.
   it('hides the bar from a screen reader', () => {
     expect(draw().querySelector('.scale__bar').getAttribute('aria-hidden')).toBe('true')

@@ -613,11 +613,9 @@ html:has(> body.embed) { block-size: 100%; }
 }
 .scaleinfo__close:focus-visible { box-shadow: var(--focus-ring); }
 
-/* Phone fixes: masthead wraps instead of widening the viewport, map grows,
-   on-map scale reads as a horizontal band, replay row wraps. */
+/* Phone layout: masthead wraps, map taller, scale horizontal, replay row wraps. */
 @media (max-width: 672px) {
-  /* height:auto + wrap so a crowded row grows down, never sideways — the
-     fixed 48px height was what forced the viewport wider than 390px. */
+  /* Fixed 48px height forced the layout viewport past 390px. */
   .masthead {
     height: auto; min-height: 48px;
     flex-wrap: wrap; gap: var(--space-2) var(--space-3);
@@ -626,39 +624,41 @@ html:has(> body.embed) { block-size: 100%; }
   .masthead__nav { gap: 0; flex-wrap: wrap; }
   .masthead__link { padding-inline: var(--space-2); }
   @media (max-width: 480px) {
-    /* The source link is the first to go; aria-label/title still name it for
-       assistive tech, there is just no visible row for it on a narrow phone. */
     .masthead__link--source { display: none; }
   }
-  /* An open list must not widen the page past the viewport it is drawn in. */
   .langpick__list { max-inline-size: calc(100vw - var(--space-4)); }
 
-  /* Two owners of the map's height (the aspect-ratio and --map-budget) is the
-     bug on a phone: the fit ratio pins height to width, and a narrow phone
-     then makes the map short. Both dropped in favour of one explicit height. */
-  .map-shell:has(.map--hero), .map--hero {
-    aspect-ratio: auto; block-size: 58svh; min-block-size: 18rem; max-block-size: none;
-  }
+  /* Width-derived fit makes the map short on a phone; one explicit height on
+     .map--hero instead. The shell no longer fixes its own height too — a
+     fixed-height shell clipped the static, in-flow scale below the map. */
+  .map-shell:has(.map--hero) { block-size: auto; max-block-size: none; }
+  .map--hero { aspect-ratio: auto; block-size: 58svh; min-block-size: 18rem; }
 
-  /* The vertical band list becomes a horizontal row of columns, one per band. */
+  /* Row instead of column, reversed: the DOM runs high to low, and a phone
+     row must read low to high, left to right. */
   .scale--onmap .scale__bands--vertical {
-    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; block-size: auto;
+    display: flex; flex-direction: row-reverse; block-size: auto;
+  }
+  .scale--onmap .scale__bands--vertical .scale__band {
+    display: flex; flex-direction: column; align-items: flex-end;
+    flex: 1 1 0; min-block-size: 0;
   }
   .scale--onmap .scale__bands--vertical .scale__band-swatch {
     block-size: 16px; inline-size: auto; min-block-size: 0;
   }
-  /* Undo the vertical bar's absolute positioning; the edge sits under its own
-     swatch now, not floating beside a column it no longer has. */
+  /* Undo the kit's absolute edge labels; each sits at its band's high (right)
+     edge, the boundary with the band that is visually next to it. */
   .scale--onmap .scale__bands--vertical .scale__band-edge {
     position: static; inset-inline-start: auto; inset-block-start: auto;
   }
-  /* Progressive scales stay one continuous bar, now laid along the row. */
+  /* Same stops as the vertical bar, laid left to right: --ramp-h runs low to
+     high already, so no reversal is needed here. */
   .scale--onmap .scale__bands--vertical .scale__bar {
     inset-block-start: 0; inset-inline-start: 0;
     inline-size: 100%; block-size: 16px;
+    background-image: var(--ramp-h, none);
   }
 
-  /* Row wraps instead of overflowing; the scrubber takes its own full line. */
   .map-freshness { flex-wrap: wrap; }
   .map-play { flex-wrap: wrap; row-gap: var(--space-1); }
   .map-play__scrub { flex: 1 1 100%; inline-size: auto; }
