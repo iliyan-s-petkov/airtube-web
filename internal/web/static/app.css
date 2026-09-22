@@ -666,33 +666,20 @@ html:has(> body.embed) { block-size: 100%; }
     background-image: var(--ramp-h, none);
   }
 
-  /* Back on the map: an overlay again, stacked above the locate/zoom row
-     rather than in flow below the scale. */
+  /* Back on the map: an overlay again, stacked above the locate/zoom row. */
   .map-freshness {
-    position: absolute; inset-inline-start: var(--space-2); bottom: calc(44px + var(--space-3));
+    position: absolute; inset-inline-start: var(--space-2); inset-block-end: calc(44px + var(--space-3));
     margin: 0; flex-wrap: wrap;
   }
 
-  /* The kit parks the key at a fixed 16px; here it releases the top edge and
-     re-anchors on the bottom-left corner of #map itself, so both axes are
-     stated (co-anchor guard) and the panel cannot outgrow the frame. Matches
-     the unconditional .map-shell .scale--onmap's own specificity (line 447)
-     and comes later, so it — not that rule's 3.5rem desktop offset — wins
-     once the kit's own phone rule stops being position:static. */
+  /* Overrides the desktop 3.5rem offset (line 447); both axes stated so the
+     co-anchor guard passes. */
   .map-shell .scale--onmap {
     position: absolute; inset-block-end: var(--space-2); inset-block-start: auto;
     inset-inline-start: var(--space-2); inset-inline-end: auto; z-index: 2;
     max-inline-size: calc(100% - 7rem);
   }
-  /* Same axis declarations restated on the kit's own bare selector:
-     TestAppCSSDoesNotCoAnchorAKitSelector compares literal selector strings
-     against design-kit/components.css, so only this copy is ever inspected. */
-  .scale--onmap {
-    inset-block-end: var(--space-2); inset-block-start: auto;
-    inset-inline-start: var(--space-2); inset-inline-end: auto;
-  }
-  /* Folded, the toggle is the metric name plus a ramp swatch — enough to read
-     the scale without opening it. */
+  /* Folded, the toggle is the metric name plus a ramp swatch. */
   .scale--onmap:not([open]) .scale__toggle::after {
     content: ''; inline-size: 60px; block-size: 8px; border-radius: var(--radius-sm);
     background-image: var(--ramp-h, none);
