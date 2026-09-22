@@ -21,6 +21,18 @@ test.describe('phone layout does not widen the viewport', () => {
       await page.close()
     })
   }
+
+  test('/en first viewport: masthead one line, map above the fold', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    const masthead = await page.locator('.masthead').boundingBox()
+    expect(masthead.height).toBeLessThanOrEqual(56)
+    const map = await page.locator('#map').boundingBox()
+    expect(map.y).toBeLessThanOrEqual(200)
+    expect(map.height).toBeGreaterThanOrEqual(0.6 * 844)
+    await page.close()
+  })
 })
 
 test.describe('landscape phone keeps the map', () => {

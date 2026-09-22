@@ -615,16 +615,14 @@ html:has(> body.embed) { block-size: 100%; }
 
 /* Phone layout: masthead wraps, map taller, scale horizontal, replay row wraps. */
 @media (max-width: 672px) {
-  /* Fixed 48px height forced the layout viewport past 390px. */
-  .masthead {
-    block-size: auto; min-block-size: 48px;
-    flex-wrap: wrap; gap: var(--space-2) var(--space-3);
-    padding-block: var(--space-2);
-  }
-  .masthead__nav { gap: 0; flex-wrap: wrap; }
-  .masthead__link { padding-inline: var(--space-2); }
+  /* One line, 48px: brand shortens and links tighten instead of wrapping. */
+  .masthead { block-size: 48px; min-block-size: 48px; flex-wrap: nowrap; gap: var(--space-2); padding-block: 0; }
+  .masthead__brand { flex: none; }
+  .masthead__nav { gap: 0; flex-wrap: nowrap; }
+  .masthead__link { padding-inline: var(--space-1); min-block-size: 44px; }
   @media (max-width: 480px) {
     .masthead__link--source { display: none; }
+    .masthead__brand .tld { display: none; }
   }
   .langpick__list { max-inline-size: calc(100vw - var(--space-4)); }
 
@@ -632,7 +630,8 @@ html:has(> body.embed) { block-size: 100%; }
      .map--hero instead. The shell no longer fixes its own height too — a
      fixed-height shell clipped the static, in-flow scale below the map. */
   .map-shell:has(.map--hero) { block-size: auto; max-block-size: none; }
-  .map--hero { aspect-ratio: auto; block-size: 58svh; min-block-size: 18rem; }
+  .map--hero { aspect-ratio: auto; block-size: calc(100svh - 11rem); min-block-size: 20rem; max-block-size: 44rem; }
+  .map--wide { block-size: calc(100svh - 15rem); min-block-size: 18rem; }
 
   /* Row instead of column, reversed: the DOM runs high to low, and a phone
      row must read low to high, left to right. */
@@ -673,7 +672,13 @@ html:has(> body.embed) { block-size: 100%; }
   .map-play__scrub { flex: 1 1 100%; inline-size: auto; }
   .map-play__note { max-inline-size: none; }
 
-  h1 { font-size: var(--text-section); }
+  /* Hero: title stays (h1), tagline restates the masthead and goes. */
+  .page-head--compact { padding-block: var(--space-2); }
+  .page-head--compact h1 { font-size: var(--text-sub); margin: 0; }
+  .page-head--compact p { display: none; }
+  .page-head:not(.page-head--compact) { padding-block: var(--space-2) var(--space-1); }
+  .page-head:not(.page-head--compact) h1 { font-size: var(--text-sub); margin: 0; }
+  h1 { font-size: var(--text-sub); }
 }
 
 /* Landscape phone: the kit's width-derived budget goes negative under 416px
