@@ -638,6 +638,7 @@ html:has(> body.embed) { block-size: 100%; }
      row must read low to high, left to right. */
   .scale--onmap .scale__bands--vertical {
     display: flex; flex-direction: row-reverse; block-size: auto;
+    inline-size: 100%; padding-block-start: 16px;
   }
   .scale--onmap .scale__bands--vertical .scale__band {
     display: flex; flex-direction: column; align-items: flex-end;
@@ -659,8 +660,16 @@ html:has(> body.embed) { block-size: 100%; }
     background-image: var(--ramp-h, none);
   }
 
-  .map-freshness { flex-wrap: wrap; }
-  .map-play { flex-wrap: wrap; row-gap: var(--space-1); }
+  /* Static, not the desktop overlay: in flow below the scale, not on top of it. */
+  .map-freshness {
+    position: static; margin: var(--space-2) var(--gutter) 0;
+    flex-wrap: wrap;
+  }
+  .map-play {
+    flex-wrap: wrap; row-gap: var(--space-1);
+    block-size: auto; min-block-size: calc(1.75rem + 2 * var(--space-1));
+    padding-block: var(--space-1);
+  }
   .map-play__scrub { flex: 1 1 100%; inline-size: auto; }
   .map-play__note { max-inline-size: none; }
 
