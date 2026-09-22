@@ -524,3 +524,35 @@ describe('mountPlayer speed button', () => {
     expect(presses).toHaveLength(2)
   })
 })
+
+// The phone folds the whole replay row behind the play button: the sheet keys
+// off one class, so the class has to track "is there an animation loaded".
+describe('mountPlayer open state', () => {
+  const mountOpen = () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    return mountPlayer(host, { label: 'Time', playLabel: 'Play', pauseLabel: 'Pause', exitLabel: 'Now' })
+  }
+
+  it('starts collapsed', () => {
+    expect(mountOpen().root.classList.contains('map-play--open')).toBe(false)
+  })
+
+  it('opens when frames arrive and collapses when they go', () => {
+    const ui = mountOpen()
+    ui.show(3)
+    expect(ui.root.classList.contains('map-play--open')).toBe(true)
+    ui.show(0)
+    expect(ui.root.classList.contains('map-play--open')).toBe(false)
+  })
+
+  // The island's exit handler is async; the row must collapse on the press
+  // itself rather than a network round trip later.
+  it('collapses on the exit press, before the caller has run', () => {
+    const ui = mountOpen()
+    ui.show(3)
+    ui.onexit(() => {})
+    ui.exit.click()
+    expect(ui.root.classList.contains('map-play--open')).toBe(false)
+  })
+})

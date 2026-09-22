@@ -210,6 +210,9 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, sp
     for (const fn of scrubs) fn(Number(slider.value))
   })
   exit.addEventListener('click', () => {
+    // Collapse on the press: the island's exit handler is async, and the row
+    // must not stay open across a network round trip.
+    root.classList.remove('map-play--open')
     for (const fn of exits) fn()
   })
 
@@ -229,12 +232,15 @@ export function mountPlayer(frame, { label, playLabel, pauseLabel, exitLabel, sp
       note.hidden = !text
     },
     // All three together: any one of them on screen alone reads as a bug.
+    // The class says the same thing to the sheet, which folds the whole row
+    // behind the play button on a phone.
     show: (count) => {
       slider.max = String(Math.max(0, count - 1))
       slider.hidden = count <= 0
       clock.hidden = count <= 0
       speed.hidden = count <= 0
       exit.hidden = count <= 0
+      root.classList.toggle('map-play--open', count > 0)
     },
     at: (i, text) => {
       slider.value = String(i)

@@ -281,6 +281,35 @@ describe('mountWindow', () => {
     expect(ui.root.getAttribute('style')).toBe(null)
     expect(ui.button.getAttribute('style')).toBe(null)
   })
+
+  // The panel is the phone's home for the refresh controls: one overlay in the
+  // corner instead of two. The box is always built so a rotation back onto a
+  // phone has somewhere to put them; empty, the sheet hides it.
+  it('always builds a footer box inside the panel, empty unless given one', () => {
+    const { ui } = mount()
+    expect(ui.footer.className).toBe('map-window__footer')
+    expect(ui.footer.parentElement).toBe(ui.panel)
+    expect(ui.footer.children).toHaveLength(0)
+  })
+
+  it('appends a given footer inside the panel, after the options', () => {
+    const frame = document.createElement('div')
+    frame.id = 'map'
+    const refresh = document.createElement('p')
+    refresh.className = 'data-refresh'
+    document.body.append(frame, refresh)
+    const ui = mountWindow(frame, {
+      label: 'Window',
+      options: windowOptions(['Now', '24h', '48h', '7d']),
+      value: '',
+      footer: refresh,
+    })
+    expect(refresh.parentElement).toBe(ui.footer)
+    expect(ui.panel.contains(refresh)).toBe(true)
+    expect(ui.panel.lastElementChild).toBe(ui.footer)
+    expect(ui.panel.querySelector('fieldset').compareDocumentPosition(ui.footer))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
 })
 
 // The panel had a 12rem floor and no ceiling on its own content, so the

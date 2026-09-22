@@ -84,7 +84,8 @@ export function mountChrome(el, cfg) {
   // folds the key on a small screen wants it folded on the next page too.
   // matchMedia is missing under jsdom — absent means "not a phone" so the
   // desktop-default tests below run unmocked and unchanged.
-  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 672px)').matches
+  const phoneQuery = typeof matchMedia === 'function' ? matchMedia('(max-width: 672px)') : null
+  const phone = phoneQuery?.matches === true
   const legend = document.createElement('details')
   legend.className = LEGEND_CLASSES
   // Phones default folded (a stored choice still wins); desktop still defaults
@@ -97,6 +98,14 @@ export function mountChrome(el, cfg) {
     writeFlag(LEGEND_FOLD_KEY, legend.open)
   })
   shell.appendChild(legend)
+
+  // Fold without persisting; autoClosing makes the toggle listener skip writeFlag.
+  const closeLegend = () => {
+    if (!phone || !legend.open) return
+    autoClosing = true
+    legend.open = false
+    autoClosing = false
+  }
 
   // The key says which colour is worse; it cannot say what 25 µg/m³ IS, whose
   // rule that is, or where to read it. That belongs behind an (i), not on the
@@ -155,6 +164,14 @@ export function mountChrome(el, cfg) {
   // The averaging window. Built with the chrome and wired by mount(), which
   // owns what a pick costs — see lib/mapwindow.js on why it is a menu in the
   // bottom-left cluster rather than a select across the top of the map.
+  //
+  // The refresh controls ride inside its panel on a phone: they and the window
+  // button are two overlays in one corner, and a phone has room for one. The
+  // ISLAND HOST is what moves, not the `.data-refresh` it renders — that host
+  // is server-rendered and always here, while the Svelte island that fills it
+  // mounts on its own schedule.
+  const freshBox = el.closest('.map-shell')?.querySelector('.map-freshness') ?? null
+  const refreshBox = freshBox?.querySelector('[data-island="freshness"], .data-refresh') ?? null
   const windowMenu = mountWindow(el, {
     label: cfg.t.windowLabel,
     options: windowOptions(cfg.windowLabels),
@@ -162,8 +179,20 @@ export function mountChrome(el, cfg) {
     // Into the freshness pill's own box, so the two are one flex row: an
     // absolute offset here would be this file's guess at how wide that pill is,
     // and it is one icon wide on some pages and two on others.
-    host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
+    host: freshBox ?? el,
+    footer: phone && refreshBox ? refreshBox : undefined,
   })
+
+  // Rotation crosses the breakpoint without a page load, so the move is a
+  // listener rather than a one-off read. prepend: the pill led the corner row
+  // before the window button and the player were appended after it.
+  // Signal lets dispose() drop the listener so the chrome closure is not retained.
+  const live = new AbortController()
+  phoneQuery?.addEventListener?.('change', (e) => {
+    if (!refreshBox || !freshBox) return
+    if (e.matches) windowMenu.footer.appendChild(refreshBox)
+    else freshBox.prepend(refreshBox)
+  }, { signal: live.signal })
 
   // Third in the bottom-left cluster: refresh, then which window, then play.
   const player = mountPlayer(el, {
@@ -172,8 +201,15 @@ export function mountChrome(el, cfg) {
     pauseLabel: cfg.t.pauseLabel,
     exitLabel: cfg.t.exitLabel,
     speedLabel: cfg.t.speedLabel,
-    host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
+    host: freshBox ?? el,
   })
+
+  // Fold the key when the bar opens into the same corner; folded, not hidden (spec 7.4).
+  const showPlayer = player.show
+  player.show = (count) => {
+    showPlayer(count)
+    if (count > 0) closeLegend()
+  }
 
   // Two toggles about the SCREEN rather than about the basemap, listed above
   // the categories rather than smuggled in beside "Shops" as if they were one
@@ -326,16 +362,10 @@ export function mountChrome(el, cfg) {
     layersUI: layers,
     layerViews,
     locateButton,
-    // Phone only: the map shell calls this on movestart so the open key does
-    // not sit over the sensor the reader just panned to. Not a fold the
-    // reader chose, so it must not persist — autoClosing suppresses the
-    // toggle listener's writeFlag for this one open->closed transition.
-    closeLegend() {
-      if (!phone || !legend.open) return
-      autoClosing = true
-      legend.open = false
-      autoClosing = false
-    },
+    // Called on movestart and when the replay bar opens.
+    closeLegend,
+    // Removes the media-query listener.
+    dispose() { live.abort() },
     // Both halves move together: the disclosure is shown exactly when the
     // arrows are, so no caller can turn one on without the other.
     showWind(on, text) {

@@ -341,6 +341,131 @@ describe('mountChrome() folds the key by default on a phone', () => {
     expect(legend.open).toBe(false)
     expect(store.get(LEGEND_FOLD_KEY), 'auto-close must not persist').toBe('true')
   })
+
+  // The transport bar unfolds into the corner the open key covers. Folded, not
+  // hidden: the reader can unroll it again while the animation runs.
+  it('folds the key when the transport bar opens, and leaves it in the DOM', () => {
+    store.set(LEGEND_FOLD_KEY, 'true')
+    const { shell, el } = chromeFrame()
+    const chrome = mountChrome(el, readConfig(el))
+    const legend = shell.querySelector('details.scale')
+    expect(legend.open).toBe(true)
+
+    chrome.player.show(3)
+
+    expect(legend.open).toBe(false)
+    expect(legend.isConnected).toBe(true)
+    expect(store.get(LEGEND_FOLD_KEY), 'auto-close must not persist').toBe('true')
+  })
+
+  it('leaves the key alone when the bar collapses', () => {
+    store.set(LEGEND_FOLD_KEY, 'true')
+    const { shell, el } = chromeFrame()
+    const chrome = mountChrome(el, readConfig(el))
+    const legend = shell.querySelector('details.scale')
+
+    chrome.player.show(0)
+
+    expect(legend.open).toBe(true)
+  })
+})
+
+// The refresh pill and the window button are two overlays in the same corner.
+// A phone has room for one, so the pill moves into the window panel — and back
+// out again when the reader turns the phone, which is a media-query change
+// rather than a new page load.
+describe('mountChrome() hosts the refresh controls in the window panel on a phone', () => {
+  let listeners
+  let matches
+
+  const query = () => ({
+    get matches() { return matches },
+    media: '(max-width: 672px)',
+    // Honours the abort signal, as a real MediaQueryList does — otherwise
+    // dispose() could not be told apart from a listener that never fired.
+    addEventListener: (type, fn, opts) => {
+      if (type !== 'change') return
+      listeners.push(fn)
+      opts?.signal?.addEventListener('abort', () => {
+        const i = listeners.indexOf(fn)
+        if (i >= 0) listeners.splice(i, 1)
+      })
+    },
+    removeEventListener() {},
+  })
+
+  const flipTo = (yes) => {
+    matches = yes
+    for (const fn of listeners) fn({ matches: yes })
+  }
+
+  const freshFrame = () => {
+    const shell = document.createElement('div')
+    shell.className = 'map-shell'
+    const el = document.createElement('div')
+    el.className = 'map'
+    const fresh = document.createElement('div')
+    fresh.className = 'map-freshness'
+    // The island host, as the templates render it: Svelte fills it in later,
+    // so moving the host is what keeps the move race-free on a real page.
+    const island = document.createElement('div')
+    island.dataset.island = 'freshness'
+    const refresh = document.createElement('p')
+    refresh.className = 'data-refresh'
+    island.appendChild(refresh)
+    fresh.appendChild(island)
+    shell.append(el, fresh)
+    document.body.appendChild(shell)
+    return { shell, el, fresh, island, refresh }
+  }
+
+  beforeEach(() => {
+    listeners = []
+    matches = true
+    vi.stubGlobal('matchMedia', query)
+  })
+
+  it('moves the refresh controls into the panel at mount', () => {
+    const { el, fresh, refresh } = freshFrame()
+    const { windowMenu } = mountChrome(el, readConfig(el))
+    expect(windowMenu.panel.contains(refresh)).toBe(true)
+    expect(refresh.closest('.map-window__footer')).toBe(windowMenu.footer)
+    // Still under .map-freshness — the whole menu is — but no longer a child
+    // of it, which is what the corner row lays out.
+    expect([...fresh.children].some((c) => c.contains(refresh) && c !== windowMenu.root)).toBe(false)
+  })
+
+  it('puts them back when the query stops matching, and takes them again when it does', () => {
+    const { el, fresh, island, refresh } = freshFrame()
+    const { windowMenu } = mountChrome(el, readConfig(el))
+
+    flipTo(false)
+    expect(windowMenu.panel.contains(refresh)).toBe(false)
+    // Ahead of the window button and the player, which were appended after it.
+    expect(fresh.firstElementChild).toBe(island)
+
+    flipTo(true)
+    expect(windowMenu.panel.contains(refresh)).toBe(true)
+  })
+
+  it('drops the listener on dispose, so a later flip moves nothing', () => {
+    const { el, fresh, island } = freshFrame()
+    const chrome = mountChrome(el, readConfig(el))
+    chrome.dispose()
+
+    flipTo(false)
+
+    expect(chrome.windowMenu.footer.contains(island)).toBe(true)
+    expect(fresh.firstElementChild).not.toBe(island)
+  })
+
+  it('leaves the pill in the corner on a desktop width', () => {
+    matches = false
+    const { el, fresh, island } = freshFrame()
+    const { windowMenu } = mountChrome(el, readConfig(el))
+    expect(island.parentElement).toBe(fresh)
+    expect(windowMenu.footer.children).toHaveLength(0)
+  })
 })
 
 // Where the key and the tier line LAND is load-bearing, not decoration, and
