@@ -14,9 +14,8 @@ function render(props) {
 }
 
 describe('RefreshButton.svelte', () => {
-  // The toolbar dress wraps the word in its own span so the phone layout can
-  // clip it visually (app.css .toolbar__refresh .btn__label) without taking
-  // the accessible name away from the button.
+  // Toolbar dress wraps the word in its own span so app.css can clip it on
+  // phone (.toolbar__refresh .btn__label) without touching the accessible name.
   it('wraps the toolbar label in .btn__label', () => {
     const target = render({ label: 'Обнови', variant: 'toolbar', onrefresh: () => {} })
     const btn = target.querySelector('button')
