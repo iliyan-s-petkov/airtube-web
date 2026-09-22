@@ -3,14 +3,16 @@
   // Same classes and the same SVG presentation attributes — style-src is 'self'
   // with no 'unsafe-inline', so a style attribute would be dropped and the arc
   // would never paint.
+  import { splitReadoutLabel } from '../lib/readoutLabel.js'
   let { cards } = $props()
 </script>
 
 <div class="readouts">
   {#each cards as card (card.label + '|' + (card.group ?? ''))}
+    {@const split = splitReadoutLabel(card.label, card.metric)}
     <div class="readout card">
       {#if card.group}<span class="readout__group">{card.group}</span>{/if}
-      <span class="readout__label">{card.label}</span>
+      <span class="readout__label">{#if split.position === 'prefix'}<span class="readout__metric">{split.metric}{' · '}</span>{split.rest}{:else if split.position === 'suffix'}{split.rest}<span class="readout__metric">{' · '}{split.metric}</span>{:else}{split.rest}{/if}</span>
       {#if card.gauge}
         <span class="gauge">
           <svg class="gauge__dial" viewBox="0 0 36 36" aria-hidden="true" focusable="false">

@@ -211,7 +211,7 @@
 {{define "readouts"}}<div class="readouts">
 {{range .}}  <div class="readout card">
 {{with .Group}}    <span class="readout__group">{{.}}</span>
-{{end}}    <span class="readout__label">{{.Label}}</span>
+{{end}}    <span class="readout__label">{{with readoutMetric .Label}}<span class="readout__metric">{{.}} · </span>{{end}}{{readoutRest .Label}}</span>
 {{if .Gauge}}    {{/* SVG presentation attributes, not an inline style: style-src is
          'self' with no 'unsafe-inline', so a style attribute would be dropped
          and the arc would never paint. pathLength=100 makes the dash array the
