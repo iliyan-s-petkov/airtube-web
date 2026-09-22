@@ -13,7 +13,7 @@ import { placeVisitor } from '../placement.js'
 import { clearCache } from '../api.js'
 import { resetViewStateForTests } from '../viewstate.svelte.js'
 import { setSourceEnabled, resetSourceFilterForTests } from '../sourcefilter.svelte.js'
-import { POINT_TIER_MIN_ZOOM } from '../hexes.js'
+import { POINT_TIER_MIN_ZOOM, resolutionForZoom } from '../hexes.js'
 import { HEX_SOURCE_ID } from '../mapids.js'
 
 // The no-data colour is configuration now (arrives as a data-* attribute), not
@@ -860,12 +860,14 @@ describe('viewport-aware hex tier', () => {
   const hexCfg = { metric: 'P2', noDataColour: '#cccccc' }
   const body = { resolution_km: 15, hexes: [{ lon: 23.32, lat: 42.65, n: 4, values: { P2: 5 } }] }
 
-  function widthMap(width) {
+  function widthMap(width, zoom = 7) {
+    const painted = []
     return {
       width,
-      getZoom: () => 7,
+      painted,
+      getZoom: () => zoom,
       getBounds: () => ({ getWest: () => 22.5, getSouth: () => 42.0, getEast: () => 24.5, getNorth: () => 43.5 }),
-      getSource: () => ({ setData: () => {} }),
+      getSource: () => ({ setData: (d) => painted.push(d) }),
       getContainer() { return { clientWidth: this.width } },
     }
   }
@@ -880,6 +882,38 @@ describe('viewport-aware hex tier', () => {
 
     expect(fetchJSON.mock.calls[0][0]).toContain('resolution_km=14.3531')
     expect(fetchJSON.mock.calls[1][0]).toContain('resolution_km=28.7061')
+  })
+
+  // The point tier is the one tier with a reading printed inside the cell, and
+  // its size comes from the zoom rather than from the body. Halving it there
+  // would put a two- or three-character number in an 18 px hexagon.
+  it('draws the point tier at the desktop size on a phone', async () => {
+    const points = { resolution_km: 0, hexes: [{ lon: 23.36, lat: 42.66, sensor_id: 7, n: 1, values: { P2: 5 } }] }
+    const fetchJSON = vi.fn(async () => points)
+    const phone = widthMap(390, POINT_TIER_MIN_ZOOM)
+    const desktop = widthMap(1400, POINT_TIER_MIN_ZOOM)
+
+    await refreshHexes(phone, { scales: [], hexUrl: null, hexBody: null }, hexCfg, fetchJSON)
+    await refreshHexes(desktop, { scales: [], hexUrl: null, hexBody: null }, hexCfg, fetchJSON)
+
+    const span = (map) => {
+      const xs = map.painted[0].features[0].geometry.coordinates[0].map((c) => c[0])
+      return Math.max(...xs) - Math.min(...xs)
+    }
+    expect(span(phone)).toBeCloseTo(span(desktop), 9)
+  })
+
+  // The grid tiers still follow the width — that is the whole feature, and the
+  // exception above is only the tier that carries a label.
+  it('still asks for the phone tier at a grid zoom', async () => {
+    const fetchJSON = vi.fn(async () => body)
+    const phone = widthMap(390, POINT_TIER_MIN_ZOOM - 1)
+
+    await refreshHexes(phone, { scales: [], hexUrl: null, hexBody: null }, hexCfg, fetchJSON)
+
+    const asked = Number(new URL(fetchJSON.mock.calls[0][0], 'http://x').searchParams.get('resolution_km'))
+    expect(asked).toBeCloseTo(resolutionForZoom(POINT_TIER_MIN_ZOOM - 1, 390), 4)
+    expect(asked).not.toBeCloseTo(resolutionForZoom(POINT_TIER_MIN_ZOOM - 1), 4)
   })
 
   it('reads the width on every call rather than once', async () => {

@@ -360,9 +360,12 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
   // the one the URL describes. That is what keeps the grid on screen past the
   // finest published cell instead of collapsing it into marks hidden under the
   // sensor markers.
+  //
+  // At the desktop size on every width: this is the tier with a reading printed
+  // inside the cell, and the phone target would put that number in 18 px.
   const features = hexFeatures(
     state.hexBody, cfg.metric, bands, cfg.noDataColour, rampColour,
-    resolutionForZoom(Math.round(map.getZoom()), mapInlineSize(map)), getSources(),
+    resolutionForZoom(Math.round(map.getZoom())), getSources(),
   )
   // The same filter the markers answer to. The grid is the tier that covers the
   // country, so leaving it out made "hide inactive sensors" a control with no

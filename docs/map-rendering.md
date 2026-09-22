@@ -33,6 +33,10 @@ player asks with the same zoom and width, so its cells match the live grid down
 to the 2 km floor of `TimelapseTiersKM` (`internal/snapshot/timelapse.go`),
 below which the replay stays at 2 km whatever the live grid does.
 
+The point tier is the exception: it is drawn at the desktop size on every width,
+because it is the one tier with a reading printed inside the cell and the phone
+target would put that number in an 18 px hexagon.
+
 Only the grid resolution follows the width. `GRID_MIN_ZOOM` and
 `POINT_TIER_MIN_ZOOM` stay on the desktop target, and `hexesURL` hands over to
 the point tier on the zoom rather than on this width's resolution: the layer
