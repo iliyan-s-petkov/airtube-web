@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   resolutionForZoom,
   targetHexPx,
-  pointTierMinZoom,
   PHONE_BREAKPOINT_PX,
   hexesURL,
   bboxParam,
@@ -898,9 +897,11 @@ describe('the official cell shape', () => {
 // The viewport-aware tier. A phone gets half the desktop target, so it gets
 // the next finer tier at the same zoom and about twice the cells across.
 describe('targetHexPx', () => {
-  it('halves the target below the phone breakpoint and not at it', () => {
-    expect(targetHexPx(PHONE_BREAKPOINT_PX - 1)).toBe(TARGET_HEX_PX / 2)
-    expect(targetHexPx(PHONE_BREAKPOINT_PX)).toBe(TARGET_HEX_PX)
+  // Inclusive, like the (max-width: 672px) query the chrome switches on: the
+  // two must call the same screen a phone.
+  it('halves the target at the phone breakpoint and not above it', () => {
+    expect(targetHexPx(PHONE_BREAKPOINT_PX)).toBe(TARGET_HEX_PX / 2)
+    expect(targetHexPx(PHONE_BREAKPOINT_PX + 1)).toBe(TARGET_HEX_PX)
     expect(targetHexPx(390)).toBe(TARGET_HEX_PX / 2)
   })
 
@@ -931,17 +932,23 @@ describe('hexesURL at a phone width', () => {
     expect(res(7, 390)).toBe('14.3531')
   })
 
-  // The point tier is where a requested cell is finer than anything published,
-  // so the halved target reaches it a zoom sooner, not later.
-  it('reaches the point tier one zoom before the desktop does', () => {
-    expect(pointTierMinZoom(390)).toBe(POINT_TIER_MIN_ZOOM - 1)
-    expect(res(POINT_TIER_MIN_ZOOM - 1, 390)).toBe('0')
+  // Only the grid resolution follows the width. The handover to devices is
+  // where the markers step aside and the hex labels appear, and those layer
+  // ranges are one desktop-derived zoom: a phone that switched a zoom earlier
+  // would draw device cells under the markers that were meant to make way.
+  it('hands over to the point tier at the same zoom on both widths', () => {
+    expect(res(POINT_TIER_MIN_ZOOM, 390)).toBe('0')
+    expect(res(POINT_TIER_MIN_ZOOM)).toBe('0')
+    expect(res(POINT_TIER_MIN_ZOOM - 1, 390)).not.toBe('0')
     expect(res(POINT_TIER_MIN_ZOOM - 1)).not.toBe('0')
   })
 
-  it('derives the phone point tier rather than stating it', () => {
-    expect(pointTierMinZoom()).toBe(POINT_TIER_MIN_ZOOM)
-    expect(resolutionForZoom(pointTierMinZoom(390), 390)).toBeLessThan(contract.hex.tiers_km.at(-1))
-    expect(resolutionForZoom(pointTierMinZoom(390) - 1, 390)).toBeGreaterThanOrEqual(contract.hex.tiers_km.at(-1))
+  // The zoom the width-aware target would have jumped at: the phone stays on
+  // the grid there and asks for a cell the server snaps to its finest tier.
+  it('asks for the finest grid, not devices, the zoom before the handover', () => {
+    const finest = contract.hex.tiers_km.at(-1)
+    expect(resolutionForZoom(POINT_TIER_MIN_ZOOM - 1, 390)).toBeLessThan(finest)
+    expect(Number(res(POINT_TIER_MIN_ZOOM - 1, 390)))
+      .toBeCloseTo(resolutionForZoom(POINT_TIER_MIN_ZOOM - 1, 390), 4)
   })
 })

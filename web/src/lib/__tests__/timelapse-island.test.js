@@ -6,7 +6,7 @@ import { installTimelapse } from '../timelapse-island.js'
 import { refreshHexes } from '../mapdata.js'
 import { hexLabelPaint, CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY } from '../mappaint.js'
 import { PLAY_SPEED_KEY } from '../mapconfig.js'
-import { resolutionForZoom } from '../hexes.js'
+import { resolutionForZoom, hexesURL } from '../hexes.js'
 import { mountPlayer, FRAME_MS } from '../timelapse.js'
 
 // The animation is the hex layer with a past hour's numbers in it. These fix
@@ -19,7 +19,7 @@ describe('installTimelapse', () => {
     frames: [{ t: '2026-09-08T06:00:00Z', v: [10] }, { t: '2026-09-08T07:00:00Z', v: [20] }],
   }
 
-  function harness(fetchJSON, t, storage) {
+  function harness(fetchJSON, t, storage, width) {
     const painted = []
     let zoom = 12
     const zoomHandlers = []
@@ -30,6 +30,7 @@ describe('installTimelapse', () => {
       setZoom: (z) => { zoom = z; for (const fn of zoomHandlers) fn() },
       getBounds: () => ({ getWest: () => 23, getSouth: () => 42, getEast: () => 24, getNorth: () => 43 }),
       getSource: () => ({ setData: (d) => painted.push(d) }),
+      getContainer: () => (width ? { clientWidth: width } : undefined),
       on: (evt, fn) => { if (evt === 'zoom') zoomHandlers.push(fn) },
       off: (evt, fn) => {
         if (evt !== 'zoom') return
@@ -787,6 +788,22 @@ describe('installTimelapse', () => {
     await vi.waitFor(() => expect(asked).toHaveLength(1))
     const url = new URL(asked[0], 'http://x')
     expect(Number(url.searchParams.get('resolution_km'))).toBeCloseTo(resolutionForZoom(12), 4)
+    ui.button.click()
+  })
+
+  // The live grid halves its target on a phone, so a replay that kept the
+  // desktop tier would swap in cells twice the size of the ones on screen.
+  it('asks for the same tier the live grid asks for at a phone width', async () => {
+    const asked = []
+    const { ui } = harness(async (url) => { asked.push(url); return BODY }, undefined, undefined, 390)
+
+    ui.button.click()
+    await vi.waitFor(() => expect(asked).toHaveLength(1))
+    const replay = new URL(asked[0], 'http://x').searchParams.get('resolution_km')
+    const live = new URL(hexesURL(12, null, 390), 'http://x').searchParams.get('resolution_km')
+    expect(Number(replay)).toBeCloseTo(Number(live), 4)
+    expect(Number(replay)).toBeCloseTo(resolutionForZoom(12, 390), 4)
+    expect(Number(replay)).not.toBeCloseTo(resolutionForZoom(12), 4)
     ui.button.click()
   })
 

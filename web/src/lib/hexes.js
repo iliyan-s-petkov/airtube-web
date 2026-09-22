@@ -15,14 +15,15 @@ const HEX_REF_LAT = contract.hex.ref_lat
 export const TARGET_HEX_PX = 32
 
 // The map's phone width, matching the (max-width: 672px) breakpoint the chrome
-// uses. Exclusive here, inclusive in CSS: 672 px exactly is the desktop target.
+// switches on. Inclusive on both sides, so neither calls 672 px the other kind
+// of screen.
 export const PHONE_BREAKPOINT_PX = 672
 
 // The target for a given map width. A phone shows a third of the desktop's
 // pixels, so the desktop target leaves ~4 cells across the screen; halving it
 // buys twice the cells at the same zoom. An unknown width is desktop.
 export function targetHexPx(inlineSize = Infinity) {
-  return inlineSize < PHONE_BREAKPOINT_PX ? TARGET_HEX_PX / 2 : TARGET_HEX_PX
+  return inlineSize <= PHONE_BREAKPOINT_PX ? TARGET_HEX_PX / 2 : TARGET_HEX_PX
 }
 
 // Metres per pixel at zoom 0 at the reference latitude — the standard Web
@@ -54,15 +55,14 @@ export const POINT_RESOLUTION_KM = contract.hex.point_resolution_km
 // carry it themselves, so the markers step aside rather than sit labelled and
 // off-centre inside a labelled cell.
 //
-// Per map width, since the wanted resolution is: a phone asks for half the
-// ground distance and so runs past the finest published tier a zoom sooner.
-export function pointTierMinZoom(inlineSize = Infinity) {
+// One zoom for every width, deliberately: the layer ranges built from it are
+// fixed at load, so a phone handing over earlier would draw device cells under
+// the markers that were meant to make way. Only the grid resolution halves.
+export const POINT_TIER_MIN_ZOOM = (() => {
   let z = 0
-  while (resolutionForZoom(z, inlineSize) >= FINEST_TIER_KM) z++
+  while (resolutionForZoom(z) >= FINEST_TIER_KM) z++
   return z
-}
-
-export const POINT_TIER_MIN_ZOOM = pointTierMinZoom()
+})()
 
 // The COARSEST cell the server publishes, in km — the first entry of
 // contract.hex.tiers_km, for the same reason FINEST_TIER_KM reads from it too.
@@ -155,7 +155,11 @@ export function hexesURL(zoom, bounds, inlineSize = Infinity) {
   // cannot become a national device registry — and a request we know will 400
   // is not worth sending. Without a box we ask for the finest grid instead,
   // which is still a map.
-  if (res < FINEST_TIER_KM && bbox) {
+  //
+  // The zoom, not this width's resolution: POINT_TIER_MIN_ZOOM is where the
+  // marker and label layers hand over, and those ranges are the same on a
+  // phone. A phone below it asks for a finer grid the server snaps to 0.25 km.
+  if (z >= POINT_TIER_MIN_ZOOM && bbox) {
     return `/api/v1/hexes?${new URLSearchParams({
       resolution_km: String(POINT_RESOLUTION_KM), bbox,
     })}`

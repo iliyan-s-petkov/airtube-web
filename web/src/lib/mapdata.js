@@ -302,7 +302,7 @@ export function setSourceViewAvailability(chrome, metric, t, coverage) {
 
 // The map's own width, read fresh on every call: a rotation changes it long
 // after module load. Unknown (a test double, a detached map) reads as desktop.
-function inlineSize(map) {
+export function mapInlineSize(map) {
   return map.getContainer?.()?.clientWidth || Infinity
 }
 
@@ -310,9 +310,9 @@ function inlineSize(map) {
 // the only resize that changes which tier refreshHexes asks for. resize fires
 // on every frame of an orientation change; the rest are repaints, not requests.
 export function watchHexTier(map, onChange) {
-  let tier = targetHexPx(inlineSize(map))
+  let tier = targetHexPx(mapInlineSize(map))
   const onResize = () => {
-    const next = targetHexPx(inlineSize(map))
+    const next = targetHexPx(mapInlineSize(map))
     if (next === tier) return
     tier = next
     onChange()
@@ -341,7 +341,7 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
   // The window rides on the URL, so it is also what makes the dedup below let a
   // window change through: the same viewport under a different window is a
   // different URL, and therefore a fetch rather than a repaint.
-  const url = withWindow(hexesURL(map.getZoom(), map.getBounds?.(), inlineSize(map)), state.window)
+  const url = withWindow(hexesURL(map.getZoom(), map.getBounds?.(), mapInlineSize(map)), state.window)
   if (url !== state.hexUrl) {
     // A pan superseded by another pan is answering a viewport the reader has
     // already left: cancel it rather than let it finish and be discarded.
@@ -377,7 +377,7 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
   // sensor markers.
   const features = hexFeatures(
     state.hexBody, cfg.metric, bands, cfg.noDataColour, rampColour,
-    resolutionForZoom(Math.round(map.getZoom()), inlineSize(map)), getSources(),
+    resolutionForZoom(Math.round(map.getZoom()), mapInlineSize(map)), getSources(),
   )
   // The same filter the markers answer to. The grid is the tier that covers the
   // country, so leaving it out made "hide inactive sensors" a control with no
