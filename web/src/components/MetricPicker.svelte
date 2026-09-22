@@ -55,7 +55,7 @@
     aria-expanded={open}
     aria-controls="{id}-panel"
     onclick={() => { open = !open }}
-  >{legend}: {chosen.join(', ')}</button>
+  ><span class="colmenu__legend">{legend}:</span>{' '}{chosen.join(', ')}</button>
   <div class="colmenu__panel" id="{id}-panel" hidden={!open}>
     <fieldset>
       <legend>{legend}</legend>
