@@ -18,11 +18,20 @@ middle, and `hexes.test.js` pins both limits.
 Lowering it costs bandwidth — a finer tier means more bins in the response.
 
 A map 672 px wide or narrower gets half that target (`targetHexPx`), matching
-the `(max-width: 672px)` breakpoint the chrome uses, because 32 px cells leave a
-phone about four across the screen where a desktop gets thirteen. The width
-comes from `map.getContainer().clientWidth` on every call, and a resize that
-crosses the breakpoint refetches (`watchHexTier`), so a rotation asks again. The
-replay player asks with the same pair, so its cells match the live grid.
+the `(max-width: 672px)` breakpoint the chrome uses. Not because the cells were
+too big — at z7 the 32 px target is served by the 25 km tier and draws at 28 px
+on any screen — but because a phone holds a third of the ground, so it gets a
+third of the cells: 14 across a 390 px screen where a 1400 px desktop gets 50.
+Halving asks one tier finer (15 km at z7, 1 km at z11), which puts 23 cells
+across the phone at 17 px each — above the 8 px floor below, and below the zoom
+where a cell has to hold a printed reading.
+
+The width comes from `map.getContainer().clientWidth` on every call, so a
+rotation asks again: MapLibre's `resize()` fires `movestart`/`move`/`moveend`
+itself, and the debounced `moveend` refresh already rebuilds the URL. The replay
+player asks with the same zoom and width, so its cells match the live grid down
+to the 2 km floor of `TimelapseTiersKM` (`internal/snapshot/timelapse.go`),
+below which the replay stays at 2 km whatever the live grid does.
 
 Only the grid resolution follows the width. `GRID_MIN_ZOOM` and
 `POINT_TIER_MIN_ZOOM` stay on the desktop target, and `hexesURL` hands over to

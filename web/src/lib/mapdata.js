@@ -8,7 +8,7 @@ import { setSensors, setScales } from './sensors.svelte.js'
 import { setMapAreas } from './mapareas.svelte.js'
 import { withWindow } from './mapwindow.js'
 import {
-  hexesURL, hexFeatures, resolutionForZoom, targetHexPx,
+  hexesURL, hexFeatures, resolutionForZoom,
   POINT_TIER_MIN_ZOOM_FRACTIONAL,
 } from './hexes.js'
 import { rampColour } from './ramp.js'
@@ -304,21 +304,6 @@ export function setSourceViewAvailability(chrome, metric, t, coverage) {
 // after module load. Unknown (a test double, a detached map) reads as desktop.
 export function mapInlineSize(map) {
   return map.getContainer?.()?.clientWidth || Infinity
-}
-
-// watchHexTier calls back when a resize crosses the phone breakpoint, which is
-// the only resize that changes which tier refreshHexes asks for. resize fires
-// on every frame of an orientation change; the rest are repaints, not requests.
-export function watchHexTier(map, onChange) {
-  let tier = targetHexPx(mapInlineSize(map))
-  const onResize = () => {
-    const next = targetHexPx(mapInlineSize(map))
-    if (next === tier) return
-    tier = next
-    onChange()
-  }
-  map.on('resize', onResize)
-  return () => map.off?.('resize', onResize)
 }
 
 // refreshHexes fetches the hex grid for the current zoom and viewport and

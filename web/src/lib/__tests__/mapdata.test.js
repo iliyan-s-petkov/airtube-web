@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   debounce, loadScales, initData, refreshHexes, showArea, mapHint,
-  setSourceViewAvailability, metricNote, cellTier, urlFor, watchHexTier,
+  setSourceViewAvailability, metricNote, cellTier, urlFor,
 } from '../mapdata.js'
 import { hintController } from '../chrome.js'
 import { placeVisitor } from '../placement.js'
@@ -854,19 +854,15 @@ describe('cellTier', () => {
 })
 
 // The hex tier follows the map's own width, not the window's and not a value
-// read once at module load: a rotation changes it while the module stays put.
+// read once at module load. A rotation goes through moveend like any other
+// camera change: MapLibre's resize() fires movestart/move/moveend itself.
 describe('viewport-aware hex tier', () => {
   const hexCfg = { metric: 'P2', noDataColour: '#cccccc' }
   const body = { resolution_km: 15, hexes: [{ lon: 23.32, lat: 42.65, n: 4, values: { P2: 5 } }] }
 
   function widthMap(width) {
-    const handlers = {}
     return {
-      handlers,
       width,
-      on: (ev, fn) => { (handlers[ev] ??= []).push(fn) },
-      off: (ev, fn) => { handlers[ev] = (handlers[ev] ?? []).filter((h) => h !== fn) },
-      fire: (ev) => { for (const fn of handlers[ev] ?? []) fn() },
       getZoom: () => 7,
       getBounds: () => ({ getWest: () => 22.5, getSouth: () => 42.0, getEast: () => 24.5, getNorth: () => 43.5 }),
       getSource: () => ({ setData: () => {} }),
@@ -897,39 +893,5 @@ describe('viewport-aware hex tier', () => {
 
     expect(fetchJSON).toHaveBeenCalledTimes(2)
     expect(fetchJSON.mock.calls[1][0]).toContain('resolution_km=14.3531')
-  })
-
-  // resize fires on every frame of an orientation change; only the frames that
-  // cross the breakpoint ask for different data.
-  it('refetches on resize only when the tier changed', () => {
-    const map = widthMap(1400)
-    const onChange = vi.fn()
-    watchHexTier(map, onChange)
-
-    map.width = 1200
-    map.fire('resize')
-    expect(onChange).not.toHaveBeenCalled()
-
-    map.width = 390
-    map.fire('resize')
-    expect(onChange).toHaveBeenCalledTimes(1)
-
-    map.width = 360
-    map.fire('resize')
-    expect(onChange).toHaveBeenCalledTimes(1)
-
-    map.width = 800
-    map.fire('resize')
-    expect(onChange).toHaveBeenCalledTimes(2)
-  })
-
-  it('stops listening when its teardown is called', () => {
-    const map = widthMap(1400)
-    const onChange = vi.fn()
-    watchHexTier(map, onChange)()
-
-    map.width = 390
-    map.fire('resize')
-    expect(onChange).not.toHaveBeenCalled()
   })
 })

@@ -19,9 +19,8 @@ export const TARGET_HEX_PX = 32
 // of screen.
 export const PHONE_BREAKPOINT_PX = 672
 
-// The target for a given map width. A phone shows a third of the desktop's
-// pixels, so the desktop target leaves ~4 cells across the screen; halving it
-// buys twice the cells at the same zoom. An unknown width is desktop.
+// A phone holds a third of the ground, so halving the target asks one tier
+// finer: at z7, 15 km not 25 — 23 cells across at 17 px, not 14 at 28.
 export function targetHexPx(inlineSize = Infinity) {
   return inlineSize <= PHONE_BREAKPOINT_PX ? TARGET_HEX_PX / 2 : TARGET_HEX_PX
 }
