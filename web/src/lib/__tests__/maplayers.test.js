@@ -66,6 +66,17 @@ describe('mountLayers', () => {
     expect(ui.button.querySelector('svg').getAttribute('aria-hidden')).toBe('true')
   })
 
+  // The caret hints that the button opens options; decorative, so it must not
+  // add to the button's accessible name.
+  it('shows exactly one aria-hidden caret, last in the button', () => {
+    const el = frame()
+    const ui = mountLayers(el, { label: 'Layers' })
+    const carets = ui.button.querySelectorAll('.colmenu__caret')
+    expect(carets.length).toBe(1)
+    expect(carets[0].getAttribute('aria-hidden')).toBe('true')
+    expect(ui.button.lastElementChild).toBe(carets[0])
+  })
+
   it('points aria-controls at the panel it actually owns', () => {
     const el = frame()
     const ui = mountLayers(el, { label: 'Layers' })
@@ -370,15 +381,17 @@ it('writes only classes the kit defines', () => {
     }
   }
   expect([...used].sort()).toEqual([
-    'btn--icon', 'colmenu__btn', 'colmenu__opt', 'colmenu__opt--view', 'colmenu__panel', 'map__layers',
+    'btn--icon', 'colmenu__btn', 'colmenu__caret', 'colmenu__opt', 'colmenu__opt--view', 'colmenu__panel',
+    'map__layers',
   ])
 
   // btn--icon and colmenu__opt--view carry no rule in the kit either: both are
   // the kit's own hooks, written by its map-layers.js and kept here for parity
-  // rather than invented, and named as the exceptions so they cannot quietly
-  // grow company.
+  // rather than invented. colmenu__caret is site-only, ruled in app.css, not
+  // the kit. All three are named as exceptions so they cannot quietly grow
+  // company.
   for (const c of used) {
-    if (c === 'btn--icon' || c === 'colmenu__opt--view') continue
+    if (c === 'btn--icon' || c === 'colmenu__opt--view' || c === 'colmenu__caret') continue
     expect(css, `${c} missing from components.css`).toContain(`.${c}`)
   }
 })
