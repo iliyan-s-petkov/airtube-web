@@ -106,12 +106,14 @@ describe('renderLegend', () => {
     expect(el.querySelector('.scale__none').textContent).toBe('Недостатъчно данни')
   })
 
-  // The summary is icon-only — the triangle already says what it does — and an
-  // icon-only control still has to be announced as something.
-  it('names the fold, which carries no text of its own', () => {
+  // Icon-only on desktop (app.css hides .scale__toggle-label there), and an
+  // icon-only control still has to be announced as something — aria-label.
+  // On a phone the same span becomes the folded pill's own visible name.
+  it('names the fold via aria-label, and carries the metric label in a span for phones', () => {
     const toggle = draw().querySelector('summary')
-    expect(toggle.textContent).toBe('')
     expect(toggle.getAttribute('aria-label')).toBe('Легенда')
+    const label = toggle.querySelector('.scale__toggle-label')
+    expect(label.textContent).toBe('Качество на въздуха')
   })
 
   // The bar is drawn, and it is drawn from THESE bands — the kit mockup's own
@@ -185,7 +187,7 @@ describe('renderLegend', () => {
       'scale', 'scale--named', 'scale--onmap', 'scale--progressive', 'scale--vertical',
       'scale__band', 'scale__band-edge', 'scale__band-name', 'scale__band-swatch',
       'scale__bands', 'scale__bands--vertical', 'scale__bar', 'scale__info',
-      'scale__label', 'scale__none', 'scale__toggle',
+      'scale__label', 'scale__none', 'scale__toggle', 'scale__toggle-label',
     ])
     for (const c of emitted) {
       expect(css, `components.css defines no .${c}`).toMatch(new RegExp(`\\.${c}\\b`))

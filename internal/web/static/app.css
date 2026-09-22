@@ -237,6 +237,8 @@ strong, b { font-weight: var(--weight-emphasis); }
   inline-size: 1px; block-size: 1px;
   overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
+/* Named for a folded phone pill only; the desktop toggle stays icon-only. */
+.scale__toggle-label { display: none; }
 /* The kit hangs a menu panel from its button's END edge, which is right for the
    Колони menu — that one sits at the right end of the table's controls. The
    metric menu is the FIRST control on the row, so an end-anchored panel wider
@@ -679,10 +681,26 @@ html:has(> body.embed) { block-size: 100%; }
     inset-inline-start: var(--space-2); inset-inline-end: auto; z-index: 2;
     max-inline-size: calc(100% - 7rem);
   }
+  /* Open, the key needs a real width or it shrink-wraps to whatever content
+     happened to render (prod: 119x169). Folded stays shrink-wrapped, and
+     rides above .map-freshness rather than under it. */
+  .map-shell .scale--onmap[open] {
+    inline-size: calc(100% - 7rem); z-index: 4;
+  }
+  /* Folded, the toggle IS the pill — the 44px floor replaces the kit's 24px
+     icon square. */
+  .scale--onmap:not([open]) .scale__toggle {
+    min-block-size: 44px; inline-size: auto; padding-inline: var(--space-2);
+  }
   /* Folded, the toggle is the metric name plus a ramp swatch. */
   .scale--onmap:not([open]) .scale__toggle::after {
     content: ''; inline-size: 60px; block-size: 8px; border-radius: var(--radius-sm);
     background-image: var(--ramp-h, none);
+  }
+  /* Sits between the kit's ::before triangle and the ::after ramp swatch by
+     DOM order alone; the margins are just breathing room. */
+  .scale--onmap:not([open]) .scale__toggle-label {
+    display: inline; margin-inline: var(--space-1);
   }
 
   /* Every overlay button is a real touch target, not the kit's 32px square. */

@@ -82,10 +82,20 @@ export function mountChrome(el, cfg) {
   // control from the layers menu's "Legend": the menu says whether there is a
   // key at all, the triangle says whether it is unrolled, and a reader who
   // folds the key on a small screen wants it folded on the next page too.
+  // matchMedia is missing under jsdom — absent means "not a phone" so the
+  // desktop-default tests below run unmocked and unchanged.
+  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 672px)').matches
   const legend = document.createElement('details')
   legend.className = LEGEND_CLASSES
-  legend.open = readFlag(LEGEND_FOLD_KEY, true)
-  legend.addEventListener('toggle', () => writeFlag(LEGEND_FOLD_KEY, legend.open))
+  // Phones default folded (a stored choice still wins); desktop still defaults
+  // open. autoClosing guards the toggle listener below so a programmatic
+  // close (map move) never overwrites a reader's stored preference.
+  legend.open = readFlag(LEGEND_FOLD_KEY, !phone)
+  let autoClosing = false
+  legend.addEventListener('toggle', () => {
+    if (autoClosing) return
+    writeFlag(LEGEND_FOLD_KEY, legend.open)
+  })
   shell.appendChild(legend)
 
   // The key says which colour is worse; it cannot say what 25 µg/m³ IS, whose
@@ -316,6 +326,16 @@ export function mountChrome(el, cfg) {
     layersUI: layers,
     layerViews,
     locateButton,
+    // Phone only: the map shell calls this on movestart so the open key does
+    // not sit over the sensor the reader just panned to. Not a fold the
+    // reader chose, so it must not persist — autoClosing suppresses the
+    // toggle listener's writeFlag for this one open->closed transition.
+    closeLegend() {
+      if (!phone || !legend.open) return
+      autoClosing = true
+      legend.open = false
+      autoClosing = false
+    },
     // Both halves move together: the disclosure is shown exactly when the
     // arrows are, so no caller can turn one on without the other.
     showWind(on, text) {

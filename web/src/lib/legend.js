@@ -118,6 +118,12 @@ export function renderLegend(el, { title, toggleLabel, bands, noData, info }) {
   const toggle = document.createElement('summary')
   toggle.className = 'scale__toggle'
   toggle.setAttribute('aria-label', toggleLabel)
+  // Hidden on desktop (app.css); shown folded on a phone, so the pill names
+  // itself instead of reading as a bare triangle. Same text as .scale__label.
+  const toggleName = document.createElement('span')
+  toggleName.className = 'scale__toggle-label'
+  toggleName.textContent = title
+  toggle.appendChild(toggleName)
   el.appendChild(toggle)
 
   const label = document.createElement('span')

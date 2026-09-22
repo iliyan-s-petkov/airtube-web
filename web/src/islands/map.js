@@ -154,6 +154,10 @@ export function mount(el) {
   installMapLoad({ map, state, cfg, chrome, vs, windState, boundaryState, onMoveEnd, subs })
 
   map.on('moveend', onMoveEnd)
+  // Phone-only inside chrome.closeLegend: an open key drawn over the sensor
+  // the reader just panned to. movestart, not moveend — close as the pan
+  // begins, not after the debounced repaint above.
+  map.on('movestart', () => chrome.closeLegend())
 
   // One layer, two kinds of feature (see sensorFeatures/areaFeatures): an
   // aggregate marker carries `slug` and clicking it is what selects an area

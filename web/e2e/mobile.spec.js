@@ -87,6 +87,38 @@ test.describe('phone layout does not widen the viewport', () => {
     }
     await page.close()
   })
+
+  // Folded by default on a phone (Task 5b); tapping it unfolds to a real
+  // width and rides above .map-freshness rather than under it.
+  test('/en legend pill: folded by default, full width and on top when open', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    const scale = page.locator('.scale--onmap')
+    await expect(scale).not.toHaveAttribute('open', '')
+    const toggle = page.locator('.scale__toggle')
+    await expect(toggle).toBeVisible()
+    // Retrying poll rather than a single boundingBox() read: a debounced
+    // repaint (moveend, once the opening jumpTo settles) can replace the
+    // legend's children between two separate round trips to the browser.
+    await expect.poll(async () => (await toggle.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(44)
+
+    await toggle.click()
+
+    await expect(scale).toHaveAttribute('open', '')
+    await expect.poll(async () => (await scale.boundingBox())?.width ?? 0)
+      .toBeGreaterThanOrEqual(250)
+    await expect.poll(async () => (await page.locator('.scale__bands--vertical').boundingBox())?.width ?? 0)
+      .toBeGreaterThanOrEqual(250)
+    const openBox = await scale.boundingBox()
+    const fresh = await page.locator('.map-freshness').boundingBox()
+    const scaleZ = await scale.evaluate((el) => Number(getComputedStyle(el).zIndex))
+    const freshZ = await page.locator('.map-freshness').evaluate((el) => Number(getComputedStyle(el).zIndex))
+    const scaleAboveFresh = openBox.y + openBox.height <= fresh.y || scaleZ > freshZ
+    expect(scaleAboveFresh).toBe(true)
+    await page.close()
+  })
 })
 
 test.describe('landscape phone keeps the map', () => {
