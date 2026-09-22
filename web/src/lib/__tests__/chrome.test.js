@@ -105,6 +105,14 @@ describe('the wind disclosure', () => {
     expect(summary.textContent.trim()).not.toBe('')
   })
 
+  it('carries the i18n text in a labelled span, so it can be hidden on phones without losing the (i)', () => {
+    const c = chrome()
+    c.showWind(true, 'Wind forecast · valid now')
+    const label = c.el.querySelector('.map-wind-label summary .map-wind-label__text-label')
+    expect(label).toBeTruthy()
+    expect(label.textContent.trim()).toBe('About the wind layer')
+  })
+
   it('goes away with the arrows, and comes back folded', () => {
     const c = chrome()
     c.showWind(true, 'Wind forecast · valid now')
@@ -275,6 +283,63 @@ describe('mountChrome() remembers whether the key is folded', () => {
     legend.open = true
     legend.dispatchEvent(new Event('toggle'))
     expect(store.get(LEGEND_FOLD_KEY)).toBe('true')
+  })
+})
+
+// Phone-only: a stubbed matchMedia stands in for the 672px breakpoint, since
+// jsdom has none of its own — the suite above relies on that absence to prove
+// desktop is untouched.
+describe('mountChrome() folds the key by default on a phone', () => {
+  const chromeFrame = () => {
+    const shell = document.createElement('div')
+    shell.className = 'map-shell'
+    const el = document.createElement('div')
+    el.className = 'map'
+    shell.appendChild(el)
+    document.body.appendChild(shell)
+    return { shell, el }
+  }
+
+  let store
+  beforeEach(() => {
+    store = new Map()
+    vi.stubGlobal('localStorage', {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    })
+    vi.stubGlobal('matchMedia', (query) => ({
+      matches: query.includes('672px'), media: query,
+      addEventListener() {}, removeEventListener() {},
+    }))
+  })
+
+  it('mounts closed with no stored flag', () => {
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    expect(shell.querySelector('details.scale').open).toBe(false)
+  })
+
+  it('mounts open when a reader stored true', () => {
+    store.set(LEGEND_FOLD_KEY, 'true')
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    expect(shell.querySelector('details.scale').open).toBe(true)
+  })
+
+  // The map itself dispatches movestart; chrome only exposes closeLegend for
+  // whoever holds the map instance (see islands/map.js).
+  it('closeLegend closes an open key without writing the fold flag', () => {
+    store.set(LEGEND_FOLD_KEY, 'true')
+    const { shell, el } = chromeFrame()
+    const chrome = mountChrome(el, readConfig(el))
+    const legend = shell.querySelector('details.scale')
+    expect(legend.open).toBe(true)
+
+    chrome.closeLegend()
+
+    expect(legend.open).toBe(false)
+    expect(store.get(LEGEND_FOLD_KEY), 'auto-close must not persist').toBe('true')
   })
 })
 
