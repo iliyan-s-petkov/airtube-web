@@ -70,6 +70,10 @@ test.describe('phone layout does not widen the viewport', () => {
     const box = await page.locator('.maplibregl-ctrl-attrib-button').boundingBox()
     expect(box.width).toBeGreaterThanOrEqual(44)
     expect(box.height).toBeGreaterThanOrEqual(44)
+    // The glyph is a 24px background-image; at a 44px target it tiled 2x2.
+    const repeat = await page.locator('.maplibregl-ctrl-attrib-button')
+      .evaluate((el) => getComputedStyle(el).backgroundRepeat)
+    expect(repeat).toBe('no-repeat')
     // The wind note stays hidden without a seeded forecast (/api/v1/wind
     // 503s in this fixture) — force it open the same way chrome.showWind(true, …)
     // does, so the phone rules below get a real element to measure.
@@ -148,21 +152,29 @@ test.describe('phone replay folds behind one button', () => {
     await expect(page.locator('.map-window__panel .map-window__footer .data-refresh')).toHaveCount(1)
 
     await expect(page.locator('.map-play__scrub')).toBeHidden()
-    // The fold is remembered across the worker's shared context, and an open
-    // key covers this corner (it rides above the row on purpose, Task 5b).
+
+    // Open the key first: pressing play has to FOLD it, not hide it, and an
+    // already-folded key would prove nothing.
     const scale = page.locator('.scale--onmap')
-    if (await scale.evaluate((el) => el.hasAttribute('open'))) {
+    if (!await scale.evaluate((el) => el.hasAttribute('open'))) {
       await page.locator('.scale__toggle').click()
-      await expect(scale).not.toHaveAttribute('open', '')
     }
-    // Centred first: Playwright's own scroll can park the corner row under the
-    // sticky masthead, which then swallows the click.
-    await play.evaluate((el) => el.scrollIntoView({ block: 'center' }))
-    await play.click()
+    await expect(scale).toHaveAttribute('open', '')
+    // A surface on a phone, not the kit's haloed text: the key sits over the
+    // replay bar's corner and has to stay legible.
+    expect(await scale.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none')
+
+    // Keyboard, not a click: the open key covers this corner by design (it
+    // rides above the row, Task 5b), and that is the state under test.
+    await play.focus()
+    await play.press('Enter')
     await expect(page.locator('.map-play--open')).toHaveCount(1)
     await expect(page.locator('.map-play__scrub')).toBeVisible()
     await expect.poll(async () => (await page.locator('.map-play').boundingBox())?.height ?? 0)
       .toBeLessThanOrEqual(56)
+    // Folded, still on the map: the reader can unroll it again mid-replay.
+    await expect(scale).toBeVisible()
+    await expect(scale).not.toHaveAttribute('open', '')
 
     const exit = page.locator('.map-play__exit')
     await exit.evaluate((el) => el.scrollIntoView({ block: 'center' }))

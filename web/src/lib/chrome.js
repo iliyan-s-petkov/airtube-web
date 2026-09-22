@@ -99,6 +99,15 @@ export function mountChrome(el, cfg) {
   })
   shell.appendChild(legend)
 
+  // Phone only, and never persisted: this is the map folding the key, not the
+  // reader. autoClosing suppresses the toggle listener's writeFlag above.
+  const closeLegend = () => {
+    if (!phone || !legend.open) return
+    autoClosing = true
+    legend.open = false
+    autoClosing = false
+  }
+
   // The key says which colour is worse; it cannot say what 25 µg/m³ IS, whose
   // rule that is, or where to read it. That belongs behind an (i), not on the
   // map: it is a paragraph, and the map is the page.
@@ -178,11 +187,14 @@ export function mountChrome(el, cfg) {
   // Rotation crosses the breakpoint without a page load, so the move is a
   // listener rather than a one-off read. prepend: the pill led the corner row
   // before the window button and the player were appended after it.
+  // Aborted by dispose(): the query outlives the map on a page that swaps
+  // islands, and a listener holding this closure would keep the whole chrome.
+  const live = new AbortController()
   phoneQuery?.addEventListener?.('change', (e) => {
     if (!refreshBox || !freshBox) return
     if (e.matches) windowMenu.footer.appendChild(refreshBox)
     else freshBox.prepend(refreshBox)
-  })
+  }, { signal: live.signal })
 
   // Third in the bottom-left cluster: refresh, then which window, then play.
   const player = mountPlayer(el, {
@@ -193,6 +205,14 @@ export function mountChrome(el, cfg) {
     speedLabel: cfg.t.speedLabel,
     host: freshBox ?? el,
   })
+
+  // The key rides above the corner row (z-index 4) and the bar unfolds into
+  // that space. Folded, not hidden: the reader can unroll it again mid-replay.
+  const showPlayer = player.show
+  player.show = (count) => {
+    showPlayer(count)
+    if (count > 0) closeLegend()
+  }
 
   // Two toggles about the SCREEN rather than about the basemap, listed above
   // the categories rather than smuggled in beside "Shops" as if they were one
@@ -346,15 +366,11 @@ export function mountChrome(el, cfg) {
     layerViews,
     locateButton,
     // Phone only: the map shell calls this on movestart so the open key does
-    // not sit over the sensor the reader just panned to. Not a fold the
-    // reader chose, so it must not persist — autoClosing suppresses the
-    // toggle listener's writeFlag for this one open->closed transition.
-    closeLegend() {
-      if (!phone || !legend.open) return
-      autoClosing = true
-      legend.open = false
-      autoClosing = false
-    },
+    // not sit over the sensor the reader just panned to, and player.show
+    // calls it when the transport bar unfolds into the same corner.
+    closeLegend,
+    // Drops the media-query listener; the DOM goes with the frame.
+    dispose() { live.abort() },
     // Both halves move together: the disclosure is shown exactly when the
     // arrows are, so no caller can turn one on without the other.
     showWind(on, text) {

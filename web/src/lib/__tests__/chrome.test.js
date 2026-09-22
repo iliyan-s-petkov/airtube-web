@@ -341,6 +341,33 @@ describe('mountChrome() folds the key by default on a phone', () => {
     expect(legend.open).toBe(false)
     expect(store.get(LEGEND_FOLD_KEY), 'auto-close must not persist').toBe('true')
   })
+
+  // The transport bar unfolds into the corner the open key covers. Folded, not
+  // hidden: the reader can unroll it again while the animation runs.
+  it('folds the key when the transport bar opens, and leaves it in the DOM', () => {
+    store.set(LEGEND_FOLD_KEY, 'true')
+    const { shell, el } = chromeFrame()
+    const chrome = mountChrome(el, readConfig(el))
+    const legend = shell.querySelector('details.scale')
+    expect(legend.open).toBe(true)
+
+    chrome.player.show(3)
+
+    expect(legend.open).toBe(false)
+    expect(legend.isConnected).toBe(true)
+    expect(store.get(LEGEND_FOLD_KEY), 'auto-close must not persist').toBe('true')
+  })
+
+  it('leaves the key alone when the bar collapses', () => {
+    store.set(LEGEND_FOLD_KEY, 'true')
+    const { shell, el } = chromeFrame()
+    const chrome = mountChrome(el, readConfig(el))
+    const legend = shell.querySelector('details.scale')
+
+    chrome.player.show(0)
+
+    expect(legend.open).toBe(true)
+  })
 })
 
 // The refresh pill and the window button are two overlays in the same corner.
@@ -354,7 +381,16 @@ describe('mountChrome() hosts the refresh controls in the window panel on a phon
   const query = () => ({
     get matches() { return matches },
     media: '(max-width: 672px)',
-    addEventListener: (type, fn) => { if (type === 'change') listeners.push(fn) },
+    // Honours the abort signal, as a real MediaQueryList does — otherwise
+    // dispose() could not be told apart from a listener that never fired.
+    addEventListener: (type, fn, opts) => {
+      if (type !== 'change') return
+      listeners.push(fn)
+      opts?.signal?.addEventListener('abort', () => {
+        const i = listeners.indexOf(fn)
+        if (i >= 0) listeners.splice(i, 1)
+      })
+    },
     removeEventListener() {},
   })
 
@@ -410,6 +446,17 @@ describe('mountChrome() hosts the refresh controls in the window panel on a phon
 
     flipTo(true)
     expect(windowMenu.panel.contains(refresh)).toBe(true)
+  })
+
+  it('drops the listener on dispose, so a later flip moves nothing', () => {
+    const { el, fresh, island } = freshFrame()
+    const chrome = mountChrome(el, readConfig(el))
+    chrome.dispose()
+
+    flipTo(false)
+
+    expect(chrome.windowMenu.footer.contains(island)).toBe(true)
+    expect(fresh.firstElementChild).not.toBe(island)
   })
 
   it('leaves the pill in the corner on a desktop width', () => {

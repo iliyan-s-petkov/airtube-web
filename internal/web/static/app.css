@@ -677,7 +677,6 @@ html:has(> body.embed) { block-size: 100%; }
      button and the key stand down rather than share the width. */
   .map-freshness:has(.map-play--open) { inset-inline-end: var(--space-2); }
   .map-freshness:has(.map-play--open) .map-window { display: none; }
-  .map-shell:has(.map-play--open) .scale--onmap { display: none; }
   /* The phone's home for the refresh controls: chrome.js moves them in here so
      the corner holds one control instead of two. */
   .map-window__footer {
@@ -686,7 +685,11 @@ html:has(> body.embed) { block-size: 100%; }
     padding-block-start: var(--space-2); margin-block-start: var(--space-2);
   }
   .map-window__footer:empty { display: none; }
-  .map-window__footer .data-refresh { margin: 0; }
+  /* Flat inside the panel: the moved node is still a descendant of
+     .map-freshness, so its overlay card rules would draw a card in a card. */
+  .map-window__footer .data-refresh {
+    margin: 0; background: none; box-shadow: none; padding: 0;
+  }
 
   /* Overrides the desktop 3.5rem offset (line 447); both axes stated so the
      co-anchor guard passes. */
@@ -694,6 +697,12 @@ html:has(> body.embed) { block-size: 100%; }
     position: absolute; inset-block-end: var(--space-2); inset-block-start: auto;
     inset-inline-start: var(--space-2); inset-inline-end: auto; z-index: 2;
     max-inline-size: calc(100% - 7rem);
+    /* A surface, unlike the kit's haloed text: folded, the pill has to read as
+       a button, and open it has to be legible over the replay bar behind it.
+       --radius-md is not a token here; the overlay buttons use --radius. */
+    background: var(--bg); box-shadow: var(--elev-raised);
+    border-radius: var(--radius); padding: var(--space-1) var(--space-2);
+    -webkit-text-stroke: 0;
   }
   /* Open, the key needs a real width or it shrink-wraps to whatever content
      happened to render (prod: 119x169). Folded stays shrink-wrapped, and
@@ -725,6 +734,8 @@ html:has(> body.embed) { block-size: 100%; }
      Matches the control's real corner. */
   .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib-button {
     inline-size: 44px; block-size: 44px; min-block-size: 44px;
+    /* The (i) is a 24px background-image; grown to 44px it tiled 2x2. */
+    background-repeat: no-repeat; background-position: center;
   }
   /* Raised clear of the taller locate/zoom row and the attribution button
      above it, both 44px now. */
