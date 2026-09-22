@@ -343,6 +343,84 @@ describe('mountChrome() folds the key by default on a phone', () => {
   })
 })
 
+// The refresh pill and the window button are two overlays in the same corner.
+// A phone has room for one, so the pill moves into the window panel — and back
+// out again when the reader turns the phone, which is a media-query change
+// rather than a new page load.
+describe('mountChrome() hosts the refresh controls in the window panel on a phone', () => {
+  let listeners
+  let matches
+
+  const query = () => ({
+    get matches() { return matches },
+    media: '(max-width: 672px)',
+    addEventListener: (type, fn) => { if (type === 'change') listeners.push(fn) },
+    removeEventListener() {},
+  })
+
+  const flipTo = (yes) => {
+    matches = yes
+    for (const fn of listeners) fn({ matches: yes })
+  }
+
+  const freshFrame = () => {
+    const shell = document.createElement('div')
+    shell.className = 'map-shell'
+    const el = document.createElement('div')
+    el.className = 'map'
+    const fresh = document.createElement('div')
+    fresh.className = 'map-freshness'
+    // The island host, as the templates render it: Svelte fills it in later,
+    // so moving the host is what keeps the move race-free on a real page.
+    const island = document.createElement('div')
+    island.dataset.island = 'freshness'
+    const refresh = document.createElement('p')
+    refresh.className = 'data-refresh'
+    island.appendChild(refresh)
+    fresh.appendChild(island)
+    shell.append(el, fresh)
+    document.body.appendChild(shell)
+    return { shell, el, fresh, island, refresh }
+  }
+
+  beforeEach(() => {
+    listeners = []
+    matches = true
+    vi.stubGlobal('matchMedia', query)
+  })
+
+  it('moves the refresh controls into the panel at mount', () => {
+    const { el, fresh, refresh } = freshFrame()
+    const { windowMenu } = mountChrome(el, readConfig(el))
+    expect(windowMenu.panel.contains(refresh)).toBe(true)
+    expect(refresh.closest('.map-window__footer')).toBe(windowMenu.footer)
+    // Still under .map-freshness — the whole menu is — but no longer a child
+    // of it, which is what the corner row lays out.
+    expect([...fresh.children].some((c) => c.contains(refresh) && c !== windowMenu.root)).toBe(false)
+  })
+
+  it('puts them back when the query stops matching, and takes them again when it does', () => {
+    const { el, fresh, island, refresh } = freshFrame()
+    const { windowMenu } = mountChrome(el, readConfig(el))
+
+    flipTo(false)
+    expect(windowMenu.panel.contains(refresh)).toBe(false)
+    // Ahead of the window button and the player, which were appended after it.
+    expect(fresh.firstElementChild).toBe(island)
+
+    flipTo(true)
+    expect(windowMenu.panel.contains(refresh)).toBe(true)
+  })
+
+  it('leaves the pill in the corner on a desktop width', () => {
+    matches = false
+    const { el, fresh, island } = freshFrame()
+    const { windowMenu } = mountChrome(el, readConfig(el))
+    expect(island.parentElement).toBe(fresh)
+    expect(windowMenu.footer.children).toHaveLength(0)
+  })
+})
+
 // Where the key and the tier line LAND is load-bearing, not decoration, and
 // both defects it guards were found in a browser rather than here.
 //

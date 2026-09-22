@@ -671,8 +671,22 @@ html:has(> body.embed) { block-size: 100%; }
   /* Back on the map: an overlay again, stacked above the locate/zoom row. */
   .map-freshness {
     position: absolute; inset-inline-start: var(--space-2); inset-block-end: calc(44px + var(--space-3));
-    margin: 0; flex-wrap: wrap;
+    margin: 0; display: flex; gap: var(--space-2);
   }
+  /* Playing, the corner row IS the replay bar and spans the map; the window
+     button and the key stand down rather than share the width. */
+  .map-freshness:has(.map-play--open) { inset-inline-end: var(--space-2); }
+  .map-freshness:has(.map-play--open) .map-window { display: none; }
+  .map-shell:has(.map-play--open) .scale--onmap { display: none; }
+  /* The phone's home for the refresh controls: chrome.js moves them in here so
+     the corner holds one control instead of two. */
+  .map-window__footer {
+    display: flex; gap: var(--space-2);
+    border-block-start: 1px solid var(--border-faint);
+    padding-block-start: var(--space-2); margin-block-start: var(--space-2);
+  }
+  .map-window__footer:empty { display: none; }
+  .map-window__footer .data-refresh { margin: 0; }
 
   /* Overrides the desktop 3.5rem offset (line 447); both axes stated so the
      co-anchor guard passes. */
@@ -723,13 +737,19 @@ html:has(> body.embed) { block-size: 100%; }
   }
   .map-note { inset-inline-start: calc(12px + 44px + var(--space-2)); }
   .map-locate { bottom: var(--space-2); }
-  .map-play {
-    flex-wrap: wrap; row-gap: var(--space-1);
-    block-size: auto; min-block-size: calc(1.75rem + 2 * var(--space-1));
-    padding-block: var(--space-1);
-  }
-  .map-play__scrub { flex: 1 1 100%; inline-size: auto; }
+  /* One button until there is something to play: the row unfolds across the
+     map only while a timelapse is loaded. The speed and exit buttons carry
+     .map-play__btn too, so only the scrubber, clock and note fold away. */
+  .map-play { block-size: 48px; padding-inline: var(--space-1); flex-wrap: nowrap; }
+  .map-play:not(.map-play--open) > :not(.map-play__btn) { display: none; }
+  .map-play--open { flex: 1 1 auto; min-inline-size: 0; }
+  .map-play--open .map-play__scrub { flex: 1 1 auto; inline-size: auto; min-inline-size: 0; }
   .map-play__note { max-inline-size: none; }
+  /* Real touch targets in the corner row. The window button keeps its text, so
+     it grows past the floor rather than being squared off at it. */
+  .map-play__btn, .map-window__btn { inline-size: 44px; block-size: 44px; min-block-size: 44px; }
+  .map-window__btn { inline-size: auto; min-inline-size: 44px; }
+  .data-refresh__auto, .data-refresh__btn--icon { inline-size: 44px; block-size: 44px; }
 
   /* Hero: title stays (h1), tagline restates the masthead and goes. */
   .page-head--compact { padding-block: var(--space-2); }

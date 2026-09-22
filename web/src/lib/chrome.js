@@ -84,7 +84,8 @@ export function mountChrome(el, cfg) {
   // folds the key on a small screen wants it folded on the next page too.
   // matchMedia is missing under jsdom — absent means "not a phone" so the
   // desktop-default tests below run unmocked and unchanged.
-  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 672px)').matches
+  const phoneQuery = typeof matchMedia === 'function' ? matchMedia('(max-width: 672px)') : null
+  const phone = phoneQuery?.matches === true
   const legend = document.createElement('details')
   legend.className = LEGEND_CLASSES
   // Phones default folded (a stored choice still wins); desktop still defaults
@@ -155,6 +156,14 @@ export function mountChrome(el, cfg) {
   // The averaging window. Built with the chrome and wired by mount(), which
   // owns what a pick costs — see lib/mapwindow.js on why it is a menu in the
   // bottom-left cluster rather than a select across the top of the map.
+  //
+  // The refresh controls ride inside its panel on a phone: they and the window
+  // button are two overlays in one corner, and a phone has room for one. The
+  // ISLAND HOST is what moves, not the `.data-refresh` it renders — that host
+  // is server-rendered and always here, while the Svelte island that fills it
+  // mounts on its own schedule.
+  const freshBox = el.closest('.map-shell')?.querySelector('.map-freshness') ?? null
+  const refreshBox = freshBox?.querySelector('[data-island="freshness"], .data-refresh') ?? null
   const windowMenu = mountWindow(el, {
     label: cfg.t.windowLabel,
     options: windowOptions(cfg.windowLabels),
@@ -162,7 +171,17 @@ export function mountChrome(el, cfg) {
     // Into the freshness pill's own box, so the two are one flex row: an
     // absolute offset here would be this file's guess at how wide that pill is,
     // and it is one icon wide on some pages and two on others.
-    host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
+    host: freshBox ?? el,
+    footer: phone && refreshBox ? refreshBox : undefined,
+  })
+
+  // Rotation crosses the breakpoint without a page load, so the move is a
+  // listener rather than a one-off read. prepend: the pill led the corner row
+  // before the window button and the player were appended after it.
+  phoneQuery?.addEventListener?.('change', (e) => {
+    if (!refreshBox || !freshBox) return
+    if (e.matches) windowMenu.footer.appendChild(refreshBox)
+    else freshBox.prepend(refreshBox)
   })
 
   // Third in the bottom-left cluster: refresh, then which window, then play.
@@ -172,7 +191,7 @@ export function mountChrome(el, cfg) {
     pauseLabel: cfg.t.pauseLabel,
     exitLabel: cfg.t.exitLabel,
     speedLabel: cfg.t.speedLabel,
-    host: el.closest('.map-shell')?.querySelector('.map-freshness') ?? el,
+    host: freshBox ?? el,
   })
 
   // Two toggles about the SCREEN rather than about the basemap, listed above

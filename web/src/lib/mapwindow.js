@@ -126,8 +126,13 @@ export function chooseWindow(state, name) {
  * than a guess at how wide the pill is. It defaults to the frame, which is what
  * a map rendered without the freshness line gets. The panel's id still comes
  * from the FRAME: it is the element the templates give an id to.
+ *
+ * `footer` is an element parked below the options — on a phone, the refresh
+ * controls, which have no corner of their own there. The box is built whether
+ * or not one is given, so a rotation back onto a phone has somewhere to put
+ * them; empty, the sheet hides it.
  */
-export function mountWindow(frame, { label, options, value, host = frame }, doc = document) {
+export function mountWindow(frame, { label, options, value, host = frame, footer }, doc = document) {
   const root = doc.createElement('div')
   root.className = 'colmenu map-window'
 
@@ -198,6 +203,11 @@ export function mountWindow(frame, { label, options, value, host = frame }, doc 
 
   panel.appendChild(fieldset)
 
+  const footerBox = doc.createElement('div')
+  footerBox.className = 'map-window__footer'
+  if (footer) footerBox.appendChild(footer)
+  panel.appendChild(footerBox)
+
   button.addEventListener('click', () => open(button.getAttribute('aria-expanded') !== 'true'))
   root.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !panel.hidden) {
@@ -212,5 +222,5 @@ export function mountWindow(frame, { label, options, value, host = frame }, doc 
   root.appendChild(button)
   root.appendChild(panel)
   host.appendChild(root)
-  return { root, button, panel, open, onpick: (fn) => listeners.push(fn) }
+  return { root, button, panel, footer: footerBox, open, onpick: (fn) => listeners.push(fn) }
 }

@@ -121,6 +121,58 @@ test.describe('phone layout does not widen the viewport', () => {
   })
 })
 
+// Replay on a phone: one play button in the corner until there is something to
+// play, and the refresh controls parked inside the window panel rather than
+// taking a second slot in the same corner.
+test.describe('phone replay folds behind one button', () => {
+  test('/en play button unfolds the row, exit folds it again', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+
+    const map = await page.locator('#map').boundingBox()
+    const play = page.locator('.map-play__btn[aria-pressed]')
+    await expect(play).toBeVisible()
+    // Retrying poll rather than one boundingBox() read: the corner row is
+    // repainted by the map's own debounced refresh (see the legend spec).
+    await expect.poll(async () => {
+      const box = await page.locator('.map-freshness').boundingBox()
+      if (!box) return false
+      return box.x >= map.x && box.y >= map.y
+        && box.x + box.width <= map.x + map.width
+        && box.y + box.height <= map.y + map.height
+    }).toBe(true)
+
+    // The refresh controls moved into the window panel, so the corner holds
+    // the window button and the play button and nothing else.
+    await expect(page.locator('.map-window__panel .map-window__footer .data-refresh')).toHaveCount(1)
+
+    await expect(page.locator('.map-play__scrub')).toBeHidden()
+    // The fold is remembered across the worker's shared context, and an open
+    // key covers this corner (it rides above the row on purpose, Task 5b).
+    const scale = page.locator('.scale--onmap')
+    if (await scale.evaluate((el) => el.hasAttribute('open'))) {
+      await page.locator('.scale__toggle').click()
+      await expect(scale).not.toHaveAttribute('open', '')
+    }
+    // Centred first: Playwright's own scroll can park the corner row under the
+    // sticky masthead, which then swallows the click.
+    await play.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await play.click()
+    await expect(page.locator('.map-play--open')).toHaveCount(1)
+    await expect(page.locator('.map-play__scrub')).toBeVisible()
+    await expect.poll(async () => (await page.locator('.map-play').boundingBox())?.height ?? 0)
+      .toBeLessThanOrEqual(56)
+
+    const exit = page.locator('.map-play__exit')
+    await exit.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await exit.click()
+    await expect(page.locator('.map-play--open')).toHaveCount(0)
+    await expect(page.locator('.map-play__scrub')).toBeHidden()
+    await page.close()
+  })
+})
+
 test.describe('landscape phone keeps the map', () => {
   test('/en map has width at 844x390', async ({ mobileCtx }) => {
     const page = await mobileCtx.newPage()
