@@ -17,8 +17,8 @@ function render(cards) {
   return target
 }
 
-const gauged = { label: 'Максимум · ФПЧ2.5', value: '30', unit: 'µg/m³', tier: 'Овча купел · 9 сензора', gauge: { percent: 60, colour: '#a00' } }
-const plain = { label: 'Този сензор', value: '1', unit: 'от 9', tier: 'Под медианата', gauge: null }
+const gauged = { label: 'Максимум · ФПЧ2.5', metric: 'ФПЧ2.5', value: '30', unit: 'µg/m³', tier: 'Овча купел · 9 сензора', gauge: { percent: 60, colour: '#a00' } }
+const plain = { label: 'Този сензор', metric: 'ФПЧ2.5', value: '1', unit: 'от 9', tier: 'Под медианата', gauge: null }
 
 describe('Readouts', () => {
   it('renders one card per figure, in the classes the server uses', () => {
@@ -51,5 +51,24 @@ describe('Readouts', () => {
 
   it('renders an empty strip for no cards at all', () => {
     expect(render([]).querySelectorAll('.readout')).toHaveLength(0)
+  })
+
+  // Task 9 round 1: the phone rule hides .readout__metric on this island's
+  // cards too, same as the server's own strip. The island's high/low/median
+  // labels put the metric last ("Highest · PM2.5"), so the span holds the
+  // metric and the rest still prints, in its original order.
+  it('splits the metric into its own span, rest in the original order', () => {
+    const el = render([gauged])
+    const span = el.querySelector('.readout__metric')
+    expect(span.textContent).toBe(' · ФПЧ2.5')
+    expect(el.querySelector('.readout__label').textContent).toBe('Максимум · ФПЧ2.5')
+  })
+
+  // A label the metric text does not appear in (e.g. "This sensor") gets no
+  // span at all — nothing to hide, nothing wrapped.
+  it('leaves a label with no metric segment as plain text', () => {
+    const el = render([plain])
+    expect(el.querySelector('.readout__metric')).toBe(null)
+    expect(el.querySelector('.readout__label').textContent).toBe('Този сензор')
   })
 })

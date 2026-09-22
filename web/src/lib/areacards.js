@@ -53,6 +53,7 @@ export function areaCards(stats, { metric, metricLabel, scale, area, lang, t }) 
 
   const figure = (labelKey, value) => ({
     label: fill(t[labelKey], { metric: metricLabel }),
+    metric: metricLabel,
     value: number(value, lang),
     unit,
     tier: where,
@@ -100,6 +101,7 @@ export function areaSourceCards(rows, { metricLabel, scale, lang, t }) {
     const tier = row.n === 1 ? t.sourceRowOne : fill(t.sourceRow, { n: row.n })
     return {
       label: metricLabel,
+      metric: metricLabel,
       value: number(row.median, lang),
       unit,
       tier,
