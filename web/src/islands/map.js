@@ -60,6 +60,14 @@ export function mount(el) {
 
   installErrorHandler(map)
 
+  // Compact attribution starts expanded on load; collapse it to the (i) so it
+  // does not sit open over the map on first paint. No private API beyond the
+  // class MapLibre itself toggles.
+  map.on('load', () => {
+    document.querySelector('.maplibregl-ctrl-attrib.maplibregl-compact-show')
+      ?.classList.remove('maplibregl-compact-show')
+  })
+
   // The zoom stack is built by mountChrome (before this map exists) and wired
   // here, to the camera it drives. `home` is the view the server rendered this
   // page at — the country fit on /, the area's own centre on /area/{slug} — so

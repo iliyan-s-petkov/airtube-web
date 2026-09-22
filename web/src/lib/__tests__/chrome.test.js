@@ -105,6 +105,14 @@ describe('the wind disclosure', () => {
     expect(summary.textContent.trim()).not.toBe('')
   })
 
+  it('carries the i18n text in a labelled span, so it can be hidden on phones without losing the (i)', () => {
+    const c = chrome()
+    c.showWind(true, 'Wind forecast · valid now')
+    const label = c.el.querySelector('.map-wind-label summary .map-wind-label__text-label')
+    expect(label).toBeTruthy()
+    expect(label.textContent.trim()).toBe('About the wind layer')
+  })
+
   it('goes away with the arrows, and comes back folded', () => {
     const c = chrome()
     c.showWind(true, 'Wind forecast · valid now')

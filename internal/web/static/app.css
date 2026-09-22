@@ -689,6 +689,23 @@ html:has(> body.embed) { block-size: 100%; }
   .map__layers, .map__full, .map-locate, .map-zoom button, .scale__info, .map-wind-label__toggle {
     inline-size: 44px; block-size: 44px; min-block-size: 44px;
   }
+  /* The attribution (i) is MapLibre's own control, styled with physical
+     width/height and loaded after app.css (see templates: Assets.Style
+     "main" follows the app.css link) — a bare class here would lose the
+     cascade. The extra ancestor class matches its real corner and outranks
+     MapLibre's single-class rule on specificity instead. */
+  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib-button {
+    inline-size: 44px; block-size: 44px; min-block-size: 44px;
+  }
+  /* Raised clear of the taller locate/zoom row and the attribution button
+     above it, both 44px now. */
+  .map-wind-label { inset-block-end: calc(44px + 24px + var(--space-4)); }
+  /* The toggle keeps only the ::before (i) on a phone; the sentence it names
+     is what the disclosure itself already unrolls into. */
+  .map-wind-label__toggle .map-wind-label__text-label {
+    position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
   .map-note { inset-inline-start: calc(12px + 44px + var(--space-2)); }
   .map-locate { bottom: var(--space-2); }
   .map-play {

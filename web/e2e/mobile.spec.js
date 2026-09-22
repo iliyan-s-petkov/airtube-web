@@ -57,6 +57,21 @@ test.describe('phone layout does not widen the viewport', () => {
     await expect(page.locator('.map-zoom__btn[data-act="out"]')).toBeHidden()
     await page.close()
   })
+
+  // MapLibre's compact attribution opens itself on load; collapsed to the (i)
+  // it does not sit open over the map, and the button is a real touch target.
+  test('/en attribution collapses to the (i), at a 44px target', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    const attrib = page.locator('.maplibregl-ctrl-attrib')
+    await expect(attrib).toBeVisible()
+    await expect(attrib).not.toHaveClass(/maplibregl-compact-show/)
+    const box = await page.locator('.maplibregl-ctrl-attrib-button').boundingBox()
+    expect(box.width).toBeGreaterThanOrEqual(44)
+    expect(box.height).toBeGreaterThanOrEqual(44)
+    await page.close()
+  })
 })
 
 test.describe('landscape phone keeps the map', () => {

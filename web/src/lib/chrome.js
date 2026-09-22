@@ -255,7 +255,12 @@ export function mountChrome(el, cfg) {
   windNote.hidden = true
   const windSummary = document.createElement('summary')
   windSummary.className = 'map-wind-label__toggle'
-  windSummary.textContent = cfg.t.windAbout || cfg.t.windToggle
+  // Wrapped so the phone rule below can hide the text and keep only the
+  // ::before (i), the same idiom the layers/locate buttons already use.
+  const windSummaryText = document.createElement('span')
+  windSummaryText.className = 'map-wind-label__text-label'
+  windSummaryText.textContent = cfg.t.windAbout || cfg.t.windToggle
+  windSummary.appendChild(windSummaryText)
   const windText = document.createElement('div')
   windText.className = 'map-wind-label__text'
   windNote.append(windSummary, windText)
