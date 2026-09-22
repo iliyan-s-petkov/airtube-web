@@ -685,8 +685,7 @@ html:has(> body.embed) { block-size: 100%; }
     padding-block-start: var(--space-2); margin-block-start: var(--space-2);
   }
   .map-window__footer:empty { display: none; }
-  /* Flat inside the panel: the moved node is still a descendant of
-     .map-freshness, so its overlay card rules would draw a card in a card. */
+  /* Host is still under .map-freshness; drop the overlay card styling in the footer. */
   .map-window__footer .data-refresh {
     margin: 0; background: none; box-shadow: none; padding: 0;
   }
@@ -697,9 +696,7 @@ html:has(> body.embed) { block-size: 100%; }
     position: absolute; inset-block-end: var(--space-2); inset-block-start: auto;
     inset-inline-start: var(--space-2); inset-inline-end: auto; z-index: 2;
     max-inline-size: calc(100% - 7rem);
-    /* A surface, unlike the kit's haloed text: folded, the pill has to read as
-       a button, and open it has to be legible over the replay bar behind it.
-       --radius-md is not a token here; the overlay buttons use --radius. */
+    /* Phone only: solid surface instead of the kit text halo. No --radius-md token; overlay buttons use --radius. */
     background: var(--bg); box-shadow: var(--elev-raised);
     border-radius: var(--radius); padding: var(--space-1) var(--space-2);
     -webkit-text-stroke: 0;
