@@ -32,5 +32,5 @@
     <path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89" fill="none" stroke="currentColor" stroke-width="1.5"/>
     <path d="M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
   </svg>
-  {#if !bare}<span>{label}</span>{/if}
+  {#if !bare}<span class="btn__label">{label}</span>{/if}
 </button>

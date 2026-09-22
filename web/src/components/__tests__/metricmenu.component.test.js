@@ -43,6 +43,17 @@ describe('MetricMenu.svelte', () => {
     expect(button(t).textContent.trim()).toBe('Metric: Temperature')
   })
 
+  // The legend and colon live in their own span (app.css .colmenu__legend) so
+  // the phone toolbar can clip it visually and keep only the metric value on
+  // screen, without touching the button's own accessible name.
+  it('wraps the legend in .colmenu__legend, ahead of the value', () => {
+    const t = render({ selected: 'P1', onselect: () => {} })
+    const legend = button(t).querySelector('.colmenu__legend')
+    expect(legend).not.toBeNull()
+    expect(legend.textContent.trim()).toBe('Metric:')
+    expect(button(t).textContent.trim()).toBe('Metric: PM10')
+  })
+
   it('opens the panel, and says which panel it opens', async () => {
     const t = render({ selected: 'P2', onselect: () => {} })
     button(t).click()

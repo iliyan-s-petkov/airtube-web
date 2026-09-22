@@ -28,9 +28,10 @@ test.describe('phone layout does not widen the viewport', () => {
     await page.goto('/en')
     const masthead = await page.locator('.masthead').boundingBox()
     expect(masthead.height).toBeLessThanOrEqual(56)
+    const toolbar = await page.locator('.toolbar').boundingBox()
+    expect(toolbar.height).toBeLessThanOrEqual(64)
     const map = await page.locator('#map').boundingBox()
-    // Task 3 collapses the toolbar and tightens this to 200.
-    expect(map.y).toBeLessThanOrEqual(340)
+    expect(map.y).toBeLessThanOrEqual(200)
     expect(map.height).toBeGreaterThanOrEqual(0.6 * 844)
     await page.close()
   })
