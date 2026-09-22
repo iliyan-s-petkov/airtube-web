@@ -454,6 +454,23 @@ func TestTheSiteSwatchesFollowTheHexagonMotif(t *testing.T) {
 	}
 }
 
+// kitDeclsFor matches a compound app.css selector (e.g. ".map-shell
+// .scale--onmap") against the kit's own bare selector (its last simple
+// selector), so an app.css rule scoped to an ancestor still gets checked.
+func kitDeclsFor(kit map[string]map[string]string, sel string) (map[string]string, bool) {
+	if d, ok := kit[sel]; ok {
+		return d, true
+	}
+	fields := strings.Fields(sel)
+	if len(fields) == 0 {
+		return nil, false
+	}
+	if d, ok := kit[fields[len(fields)-1]]; ok {
+		return d, true
+	}
+	return nil, false
+}
+
 func TestAppCSSDoesNotCoAnchorAKitSelector(t *testing.T) {
 	kit := cssRules(t, "../../design-kit/components.css")
 	data, err := staticFS.ReadFile("static/app.css")
@@ -474,7 +491,7 @@ func TestAppCSSDoesNotCoAnchorAKitSelector(t *testing.T) {
 		{"inline", []string{"left", "inset-inline-start"}, []string{"right", "inset-inline-end"}},
 	}
 	for sel, appDecls := range app {
-		kitDecls, shared := kit[sel]
+		kitDecls, shared := kitDeclsFor(kit, sel)
 		if !shared {
 			continue
 		}

@@ -666,11 +666,31 @@ html:has(> body.embed) { block-size: 100%; }
     background-image: var(--ramp-h, none);
   }
 
-  /* Static, not the desktop overlay: in flow below the scale, not on top of it. */
+  /* Back on the map: an overlay again, stacked above the locate/zoom row. */
   .map-freshness {
-    position: static; margin: var(--space-2) var(--gutter) 0;
-    flex-wrap: wrap;
+    position: absolute; inset-inline-start: var(--space-2); inset-block-end: calc(44px + var(--space-3));
+    margin: 0; flex-wrap: wrap;
   }
+
+  /* Overrides the desktop 3.5rem offset (line 447); both axes stated so the
+     co-anchor guard passes. */
+  .map-shell .scale--onmap {
+    position: absolute; inset-block-end: var(--space-2); inset-block-start: auto;
+    inset-inline-start: var(--space-2); inset-inline-end: auto; z-index: 2;
+    max-inline-size: calc(100% - 7rem);
+  }
+  /* Folded, the toggle is the metric name plus a ramp swatch. */
+  .scale--onmap:not([open]) .scale__toggle::after {
+    content: ''; inline-size: 60px; block-size: 8px; border-radius: var(--radius-sm);
+    background-image: var(--ramp-h, none);
+  }
+
+  /* Every overlay button is a real touch target, not the kit's 32px square. */
+  .map__layers, .map__full, .map-locate, .map-zoom button, .scale__info, .map-wind-label__toggle {
+    inline-size: 44px; block-size: 44px; min-block-size: 44px;
+  }
+  .map-note { inset-inline-start: calc(12px + 44px + var(--space-2)); }
+  .map-locate { bottom: var(--space-2); }
   .map-play {
     flex-wrap: wrap; row-gap: var(--space-1);
     block-size: auto; min-block-size: calc(1.75rem + 2 * var(--space-1));
@@ -703,4 +723,9 @@ html:has(> body.embed) { block-size: 100%; }
   .map-shell:has(.map--hero) { max-inline-size: none; block-size: auto; max-block-size: none; }
   .map--hero { aspect-ratio: auto; block-size: calc(100svh - 5.5rem); min-block-size: 12rem; }
   .map--wide { block-size: calc(100svh - 5.5rem); min-block-size: 12rem; }
+}
+
+/* Pinch replaces the zoom pair on touch; the reset/grid button stays. */
+@media (hover: none) and (pointer: coarse) {
+  .map-zoom__btn[data-act="in"], .map-zoom__btn[data-act="out"] { display: none; }
 }
