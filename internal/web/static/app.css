@@ -754,9 +754,8 @@ html:has(> body.embed) { block-size: 100%; }
     /* The (i) is a 24px background-image; grown to 44px it tiled 2x2. */
     background-repeat: no-repeat; background-position: center;
   }
-  /* Task 7c: closed card was an artifact of fit-content sizing plus the
-     tap-target padding stacking (see task-7c-report.md); icon-only now,
-     stacked above .map-locate rather than floating over empty map. */
+  /* Task 7c: closed card was fit-content sizing plus tap-target padding
+     stacking (see task-7c-report.md); icon-only now, above .map-locate. */
   .map-wind-label {
     bottom: auto; inset-block-end: calc(var(--space-2) + 44px + var(--space-2));
     inset-inline-end: var(--space-2);
