@@ -158,8 +158,17 @@ export function mountWindow(frame, { label, options, value, host = frame }, doc 
     panel.hidden = !yes
   }
 
+  // A label span, not button.textContent directly: say() runs on every pick,
+  // and textContent would wipe the caret appended below along with the text.
+  const label_ = doc.createElement('span')
+  button.appendChild(label_)
+  const caret = doc.createElement('span')
+  caret.className = 'colmenu__caret'
+  caret.setAttribute('aria-hidden', 'true')
+  button.appendChild(caret)
+
   const listeners = []
-  const say = (opt) => { button.textContent = opt.text }
+  const say = (opt) => { label_.textContent = opt.text }
 
   for (const opt of options) {
     const wrap = doc.createElement('label')

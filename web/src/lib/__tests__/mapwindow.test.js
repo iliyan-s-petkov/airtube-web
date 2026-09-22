@@ -199,6 +199,23 @@ describe('mountWindow', () => {
     expect(ui.panel.hidden).toBe(true)
   })
 
+  // The caret hints that the button opens options; decorative, so it must not
+  // add to the button's accessible name, and it must survive a pick (say()
+  // rewrites the label span, not button.textContent).
+  it('shows exactly one aria-hidden caret, last in the button, across picks', () => {
+    const { ui } = mount()
+    const caretOf = () => ui.button.querySelectorAll('.colmenu__caret')
+    expect(caretOf().length).toBe(1)
+    expect(caretOf()[0].getAttribute('aria-hidden')).toBe('true')
+    expect(ui.button.lastElementChild).toBe(caretOf()[0])
+
+    ui.button.click()
+    ui.panel.querySelectorAll('input[type="radio"]')[1].click()
+
+    expect(caretOf().length).toBe(1)
+    expect(ui.button.lastElementChild).toBe(caretOf()[0])
+  })
+
   it('offers every published window, with the current one checked', () => {
     const { ui } = mount()
     const radios = [...ui.panel.querySelectorAll('input[type="radio"]')]

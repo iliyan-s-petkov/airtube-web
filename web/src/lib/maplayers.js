@@ -98,6 +98,11 @@ export function mountLayers(frame, { label }, doc = document) {
   button.setAttribute('aria-label', label)
   button.setAttribute('title', label)
   button.appendChild(icon())
+  // Same hint as every other .colmenu trigger: this button opens options too.
+  const caret = document.createElement('span')
+  caret.className = 'colmenu__caret'
+  caret.setAttribute('aria-hidden', 'true')
+  button.appendChild(caret)
 
   const panel = document.createElement('div')
   panel.className = 'colmenu__panel'

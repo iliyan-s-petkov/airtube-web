@@ -31,4 +31,14 @@ describe('MetricPicker.svelte', () => {
     expect(legend.textContent.trim()).toBe('Metric:')
     expect(button(t).textContent.trim()).toBe('Metric: PM10')
   })
+
+  // The caret hints that the button opens options; decorative, so it must not
+  // add to the button's accessible name.
+  it('shows exactly one aria-hidden caret, last in the button', () => {
+    const t = render({ selected: ['P1'], onchange: () => {} })
+    const carets = button(t).querySelectorAll('.colmenu__caret')
+    expect(carets.length).toBe(1)
+    expect(carets[0].getAttribute('aria-hidden')).toBe('true')
+    expect(button(t).lastElementChild).toBe(carets[0])
+  })
 })

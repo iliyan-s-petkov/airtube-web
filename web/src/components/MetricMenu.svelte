@@ -63,7 +63,7 @@
     aria-expanded={open}
     aria-controls="{id}-panel"
     onclick={() => { open = !open }}
-  ><span class="colmenu__legend">{legend}:</span>{' '}{current ? current.label : ''}</button>
+  ><span class="colmenu__legend">{legend}:</span>{' '}{current ? current.label : ''}<span class="colmenu__caret" aria-hidden="true"></span></button>
   <div class="colmenu__panel" id="{id}-panel" hidden={!open}>
     <fieldset>
       <legend>{legend}</legend>
