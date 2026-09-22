@@ -35,6 +35,28 @@ test.describe('phone layout does not widen the viewport', () => {
     expect(map.height).toBeGreaterThanOrEqual(0.6 * 844)
     await page.close()
   })
+
+  // The on-map chrome: the legend pill sits on the map, every overlay is a
+  // real touch target, and the zoom pair yields to pinch on a coarse pointer.
+  test('/en on-map chrome: legend on the map, 44px targets, zoom hidden', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    const map = await page.locator('#map').boundingBox()
+    const scale = await page.locator('.scale--onmap').boundingBox()
+    expect(scale.x).toBeGreaterThanOrEqual(map.x)
+    expect(scale.y).toBeGreaterThanOrEqual(map.y)
+    expect(scale.x + scale.width).toBeLessThanOrEqual(map.x + map.width)
+    expect(scale.y + scale.height).toBeLessThanOrEqual(map.y + map.height)
+    for (const sel of ['.map__layers', '.map-locate', '.map__full']) {
+      const box = await page.locator(sel).boundingBox()
+      expect(box.width).toBeGreaterThanOrEqual(44)
+      expect(box.height).toBeGreaterThanOrEqual(44)
+    }
+    await expect(page.locator('.map-zoom__btn[data-act="in"]')).toBeHidden()
+    await expect(page.locator('.map-zoom__btn[data-act="out"]')).toBeHidden()
+    await page.close()
+  })
 })
 
 test.describe('landscape phone keeps the map', () => {
