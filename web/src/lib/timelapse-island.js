@@ -14,7 +14,7 @@ import { hexFeatures, resolutionForZoom } from './hexes.js'
 import { HEX_SOURCE_ID } from './mapids.js'
 import { PLAY_SPEED_KEY } from './mapconfig.js'
 import { bandsFor } from './mappaint.js'
-import { refreshHexes } from './mapdata.js'
+import { refreshHexes, mapInlineSize } from './mapdata.js'
 
 // installTimelapse swaps a past hour's numbers into the hex layer the map
 // already draws, and nothing else — state.hexBody is never written, so the live
@@ -122,7 +122,7 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
       frameBody(body, i), cfg.metric, currentBands(), cfg.noDataColour, rampColour,
       // No network filter: a frame is folded from reading_hourly, which carries
       // no source column, so there is nothing to filter it by.
-      resolutionForZoom(Math.round(map.getZoom())), null,
+      resolutionForZoom(Math.round(map.getZoom()), mapInlineSize(map)), null,
     )
     map.getSource(HEX_SOURCE_ID)?.setData({
       type: 'FeatureCollection',
@@ -153,7 +153,10 @@ export function installTimelapse(map, state, cfg, chrome, fetchJSON = getJSON) {
 
   // Rounded the same way hexesURL rounds it (see its own comment): a
   // fractional zoom mid-flyTo must not earn its own request.
-  const wantedURL = () => timelapseURL(cfg.metric, state.window, resolutionForZoom(Math.round(map.getZoom())))
+  // Width as well as zoom, the same pair refreshHexes asks with: a replay tier
+  // coarser than the live one swaps in cells twice the size of those on screen.
+  const wantedURL = () =>
+    timelapseURL(cfg.metric, state.window, resolutionForZoom(Math.round(map.getZoom()), mapInlineSize(map)))
 
   // keepPlayhead is true only for a zoom-driven refetch: a fresh press of play
   // starts the story over, but a reader mid-animation should not be thrown

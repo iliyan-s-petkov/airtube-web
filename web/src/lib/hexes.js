@@ -10,9 +10,20 @@ import contract from './contract.json'
 const EARTH_RADIUS_KM = contract.hex.earth_radius_km
 const HEX_REF_LAT = contract.hex.ref_lat
 
-// Target on-screen width of one hex, in CSS pixels: the cell stays about this
-// big at every zoom. See docs/map-rendering.md for why it is not larger.
+// Target on-screen width of one hex, in CSS pixels, on a desktop-width map: the
+// cell stays about this big at every zoom. See docs/map-rendering.md.
 export const TARGET_HEX_PX = 32
+
+// The map's phone width, matching the (max-width: 672px) breakpoint the chrome
+// switches on. Inclusive on both sides, so neither calls 672 px the other kind
+// of screen.
+export const PHONE_BREAKPOINT_PX = 672
+
+// A phone holds a third of the ground, so halving the target asks one tier
+// finer: at z7, 15 km not 25 — 23 cells across at 17 px, not 14 at 28.
+export function targetHexPx(inlineSize = Infinity) {
+  return inlineSize <= PHONE_BREAKPOINT_PX ? TARGET_HEX_PX / 2 : TARGET_HEX_PX
+}
 
 // Metres per pixel at zoom 0 at the reference latitude — the standard Web
 // Mercator figure, 2*pi*R/256, narrowed by cos(lat).
@@ -42,6 +53,10 @@ export const POINT_RESOLUTION_KM = contract.hex.point_resolution_km
 // carries a reading; at and above it the cells are individually visible and
 // carry it themselves, so the markers step aside rather than sit labelled and
 // off-centre inside a labelled cell.
+//
+// One zoom for every width, deliberately: the layer ranges built from it are
+// fixed at load, so a phone handing over earlier would draw device cells under
+// the markers that were meant to make way. Only the grid resolution halves.
 export const POINT_TIER_MIN_ZOOM = (() => {
   let z = 0
   while (resolutionForZoom(z) >= FINEST_TIER_KM) z++
@@ -110,8 +125,8 @@ const BBOX_QUANTUM_DEG = contract.hex.bbox_quantum_deg
  * response states the resolution it was actually served at, which is the number
  * the geometry is then built from.
  */
-export function resolutionForZoom(zoom) {
-  return (TARGET_HEX_PX * M_PER_PX_Z0) / 2 ** zoom / 1000
+export function resolutionForZoom(zoom, inlineSize = Infinity) {
+  return (targetHexPx(inlineSize) * M_PER_PX_Z0) / 2 ** zoom / 1000
 }
 
 /**
@@ -120,7 +135,7 @@ export function resolutionForZoom(zoom) {
  * bounds is MapLibre's LngLatBounds, or anything with the same four getters;
  * null or a zoom below BBOX_MIN_ZOOM yields the unclipped country-wide URL.
  */
-export function hexesURL(zoom, bounds) {
+export function hexesURL(zoom, bounds, inlineSize = Infinity) {
   // Rounded to a whole zoom level first, for the same reason the bbox is snapped
   // to a grid: MapLibre reports a fractional zoom that changes on every frame of
   // a flyTo, and an unrounded resolution gives each of those frames its own URL.
@@ -130,7 +145,7 @@ export function hexesURL(zoom, bounds) {
   // making: it changes the cell by 2x, which is a tier, and everything between
   // is the same picture.
   const z = Math.round(zoom)
-  const res = resolutionForZoom(z)
+  const res = resolutionForZoom(z, inlineSize)
   const bbox = bboxParam(z, bounds)
 
   // Past the finest published cell, the grid stops and individual sensors
@@ -139,7 +154,11 @@ export function hexesURL(zoom, bounds) {
   // cannot become a national device registry — and a request we know will 400
   // is not worth sending. Without a box we ask for the finest grid instead,
   // which is still a map.
-  if (res < FINEST_TIER_KM && bbox) {
+  //
+  // The zoom, not this width's resolution: POINT_TIER_MIN_ZOOM is where the
+  // marker and label layers hand over, and those ranges are the same on a
+  // phone. A phone below it asks for a finer grid the server snaps to 0.25 km.
+  if (z >= POINT_TIER_MIN_ZOOM && bbox) {
     return `/api/v1/hexes?${new URLSearchParams({
       resolution_km: String(POINT_RESOLUTION_KM), bbox,
     })}`

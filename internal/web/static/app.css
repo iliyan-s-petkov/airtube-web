@@ -668,15 +668,29 @@ html:has(> body.embed) { block-size: 100%; }
     background-image: var(--ramp-h, none);
   }
 
-  /* Back on the map: an overlay again, stacked above the locate/zoom row. */
+  /* Back on the map: an overlay again, stacked above the locate/zoom row.
+     One card for both children (see below), so the offset is measured off
+     the folded pill's own 44px floor, not a guess. */
   .map-freshness {
-    position: absolute; inset-inline-start: var(--space-2); inset-block-end: calc(44px + var(--space-3));
-    margin: 0; display: flex; gap: var(--space-2);
+    position: absolute; inset-inline-start: var(--space-2);
+    inset-block-end: calc(44px + var(--space-3) + var(--space-2));
+    margin: 0; display: flex; align-items: center; gap: var(--space-2);
+    background: var(--overlay-bg); border-radius: var(--radius); box-shadow: var(--elev-raised);
+    padding: var(--space-1);
   }
   /* Playing, the corner row IS the replay bar and spans the map; the window
-     button and the key stand down rather than share the width. */
-  .map-freshness:has(.map-play--open) { inset-inline-end: var(--space-2); }
+     button and the key stand down rather than share the width. .map-play--open
+     is already its own full card (see below), so the wrapper drops its own to
+     avoid a card inside a card. */
+  .map-freshness:has(.map-play--open) {
+    inset-inline-end: var(--space-2); background: none; box-shadow: none; padding: 0;
+  }
   .map-freshness:has(.map-play--open) .map-window { display: none; }
+  /* One shared card (.map-freshness above) instead of a card per button — the
+     window toggle and the idle play button used to draw two overlapping
+     white pills. */
+  .map-window__btn { background: none; box-shadow: none; }
+  .map-play:not(.map-play--open) { background: none; box-shadow: none; padding: 0; }
   /* The phone's home for the refresh controls: chrome.js moves them in here so
      the corner holds one control instead of two. */
   .map-window__footer {
@@ -707,10 +721,15 @@ html:has(> body.embed) { block-size: 100%; }
   .map-shell .scale--onmap[open] {
     inline-size: calc(100% - 7rem); z-index: 4;
   }
+  /* Folded, the pill's own surface padding stands down — the toggle IS the
+     pill, and a padded surface around an already-44px toggle overshot the
+     44px floor (measured 56px on prod). */
+  .scale--onmap:not([open]) { padding-block: 0; padding-inline: var(--space-1); }
   /* Folded, the toggle IS the pill — the 44px floor replaces the kit's 24px
-     icon square. */
+     icon square, and the kit's own margin-block-end is dropped so nothing
+     pads the pill past that floor. */
   .scale--onmap:not([open]) .scale__toggle {
-    min-block-size: 44px; inline-size: auto; padding-inline: var(--space-2);
+    min-block-size: 44px; inline-size: auto; padding-inline: var(--space-1); margin-block-end: 0;
   }
   /* Folded, the toggle is the metric name plus a ramp swatch. */
   .scale--onmap:not([open]) .scale__toggle::after {
@@ -718,9 +737,10 @@ html:has(> body.embed) { block-size: 100%; }
     background-image: var(--ramp-h, none);
   }
   /* Sits between the kit's ::before triangle and the ::after ramp swatch by
-     DOM order alone; the margins are just breathing room. */
+     DOM order alone; the margins are just breathing room. Small token, not
+     the inherited body size — that read oversized beside a 44px pill. */
   .scale--onmap:not([open]) .scale__toggle-label {
-    display: inline; margin-inline: var(--space-1);
+    display: inline; margin-inline: var(--space-1); font-size: var(--text-compact);
   }
 
   /* Every overlay button is a real touch target, not the kit's 32px square. */
@@ -743,6 +763,9 @@ html:has(> body.embed) { block-size: 100%; }
     position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
   }
+  /* Collapsed, the box shrinks to the icon: with the label hidden above, the
+     kit's max-inline-size still drew an empty card beside the ⓘ. */
+  .map-wind-label:not([open]) { inline-size: fit-content; padding: 0; }
   .map-note { inset-inline-start: calc(12px + 44px + var(--space-2)); }
   .map-locate { bottom: var(--space-2); }
   /* One button until there is something to play: the row unfolds across the

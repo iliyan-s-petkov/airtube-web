@@ -300,6 +300,12 @@ export function setSourceViewAvailability(chrome, metric, t, coverage) {
   }
 }
 
+// The map's own width, read fresh on every call: a rotation changes it long
+// after module load. Unknown (a test double, a detached map) reads as desktop.
+export function mapInlineSize(map) {
+  return map.getContainer?.()?.clientWidth || Infinity
+}
+
 // refreshHexes fetches the hex grid for the current zoom and viewport and
 // repaints the background layer.
 //
@@ -320,7 +326,7 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
   // The window rides on the URL, so it is also what makes the dedup below let a
   // window change through: the same viewport under a different window is a
   // different URL, and therefore a fetch rather than a repaint.
-  const url = withWindow(hexesURL(map.getZoom(), map.getBounds?.()), state.window)
+  const url = withWindow(hexesURL(map.getZoom(), map.getBounds?.(), mapInlineSize(map)), state.window)
   if (url !== state.hexUrl) {
     // A pan superseded by another pan is answering a viewport the reader has
     // already left: cancel it rather than let it finish and be discarded.
@@ -354,6 +360,9 @@ export async function refreshHexes(map, state, cfg, fetchJSON = getJSON, { defer
   // the one the URL describes. That is what keeps the grid on screen past the
   // finest published cell instead of collapsing it into marks hidden under the
   // sensor markers.
+  //
+  // At the desktop size on every width: this is the tier with a reading printed
+  // inside the cell, and the phone target would put that number in 18 px.
   const features = hexFeatures(
     state.hexBody, cfg.metric, bands, cfg.noDataColour, rampColour,
     resolutionForZoom(Math.round(map.getZoom())), getSources(),

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   resolutionForZoom,
+  targetHexPx,
+  PHONE_BREAKPOINT_PX,
   hexesURL,
   bboxParam,
   hexPolygon,
@@ -889,5 +891,64 @@ describe('the official cell shape', () => {
     for (const f of draw(15, 0.5)) {
       expect(f.geometry.coordinates[0]).toHaveLength(7)
     }
+  })
+})
+
+// The viewport-aware tier. A phone gets half the desktop target, so it gets
+// the next finer tier at the same zoom and about twice the cells across.
+describe('targetHexPx', () => {
+  // Inclusive, like the (max-width: 672px) query the chrome switches on: the
+  // two must call the same screen a phone.
+  it('halves the target at the phone breakpoint and not above it', () => {
+    expect(targetHexPx(PHONE_BREAKPOINT_PX)).toBe(TARGET_HEX_PX / 2)
+    expect(targetHexPx(PHONE_BREAKPOINT_PX + 1)).toBe(TARGET_HEX_PX)
+    expect(targetHexPx(390)).toBe(TARGET_HEX_PX / 2)
+  })
+
+  it('treats an unknown width as desktop', () => {
+    expect(targetHexPx(undefined)).toBe(TARGET_HEX_PX)
+    expect(targetHexPx(Infinity)).toBe(TARGET_HEX_PX)
+  })
+})
+
+describe('resolutionForZoom at a phone width', () => {
+  it('leaves every existing caller on the desktop resolution', () => {
+    expect(resolutionForZoom(7)).toBeCloseTo(28.7061, 3)
+    expect(resolutionForZoom(7, 1400)).toBe(resolutionForZoom(7))
+  })
+
+  it('asks for half the ground distance on a 390 px screen', () => {
+    expect(resolutionForZoom(7, 390)).toBeCloseTo(14.3531, 3)
+    expect(resolutionForZoom(7, 390)).toBe(resolutionForZoom(7) / 2)
+  })
+})
+
+describe('hexesURL at a phone width', () => {
+  const bounds = { getWest: () => 22.5, getSouth: () => 42.0, getEast: () => 24.5, getNorth: () => 43.5 }
+  const res = (z, w) => new URL(hexesURL(z, bounds, w), 'https://airbg.org').searchParams.get('resolution_km')
+
+  it('asks for the 15 km tier where the desktop asks for 25 km', () => {
+    expect(res(7)).toBe('28.7061')
+    expect(res(7, 390)).toBe('14.3531')
+  })
+
+  // Only the grid resolution follows the width. The handover to devices is
+  // where the markers step aside and the hex labels appear, and those layer
+  // ranges are one desktop-derived zoom: a phone that switched a zoom earlier
+  // would draw device cells under the markers that were meant to make way.
+  it('hands over to the point tier at the same zoom on both widths', () => {
+    expect(res(POINT_TIER_MIN_ZOOM, 390)).toBe('0')
+    expect(res(POINT_TIER_MIN_ZOOM)).toBe('0')
+    expect(res(POINT_TIER_MIN_ZOOM - 1, 390)).not.toBe('0')
+    expect(res(POINT_TIER_MIN_ZOOM - 1)).not.toBe('0')
+  })
+
+  // The zoom the width-aware target would have jumped at: the phone stays on
+  // the grid there and asks for a cell the server snaps to its finest tier.
+  it('asks for the finest grid, not devices, the zoom before the handover', () => {
+    const finest = contract.hex.tiers_km.at(-1)
+    expect(resolutionForZoom(POINT_TIER_MIN_ZOOM - 1, 390)).toBeLessThan(finest)
+    expect(Number(res(POINT_TIER_MIN_ZOOM - 1, 390)))
+      .toBeCloseTo(resolutionForZoom(POINT_TIER_MIN_ZOOM - 1, 390), 4)
   })
 })
