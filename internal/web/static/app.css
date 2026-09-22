@@ -689,11 +689,8 @@ html:has(> body.embed) { block-size: 100%; }
   .map__layers, .map__full, .map-locate, .map-zoom button, .scale__info, .map-wind-label__toggle {
     inline-size: 44px; block-size: 44px; min-block-size: 44px;
   }
-  /* The attribution (i) is MapLibre's own control, styled with physical
-     width/height and loaded after app.css (see templates: Assets.Style
-     "main" follows the app.css link) — a bare class here would lose the
-     cascade. The extra ancestor class matches its real corner and outranks
-     MapLibre's single-class rule on specificity instead. */
+  /* Two classes: app.css loads before maplibre-gl.css, so a bare class loses.
+     Matches the control's real corner. */
   .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib-button {
     inline-size: 44px; block-size: 44px; min-block-size: 44px;
   }

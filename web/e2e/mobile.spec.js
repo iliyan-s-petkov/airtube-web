@@ -70,6 +70,21 @@ test.describe('phone layout does not widen the viewport', () => {
     const box = await page.locator('.maplibregl-ctrl-attrib-button').boundingBox()
     expect(box.width).toBeGreaterThanOrEqual(44)
     expect(box.height).toBeGreaterThanOrEqual(44)
+    // The wind note stays hidden without a seeded forecast (/api/v1/wind
+    // 503s in this fixture) — force it open the same way chrome.showWind(true, …)
+    // does, so the phone rules below get a real element to measure.
+    await page.evaluate(() => { document.querySelector('.map-wind-label').hidden = false })
+    const label = page.locator('.map-wind-label__text-label')
+    if (await label.count()) {
+      const labelBox = await label.boundingBox()
+      expect(labelBox.width).toBeLessThanOrEqual(1)
+    }
+    const toggle = page.locator('.map-wind-label__toggle')
+    if (await toggle.isVisible()) {
+      const mapBox = await page.locator('#map').boundingBox()
+      const toggleBox = await toggle.boundingBox()
+      expect(toggleBox.y + toggleBox.height).toBeLessThanOrEqual(mapBox.y + mapBox.height - 44)
+    }
     await page.close()
   })
 })
