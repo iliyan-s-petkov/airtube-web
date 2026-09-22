@@ -179,6 +179,29 @@ test.describe('phone layout does not widen the viewport', () => {
     await expect(note).not.toHaveAttribute('open', '')
     await page.close()
   })
+
+  // Task 9: two readout cards per row, a compact card, and a footer whose
+  // links are still real touch targets.
+  test('/en readouts: two per row, compact card, metric prefix hidden', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    const cards = page.locator('.readout')
+    const first = cards.nth(0)
+    const second = cards.nth(1)
+    await expect.poll(async () => {
+      const a = await first.boundingBox()
+      const b = await second.boundingBox()
+      return a && b ? a.y === b.y : null
+    }).toBe(true)
+    const firstBox = await first.boundingBox()
+    expect(firstBox.height).toBeLessThanOrEqual(200)
+    await expect(first.locator('.readout__metric')).toBeHidden()
+    const footerLink = page.locator('.footer a').first()
+    const footerBox = await footerLink.boundingBox()
+    expect(footerBox.height).toBeGreaterThanOrEqual(40)
+    await page.close()
+  })
 })
 
 // Replay on a phone: one play button in the corner until there is something to

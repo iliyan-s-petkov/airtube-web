@@ -110,7 +110,7 @@ func NewRenderer(cat *i18n.Catalogue, holder *snapshot.Holder, cfg config.Config
 	// "embed" is parsed with base.gohtml like the rest, and then redefines
 	// "base" itself: it needs base's map partials but none of its chrome.
 	for _, page := range []string{"index", "area", "about", "error", "embed"} {
-		t, err := template.New("base.gohtml").ParseFS(templateFS,
+		t, err := template.New("base.gohtml").Funcs(templateFuncs).ParseFS(templateFS,
 			"templates/base.gohtml", "templates/"+page+".gohtml")
 		if err != nil {
 			// Parsed at startup, not per request: a template typo must fail the
@@ -264,6 +264,30 @@ type Readout struct {
 	// The network this cell belongs to, empty on the main row. An ungrouped
 	// cell renders exactly as before.
 	Group string
+}
+
+// readoutMetricSep joins a metric name to the rest of a Readout's Label (see
+// the "· " built at Label: metric + " · " + ... above).
+const readoutMetricSep = " · "
+
+// templateFuncs are helpers available to every page template.
+var templateFuncs = template.FuncMap{
+	// readoutMetric and readoutRest split a Readout's Label back into its
+	// metric prefix and the rest, so the template can wrap the prefix in its
+	// own span without a new field on Readout or a second copy of the i18n
+	// string that builds Label.
+	"readoutMetric": func(label string) string {
+		if before, _, ok := strings.Cut(label, readoutMetricSep); ok {
+			return before
+		}
+		return ""
+	},
+	"readoutRest": func(label string) string {
+		if _, after, ok := strings.Cut(label, readoutMetricSep); ok {
+			return after
+		}
+		return label
+	},
 }
 
 // gauge turns the cell into an arc, or leaves it a plain figure when the metric
