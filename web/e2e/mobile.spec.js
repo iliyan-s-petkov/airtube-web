@@ -123,6 +123,62 @@ test.describe('phone layout does not widen the viewport', () => {
     expect(scaleAboveFresh).toBe(true)
     await page.close()
   })
+
+  // Owner feedback from prod (Task 7b): the folded pill overshot the 44px
+  // floor (measured 56px), its label read oversized, and it overlapped the
+  // freshness row above it by 8px. All three fixed by one padding/offset pass.
+  test('/en folded legend pill: 44px tall, small label, clear of the freshness row', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    const scale = page.locator('.scale--onmap')
+    // A stored fold preference outlives one test in this worker-scoped
+    // context (Task 5b's own default-folded test opens it), so this closes
+    // it rather than assuming the fresh-profile default.
+    if (await scale.evaluate((el) => el.hasAttribute('open'))) {
+      await page.locator('.scale__toggle').click()
+    }
+    await expect(scale).not.toHaveAttribute('open', '')
+
+    await expect.poll(async () => (await scale.boundingBox())?.height ?? 0)
+      .toBeLessThanOrEqual(44)
+
+    const labelSize = await page.locator('.scale__toggle-label')
+      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+    expect(labelSize).toBeLessThanOrEqual(15)
+
+    await expect.poll(async () => {
+      const pillBox = await scale.boundingBox()
+      const freshBox = await page.locator('.map-freshness').boundingBox()
+      if (!pillBox || !freshBox) return null
+      return pillBox.y - (freshBox.y + freshBox.height)
+    }).toBeGreaterThanOrEqual(8)
+    await page.close()
+  })
+
+  // Collapsed, the wind note is an icon, not a card with empty space beside it.
+  test('/en collapsed wind note is icon-sized, no empty box', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en')
+    // No seeded forecast in this fixture (/api/v1/wind 503s), so force the
+    // note visible and closed the same way the attribution test does. Waited
+    // for first: chrome.js mounts it once the map island loads, and evaluate
+    // ran ahead of that mount without this.
+    // A debounced repaint (moveend, once the opening jumpTo settles) can
+    // replace the note between two round trips (see the legend spec above),
+    // reverting `hidden` — so this re-sets it on every poll instead of once.
+    const note = page.locator('.map-wind-label')
+    await expect.poll(async () => {
+      await page.evaluate(() => {
+        const el = document.querySelector('.map-wind-label')
+        if (el) el.hidden = false
+      })
+      return (await note.boundingBox())?.width ?? 999
+    }).toBeLessThanOrEqual(48)
+    await expect(note).not.toHaveAttribute('open', '')
+    await page.close()
+  })
 })
 
 // Replay on a phone: one play button in the corner until there is something to
