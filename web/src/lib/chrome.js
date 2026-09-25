@@ -46,6 +46,18 @@ export function hintController(render) {
   }
 }
 
+// The landscape-phone query app.css's height-gated breakpoint uses (see the
+// comment above it there). Kept as one string so CSS and JS never drift on
+// what counts as a phone.
+export const PHONE_LANDSCAPE_QUERY = '(orientation: landscape) and (max-height: 520px) and (hover: none)'
+
+// True when the viewport is a phone in either orientation: the portrait width
+// breakpoint, or the landscape one above. Used to default cellValues/wind ON.
+export function isPhoneViewport() {
+  if (typeof matchMedia !== 'function') return false
+  return matchMedia('(max-width: 672px)').matches || matchMedia(PHONE_LANDSCAPE_QUERY).matches
+}
+
 // mountChrome builds the legend and the hint banner as plain DOM, appended
 // beside the MapLibre canvas inside the same container. Plain DOM rather than
 // Svelte: two static-ish text nodes and a class toggle need no reactivity
@@ -86,6 +98,10 @@ export function mountChrome(el, cfg) {
   // desktop-default tests below run unmocked and unchanged.
   const phoneQuery = typeof matchMedia === 'function' ? matchMedia('(max-width: 672px)') : null
   const phone = phoneQuery?.matches === true
+
+  // Evaluated once, here, at mount — not re-checked on rotate. A stored choice
+  // (see maplayers.js addOption) still overrides this either way.
+  const phoneDefaults = isPhoneViewport()
   const legend = document.createElement('details')
   legend.className = LEGEND_CLASSES
   // Phones default folded (a stored choice still wins); desktop still defaults
@@ -227,7 +243,9 @@ export function mountChrome(el, cfg) {
       label: cfg.t.viewCellValues,
       // No needsMap: the cells are this island's own layer and are drawn on a
       // map served without tiles like any other.
-      defaultOff: true,
+      // On by default on a phone (see phoneDefaults above), off on desktop; a
+      // stored choice still wins either way.
+      defaultOff: !phoneDefaults,
       apply: (on, map) => setCellValues(map, on),
     },
     {
@@ -351,6 +369,9 @@ export function mountChrome(el, cfg) {
   return {
     ...hintCtl,
     storage,
+    // Read by mapload.js's windView, so both defaults come from the one
+    // mount-time check rather than a second matchMedia call drifting from this one.
+    phoneDefaults,
     showNote(text) {
       note.textContent = text
       note.hidden = !text
