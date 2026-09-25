@@ -413,6 +413,29 @@ describe('mountChrome() folds the key by default on a phone', () => {
     expect(shell.querySelector('details.scale').open).toBe(true)
   })
 
+  // Landscape phone shares the same fold default as portrait (isPhoneViewport),
+  // even though it fails the portrait width query used by the beforeEach stub.
+  it('mounts closed on a landscape phone with no stored flag', () => {
+    vi.stubGlobal('matchMedia', (query) => ({
+      matches: query === PHONE_LANDSCAPE_QUERY, media: query,
+      addEventListener() {}, removeEventListener() {},
+    }))
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    expect(shell.querySelector('details.scale').open).toBe(false)
+  })
+
+  it('still opens on a landscape phone when a reader stored true', () => {
+    store.set(LEGEND_FOLD_KEY, 'true')
+    vi.stubGlobal('matchMedia', (query) => ({
+      matches: query === PHONE_LANDSCAPE_QUERY, media: query,
+      addEventListener() {}, removeEventListener() {},
+    }))
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    expect(shell.querySelector('details.scale').open).toBe(true)
+  })
+
   // The map itself dispatches movestart; chrome only exposes closeLegend for
   // whoever holds the map instance (see islands/map.js).
   it('closeLegend closes an open key without writing the fold flag', () => {

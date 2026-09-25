@@ -96,12 +96,18 @@ export function mountChrome(el, cfg) {
   // folds the key on a small screen wants it folded on the next page too.
   // matchMedia is missing under jsdom — absent means "not a phone" so the
   // desktop-default tests below run unmocked and unchanged.
+  // phoneQuery stays the portrait-only MediaQueryList: the rotation listener
+  // below (see phoneQuery.addEventListener) only cares about crossing the
+  // 672px width breakpoint, not the landscape-phone case.
   const phoneQuery = typeof matchMedia === 'function' ? matchMedia('(max-width: 672px)') : null
-  const phone = phoneQuery?.matches === true
 
-  // Evaluated once, here, at mount — not re-checked on rotate. A stored choice
-  // (see maplayers.js addOption) still overrides this either way.
-  const phoneDefaults = isPhoneViewport()
+  // One phone definition for both orientations (isPhoneViewport), shared by
+  // the legend's default fold and the cellValues/wind defaults below — evaluated
+  // once, here, at mount, not re-checked on rotate. A stored choice (see
+  // maplayers.js addOption, and LEGEND_FOLD_KEY below) still overrides this
+  // either way.
+  const phone = isPhoneViewport()
+  const phoneDefaults = phone
   const legend = document.createElement('details')
   legend.className = LEGEND_CLASSES
   // Phones default folded (a stored choice still wins); desktop still defaults

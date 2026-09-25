@@ -448,6 +448,38 @@ test.describe('phone defaults: values and wind start on', () => {
     await page.close()
   })
 
+  // Fix round 1: the legend's own fold default used to check only the portrait
+  // query (see chrome.js's `phone`), so it defaulted OPEN at 844x390 even
+  // though cellValues/wind now default on there too — an open key can cover
+  // the very hex value it just turned on. mobileCtx (shared/worker-scoped) is
+  // reused rather than a brand-new browser context — a whole new context
+  // re-downloads the bundle and has tripped the ratelimit.api bucket on its
+  // own before (see this describe block's own comment) — but an earlier test
+  // in this file opens the legend by hand (see "legend pill: folded by
+  // default" above), which leaves a stored choice in that context's
+  // localStorage. addInitScript clears it before the page's own scripts run,
+  // on this one page only, so "no stored value" still holds without a new
+  // context's request burst.
+  // "No open legend box overlaps any visible cell-value label" holds
+  // vacuously once this passes: cellValues is a MapLibre canvas layer, not a
+  // DOM node, so its rendered position cannot be queried from Playwright, but
+  // folded means there is no open legend box to overlap anything with — a
+  // stored choice can still reopen it, same as every other layer default here.
+  test('844x390 landscape: legend folded by default (no open box to overlap a value)', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await page.addInitScript(() => localStorage.removeItem('airbg:legend-open'))
+    await mockWind(page)
+    await page.setViewportSize({ width: 844, height: 390 })
+    await page.goto('/en')
+
+    const scale = page.locator('.scale--onmap')
+    await expect(scale).toBeAttached()
+    await expect(scale).not.toHaveAttribute('open', '')
+
+    await page.close()
+  })
+
   // 1280x800 fails both the portrait and landscape phone media queries on
   // width/height alone, regardless of mobileCtx's touch emulation — no need
   // for a plain desktop context to prove this one off.
