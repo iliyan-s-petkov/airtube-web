@@ -460,6 +460,26 @@ test.describe('landscape phone keeps the map', () => {
     expect(sensorbar.y).toBeGreaterThanOrEqual(toolbar.y)
     expect(sensorbar.y + sensorbar.height).toBeLessThanOrEqual(map.y)
 
+    // Pills stay one line each: a 44px box height floor plus a text-range
+    // rect count of 1 (2+ means the label text itself wrapped inside the box).
+    const pills = await page.locator('[data-island="sensorbar"] .switcher__opt span').evaluateAll(
+      (els) => els.map((el) => {
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        return { height: el.getBoundingClientRect().height, lines: range.getClientRects().length }
+      })
+    )
+    for (const p of pills) {
+      expect(p.height).toBeLessThanOrEqual(44)
+      expect(p.lines).toBe(1)
+    }
+
+    // Breadcrumb link renders as one line, no wrapped caret/marker below it.
+    const navLines = await page.locator('nav[aria-label="breadcrumb"] a').evaluate(
+      (el) => el.getClientRects().length
+    )
+    expect(navLines).toBe(1)
+
     await page.close()
   })
 })
