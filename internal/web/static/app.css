@@ -927,6 +927,50 @@ html:has(> body.embed) { block-size: 100%; }
   .map-shell .scale--onmap { inset-block-end: var(--space-2); }
   /* Scrolls the open legend when it is taller than the landscape map. */
   .map-shell .scale--onmap[open] { overflow-y: auto; }
+  /* Folded pill, restated from the @672px block above: that query is
+     width-gated and does not fire at 844px wide, so without this the fold
+     fell back to the kit's bare rotated-triangle default (see
+     design-kit/components.css) — a triangle floating over the map with no
+     pill chrome, no ramp swatch, no metric label. Same 44px-floor pill as
+     portrait; position (16px/space-2, set above) already clears both the
+     freshness/play card (starts at inline 232px) and the layers button
+     (top-anchored), so only the fold's own look needs restating here. */
+  .scale--onmap:not([open]) { padding-block: 0; padding-inline: var(--space-1); }
+  .scale--onmap:not([open]) .scale__toggle {
+    min-block-size: 44px; inline-size: auto; padding-inline: var(--space-1); margin-block-end: 0;
+  }
+  .scale--onmap:not([open]) .scale__toggle::after {
+    content: ''; inline-size: 60px; block-size: 8px; border-radius: var(--radius-sm);
+    background-image: var(--ramp-h, none);
+  }
+  .scale--onmap:not([open]) .scale__toggle-label {
+    display: inline; margin-inline: var(--space-1); font-size: var(--text-compact);
+  }
+  /* Wind note, restated from the @672px block above for the same reason: the
+     landscape query never collapsed it, so it kept the desktop card's full
+     padded box and its summary's spelled-out label — a wide "About the wind
+     layer" pill rather than the bare 44px (i) portrait shows. Position
+     (inset-end 8px, bottom 3.5rem — set at line ~313, unchanged) already
+     clears .map-locate (bottom 8px, 32px tall) below it, so only the
+     collapsed look and the open card need restating. */
+  .map-wind-label:not([open]) {
+    inline-size: fit-content; max-inline-size: none;
+    background: none; box-shadow: none; border: 0; padding: 0;
+  }
+  .map-wind-label:not([open]) .map-wind-label__toggle {
+    display: flex; align-items: center; justify-content: center;
+    inline-size: 44px; block-size: 44px;
+  }
+  .map-wind-label:not([open]) .map-wind-label__toggle::before {
+    filter: drop-shadow(0 0 2px var(--bg));
+  }
+  .map-wind-label[open] {
+    z-index: 4; max-inline-size: min(18rem, calc(100% - 4rem));
+  }
+  .map-wind-label__toggle .map-wind-label__text-label {
+    position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
   .frame:has(> .page-head:not(.page-head--compact)) > .notice,
   .frame:has(> .page-head:not(.page-head--compact)) > .map-shell,
   .frame:has(> .page-head:not(.page-head--compact)) > .place-host,

@@ -614,4 +614,61 @@ test.describe('landscape phone keeps the map', () => {
 
     await page.close()
   })
+
+  // Fix round 2: the fold/collapse styling that made the legend a pill and the
+  // wind note an icon-only (i) was written only into the portrait (max-width)
+  // media block, so landscape fell back to the design-kit's bare rotated
+  // triangle for the legend and the desktop card for the wind note. Both are
+  // restated in app.css's landscape media block now — these two guard that.
+  test('844x390 landscape: collapsed wind note is icon-sized, no wide card', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await page.setViewportSize({ width: 844, height: 390 })
+    await page.goto('/en')
+    const note = page.locator('.map-wind-label')
+    await expect.poll(async () => {
+      await page.evaluate(() => {
+        const el = document.querySelector('.map-wind-label')
+        if (el) el.hidden = false
+      })
+      const box = await note.boundingBox()
+      return box ? Math.max(box.width, box.height) : 999
+    }).toBeLessThanOrEqual(44)
+    await expect(note).not.toHaveAttribute('open', '')
+    await page.close()
+  })
+
+  test('844x390 landscape: folded legend pill clear of the freshness card and layers button', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await page.addInitScript(() => localStorage.removeItem('airbg:legend-open'))
+    await page.setViewportSize({ width: 844, height: 390 })
+    await page.goto('/en')
+    const scale = page.locator('.scale--onmap')
+    await expect(scale).toBeAttached()
+    await expect(scale).not.toHaveAttribute('open', '')
+
+    // Geometry alone can't tell a bare rotated triangle (the kit's default,
+    // ~24x28) from the pill portrait shows (~44px tall, well over 100 wide
+    // with the ramp swatch) — both can clear the freshness/layers boxes just
+    // by being small. Pin the pill's own shape first so a regression to the
+    // triangle fails here, not just a manual screenshot.
+    await expect.poll(async () => (await scale.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(40)
+    await expect.poll(async () => (await scale.boundingBox())?.width ?? 0)
+      .toBeGreaterThanOrEqual(100)
+
+    const overlaps = (a, b) =>
+      a.x < b.x + b.width && a.x + a.width > b.x &&
+      a.y < b.y + b.height && a.y + a.height > b.y
+
+    await expect.poll(async () => {
+      const legendBox = await scale.boundingBox()
+      const freshBox = await page.locator('.map-freshness').boundingBox()
+      const layersBox = await page.locator('.map__layers').boundingBox()
+      if (!legendBox || !freshBox || !layersBox) return null
+      return { fresh: overlaps(legendBox, freshBox), layers: overlaps(legendBox, layersBox) }
+    }).toEqual({ fresh: false, layers: false })
+    await page.close()
+  })
 })
