@@ -453,6 +453,13 @@ test.describe('landscape phone keeps the map', () => {
     expect(map.y).toBeLessThan(100)
     expect(map.height).toBeGreaterThanOrEqual(250)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(844)
+
+    // Sensor bar: stays inside the header row, clear of the map below it.
+    const toolbar = await page.locator('.toolbar').boundingBox()
+    const sensorbar = await page.locator('[data-island="sensorbar"]').boundingBox()
+    expect(sensorbar.y).toBeGreaterThanOrEqual(toolbar.y)
+    expect(sensorbar.y + sensorbar.height).toBeLessThanOrEqual(map.y)
+
     await page.close()
   })
 })

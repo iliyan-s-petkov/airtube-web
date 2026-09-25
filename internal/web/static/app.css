@@ -902,7 +902,8 @@ html:has(> body.embed) { block-size: 100%; }
     display: flex; align-items: center; gap: var(--space-2);
     min-inline-size: 0; overflow: hidden;
   }
-  [data-island="sensorbar"] .sensor-bar { display: flex; align-items: center; }
+  /* Reset the base row's margin-block so the flex row fits the 48px track. */
+  [data-island="sensorbar"] .sensor-bar { display: flex; align-items: center; margin-block: 0; }
   [data-island="sensorbar"] .switcher > legend {
     position: absolute; inline-size: 1px; block-size: 1px; margin: -1px;
     overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
