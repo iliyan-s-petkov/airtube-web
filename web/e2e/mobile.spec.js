@@ -10,6 +10,24 @@ const test = base.extend({
   }, { scope: 'worker' }],
 })
 
+// /api/v1/wind 503s with no forecast seeded in this fixture; wind now defaults
+// ON for a phone (Task 12), so the unmocked 503 races chrome.showWind(false, '')
+// against any test that forces the note open by hand. Routed wherever the note
+// must stay open and stable.
+const mockWind = (page) => page.route('**/api/v1/wind', (route) => route.fulfill({
+  status: 200,
+  contentType: 'application/json',
+  body: JSON.stringify({
+    generated_at: new Date().toISOString(),
+    valid_at: new Date().toISOString(),
+    model: 'Test Model',
+    model_resolution_deg: 0.25,
+    resolution_km: 15,
+    forecast: true,
+    vectors: [{ lon: 23.3, lat: 42.68, speed_ms: 3.2, direction_deg: 180 }],
+  }),
+}))
+
 test.describe('phone layout does not widen the viewport', () => {
   for (const path of ['/en', '/en/area/sofia#sensor=101']) {
     test(`${path} stays at 390px wide`, async ({ mobileCtx }) => {
@@ -212,16 +230,19 @@ test.describe('phone layout does not widen the viewport', () => {
   // a click on the note's own text hit whichever card was drawn on top.
   test('/en open wind note draws above the freshness card, clear of the map edge', async ({ mobileCtx }) => {
     const page = await mobileCtx.newPage()
+    // Wind now defaults on for a phone (Task 12); a real forecast is mocked
+    // here so the note is already open on its own real text rather than one
+    // forced in by hand racing the app's own 503-triggered hide.
+    await mockWind(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/en')
     await page.waitForSelector('.map-wind-label', { state: 'attached' })
-    // No seeded forecast in this fixture, so the empty note never grows wide
-    // enough to actually overlap the freshness card — a real forecast
-    // sentence (see chrome.js's showWind) is two sentences and a model name,
-    // which is what pushes the open card out toward max-inline-size.
+    // A real forecast sentence (see chrome.js's showWind) is two sentences and
+    // a model name, which is what pushes the open card out toward
+    // max-inline-size — the mocked model text below stands in for it.
+    await expect.poll(async () => page.locator('.map-wind-label').evaluate((el) => el.hidden)).toBe(false)
     await page.evaluate(() => {
       const el = document.querySelector('.map-wind-label')
-      el.hidden = false
       el.querySelector('.map-wind-label__text').textContent =
         'Forecast wind arrows are modelled, not measured, and may diverge from the sensors below. Source: a placeholder weather model used for this test.'
     })
@@ -378,6 +399,69 @@ test.describe('phone replay folds behind one button', () => {
     await exit.click()
     await expect(page.locator('.map-play--open')).toHaveCount(0)
     await expect(page.locator('.map-play__scrub')).toBeHidden()
+    await page.close()
+  })
+})
+
+// Task 12: cellValues and wind must both start ON for a phone reader, in
+// either orientation, and OFF on desktop. No test above this point ever
+// changes view:cellValues/view:wind (the wind-note toggle above is a
+// different control, the note's own open/close disclosure), so mobileCtx's
+// storage is still untouched here — same "no stored preference yet" state a
+// brand-new context would give, without a brand-new context's cold cache. A
+// fresh context per viewport re-downloads the whole bundle and has tripped
+// the app's per-IP rate limit here before (see mobileCtx's own comment).
+//
+// This is the real ratelimit.api bucket (10/s, burst 60, airbg.yaml) — this
+// suite runs against the shipped config on purpose, so the fix is pacing,
+// not a bigger test-only bucket. Three full reloads back to back here landed
+// close enough together to 429 the islands' own dynamic imports; the wait
+// below buys the bucket ~2s of refill before each one after the first.
+test.describe('phone defaults: values and wind start on', () => {
+  const openLayers = async (page) => {
+    await page.locator('.map__layers .colmenu__btn').click()
+  }
+
+  const checkViewport = async (page, width, height, { pace = false } = {}) => {
+    if (pace) await new Promise((r) => setTimeout(r, 2000))
+    await mockWind(page)
+    await page.setViewportSize({ width, height })
+    await page.goto('/en')
+    await openLayers(page)
+
+    const values = page.locator('[data-layer-key="view:cellValues"]')
+    const wind = page.locator('[data-layer-key="view:wind"]')
+    await expect(values).toBeChecked()
+    await expect(wind).toBeChecked()
+    await expect(page.locator('.map-wind-label')).toBeVisible()
+  }
+
+  test('390x844 portrait: values and wind on, wind note visible', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await checkViewport(page, 390, 844)
+    await page.close()
+  })
+
+  test('844x390 landscape: values and wind on, wind note visible', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await checkViewport(page, 844, 390, { pace: true })
+    await page.close()
+  })
+
+  // 1280x800 fails both the portrait and landscape phone media queries on
+  // width/height alone, regardless of mobileCtx's touch emulation — no need
+  // for a plain desktop context to prove this one off.
+  test('1280x800 desktop: values and wind stay off', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await mockWind(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/en')
+    await openLayers(page)
+
+    await expect(page.locator('[data-layer-key="view:cellValues"]')).not.toBeChecked()
+    await expect(page.locator('[data-layer-key="view:wind"]')).not.toBeChecked()
+
     await page.close()
   })
 })

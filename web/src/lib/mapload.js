@@ -246,13 +246,15 @@ export function installMapLoad({ map, state, cfg, chrome, vs, windState, boundar
     //
     // defaultOff: every other option starts on because the map the reader was
     // shown is the map they keep. This one is not part of that map, and turning
-    // it on costs a request.
+    // it on costs a request. On a phone (chrome.phoneDefaults) it starts on
+    // anyway — see chrome.js's isPhoneViewport — because that IS the map a
+    // phone reader is shown; a stored choice still wins either way.
     const windView = {
       id: 'wind',
       label: cfg.t.windToggle,
       // No needsMap: the arrows are this island's own source and layer, not the
       // basemap's, so they still draw on a map served without tiles.
-      defaultOff: true,
+      defaultOff: !chrome.phoneDefaults,
       apply: (on) => setWind(map, cfg, chrome, windState, on),
     }
 

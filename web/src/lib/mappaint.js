@@ -50,6 +50,9 @@ export function markerMaxZoom(tier) {
 // thinning does the rest — where the cells are too small to hold a number, it
 // simply drops the ones that will not fit.
 export function setCellValues(map, on) {
+  // Guarded like applyMarkerZoomRange: a phone-default apply now runs at mount,
+  // before a style reload could leave this layer briefly absent.
+  if (!map.getLayer?.(HEX_LABEL_LAYER_ID)) return
   map.setLayerZoomRange(
     HEX_LABEL_LAYER_ID,
     on ? GRID_MIN_ZOOM_FRACTIONAL : POINT_TIER_MIN_ZOOM_FRACTIONAL,
