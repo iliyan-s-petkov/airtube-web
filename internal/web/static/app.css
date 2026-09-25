@@ -909,8 +909,8 @@ html:has(> body.embed) { block-size: 100%; }
     overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
   }
   [data-island="sensorbar"] .switcher__set { flex-wrap: nowrap; }
-  /* Pill text was wrapping to two lines in the narrow sensorbar column;
-     nowrap plus tighter padding/size keeps each label on one line. */
+  /* Nowrap plus tighter padding/size keeps each pill label on one line
+     in the narrow sensorbar column. */
   [data-island="sensorbar"] .switcher__opt span {
     white-space: nowrap; padding-inline: var(--space-2); font-size: var(--text-caption);
   }
@@ -920,11 +920,13 @@ html:has(> body.embed) { block-size: 100%; }
     position: absolute; inline-size: 1px; block-size: 1px; margin: -1px;
     overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
   }
-  /* The metric switcher's box sat flush against the masthead border. */
+  /* Keeps the metric switcher box off the masthead border. */
   [data-island="switcher"] .colmenu { margin-block-start: var(--space-1); }
-  /* The open legend's desktop 3.5rem offset (line 449) lifted it above a
-     short landscape map-shell, into the header gap below the breadcrumb. */
+  /* Anchors the open legend inside the short landscape map, not the
+     desktop offset used above 520px tall. */
   .map-shell .scale--onmap { inset-block-end: var(--space-2); }
+  /* Scrolls the open legend when it is taller than the landscape map. */
+  .map-shell .scale--onmap[open] { overflow-y: auto; }
   .frame:has(> .page-head:not(.page-head--compact)) > .notice,
   .frame:has(> .page-head:not(.page-head--compact)) > .map-shell,
   .frame:has(> .page-head:not(.page-head--compact)) > .place-host,

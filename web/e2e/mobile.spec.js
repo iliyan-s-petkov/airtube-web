@@ -480,6 +480,22 @@ test.describe('landscape phone keeps the map', () => {
     )
     expect(navLines).toBe(1)
 
+    // Open legend: its own box must sit fully inside the map-shell box.
+    // force: true — the map's overlay controls intercept the toggle mid-repaint.
+    await page.locator('.scale__toggle').click({ force: true })
+    await expect.poll(async () => (await page.locator('.scale--onmap').boundingBox())?.height ?? 0)
+      .toBeGreaterThan(0)
+    const legendBox = await page.locator('.scale--onmap').boundingBox()
+    const shellBox = await page.locator('.map-shell').boundingBox()
+    expect(legendBox.y).toBeGreaterThanOrEqual(shellBox.y)
+    expect(legendBox.y + legendBox.height).toBeLessThanOrEqual(shellBox.y + shellBox.height)
+
+    // Geometry alone can't catch this: a clipped child reports the same
+    // bounding box as one bleeding past it. Assert the clip mechanism itself.
+    const overflowY = await page.locator('.scale--onmap')
+      .evaluate((el) => getComputedStyle(el).overflowY)
+    expect(overflowY).not.toBe('visible')
+
     await page.close()
   })
 })
