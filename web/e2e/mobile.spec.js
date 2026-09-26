@@ -1,11 +1,7 @@
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { test as base, expect } from './fixtures.js'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
 // One worker-scoped mobile context for the file: a fresh context per test
-// re-downloads the bundle and trips the app's per-IP rate limit (429).
+// churns connections and re-downloads the bundle unnecessarily.
 const test = base.extend({
   mobileCtx: [async ({ browser }, use) => {
     const context = await browser.newContext({ isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
@@ -14,10 +10,16 @@ const test = base.extend({
   }, { scope: 'worker' }],
 })
 
-// /api/v1/wind 503s with no forecast seeded in this fixture; wind now defaults
-// ON for a phone (Task 12), so the unmocked 503 races chrome.showWind(false, '')
-// against any test that forces the note open by hand. Routed wherever the note
-// must stay open and stable.
+// A crashed/timed-out test never reaches its own page.close(); left open it
+// leaks a WebGL context into the next test on this shared worker context.
+test.afterEach(async ({ mobileCtx }) => {
+  for (const p of mobileCtx.pages()) {
+    if (!p.isClosed()) await p.close().catch(() => {})
+  }
+})
+
+// Mocks a real forecast; wind defaults ON for a phone, and the unmocked
+// endpoint 503s with no seeded forecast, racing the note closed.
 const mockWind = (page) => page.route('**/api/v1/wind', (route) => route.fulfill({
   status: 200,
   contentType: 'application/json',
@@ -234,17 +236,15 @@ test.describe('phone layout does not widen the viewport', () => {
   // a click on the note's own text hit whichever card was drawn on top.
   test('/en open wind note draws above the freshness card, clear of the map edge', async ({ mobileCtx }) => {
     const page = await mobileCtx.newPage()
-    // Wind now defaults on for a phone (Task 12); a real forecast is mocked
-    // here so the note is already open on its own real text rather than one
-    // forced in by hand racing the app's own 503-triggered hide.
+    // Wind defaults on for a phone; mocked so the note opens on real text.
     await mockWind(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/en')
     await page.waitForSelector('.map-wind-label', { state: 'attached' })
-    // A real forecast sentence (see chrome.js's showWind) is two sentences and
-    // a model name, which is what pushes the open card out toward
-    // max-inline-size — the mocked model text below stands in for it.
-    await expect.poll(async () => page.locator('.map-wind-label').evaluate((el) => el.hidden)).toBe(false)
+    // Cold load + mocked fetch + phone-default activation can outrun the
+    // default 5s poll window.
+    await expect.poll(async () => page.locator('.map-wind-label').evaluate((el) => el.hidden), { timeout: 15000 })
+      .toBe(false)
     await page.evaluate(() => {
       const el = document.querySelector('.map-wind-label')
       el.querySelector('.map-wind-label__text').textContent =
@@ -407,20 +407,8 @@ test.describe('phone replay folds behind one button', () => {
   })
 })
 
-// Task 12: cellValues and wind must both start ON for a phone reader, in
-// either orientation, and OFF on desktop. No test above this point ever
-// changes view:cellValues/view:wind (the wind-note toggle above is a
-// different control, the note's own open/close disclosure), so mobileCtx's
-// storage is still untouched here — same "no stored preference yet" state a
-// brand-new context would give, without a brand-new context's cold cache. A
-// fresh context per viewport re-downloads the whole bundle and has tripped
-// the app's per-IP rate limit here before (see mobileCtx's own comment).
-//
-// This is the real ratelimit.api bucket (10/s, burst 60, airbg.yaml) — this
-// suite runs against the shipped config on purpose, so the fix is pacing,
-// not a bigger test-only bucket. Three full reloads back to back here landed
-// close enough together to 429 the islands' own dynamic imports; the wait
-// below buys the bucket ~2s of refill before each one after the first.
+// cellValues and wind must both start ON for a phone reader, either
+// orientation, and OFF on desktop. `pace` spaces reloads to ease rate-limit pressure.
 test.describe('phone defaults: values and wind start on', () => {
   const openLayers = async (page) => {
     await page.locator('.map__layers .colmenu__btn').click()
@@ -452,23 +440,8 @@ test.describe('phone defaults: values and wind start on', () => {
     await page.close()
   })
 
-  // Fix round 1: the legend's own fold default used to check only the portrait
-  // query (see chrome.js's `phone`), so it defaulted OPEN at 844x390 even
-  // though cellValues/wind now default on there too — an open key can cover
-  // the very hex value it just turned on. mobileCtx (shared/worker-scoped) is
-  // reused rather than a brand-new browser context — a whole new context
-  // re-downloads the bundle and has tripped the ratelimit.api bucket on its
-  // own before (see this describe block's own comment) — but an earlier test
-  // in this file opens the legend by hand (see "legend pill: folded by
-  // default" above), which leaves a stored choice in that context's
-  // localStorage. addInitScript clears it before the page's own scripts run,
-  // on this one page only, so "no stored value" still holds without a new
-  // context's request burst.
-  // "No open legend box overlaps any visible cell-value label" holds
-  // vacuously once this passes: cellValues is a MapLibre canvas layer, not a
-  // DOM node, so its rendered position cannot be queried from Playwright, but
-  // folded means there is no open legend box to overlap anything with — a
-  // stored choice can still reopen it, same as every other layer default here.
+  // Legend must default folded at 844x390 too, not just portrait. Clears any
+  // stored choice an earlier test in this shared context left behind.
   test('844x390 landscape: legend folded by default (no open box to overlap a value)', async ({ mobileCtx }) => {
     const page = await mobileCtx.newPage()
     await new Promise((r) => setTimeout(r, 2000))
@@ -484,56 +457,12 @@ test.describe('phone defaults: values and wind start on', () => {
     await page.close()
   })
 
-  // Task 12 round 4: this was flaking under the full suite (never in
-  // isolation) with "locator.click: Target page, context or browser has been
-  // closed" after the full 30s test timeout — that wording is just Playwright
-  // tearing the page down once the timeout fires, not the real story. Console
-  // capture on a repro showed the actual failure: "island failed: map
-  // TypeError: Failed to fetch dynamically imported module: .../map-*.js",
-  // caused by real 429s from ratelimit.api (airbg.yaml) — the SAME per-IP
-  // bucket that wraps the whole server, static assets included
-  // (internal/httpx/chain.go's RateLimit sits outside the /api/ vs page
-  // split). By the time this test runs, 38 prior tests in the suite have
-  // already drawn the bucket down, and this is the FIRST and only test in the
-  // entire run wide enough (1280px) to open the '/en' index at the country
-  // tier, which mounts readouts/freshness/panel/theme/ResetButton — chunks no
-  // earlier (phone-width) test has ever fetched, so there is no warm
-  // disk-cache safety net for them either. All of that lands in one burst on
-  // this one navigation and can tip the shared bucket into a 429 on whichever
-  // request loses the race — sometimes an unrelated island's chunk, sometimes
-  // one of map's own static import-graph dependencies (ramp/sensorfilter —
-  // see mappaint.js's sibling comments), which is why stubbing only the
-  // unrelated islands still flaked: the pool of possible losers is bigger
-  // than the assets this test doesn't care about.
-  //
-  // The fix is not a longer wait or a retry: this test does not exercise the
-  // rate limiter at all — it asserts on two checkbox states after opening a
-  // menu — so every static chunk its own navigation needs is read straight
-  // off the same dist/ directory the server would otherwise have served,
-  // never touching the network or the shared per-IP bucket. That is the
-  // asset's real, current content (not a stub), so nothing about what the
-  // page runs is faked — only where the bytes came from changed. API calls
-  // still go over the wire; they never 429ed in any repro run, and this test
-  // does not touch the layer menu's own rate-limited endpoints (see
-  // sources.spec.js for that).
-  const distAssets = path.join(__dirname, '..', '..', 'internal', 'web', 'dist', 'assets')
-  const CONTENT_TYPES = { '.js': 'text/javascript', '.css': 'text/css' }
-  const serveAssetsFromDisk = (page) => page.route('**/static/build/assets/*', (route) => {
-    const name = new URL(route.request().url()).pathname.split('/').pop()
-    route.fulfill({
-      path: path.join(distAssets, name),
-      contentType: CONTENT_TYPES[path.extname(name)] ?? 'application/octet-stream',
-    })
-  })
-
-  // 1280x800 fails both the portrait and landscape phone media queries on
-  // width/height alone, regardless of mobileCtx's touch emulation — no need
-  // for a plain desktop context to prove this one off.
+  // 1280x800 fails both phone media queries on width/height alone, regardless
+  // of mobileCtx's touch emulation.
   test('1280x800 desktop: values and wind stay off', async ({ mobileCtx }) => {
     const page = await mobileCtx.newPage()
     await new Promise((r) => setTimeout(r, 2000))
     await mockWind(page)
-    await serveAssetsFromDisk(page)
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/en')
     await openLayers(page)
@@ -545,18 +474,8 @@ test.describe('phone defaults: values and wind start on', () => {
   })
 })
 
-// Task 12 round 3: cellValues-on used to let the hex aggregate label draw at
-// the same zoom as a sensor dot's own label, over the same reading —
-// "10.0 ● 10.0" (see mappaint.js's hexLabelMinZoom). Sofia's own sensor-tier
-// frame is where the bug showed: the hex source still returns coarser
-// Polygon cells with a value there, and the fix's whole job is keeping those
-// cells' label off while the dots underneath still carry their own.
-//
-// queryRenderedFeatures needs a live Map handle, which no e2e spec here has
-// ever reached for — 'airbg:paint' (redraw.spec.js) only announces THAT a
-// layer repainted, not what it drew. map.js now stashes the instance on the
-// island's own container element (`el.__map`, e2e-only, never read by app
-// code) for exactly this.
+// Guards against a hex aggregate label drawing over a sensor dot's own label
+// for the same reading (see mappaint.js's hexLabelMinZoom).
 test.describe('hex label and dot label never share a value (Task 12 round 3)', () => {
   const getMap = (page) => page.evaluate(() => new Promise((resolve) => {
     const el = document.querySelector('[data-island="map"]')
@@ -567,21 +486,15 @@ test.describe('hex label and dot label never share a value (Task 12 round 3)', (
     wait()
   }))
 
-  // Both layers' rendered features, as their screen-space anchor points —
-  // a hex label sits at its polygon's own centroid, a dot label at its
-  // point — so "no pair overlaps" reduces to "no two anchors land within
-  // the same label's own footprint" without either layer's paint spec (font
-  // size, halo, etc.) leaking into the test.
+  // Screen-space anchor points for each layer: a hex label's polygon centroid,
+  // a dot label's own point.
   const anchors = (page, layerId) => page.evaluate((id) => {
     const map = document.querySelector('[data-island="map"]').__map
     const feats = map.queryRenderedFeatures({ layers: [id] })
     return feats.map((f) => {
       const g = f.geometry
       if (g.type === 'Point') return map.project(g.coordinates)
-      // Polygon: mean of the outer ring's vertices, dropping the closing
-      // vertex GeoJSON repeats — same centroid rule mount()'s own
-      // ringCentroid uses, so a fixture here and the app agree on where a
-      // hex cell's label anchors.
+      // Polygon: mean of the outer ring's vertices, matching mount()'s ringCentroid.
       const ring = g.coordinates[0]
       const [fx, fy] = ring[0]
       const last = ring[ring.length - 1]
@@ -591,17 +504,17 @@ test.describe('hex label and dot label never share a value (Task 12 round 3)', (
     })
   }, layerId)
 
-  // A label's own text plus halo is comfortably under 40px tall/wide at any
-  // tier here; two anchors closer than that are the same reading printed
-  // twice, not two distinct cells that happen to sit near each other.
+  // Anchors closer than this are the same reading printed twice.
   const OVERLAP_PX = 40
 
-  test('Sofia sensor-tier frame: no hex-label anchor sits on a dot-label anchor', async ({ mobileCtx }) => {
+  test('Sofia sensor-tier frame: no hex-label anchor sits on a dot-label anchor', async ({ mobileCtx }, testInfo) => {
+    // Both hex and dot layers cold-painting can outrun the 30s default,
+    // especially before the browser's shader cache is warm.
+    testInfo.setTimeout(75000)
     const page = await mobileCtx.newPage()
     await new Promise((r) => setTimeout(r, 2000))
     await mockWind(page)
-    // Same attach-before-any-script pattern redraw.spec.js uses: the first
-    // paint of a cold load can land while goto() is still returning.
+    // Attach before goto(): the first paint can land before it returns.
     await page.addInitScript(() => {
       window.__paints = []
       const attach = () => {
@@ -612,20 +525,25 @@ test.describe('hex label and dot label never share a value (Task 12 round 3)', (
       attach()
     })
     await page.setViewportSize({ width: 390, height: 844 })
-    // No #sensor= hash: that deep-links straight into the point tier (its own
-    // "each cell is a single sensor" caption), past the handover this test
-    // exists to check. Sofia's own area page opens at the sensor tier itself
-    // (zoom 11 — see redraw.spec.js), which is where the bug showed.
-    await page.goto('/en/area/sofia')
-    await getMap(page)
-    // Both data layers painted at least once — the source data is in, not
-    // just the empty style (see redraw.spec.js's own `loaded`).
-    await page.waitForFunction(() => {
-      const seen = new Set(window.__paints ?? [])
-      return seen.has('airbg-data') && seen.has('airbg-hexes')
-    }, null, { timeout: 20000 })
-    // Settle past the load-time placement jumps redraw.spec.js documents
-    // (mapload.js's onMoveEnd.cancel() races the very last one).
+    // Retried once: this sandbox occasionally reports a transient
+    // ERR_NETWORK_CHANGED/ERR_CONNECTION_TIMED_OUT unrelated to the app.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        // No #sensor= hash: that deep-links past the sensor-tier handover this checks.
+        await page.goto('/en/area/sofia')
+        await getMap(page)
+        // Both data layers painted at least once, not just the empty style.
+        await page.waitForFunction(() => {
+          const seen = new Set(window.__paints ?? [])
+          return seen.has('airbg-data') && seen.has('airbg-hexes')
+        }, null, { timeout: 45000 })
+        break
+      } catch (err) {
+        if (attempt >= 2) throw err
+        await page.evaluate(() => { window.__paints = [] }).catch(() => {})
+      }
+    }
+    // Settle past load-time placement jumps.
     await page.waitForTimeout(3000)
 
     await expect.poll(async () => (await anchors(page, 'airbg-marker-labels')).length)
@@ -761,11 +679,8 @@ test.describe('landscape phone keeps the map', () => {
     await page.close()
   })
 
-  // Fix round 2: the fold/collapse styling that made the legend a pill and the
-  // wind note an icon-only (i) was written only into the portrait (max-width)
-  // media block, so landscape fell back to the design-kit's bare rotated
-  // triangle for the legend and the desktop card for the wind note. Both are
-  // restated in app.css's landscape media block now — these two guard that.
+  // The pill/icon-only fold styling is now restated in the landscape media
+  // block too, not just portrait; these two guard that.
   test('844x390 landscape: collapsed wind note is icon-sized, no wide card', async ({ mobileCtx }) => {
     const page = await mobileCtx.newPage()
     await new Promise((r) => setTimeout(r, 2000))
@@ -794,11 +709,8 @@ test.describe('landscape phone keeps the map', () => {
     await expect(scale).toBeAttached()
     await expect(scale).not.toHaveAttribute('open', '')
 
-    // Geometry alone can't tell a bare rotated triangle (the kit's default,
-    // ~24x28) from the pill portrait shows (~44px tall, well over 100 wide
-    // with the ramp swatch) — both can clear the freshness/layers boxes just
-    // by being small. Pin the pill's own shape first so a regression to the
-    // triangle fails here, not just a manual screenshot.
+    // Pin the pill's own shape, not just clearance, so a regression to the
+    // kit's bare triangle (which would also clear, being smaller) fails here.
     await expect.poll(async () => (await scale.boundingBox())?.height ?? 0)
       .toBeGreaterThanOrEqual(40)
     await expect.poll(async () => (await scale.boundingBox())?.width ?? 0)

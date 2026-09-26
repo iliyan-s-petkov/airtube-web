@@ -46,13 +46,10 @@ export function hintController(render) {
   }
 }
 
-// The landscape-phone query app.css's height-gated breakpoint uses (see the
-// comment above it there). Kept as one string so CSS and JS never drift on
-// what counts as a phone.
+// Landscape-phone query, matching app.css's height-gated breakpoint.
 export const PHONE_LANDSCAPE_QUERY = '(orientation: landscape) and (max-height: 520px) and (hover: none)'
 
-// True when the viewport is a phone in either orientation: the portrait width
-// breakpoint, or the landscape one above. Used to default cellValues/wind ON.
+// True when the viewport is a phone in either orientation.
 export function isPhoneViewport() {
   if (typeof matchMedia !== 'function') return false
   return matchMedia('(max-width: 672px)').matches || matchMedia(PHONE_LANDSCAPE_QUERY).matches
@@ -96,16 +93,10 @@ export function mountChrome(el, cfg) {
   // folds the key on a small screen wants it folded on the next page too.
   // matchMedia is missing under jsdom — absent means "not a phone" so the
   // desktop-default tests below run unmocked and unchanged.
-  // phoneQuery stays the portrait-only MediaQueryList: the rotation listener
-  // below (see phoneQuery.addEventListener) only cares about crossing the
-  // 672px width breakpoint, not the landscape-phone case.
+  // Portrait-only: the rotation listener below only tracks the 672px breakpoint.
   const phoneQuery = typeof matchMedia === 'function' ? matchMedia('(max-width: 672px)') : null
 
-  // One phone definition for both orientations (isPhoneViewport), shared by
-  // the legend's default fold and the cellValues/wind defaults below — evaluated
-  // once, here, at mount, not re-checked on rotate. A stored choice (see
-  // maplayers.js addOption, and LEGEND_FOLD_KEY below) still overrides this
-  // either way.
+  // Shared phone check for the legend fold and the cellValues/wind defaults below.
   const phone = isPhoneViewport()
   const phoneDefaults = phone
   const legend = document.createElement('details')
