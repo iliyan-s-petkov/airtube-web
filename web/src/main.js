@@ -9,6 +9,7 @@
 // Static, unlike the islands below: the masthead is on every page and this is
 // a few lines, so a chunk boundary would cost a request to save nothing.
 import { soleOpen } from './lib/disclosure.js'
+import { scrollCue } from './lib/scrollcue.js'
 
 const ISLANDS = {
   map: () => import('./islands/map.js'),
@@ -59,6 +60,7 @@ function init() {
   // open on top of each other. Wired before the islands: the theme picker's
   // element is already in the DOM, empty, and soleOpen re-queries on each event.
   soleOpen(document.querySelector('.masthead__nav') ?? document.body)
+  scrollCue(document, window)
 
   for (const el of document.querySelectorAll('[data-island]')) {
     const load = resolveLoader(el.dataset.island)

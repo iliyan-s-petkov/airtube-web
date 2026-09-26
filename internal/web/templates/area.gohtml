@@ -137,6 +137,10 @@
 <div class="map-freshness">{{template "dataFreshness" .}}</div>
 </div>
 <p id="area-map-alt" class="visually-hidden">{{.T "map.text_alternative"}}</p>
+{{template "scrollCue" .}}
+
+{{/* The scroll cue's target: everything after the map. */}}
+<div id="below-map">
 
 {{/* #sensor= is honoured only here, never on index.gohtml: resolving it
      needs the sensor already loaded through the map island above (the
@@ -221,5 +225,6 @@
      same number, and the cell carries a tier line saying what the sensors are
      counted in, which the bare sentence did not. */}}
 {{template "readouts-island" .}}
+</div>
 </div>
 {{end}}

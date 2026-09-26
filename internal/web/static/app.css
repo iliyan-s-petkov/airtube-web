@@ -622,6 +622,17 @@ html:has(> body.embed) { block-size: 100%; }
 }
 .scaleinfo__close:focus-visible { box-shadow: var(--focus-ring); }
 
+/* "More below" strip under the map. In flow, not sticky, never over the map. */
+.scroll-cue {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  inline-size: 100%; block-size: 44px;
+  background: var(--surface-2); color: var(--fg-2);
+  font-size: var(--text-caption); text-decoration: none;
+}
+.scroll-cue:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+@media (hover: hover) { .scroll-cue { display: none; } }
+.map-shell:has(.map:fullscreen, .map--faux-full) ~ .scroll-cue { display: none; }
+
 /* Phone layout: masthead wraps, map taller, scale horizontal, replay row wraps. */
 @media (max-width: 672px) {
   /* One line, 48px: brand shortens and links tighten instead of wrapping. */
@@ -639,7 +650,11 @@ html:has(> body.embed) { block-size: 100%; }
      .map--hero instead. The shell no longer fixes its own height too — a
      fixed-height shell clipped the static, in-flow scale below the map. */
   .map-shell:has(.map--hero) { block-size: auto; max-block-size: none; }
-  .map--hero { aspect-ratio: auto; block-size: calc(100svh - 11rem); min-block-size: 20rem; max-block-size: 44rem; }
+  /* Capped so the tier caption (1.5rem) and the 44px scroll cue stay in the first viewport. */
+  .map--hero {
+    aspect-ratio: auto; block-size: calc(100svh - var(--phone-chrome) - 1.5rem - 44px);
+    min-block-size: 20rem; max-block-size: 44rem;
+  }
   .map--wide { block-size: calc(100svh - 15rem); min-block-size: 18rem; }
 
   /* Row instead of column, reversed: the DOM runs high to low, and a phone
@@ -880,9 +895,8 @@ html:has(> body.embed) { block-size: 100%; }
      row count and stacks every child on its own row — the four header items
      get an explicit row 1 cell each instead, and everything else keeps the
      default row-flow, one auto row per child, under it.
-     .place-host (sensorCardHost) and [data-island="readouts"]/[data-island="chart"]
-     are the actual direct children of .frame — .sensor-panel, .readouts and
-     the chart mount nested one level deeper, server- or island-rendered. */
+     #below-map wraps .place-host, the chart and the readouts, so it is the
+     direct child that spans; they stack inside it. */
   .frame:has(> [data-island="sensorbar"]), .frame:has(> .page-head:not(.page-head--compact)) {
     display: grid; grid-template-columns: max-content max-content minmax(0, 1fr) minmax(0, 1fr);
     /* Row 1 pinned: an auto row here measured taller than any header cell's
@@ -962,10 +976,9 @@ html:has(> body.embed) { block-size: 100%; }
   }
   .frame:has(> .page-head:not(.page-head--compact)) > .notice,
   .frame:has(> .page-head:not(.page-head--compact)) > .map-shell,
-  .frame:has(> .page-head:not(.page-head--compact)) > .place-host,
-  .frame:has(> .page-head:not(.page-head--compact)) > [data-island="readouts"],
-  .frame:has(> .page-head:not(.page-head--compact)) > [id$="-alt"],
-  .frame:has(> .page-head:not(.page-head--compact)) > [data-island="chart"] { grid-column: 1 / -1; }
+  .frame:has(> .page-head:not(.page-head--compact)) > .scroll-cue,
+  .frame:has(> .page-head:not(.page-head--compact)) > #below-map,
+  .frame:has(> .page-head:not(.page-head--compact)) > [id$="-alt"] { grid-column: 1 / -1; }
   .page-head:not(.page-head--compact) { padding-block: 0; }
   .page-head:not(.page-head--compact) h1 { font-size: var(--text-body); margin: 0; }
   /* The city boundary note is a sentence, not a header-row label; it does not
