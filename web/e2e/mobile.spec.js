@@ -405,6 +405,97 @@ test.describe('landscape phone keeps the map', () => {
     expect(after.width).toBeGreaterThan(700)
     expect(after.height).toBeGreaterThan(150)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(844)
+
+    // Landscape (Task 10): masthead shrinks to a slim bar, title and toolbar
+    // share the row above a tall map, and the corner cards stay over the
+    // canvas rather than sliding off it.
+    const masthead = await page.locator('.masthead').boundingBox()
+    expect(masthead.height).toBeLessThanOrEqual(44)
+    const toolbar = await page.locator('.toolbar').boundingBox()
+    expect(toolbar.y).toBeLessThan(90)
+    const map = await page.locator('#map').boundingBox()
+    expect(map.y).toBeLessThan(100)
+    expect(map.height).toBeGreaterThanOrEqual(250)
+
+    const scale = await page.locator('.scale--onmap').boundingBox()
+    const freshness = await page.locator('.map-freshness').boundingBox()
+    const within = (box) =>
+      box.x >= map.x && box.y >= map.y &&
+      box.x + box.width <= map.x + map.width &&
+      box.y + box.height <= map.y + map.height
+    expect(within(scale)).toBe(true)
+    expect(within(freshness)).toBe(true)
+
+    // Readouts: four across, so the first four share one row.
+    const cards = page.locator('.readout')
+    const boxes = await Promise.all([0, 1, 2, 3].map((i) => cards.nth(i).boundingBox()))
+    expect(boxes[0].y).toBe(boxes[1].y)
+    for (const box of boxes) expect(box.y).toBe(boxes[0].y)
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(844)
+
+    // Rotate back: the Task 2 portrait numbers still hold.
+    await page.setViewportSize({ width: 390, height: 844 })
+    const backMasthead = await page.locator('.masthead').boundingBox()
+    expect(backMasthead.height).toBeLessThanOrEqual(56)
+    const backMap = await page.locator('#map').boundingBox()
+    expect(backMap.y).toBeLessThanOrEqual(200)
+
+    await page.close()
+  })
+
+  test('/en/area/sofia#sensor=101 rotating to 844x390 keeps the header row and map tall', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/en/area/sofia#sensor=101')
+    await page.setViewportSize({ width: 844, height: 390 })
+    const map = await page.locator('#area-map').boundingBox()
+    expect(map.y).toBeLessThan(100)
+    expect(map.height).toBeGreaterThanOrEqual(250)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(844)
+
+    // Sensor bar: stays inside the header row, clear of the map below it.
+    const toolbar = await page.locator('.toolbar').boundingBox()
+    const sensorbar = await page.locator('[data-island="sensorbar"]').boundingBox()
+    expect(sensorbar.y).toBeGreaterThanOrEqual(toolbar.y)
+    expect(sensorbar.y + sensorbar.height).toBeLessThanOrEqual(map.y)
+
+    // Pills stay one line each: a 44px box height floor plus a text-range
+    // rect count of 1 (2+ means the label text itself wrapped inside the box).
+    const pills = await page.locator('[data-island="sensorbar"] .switcher__opt span').evaluateAll(
+      (els) => els.map((el) => {
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        return { height: el.getBoundingClientRect().height, lines: range.getClientRects().length }
+      })
+    )
+    for (const p of pills) {
+      expect(p.height).toBeLessThanOrEqual(44)
+      expect(p.lines).toBe(1)
+    }
+
+    // Breadcrumb link renders as one line, no wrapped caret/marker below it.
+    const navLines = await page.locator('nav[aria-label="breadcrumb"] a').evaluate(
+      (el) => el.getClientRects().length
+    )
+    expect(navLines).toBe(1)
+
+    // Open legend: its own box must sit fully inside the map-shell box.
+    // force: true — the map's overlay controls intercept the toggle mid-repaint.
+    await page.locator('.scale__toggle').click({ force: true })
+    await expect.poll(async () => (await page.locator('.scale--onmap').boundingBox())?.height ?? 0)
+      .toBeGreaterThan(0)
+    const legendBox = await page.locator('.scale--onmap').boundingBox()
+    const shellBox = await page.locator('.map-shell').boundingBox()
+    expect(legendBox.y).toBeGreaterThanOrEqual(shellBox.y)
+    expect(legendBox.y + legendBox.height).toBeLessThanOrEqual(shellBox.y + shellBox.height)
+
+    // Geometry alone can't catch this: a clipped child reports the same
+    // bounding box as one bleeding past it. Assert the clip mechanism itself.
+    const overflowY = await page.locator('.scale--onmap')
+      .evaluate((el) => getComputedStyle(el).overflowY)
+    expect(overflowY).not.toBe('visible')
+
     await page.close()
   })
 })

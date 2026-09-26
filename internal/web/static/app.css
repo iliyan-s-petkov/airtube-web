@@ -764,6 +764,10 @@ html:has(> body.embed) { block-size: 100%; }
     inline-size: fit-content; max-inline-size: none;
     background: none; box-shadow: none; border: 0; padding: 0;
   }
+  /* The toggle is a 44px box; centre the glyph instead of the kit's top-left. */
+  .map-wind-label:not([open]) .map-wind-label__toggle {
+    display: flex; align-items: center; justify-content: center;
+  }
   /* The glyph over dark hexes: a halo since there is no card behind it now. */
   .map-wind-label:not([open]) .map-wind-label__toggle::before {
     filter: drop-shadow(0 0 2px var(--bg));
@@ -851,6 +855,103 @@ html:has(> body.embed) { block-size: 100%; }
   .map-shell:has(.map--hero) { max-inline-size: none; block-size: auto; max-block-size: none; }
   .map--hero { aspect-ratio: auto; block-size: calc(100svh - 5.5rem); min-block-size: 12rem; }
   .map--wide { block-size: calc(100svh - 5.5rem); min-block-size: 12rem; }
+
+  /* Slimmer than the portrait 48px bar: landscape has no height to spare. */
+  .masthead { block-size: 40px; min-block-size: 40px; }
+  .masthead__link { min-block-size: 40px; }
+
+  /* Home: title and toolbar share one row above the map. */
+  .frame:has(> .page-head--compact) { display: flex; align-items: center; gap: var(--space-3); }
+  .page-head--compact { padding-block: 0; flex: none; }
+  .page-head--compact h1 { font-size: var(--text-body); margin: 0; }
+  .page-head--compact p { display: none; }
+  .frame:has(> .page-head--compact) .toolbar { flex: 1 1 auto; padding-block-end: 0; }
+  /* Restated: the 672px block's one-row toolbar rules do not fire at 844px
+     wide, and the finder's visible label alone was tall enough to push the
+     row past 44px. */
+  .toolbar { flex-wrap: nowrap; align-items: center; gap: var(--space-2); padding-block-end: 0; }
+  .toolbar__find .field__label, .toolbar__refresh .btn__label {
+    position: absolute; inline-size: 1px; block-size: 1px; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+
+  /* Area: breadcrumb, title, toolbar, sensorbar in one row; the rest spans.
+     grid-auto-flow:column plus a spanning item (1/-1) fights the implicit
+     row count and stacks every child on its own row — the four header items
+     get an explicit row 1 cell each instead, and everything else keeps the
+     default row-flow, one auto row per child, under it.
+     .place-host (sensorCardHost) and [data-island="readouts"]/[data-island="chart"]
+     are the actual direct children of .frame — .sensor-panel, .readouts and
+     the chart mount nested one level deeper, server- or island-rendered. */
+  .frame:has(> [data-island="sensorbar"]), .frame:has(> .page-head:not(.page-head--compact)) {
+    display: grid; grid-template-columns: max-content max-content minmax(0, 1fr) minmax(0, 1fr);
+    /* Row 1 pinned: an auto row here measured taller than any header cell's
+       own content (a nested flex formatting context inside a grid track,
+       sized inflated) — every header cell's real content is under 48px. */
+    grid-template-rows: 48px auto;
+    align-items: center; column-gap: var(--space-3); row-gap: var(--space-2);
+  }
+  .frame:has(> .page-head:not(.page-head--compact)) > nav { grid-row: 1; grid-column: 1; }
+  .frame:has(> .page-head:not(.page-head--compact)) > .page-head:not(.page-head--compact) { grid-row: 1; grid-column: 2; }
+  .frame:has(> .page-head:not(.page-head--compact)) > .toolbar { grid-row: 1; grid-column: 3; }
+  .frame:has(> .page-head:not(.page-head--compact)) > [data-island="sensorbar"] { grid-row: 1; grid-column: 4; }
+  /* The sensor bar (fieldset legend, radio pills, count line) is a stacked,
+     wrapping column on a phone; one nowrap row here, legend hidden — the
+     radios' own labels already say what they filter. */
+  [data-island="sensorbar"] {
+    display: flex; align-items: center; gap: var(--space-2);
+    min-inline-size: 0; overflow: hidden;
+  }
+  /* Reset the base row's margin-block so the flex row fits the 48px track. */
+  [data-island="sensorbar"] .sensor-bar { display: flex; align-items: center; margin-block: 0; }
+  [data-island="sensorbar"] .switcher > legend {
+    position: absolute; inline-size: 1px; block-size: 1px; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+  [data-island="sensorbar"] .switcher__set { flex-wrap: nowrap; }
+  /* Nowrap plus tighter padding/size keeps each pill label on one line
+     in the narrow sensorbar column. */
+  [data-island="sensorbar"] .switcher__opt span {
+    white-space: nowrap; padding-inline: var(--space-2); font-size: var(--text-caption);
+  }
+  /* The count carries no information once ellipsised at this width; hidden
+     visually but still read by screen readers, same pattern as .readout__metric. */
+  [data-island="sensorbar"] .meta {
+    position: absolute; inline-size: 1px; block-size: 1px; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+  /* Keeps the metric switcher box off the masthead border. */
+  [data-island="switcher"] .colmenu { margin-block-start: var(--space-1); }
+  /* Anchors the open legend inside the short landscape map, not the
+     desktop offset used above 520px tall. */
+  .map-shell .scale--onmap { inset-block-end: var(--space-2); }
+  /* Scrolls the open legend when it is taller than the landscape map. */
+  .map-shell .scale--onmap[open] { overflow-y: auto; }
+  .frame:has(> .page-head:not(.page-head--compact)) > .notice,
+  .frame:has(> .page-head:not(.page-head--compact)) > .map-shell,
+  .frame:has(> .page-head:not(.page-head--compact)) > .place-host,
+  .frame:has(> .page-head:not(.page-head--compact)) > [data-island="readouts"],
+  .frame:has(> .page-head:not(.page-head--compact)) > [id$="-alt"],
+  .frame:has(> .page-head:not(.page-head--compact)) > [data-island="chart"] { grid-column: 1 / -1; }
+  .page-head:not(.page-head--compact) { padding-block: 0; }
+  .page-head:not(.page-head--compact) h1 { font-size: var(--text-body); margin: 0; }
+  /* The city boundary note is a sentence, not a header-row label; it does not
+     fit the one-row header and is not part of the §4.2 wireframe. */
+  .page-head:not(.page-head--compact) p { display: none; }
+
+  /* Restated (not merged with the 672px block below): the phone corner cluster
+     is width-gated and does not fire at 844px wide, but the freshness card's
+     default 12px inline-start collides with the wider play/window pill here. */
+  .map-freshness { inset-block-end: var(--space-2); inset-inline-start: calc(var(--space-2) + 14rem); }
+
+  /* Cards four across, same as the phone F1 shot; the 672px block's 2-column
+     override does not apply here (this query is height-, not width-gated). */
+  .readouts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+  /* Area sensor panel: meta at 1/3, gauges row at 2/3, chart spans both. */
+  .sensor-panel { display: grid; grid-template-columns: 1fr 2fr; gap: var(--space-3); }
+  .sensor-panel .chart { grid-column: 1 / -1; }
+  .gauges { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 /* Pinch replaces the zoom pair on touch; the reset/grid button stays. */
