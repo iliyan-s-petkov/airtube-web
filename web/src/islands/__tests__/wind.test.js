@@ -123,6 +123,11 @@ describe('arrowPaint', () => {
   it('does not fade the arrow to where the halo cannot save it', () => {
     expect(arrowPaint()['icon-opacity']).toBeGreaterThanOrEqual(0.9)
   })
+
+  it('nudges the arrow below the hex label regardless of rotation', () => {
+    expect(arrowPaint()['icon-translate']).toEqual([0, 11])
+    expect(arrowPaint()['icon-translate-anchor']).toBe('viewport')
+  })
 })
 
 describe('windFeatures', () => {
