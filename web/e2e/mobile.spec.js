@@ -241,10 +241,7 @@ test.describe('phone layout does not widen the viewport', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/en')
     await page.waitForSelector('.map-wind-label', { state: 'attached' })
-    // Cold load + mocked fetch + phone-default activation can outrun the
-    // default 5s poll window.
-    await expect.poll(async () => page.locator('.map-wind-label').evaluate((el) => el.hidden), { timeout: 15000 })
-      .toBe(false)
+    await expect.poll(async () => page.locator('.map-wind-label').evaluate((el) => el.hidden)).toBe(false)
     await page.evaluate(() => {
       const el = document.querySelector('.map-wind-label')
       el.querySelector('.map-wind-label__text').textContent =
@@ -525,24 +522,14 @@ test.describe('hex label and dot label never share a value (Task 12 round 3)', (
       attach()
     })
     await page.setViewportSize({ width: 390, height: 844 })
-    // Retried once: this sandbox occasionally reports a transient
-    // ERR_NETWORK_CHANGED/ERR_CONNECTION_TIMED_OUT unrelated to the app.
-    for (let attempt = 1; ; attempt++) {
-      try {
-        // No #sensor= hash: that deep-links past the sensor-tier handover this checks.
-        await page.goto('/en/area/sofia')
-        await getMap(page)
-        // Both data layers painted at least once, not just the empty style.
-        await page.waitForFunction(() => {
-          const seen = new Set(window.__paints ?? [])
-          return seen.has('airbg-data') && seen.has('airbg-hexes')
-        }, null, { timeout: 45000 })
-        break
-      } catch (err) {
-        if (attempt >= 2) throw err
-        await page.evaluate(() => { window.__paints = [] }).catch(() => {})
-      }
-    }
+    // No #sensor= hash: that deep-links past the sensor-tier handover this checks.
+    await page.goto('/en/area/sofia')
+    await getMap(page)
+    // Both data layers painted at least once, not just the empty style.
+    await page.waitForFunction(() => {
+      const seen = new Set(window.__paints ?? [])
+      return seen.has('airbg-data') && seen.has('airbg-hexes')
+    }, null, { timeout: 20000 })
     // Settle past load-time placement jumps.
     await page.waitForTimeout(3000)
 
