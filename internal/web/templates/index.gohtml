@@ -120,11 +120,12 @@
      and the auto-refresh toggle governs the same thing. */}}
 <div class="map-freshness">{{template "dataFreshness" .}}</div>
 </div>
+{{template "scrollCue" .}}
 {{end}}
 
 {{/* Contained again after the full-bleed map. Outside the tab condition
      because both tabs end inside it. */}}
-<div class="frame">
+<div class="frame" id="below-map">
 
 {{if $map}}
 {{/* The same panel island area.gohtml mounts, with the same attributes: the

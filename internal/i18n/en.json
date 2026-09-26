@@ -93,6 +93,7 @@
   "map.legend.tier.sensors": "Each cell is a single sensor",
   "map.legend.title": "Air quality",
   "map.legend.toggle": "Legend",
+  "map.more_below": "More below the map",
   "map.play.exit": "Back to the current readings",
   "map.play.no_history": "Not enough history yet to animate this measurement",
   "map.play.pause": "Pause the animation",
