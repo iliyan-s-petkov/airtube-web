@@ -24,6 +24,22 @@ for (const p of PHONES) {
       await context.close()
     })
 
+    // Area chrome varies, so the guarantee is for the map scrolled to the top.
+    test('/en/area/sofia: with the map at the top, the whole strip is on screen', async ({ browser }) => {
+      const context = await phone(browser, p)
+      const page = await context.newPage()
+      await page.goto('/en/area/sofia')
+      await page.evaluate(() => document.querySelector('.map-shell').scrollIntoView({ block: 'start', behavior: 'instant' }))
+      const m = await page.evaluate(() => ({
+        shellTop: document.querySelector('.map-shell').getBoundingClientRect().top,
+        cueBottom: document.querySelector('.scroll-cue').getBoundingClientRect().bottom,
+        vh: innerHeight,
+      }))
+      expect(Math.abs(m.shellTop)).toBeLessThanOrEqual(1)
+      expect(m.cueBottom).toBeLessThanOrEqual(m.vh)
+      await context.close()
+    })
+
     for (const path of ['/en', '/en/area/sofia']) {
       test(`${path}: clicking the strip brings #below-map to the top`, async ({ browser }) => {
         const context = await phone(browser, p)
@@ -45,6 +61,21 @@ for (const p of PHONES) {
     }
   })
 }
+
+test('390x844 /en: the strip is hidden while the map is full screen', async ({ browser }) => {
+  const context = await phone(browser, PHONES[0])
+  const page = await context.newPage()
+  await page.goto('/en')
+  await expect(page.locator('.scroll-cue')).toBeVisible()
+  await page.locator('.map__full').click()
+  // Real fullscreen or the faux-full fallback, whichever the button applied.
+  await expect.poll(() => page.evaluate(() => {
+    const map = document.querySelector('#map')
+    return document.fullscreenElement === map || map.classList.contains('map--faux-full')
+  })).toBe(true)
+  await expect(page.locator('.scroll-cue')).toBeHidden()
+  await context.close()
+})
 
 test('the strip is not shown on a 1280x800 desktop', async ({ ctx }) => {
   const page = await ctx.newPage()
