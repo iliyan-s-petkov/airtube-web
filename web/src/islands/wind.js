@@ -240,5 +240,6 @@ export function arrowLayout() {
 // the arrows off the readings — a haloed arrow stays legible over a dark hex
 // and still reads as an overlay, where a faded one disappears over both.
 export function arrowPaint() {
-  return { 'icon-opacity': 0.9 }
+  // Screen-space nudge (not icon-offset, which rotates with icon-rotate) so the arrow clears the hex label under it at every bearing.
+  return { 'icon-opacity': 0.9, 'icon-translate': [0, 11], 'icon-translate-anchor': 'viewport' }
 }
