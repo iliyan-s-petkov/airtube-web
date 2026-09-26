@@ -1,7 +1,7 @@
 import { test as base, expect } from './fixtures.js'
 
 // One worker-scoped mobile context for the file: a fresh context per test
-// re-downloads the bundle and trips the app's per-IP rate limit (429).
+// churns connections and re-downloads the bundle unnecessarily.
 const test = base.extend({
   mobileCtx: [async ({ browser }, use) => {
     const context = await browser.newContext({ isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
@@ -9,6 +9,30 @@ const test = base.extend({
     await context.close()
   }, { scope: 'worker' }],
 })
+
+// A crashed/timed-out test never reaches its own page.close(); left open it
+// leaks a WebGL context into the next test on this shared worker context.
+test.afterEach(async ({ mobileCtx }) => {
+  for (const p of mobileCtx.pages()) {
+    if (!p.isClosed()) await p.close().catch(() => {})
+  }
+})
+
+// Mocks a real forecast; wind defaults ON for a phone, and the unmocked
+// endpoint 503s with no seeded forecast, racing the note closed.
+const mockWind = (page) => page.route('**/api/v1/wind', (route) => route.fulfill({
+  status: 200,
+  contentType: 'application/json',
+  body: JSON.stringify({
+    generated_at: new Date().toISOString(),
+    valid_at: new Date().toISOString(),
+    model: 'Test Model',
+    model_resolution_deg: 0.25,
+    resolution_km: 15,
+    forecast: true,
+    vectors: [{ lon: 23.3, lat: 42.68, speed_ms: 3.2, direction_deg: 180 }],
+  }),
+}))
 
 test.describe('phone layout does not widen the viewport', () => {
   for (const path of ['/en', '/en/area/sofia#sensor=101']) {
@@ -212,16 +236,14 @@ test.describe('phone layout does not widen the viewport', () => {
   // a click on the note's own text hit whichever card was drawn on top.
   test('/en open wind note draws above the freshness card, clear of the map edge', async ({ mobileCtx }) => {
     const page = await mobileCtx.newPage()
+    // Wind defaults on for a phone; mocked so the note opens on real text.
+    await mockWind(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/en')
     await page.waitForSelector('.map-wind-label', { state: 'attached' })
-    // No seeded forecast in this fixture, so the empty note never grows wide
-    // enough to actually overlap the freshness card — a real forecast
-    // sentence (see chrome.js's showWind) is two sentences and a model name,
-    // which is what pushes the open card out toward max-inline-size.
+    await expect.poll(async () => page.locator('.map-wind-label').evaluate((el) => el.hidden)).toBe(false)
     await page.evaluate(() => {
       const el = document.querySelector('.map-wind-label')
-      el.hidden = false
       el.querySelector('.map-wind-label__text').textContent =
         'Forecast wind arrows are modelled, not measured, and may diverge from the sensors below. Source: a placeholder weather model used for this test.'
     })
@@ -382,6 +404,151 @@ test.describe('phone replay folds behind one button', () => {
   })
 })
 
+// cellValues and wind must both start ON for a phone reader, either
+// orientation, and OFF on desktop. `pace` spaces reloads to ease rate-limit pressure.
+test.describe('phone defaults: values and wind start on', () => {
+  const openLayers = async (page) => {
+    await page.locator('.map__layers .colmenu__btn').click()
+  }
+
+  const checkViewport = async (page, width, height, { pace = false } = {}) => {
+    if (pace) await new Promise((r) => setTimeout(r, 2000))
+    await mockWind(page)
+    await page.setViewportSize({ width, height })
+    await page.goto('/en')
+    await openLayers(page)
+
+    const values = page.locator('[data-layer-key="view:cellValues"]')
+    const wind = page.locator('[data-layer-key="view:wind"]')
+    await expect(values).toBeChecked()
+    await expect(wind).toBeChecked()
+    await expect(page.locator('.map-wind-label')).toBeVisible()
+  }
+
+  test('390x844 portrait: values and wind on, wind note visible', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await checkViewport(page, 390, 844)
+    await page.close()
+  })
+
+  test('844x390 landscape: values and wind on, wind note visible', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await checkViewport(page, 844, 390, { pace: true })
+    await page.close()
+  })
+
+  // Legend must default folded at 844x390 too, not just portrait. Clears any
+  // stored choice an earlier test in this shared context left behind.
+  test('844x390 landscape: legend folded by default (no open box to overlap a value)', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await page.addInitScript(() => localStorage.removeItem('airbg:legend-open'))
+    await mockWind(page)
+    await page.setViewportSize({ width: 844, height: 390 })
+    await page.goto('/en')
+
+    const scale = page.locator('.scale--onmap')
+    await expect(scale).toBeAttached()
+    await expect(scale).not.toHaveAttribute('open', '')
+
+    await page.close()
+  })
+
+  // 1280x800 fails both phone media queries on width/height alone, regardless
+  // of mobileCtx's touch emulation.
+  test('1280x800 desktop: values and wind stay off', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await mockWind(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/en')
+    await openLayers(page)
+
+    await expect(page.locator('[data-layer-key="view:cellValues"]')).not.toBeChecked()
+    await expect(page.locator('[data-layer-key="view:wind"]')).not.toBeChecked()
+
+    await page.close()
+  })
+})
+
+// Guards against a hex aggregate label drawing over a sensor dot's own label
+// for the same reading (see mappaint.js's hexLabelMinZoom).
+test.describe('hex label and dot label never share a value (Task 12 round 3)', () => {
+  const getMap = (page) => page.evaluate(() => new Promise((resolve) => {
+    const el = document.querySelector('[data-island="map"]')
+    const wait = () => {
+      if (el?.__map?.isStyleLoaded?.()) return resolve()
+      requestAnimationFrame(wait)
+    }
+    wait()
+  }))
+
+  // Screen-space anchor points for each layer: a hex label's polygon centroid,
+  // a dot label's own point.
+  const anchors = (page, layerId) => page.evaluate((id) => {
+    const map = document.querySelector('[data-island="map"]').__map
+    const feats = map.queryRenderedFeatures({ layers: [id] })
+    return feats.map((f) => {
+      const g = f.geometry
+      if (g.type === 'Point') return map.project(g.coordinates)
+      // Polygon: mean of the outer ring's vertices, matching mount()'s ringCentroid.
+      const ring = g.coordinates[0]
+      const [fx, fy] = ring[0]
+      const last = ring[ring.length - 1]
+      const pts = (last[0] === fx && last[1] === fy) ? ring.slice(0, -1) : ring
+      const sum = pts.reduce(([sx, sy], [x, y]) => [sx + x, sy + y], [0, 0])
+      return map.project([sum[0] / pts.length, sum[1] / pts.length])
+    })
+  }, layerId)
+
+  // Anchors closer than this are the same reading printed twice.
+  const OVERLAP_PX = 40
+
+  test('Sofia sensor-tier frame: no hex-label anchor sits on a dot-label anchor', async ({ mobileCtx }, testInfo) => {
+    // Both hex and dot layers cold-painting can outrun the 30s default,
+    // especially before the browser's shader cache is warm.
+    testInfo.setTimeout(75000)
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await mockWind(page)
+    // Attach before goto(): the first paint can land before it returns.
+    await page.addInitScript(() => {
+      window.__paints = []
+      const attach = () => {
+        const el = document.querySelector('[data-island="map"]')
+        if (!el) return requestAnimationFrame(attach)
+        el.addEventListener('airbg:paint', (e) => window.__paints.push(e.detail.source))
+      }
+      attach()
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    // No #sensor= hash: that deep-links past the sensor-tier handover this checks.
+    await page.goto('/en/area/sofia')
+    await getMap(page)
+    // Both data layers painted at least once, not just the empty style.
+    await page.waitForFunction(() => {
+      const seen = new Set(window.__paints ?? [])
+      return seen.has('airbg-data') && seen.has('airbg-hexes')
+    }, null, { timeout: 20000 })
+    // Settle past load-time placement jumps.
+    await page.waitForTimeout(3000)
+
+    await expect.poll(async () => (await anchors(page, 'airbg-marker-labels')).length)
+      .toBeGreaterThan(0)
+
+    const [dotAnchors, hexAnchors] = await Promise.all([
+      anchors(page, 'airbg-marker-labels'),
+      anchors(page, 'airbg-hex-labels'),
+    ])
+
+    const overlapping = hexAnchors.filter((h) =>
+      dotAnchors.some((d) => Math.hypot(h.x - d.x, h.y - d.y) < OVERLAP_PX))
+    expect(overlapping).toEqual([])
+
+    await page.close()
+  })
+})
+
 test.describe('landscape phone keeps the map', () => {
   test('/en map has width at 844x390', async ({ mobileCtx }) => {
     const page = await mobileCtx.newPage()
@@ -496,6 +663,57 @@ test.describe('landscape phone keeps the map', () => {
       .evaluate((el) => getComputedStyle(el).overflowY)
     expect(overflowY).not.toBe('visible')
 
+    await page.close()
+  })
+
+  // The pill/icon-only fold styling is now restated in the landscape media
+  // block too, not just portrait; these two guard that.
+  test('844x390 landscape: collapsed wind note is icon-sized, no wide card', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await page.setViewportSize({ width: 844, height: 390 })
+    await page.goto('/en')
+    const note = page.locator('.map-wind-label')
+    await expect.poll(async () => {
+      await page.evaluate(() => {
+        const el = document.querySelector('.map-wind-label')
+        if (el) el.hidden = false
+      })
+      const box = await note.boundingBox()
+      return box ? Math.max(box.width, box.height) : 999
+    }).toBeLessThanOrEqual(44)
+    await expect(note).not.toHaveAttribute('open', '')
+    await page.close()
+  })
+
+  test('844x390 landscape: folded legend pill clear of the freshness card and layers button', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await page.addInitScript(() => localStorage.removeItem('airbg:legend-open'))
+    await page.setViewportSize({ width: 844, height: 390 })
+    await page.goto('/en')
+    const scale = page.locator('.scale--onmap')
+    await expect(scale).toBeAttached()
+    await expect(scale).not.toHaveAttribute('open', '')
+
+    // Pin the pill's own shape, not just clearance, so a regression to the
+    // kit's bare triangle (which would also clear, being smaller) fails here.
+    await expect.poll(async () => (await scale.boundingBox())?.height ?? 0)
+      .toBeGreaterThanOrEqual(40)
+    await expect.poll(async () => (await scale.boundingBox())?.width ?? 0)
+      .toBeGreaterThanOrEqual(100)
+
+    const overlaps = (a, b) =>
+      a.x < b.x + b.width && a.x + a.width > b.x &&
+      a.y < b.y + b.height && a.y + a.height > b.y
+
+    await expect.poll(async () => {
+      const legendBox = await scale.boundingBox()
+      const freshBox = await page.locator('.map-freshness').boundingBox()
+      const layersBox = await page.locator('.map__layers').boundingBox()
+      if (!legendBox || !freshBox || !layersBox) return null
+      return { fresh: overlaps(legendBox, freshBox), layers: overlaps(legendBox, layersBox) }
+    }).toEqual({ fresh: false, layers: false })
     await page.close()
   })
 })

@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 //
 // jsdom: mountChrome builds real DOM, which every test here drives directly.
+import { readFileSync } from 'node:fs'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mountChrome, hintController } from '../chrome.js'
+import { mountChrome, hintController, isPhoneViewport, PHONE_LANDSCAPE_QUERY } from '../chrome.js'
+import { mountLayers, installLayers } from '../maplayers.js'
 import { refreshHexes } from '../mapdata.js'
 import { readConfig, LEGEND_FOLD_KEY } from '../mapconfig.js'
 import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../sensorfilter.svelte.js'
+
+const APP_CSS = '../internal/web/static/app.css'
 
 // The cfg every mountChrome test hands in. metricLabels and metricUnits are
 // keyed by metric because that is what readConfig produces (see byMetric): the
@@ -69,6 +73,91 @@ describe('the basemap toggle', () => {
       ['airbg-raster-base', 'visibility', 'none'],
       ['poi-shop', 'visibility', 'none'],
     ])
+  })
+})
+
+// Both views (cellValues here; wind is mapload.js's, driven by the same
+// chrome.phoneDefaults) must start ON for a phone reader and OFF for desktop,
+// with a stored choice always winning. See isPhoneViewport in chrome.js.
+describe('mountChrome() defaults cellValues by viewport, storage wins', () => {
+  const stubMatchMedia = (matchesPhone) => {
+    vi.stubGlobal('matchMedia', (query) => ({
+      matches: matchesPhone && (query.includes('672px') || query === PHONE_LANDSCAPE_QUERY),
+      media: query,
+      addEventListener() {}, removeEventListener() {},
+    }))
+  }
+
+  const cellValuesChecked = (stored) => {
+    const store = new Map(stored ? [['airbg:map-layers', JSON.stringify(stored)]] : [])
+    const storage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, v),
+    }
+    const el = document.createElement('div')
+    el.id = 'map'
+    document.body.appendChild(el)
+    const { layerViews, phoneDefaults } = mountChrome(el, readConfig(el))
+    const cellValues = layerViews.find((v) => v.id === 'cellValues')
+
+    const ui = mountLayers(document.createElement('div'), { label: 'Layers' })
+    const map = {
+      getStyle: () => ({ layers: [] }),
+      getLayer: () => undefined,
+      setLayerZoomRange: () => {},
+    }
+    installLayers(map, ui, { labels: {}, caption: 'c', views: [cellValues], storage })
+    return { checked: ui.fieldset.querySelector('[data-layer-key="view:cellValues"]').checked, phoneDefaults }
+  }
+
+  afterEach(() => { document.body.innerHTML = '' })
+
+  it('phone, no stored value: on', () => {
+    stubMatchMedia(true)
+    const { checked, phoneDefaults } = cellValuesChecked(null)
+    expect(phoneDefaults).toBe(true)
+    expect(checked).toBe(true)
+  })
+
+  it('phone, stored off: stays off', () => {
+    stubMatchMedia(true)
+    const { checked } = cellValuesChecked({ 'view:cellValues': false })
+    expect(checked).toBe(false)
+  })
+
+  it('desktop, no stored value: off', () => {
+    stubMatchMedia(false)
+    const { checked, phoneDefaults } = cellValuesChecked(null)
+    expect(phoneDefaults).toBe(false)
+    expect(checked).toBe(false)
+  })
+
+  it('desktop, stored on: stays on', () => {
+    stubMatchMedia(false)
+    const { checked } = cellValuesChecked({ 'view:cellValues': true })
+    expect(checked).toBe(true)
+  })
+})
+
+// isPhoneViewport itself: portrait width alone, landscape query alone, neither.
+describe('isPhoneViewport', () => {
+  it('is false with no matchMedia (jsdom default)', () => {
+    expect(isPhoneViewport()).toBe(false)
+  })
+
+  it('is true on the portrait query alone', () => {
+    vi.stubGlobal('matchMedia', (q) => ({ matches: q.includes('672px'), media: q }))
+    expect(isPhoneViewport()).toBe(true)
+  })
+
+  it('is true on the landscape query alone', () => {
+    vi.stubGlobal('matchMedia', (q) => ({ matches: q === PHONE_LANDSCAPE_QUERY, media: q }))
+    expect(isPhoneViewport()).toBe(true)
+  })
+
+  it('is false when neither matches', () => {
+    vi.stubGlobal('matchMedia', (q) => ({ matches: false, media: q }))
+    expect(isPhoneViewport()).toBe(false)
   })
 })
 
@@ -322,6 +411,29 @@ describe('mountChrome() folds the key by default on a phone', () => {
 
   it('mounts open when a reader stored true', () => {
     store.set(LEGEND_FOLD_KEY, 'true')
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    expect(shell.querySelector('details.scale').open).toBe(true)
+  })
+
+  // Landscape phone shares the same fold default as portrait (isPhoneViewport),
+  // even though it fails the portrait width query used by the beforeEach stub.
+  it('mounts closed on a landscape phone with no stored flag', () => {
+    vi.stubGlobal('matchMedia', (query) => ({
+      matches: query === PHONE_LANDSCAPE_QUERY, media: query,
+      addEventListener() {}, removeEventListener() {},
+    }))
+    const { shell, el } = chromeFrame()
+    mountChrome(el, readConfig(el))
+    expect(shell.querySelector('details.scale').open).toBe(false)
+  })
+
+  it('still opens on a landscape phone when a reader stored true', () => {
+    store.set(LEGEND_FOLD_KEY, 'true')
+    vi.stubGlobal('matchMedia', (query) => ({
+      matches: query === PHONE_LANDSCAPE_QUERY, media: query,
+      addEventListener() {}, removeEventListener() {},
+    }))
     const { shell, el } = chromeFrame()
     mountChrome(el, readConfig(el))
     expect(shell.querySelector('details.scale').open).toBe(true)
@@ -602,5 +714,16 @@ describe('hintController', () => {
     c.showHint('Select an area')
 
     expect(rendered).toEqual(['Map data is unavailable right now'])
+  })
+})
+
+// Drift guard: app.css's landscape breakpoint must match chrome.js's
+// PHONE_LANDSCAPE_QUERY, or the two disagree on what a landscape phone is.
+describe('PHONE_LANDSCAPE_QUERY matches app.css', () => {
+  it('equals the @media condition app.css gates its landscape block on', () => {
+    const css = readFileSync(APP_CSS, 'utf8')
+    const match = css.match(/@media (\([^{]+?\)) \{\n\s*\.map-shell:has\(\.map--hero\)/)
+    expect(match).not.toBeNull()
+    expect(match[1]).toBe(PHONE_LANDSCAPE_QUERY)
   })
 })

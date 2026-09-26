@@ -60,6 +60,12 @@ export function mount(el) {
 
   installErrorHandler(map)
 
+  // E2E-only map handle for queryRenderedFeatures; stripped from a plain
+  // build since VITE_E2E_MAP_HANDLE is unset (see ci.yml's e2e job).
+  if (import.meta.env.VITE_E2E_MAP_HANDLE) {
+    el.__map = map
+  }
+
   // Compact attribution starts expanded on load; collapse it to the (i) so it
   // does not sit open over the map on first paint. No private API beyond the
   // class MapLibre itself toggles.

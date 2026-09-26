@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest'
 import {
   bandsFor, hexOutlinePaint, markerMaxZoom, layerPaint, markerPaint, officialLayout, officialPaint,
   hexLabelPaint, CARRIED_OPACITY, FRESH_OPACITY, SETTLING_OPACITY,
+  setCellValues, applyMarkerZoomRange,
 } from '../mappaint.js'
 import { DIAMOND_RADIUS_PX } from '../markericon.js'
 import { GRID_MIN_ZOOM_FRACTIONAL, POINT_TIER_MIN_ZOOM_FRACTIONAL } from '../hexes.js'
+import { HEX_LABEL_LAYER_ID, LABEL_LAYER_ID } from '../mapids.js'
 
 // bandsFor: matching by `metric` field, not array position, so a reordered
 // /api/v1/scales response cannot silently recolour the map with the wrong
@@ -112,6 +114,68 @@ describe('markerMaxZoom', () => {
     expect(markerMaxZoom('sensors')).toBe(POINT_TIER_MIN_ZOOM_FRACTIONAL)
     expect(markerMaxZoom('country')).toBe(GRID_MIN_ZOOM_FRACTIONAL)
     expect(markerMaxZoom('municipality')).toBe(GRID_MIN_ZOOM_FRACTIONAL)
+  })
+})
+
+// Task 12 round 3: cellValues-on used to let the hex aggregate label's floor
+// sit below the sensors tier's own marker handover, so a sensor dot's own
+// label (LABEL_LAYER_ID) and the hex cell's aggregate label for the same
+// reading drew at the same zoom — "10.0 ● 10.0". The fix pins the hex
+// label's floor at markerMaxZoom(tier), the same number
+// applyMarkerZoomRange already uses for the dot layers, so the two ranges
+// can never open a gap between them regardless of tier, cellValues state,
+// or which of the two functions was called most recently.
+describe('hex label floor never overlaps the dot label range (Task 12 round 3)', () => {
+  const fakeMap = () => {
+    const ranges = new Map()
+    return {
+      getLayer: (id) => ({ id }),
+      setLayerZoomRange: (id, min, max) => ranges.set(id, [min, max]),
+      ranges,
+    }
+  }
+
+  const tiers = ['country', 'municipality', 'city', 'sensors']
+
+  for (const tier of tiers) {
+    for (const on of [false, true]) {
+      it(`tier=${tier} cellValues=${on}: hex floor >= dot label maxzoom, applyMarkerZoomRange called last`, () => {
+        const map = fakeMap()
+        setCellValues(map, on)
+        applyMarkerZoomRange(map, tier)
+
+        const [, dotMax] = map.ranges.get(LABEL_LAYER_ID)
+        const [hexMin] = map.ranges.get(HEX_LABEL_LAYER_ID)
+        expect(dotMax).toBe(markerMaxZoom(tier))
+        expect(hexMin).toBeGreaterThanOrEqual(dotMax)
+      })
+
+      it(`tier=${tier} cellValues=${on}: hex floor >= dot label maxzoom, setCellValues called last`, () => {
+        const map = fakeMap()
+        applyMarkerZoomRange(map, tier)
+        setCellValues(map, on)
+
+        const [, dotMax] = map.ranges.get(LABEL_LAYER_ID)
+        const [hexMin] = map.ranges.get(HEX_LABEL_LAYER_ID)
+        expect(dotMax).toBe(markerMaxZoom(tier))
+        expect(hexMin).toBeGreaterThanOrEqual(dotMax)
+      })
+    }
+  }
+
+  it('re-pins the hex floor when the tier changes under an unchanged cellValues=on', () => {
+    const map = fakeMap()
+    setCellValues(map, true)
+    applyMarkerZoomRange(map, 'country')
+    const afterCountry = map.ranges.get(HEX_LABEL_LAYER_ID)[0]
+    expect(afterCountry).toBe(markerMaxZoom('country'))
+
+    // Pan/zoom into the sensors tier without touching the cellValues toggle —
+    // the handover moves out from under the floor that mount left behind.
+    applyMarkerZoomRange(map, 'sensors')
+    const afterSensors = map.ranges.get(HEX_LABEL_LAYER_ID)[0]
+    expect(afterSensors).toBe(markerMaxZoom('sensors'))
+    expect(afterSensors).toBeGreaterThan(afterCountry)
   })
 })
 

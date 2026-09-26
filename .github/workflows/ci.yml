@@ -131,7 +131,10 @@ jobs:
         working-directory: web
       # The Go test serves the EMBEDDED bundle, so the build must run first or
       # every island is missing and every spec fails for the wrong reason.
-      - run: npm run build
+      # VITE_E2E_MAP_HANDLE=1 is what puts el.__map onto the map island (see
+      # web/src/islands/map.js) — unset, a plain `npm run build` strips it, so
+      # this is the one build in CI that opts in.
+      - run: VITE_E2E_MAP_HANDLE=1 npm run build
         working-directory: web
       - run: npx playwright install --with-deps chromium
         working-directory: web
