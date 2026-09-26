@@ -1,4 +1,8 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test as base, expect } from './fixtures.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // One worker-scoped mobile context for the file: a fresh context per test
 // re-downloads the bundle and trips the app's per-IP rate limit (429).
@@ -480,6 +484,48 @@ test.describe('phone defaults: values and wind start on', () => {
     await page.close()
   })
 
+  // Task 12 round 4: this was flaking under the full suite (never in
+  // isolation) with "locator.click: Target page, context or browser has been
+  // closed" after the full 30s test timeout — that wording is just Playwright
+  // tearing the page down once the timeout fires, not the real story. Console
+  // capture on a repro showed the actual failure: "island failed: map
+  // TypeError: Failed to fetch dynamically imported module: .../map-*.js",
+  // caused by real 429s from ratelimit.api (airbg.yaml) — the SAME per-IP
+  // bucket that wraps the whole server, static assets included
+  // (internal/httpx/chain.go's RateLimit sits outside the /api/ vs page
+  // split). By the time this test runs, 38 prior tests in the suite have
+  // already drawn the bucket down, and this is the FIRST and only test in the
+  // entire run wide enough (1280px) to open the '/en' index at the country
+  // tier, which mounts readouts/freshness/panel/theme/ResetButton — chunks no
+  // earlier (phone-width) test has ever fetched, so there is no warm
+  // disk-cache safety net for them either. All of that lands in one burst on
+  // this one navigation and can tip the shared bucket into a 429 on whichever
+  // request loses the race — sometimes an unrelated island's chunk, sometimes
+  // one of map's own static import-graph dependencies (ramp/sensorfilter —
+  // see mappaint.js's sibling comments), which is why stubbing only the
+  // unrelated islands still flaked: the pool of possible losers is bigger
+  // than the assets this test doesn't care about.
+  //
+  // The fix is not a longer wait or a retry: this test does not exercise the
+  // rate limiter at all — it asserts on two checkbox states after opening a
+  // menu — so every static chunk its own navigation needs is read straight
+  // off the same dist/ directory the server would otherwise have served,
+  // never touching the network or the shared per-IP bucket. That is the
+  // asset's real, current content (not a stub), so nothing about what the
+  // page runs is faked — only where the bytes came from changed. API calls
+  // still go over the wire; they never 429ed in any repro run, and this test
+  // does not touch the layer menu's own rate-limited endpoints (see
+  // sources.spec.js for that).
+  const distAssets = path.join(__dirname, '..', '..', 'internal', 'web', 'dist', 'assets')
+  const CONTENT_TYPES = { '.js': 'text/javascript', '.css': 'text/css' }
+  const serveAssetsFromDisk = (page) => page.route('**/static/build/assets/*', (route) => {
+    const name = new URL(route.request().url()).pathname.split('/').pop()
+    route.fulfill({
+      path: path.join(distAssets, name),
+      contentType: CONTENT_TYPES[path.extname(name)] ?? 'application/octet-stream',
+    })
+  })
+
   // 1280x800 fails both the portrait and landscape phone media queries on
   // width/height alone, regardless of mobileCtx's touch emulation — no need
   // for a plain desktop context to prove this one off.
@@ -487,6 +533,7 @@ test.describe('phone defaults: values and wind start on', () => {
     const page = await mobileCtx.newPage()
     await new Promise((r) => setTimeout(r, 2000))
     await mockWind(page)
+    await serveAssetsFromDisk(page)
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/en')
     await openLayers(page)

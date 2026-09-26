@@ -63,9 +63,16 @@ export function mount(el) {
   // Stashed on the same element paintSource already dispatches 'airbg:paint'
   // from (see mapdata.js) — an e2e-only handle, read by tests that need
   // queryRenderedFeatures directly (Task 12 round 3's hex/dot label overlap
-  // check) rather than inferring paint state from the DOM. Never read by app
-  // code; a real visitor's page never touches it.
-  el.__map = map
+  // check) rather than inferring paint state from the DOM. Gated on a
+  // build-time flag so a plain `npm run build` (what ships) never carries it —
+  // Vite/Rollup replaces import.meta.env.VITE_E2E_MAP_HANDLE with a literal
+  // `undefined` when it is unset, which makes this whole block dead code and
+  // strips it. The e2e job builds with VITE_E2E_MAP_HANDLE=1 set (see
+  // .github/workflows/ci.yml's e2e job); a local run needs the same env var
+  // before `npm run build`.
+  if (import.meta.env.VITE_E2E_MAP_HANDLE) {
+    el.__map = map
+  }
 
   // Compact attribution starts expanded on load; collapse it to the (i) so it
   // does not sit open over the map on first paint. No private API beyond the
