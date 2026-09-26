@@ -136,6 +136,8 @@ export function readConfig(el) {
       // in — aria-pressed already reports the state.
       fullscreen: d.tFullscreen || '',
       fullscreenExit: d.tFullscreenExit || '',
+      // The fullscreen sensor sheet's link down to the panel; absent on the embed.
+      sheetHistory: d.tSheetHistory || '',
       zoomIn: d.tZoomIn || '',
       zoomOut: d.tZoomOut || '',
       zoomReset: d.tZoomReset || '',

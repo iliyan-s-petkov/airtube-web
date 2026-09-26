@@ -25,6 +25,7 @@ import {
 import { openDeepLinkedSensor, locateMe } from '../lib/placement.js'
 import { mountChrome } from '../lib/chrome.js'
 import { installMapLoad } from '../lib/mapload.js'
+import { findSensor } from '../lib/sensors.svelte.js'
 
 
 // Mean of a polygon ring's vertices, dropping the closing vertex GeoJSON
@@ -46,6 +47,7 @@ export function mount(el) {
   // getViewState's own doc comment) — the same store, so a metric picked
   // there is the metric this map follows.
   const vs = getViewState({ metrics: cfg.metrics, defaultMetric: cfg.metric })
+  chrome.sheet.follow(vs, findSensor)
 
   const map = new MapLibreMap({
     container: el,

@@ -13,6 +13,7 @@ import { mountPlayer } from './timelapse.js'
 import { RASTER_LAYER_ID } from './mapids.js'
 import { LEGEND_FOLD_KEY } from './mapconfig.js'
 import { setCellValues } from './mappaint.js'
+import { createSensorSheet } from './sensorsheet.svelte.js'
 
 // hintController owns the ONE rule about the hint banner: an error outranks the
 // routine hint, permanently.
@@ -157,10 +158,20 @@ export function mountChrome(el, cfg) {
   // rather than duplicated: it stays one <details>, so its folded state, its
   // contents and the layers menu's "show the key" toggle all keep pointing at
   // the same element on both sides of the trip.
-  mountFullscreen(el, {
+  // The open sensor's gauges ride along too, in a sheet (lib/sensorsheet.svelte.js).
+  let fullButton = null
+  const sheet = createSensorSheet(el, {
+    closeLabel: cfg.t.close,
+    historyLabel: cfg.t.sheetHistory,
+    exitFull: () => { if (fullButton?.getAttribute('aria-pressed') === 'true') fullButton.click() },
+  })
+  fullButton = mountFullscreen(el, {
     label: cfg.t.fullscreen,
     exitLabel: cfg.t.fullscreenExit,
-    onChange: (full) => { (full ? el : shell).appendChild(legend) },
+    onChange: (full) => {
+      (full ? el : shell).appendChild(legend)
+      sheet.setFull(full)
+    },
   })
   const zoom = mountZoom(el, {
     inLabel: cfg.t.zoomIn,
@@ -380,6 +391,7 @@ export function mountChrome(el, cfg) {
     layersUI: layers,
     layerViews,
     locateButton,
+    sheet,
     // Called on movestart and when the replay bar opens.
     closeLegend,
     // Removes the media-query listener.
