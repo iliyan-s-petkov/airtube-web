@@ -37,36 +37,68 @@ export function markerMaxZoom(tier) {
   return tier === 'sensors' ? POINT_TIER_MIN_ZOOM_FRACTIONAL : GRID_MIN_ZOOM_FRACTIONAL
 }
 
+// Module state, not a parameter: the cellValues toggle (chrome.js) and the
+// tier handover (mapdata.js's refresh, on every moveend) change independently
+// of each other, and each needs the other's latest value to place the hex
+// label's floor correctly. Neither caller is in a position to hand the other
+// its own state, so both write here and hexLabelMinZoom reads both back.
+let cellValuesOn = false
+let lastTier
+
+// hexLabelMinZoom is the single place that decides where the hex aggregate
+// label may start. Both setCellValues and applyMarkerZoomRange call it so the
+// two of them can never disagree about where that floor sits.
+//
+// Task 12 round 3: with cellValues on, the floor used to be GRID_MIN_ZOOM
+// unconditionally — lower than the sensors tier's own marker handover
+// (markerMaxZoom('sensors') === POINT_TIER_MIN_ZOOM, well above GRID_MIN), so
+// between the two a sensor dot and its own label (LABEL_LAYER_ID, still
+// visible — applyMarkerZoomRange gives markers 0..markerMaxZoom(tier)) shared
+// the screen with the hex cell's aggregate label for the same reading:
+// "10.0 ● 10.0". markerMaxZoom(tier) is the exact number
+// applyMarkerZoomRange already uses for that same handover, so capping the
+// floor at it (rather than a second copy of the number) keeps the two rules
+// in step by construction. For every tier but sensors this is a no-op:
+// markerMaxZoom there already equals GRID_MIN_ZOOM (aggregate markers step
+// aside the moment the grid appears, see markerMaxZoom's own comment), so the
+// cap and the old floor agree.
+function hexLabelMinZoom(on, tier) {
+  const floor = on ? GRID_MIN_ZOOM_FRACTIONAL : POINT_TIER_MIN_ZOOM_FRACTIONAL
+  return Math.max(floor, markerMaxZoom(tier))
+}
+
 // setCellValues moves the cell-label layer's floor, and nothing else.
 //
 // The number is normally reserved for the point tier, where a cell is one
 // sensor: below that a cell is an average of several, and a country covered in
 // printed figures reads as noise over the ramp that is the primary reading.
 // But a reader comparing two neighbourhoods should not have to zoom to sensor
-// level one cell at a time to get the figures, so the floor is theirs to lower.
-//
-// Down to the CELLS' own floor, not to zero: a number below that would print
-// over ground with no cell drawn under it. The label layer's own collision
-// thinning does the rest — where the cells are too small to hold a number, it
-// simply drops the ones that will not fit.
+// level one cell at a time to get the figures, so the floor is theirs to lower
+// — down to wherever the current tier's own markers hand over, never below it
+// (see hexLabelMinZoom).
 export function setCellValues(map, on) {
+  cellValuesOn = on
   // Guarded like applyMarkerZoomRange: a phone-default apply now runs at mount,
   // before a style reload could leave this layer briefly absent.
   if (!map.getLayer?.(HEX_LABEL_LAYER_ID)) return
-  map.setLayerZoomRange(
-    HEX_LABEL_LAYER_ID,
-    on ? GRID_MIN_ZOOM_FRACTIONAL : POINT_TIER_MIN_ZOOM_FRACTIONAL,
-    MAX_ZOOM_CEILING,
-  )
+  map.setLayerZoomRange(HEX_LABEL_LAYER_ID, hexLabelMinZoom(on, lastTier), MAX_ZOOM_CEILING)
 }
 
 // applyMarkerZoomRange moves both marker layers onto the handover the current
 // tier calls for. Exported for its own test; guarded because refresh() runs on
 // every moveend and a style reload can leave a layer briefly absent.
+//
+// Also re-pins the hex label's floor (see hexLabelMinZoom): the tier can
+// change without cellValues changing (an ordinary pan/zoom), and the label's
+// floor has to follow the new handover just as much as the markers do.
 export function applyMarkerZoomRange(map, tier) {
+  lastTier = tier
   const max = markerMaxZoom(tier)
   for (const id of [LAYER_ID, OFFICIAL_LAYER_ID, LABEL_LAYER_ID]) {
     if (map.getLayer?.(id)) map.setLayerZoomRange(id, 0, max)
+  }
+  if (map.getLayer?.(HEX_LABEL_LAYER_ID)) {
+    map.setLayerZoomRange(HEX_LABEL_LAYER_ID, hexLabelMinZoom(cellValuesOn, tier), MAX_ZOOM_CEILING)
   }
 }
 

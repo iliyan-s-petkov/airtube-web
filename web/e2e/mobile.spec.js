@@ -498,6 +498,105 @@ test.describe('phone defaults: values and wind start on', () => {
   })
 })
 
+// Task 12 round 3: cellValues-on used to let the hex aggregate label draw at
+// the same zoom as a sensor dot's own label, over the same reading —
+// "10.0 ● 10.0" (see mappaint.js's hexLabelMinZoom). Sofia's own sensor-tier
+// frame is where the bug showed: the hex source still returns coarser
+// Polygon cells with a value there, and the fix's whole job is keeping those
+// cells' label off while the dots underneath still carry their own.
+//
+// queryRenderedFeatures needs a live Map handle, which no e2e spec here has
+// ever reached for — 'airbg:paint' (redraw.spec.js) only announces THAT a
+// layer repainted, not what it drew. map.js now stashes the instance on the
+// island's own container element (`el.__map`, e2e-only, never read by app
+// code) for exactly this.
+test.describe('hex label and dot label never share a value (Task 12 round 3)', () => {
+  const getMap = (page) => page.evaluate(() => new Promise((resolve) => {
+    const el = document.querySelector('[data-island="map"]')
+    const wait = () => {
+      if (el?.__map?.isStyleLoaded?.()) return resolve()
+      requestAnimationFrame(wait)
+    }
+    wait()
+  }))
+
+  // Both layers' rendered features, as their screen-space anchor points —
+  // a hex label sits at its polygon's own centroid, a dot label at its
+  // point — so "no pair overlaps" reduces to "no two anchors land within
+  // the same label's own footprint" without either layer's paint spec (font
+  // size, halo, etc.) leaking into the test.
+  const anchors = (page, layerId) => page.evaluate((id) => {
+    const map = document.querySelector('[data-island="map"]').__map
+    const feats = map.queryRenderedFeatures({ layers: [id] })
+    return feats.map((f) => {
+      const g = f.geometry
+      if (g.type === 'Point') return map.project(g.coordinates)
+      // Polygon: mean of the outer ring's vertices, dropping the closing
+      // vertex GeoJSON repeats — same centroid rule mount()'s own
+      // ringCentroid uses, so a fixture here and the app agree on where a
+      // hex cell's label anchors.
+      const ring = g.coordinates[0]
+      const [fx, fy] = ring[0]
+      const last = ring[ring.length - 1]
+      const pts = (last[0] === fx && last[1] === fy) ? ring.slice(0, -1) : ring
+      const sum = pts.reduce(([sx, sy], [x, y]) => [sx + x, sy + y], [0, 0])
+      return map.project([sum[0] / pts.length, sum[1] / pts.length])
+    })
+  }, layerId)
+
+  // A label's own text plus halo is comfortably under 40px tall/wide at any
+  // tier here; two anchors closer than that are the same reading printed
+  // twice, not two distinct cells that happen to sit near each other.
+  const OVERLAP_PX = 40
+
+  test('Sofia sensor-tier frame: no hex-label anchor sits on a dot-label anchor', async ({ mobileCtx }) => {
+    const page = await mobileCtx.newPage()
+    await new Promise((r) => setTimeout(r, 2000))
+    await mockWind(page)
+    // Same attach-before-any-script pattern redraw.spec.js uses: the first
+    // paint of a cold load can land while goto() is still returning.
+    await page.addInitScript(() => {
+      window.__paints = []
+      const attach = () => {
+        const el = document.querySelector('[data-island="map"]')
+        if (!el) return requestAnimationFrame(attach)
+        el.addEventListener('airbg:paint', (e) => window.__paints.push(e.detail.source))
+      }
+      attach()
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    // No #sensor= hash: that deep-links straight into the point tier (its own
+    // "each cell is a single sensor" caption), past the handover this test
+    // exists to check. Sofia's own area page opens at the sensor tier itself
+    // (zoom 11 — see redraw.spec.js), which is where the bug showed.
+    await page.goto('/en/area/sofia')
+    await getMap(page)
+    // Both data layers painted at least once — the source data is in, not
+    // just the empty style (see redraw.spec.js's own `loaded`).
+    await page.waitForFunction(() => {
+      const seen = new Set(window.__paints ?? [])
+      return seen.has('airbg-data') && seen.has('airbg-hexes')
+    }, null, { timeout: 20000 })
+    // Settle past the load-time placement jumps redraw.spec.js documents
+    // (mapload.js's onMoveEnd.cancel() races the very last one).
+    await page.waitForTimeout(3000)
+
+    await expect.poll(async () => (await anchors(page, 'airbg-marker-labels')).length)
+      .toBeGreaterThan(0)
+
+    const [dotAnchors, hexAnchors] = await Promise.all([
+      anchors(page, 'airbg-marker-labels'),
+      anchors(page, 'airbg-hex-labels'),
+    ])
+
+    const overlapping = hexAnchors.filter((h) =>
+      dotAnchors.some((d) => Math.hypot(h.x - d.x, h.y - d.y) < OVERLAP_PX))
+    expect(overlapping).toEqual([])
+
+    await page.close()
+  })
+})
+
 test.describe('landscape phone keeps the map', () => {
   test('/en map has width at 844x390', async ({ mobileCtx }) => {
     const page = await mobileCtx.newPage()

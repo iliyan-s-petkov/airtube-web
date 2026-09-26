@@ -878,6 +878,11 @@ describe('mount() hands the reading from the dots to the cells', () => {
       // Left out, they would have outlived the network they belong to.
       ['airbg-markers-official', 0, POINT_TIER_MIN_ZOOM_FRACTIONAL],
       ['airbg-marker-labels', 0, POINT_TIER_MIN_ZOOM_FRACTIONAL],
+      // Task 12 round 3: re-pinned every call, not just the cellValues
+      // toggle's own — see mappaint.js's hexLabelMinZoom. cellValues is off
+      // in this fake map (never set), so this is the unchanged point-tier
+      // floor; the tier just changed under it is the point of the test.
+      [HEX_LABEL_LAYER_ID, POINT_TIER_MIN_ZOOM_FRACTIONAL, 24],
     ])
   })
 
