@@ -36,6 +36,13 @@ func TestBrowser(t *testing.T) {
 	// to is the container pool above, wired in directly via store.New.
 	t.Setenv(config.PathEnv, filepath.Join("..", "..", "airbg.yaml"))
 	t.Setenv(config.DatabaseURLEnv, "postgres://user:pass@localhost:5432/airbg")
+	// Widen the API and series rate limits for this suite only (cold-load-
+	// per-test churns far more requests than a real visitor, and the map
+	// tests pull series data repeatedly); airbg.yaml itself is untouched.
+	t.Setenv("AIRBG_RATELIMIT_API_PER_SECOND", "500")
+	t.Setenv("AIRBG_RATELIMIT_API_BURST", "2000")
+	t.Setenv("AIRBG_RATELIMIT_SERIES_PER_SECOND", "50")
+	t.Setenv("AIRBG_RATELIMIT_SERIES_BURST", "200")
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)

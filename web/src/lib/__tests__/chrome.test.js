@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 //
 // jsdom: mountChrome builds real DOM, which every test here drives directly.
+import { readFileSync } from 'node:fs'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mountChrome, hintController, isPhoneViewport, PHONE_LANDSCAPE_QUERY } from '../chrome.js'
 import { mountLayers, installLayers } from '../maplayers.js'
 import { refreshHexes } from '../mapdata.js'
 import { readConfig, LEGEND_FOLD_KEY } from '../mapconfig.js'
 import { setSensorStatus, getSensorStatus, resetSensorFilterForTests } from '../sensorfilter.svelte.js'
+
+const APP_CSS = '../internal/web/static/app.css'
 
 // The cfg every mountChrome test hands in. metricLabels and metricUnits are
 // keyed by metric because that is what readConfig produces (see byMetric): the
@@ -711,5 +714,16 @@ describe('hintController', () => {
     c.showHint('Select an area')
 
     expect(rendered).toEqual(['Map data is unavailable right now'])
+  })
+})
+
+// Drift guard: app.css's landscape breakpoint must match chrome.js's
+// PHONE_LANDSCAPE_QUERY, or the two disagree on what a landscape phone is.
+describe('PHONE_LANDSCAPE_QUERY matches app.css', () => {
+  it('equals the @media condition app.css gates its landscape block on', () => {
+    const css = readFileSync(APP_CSS, 'utf8')
+    const match = css.match(/@media (\([^{]+?\)) \{\n\s*\.map-shell:has\(\.map--hero\)/)
+    expect(match).not.toBeNull()
+    expect(match[1]).toBe(PHONE_LANDSCAPE_QUERY)
   })
 })

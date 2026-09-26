@@ -927,14 +927,8 @@ html:has(> body.embed) { block-size: 100%; }
   .map-shell .scale--onmap { inset-block-end: var(--space-2); }
   /* Scrolls the open legend when it is taller than the landscape map. */
   .map-shell .scale--onmap[open] { overflow-y: auto; }
-  /* Folded pill, restated from the @672px block above: that query is
-     width-gated and does not fire at 844px wide, so without this the fold
-     fell back to the kit's bare rotated-triangle default (see
-     design-kit/components.css) — a triangle floating over the map with no
-     pill chrome, no ramp swatch, no metric label. Same 44px-floor pill as
-     portrait; position (16px/space-2, set above) already clears both the
-     freshness/play card (starts at inline 232px) and the layers button
-     (top-anchored), so only the fold's own look needs restating here. */
+  /* Folded pill, restated from the @672px block: the width-gated query there
+     does not fire at 844px wide. */
   .scale--onmap:not([open]) { padding-block: 0; padding-inline: var(--space-1); }
   .scale--onmap:not([open]) .scale__toggle {
     min-block-size: 44px; inline-size: auto; padding-inline: var(--space-1); margin-block-end: 0;
@@ -946,13 +940,8 @@ html:has(> body.embed) { block-size: 100%; }
   .scale--onmap:not([open]) .scale__toggle-label {
     display: inline; margin-inline: var(--space-1); font-size: var(--text-compact);
   }
-  /* Wind note, restated from the @672px block above for the same reason: the
-     landscape query never collapsed it, so it kept the desktop card's full
-     padded box and its summary's spelled-out label — a wide "About the wind
-     layer" pill rather than the bare 44px (i) portrait shows. Position
-     (inset-end 8px, bottom 3.5rem — set at line ~313, unchanged) already
-     clears .map-locate (bottom 8px, 32px tall) below it, so only the
-     collapsed look and the open card need restating. */
+  /* Wind note, restated from the @672px block: landscape never collapsed it
+     to the icon-only form portrait shows. */
   .map-wind-label:not([open]) {
     inline-size: fit-content; max-inline-size: none;
     background: none; box-shadow: none; border: 0; padding: 0;
