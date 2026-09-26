@@ -71,3 +71,35 @@ for (const vp of VIEWPORTS) {
     await context.close()
   })
 }
+
+// A sensor opened before fullscreen: native fullscreen paints twice, and the sheet must survive both.
+for (const vp of VIEWPORTS) {
+  for (const path of ['/en/#sensor=101', '/en/area/sofia#sensor=101']) {
+    test(`${vp.name} ${path}: a sensor open before fullscreen shows in the sheet`, async ({ browser }, testInfo) => {
+      testInfo.setTimeout(60000)
+      const { name, ...opts } = vp
+      const context = await browser.newContext(opts)
+      const page = await context.newPage()
+      await page.goto(path)
+      await expect(page.locator('[data-island="panel"] .sensor-panel .gauges')).toBeVisible({ timeout: 15000 })
+
+      await page.locator('.map__full').click()
+      await expect.poll(() => fullFrame(page)).toBe(true)
+      const sheet = page.getByRole('dialog', { name: /101$/ })
+      await expect(sheet).toBeVisible()
+      // Past the fullscreenchange paint that used to unmount it.
+      await page.waitForTimeout(500)
+      await expect(sheet).toBeVisible()
+      const inside = await page.evaluate(() => {
+        const map = document.querySelector('[data-island="map"]')
+        const frame = document.fullscreenElement ?? (map.classList.contains('map--faux-full') ? map : null)
+        return !!frame?.querySelector('.map-sensor-sheet .gauges')
+      })
+      expect(inside, 'the gauges are not in a sheet inside the fullscreen element').toBe(true)
+      await expect(page.locator('[data-island="panel"] .sensor-panel .gauges')).toHaveCount(0)
+
+      await context.close()
+    })
+  }
+}
+

@@ -49,7 +49,7 @@ function page() {
   mountPanel(host)
   const vs = getViewState({ metrics: ['P1', 'P2', 'temperature', 'humidity'], defaultMetric: 'P2' })
   const stop = chrome.sheet.follow(vs, findSensor)
-  return { el, host, canvas, vs, stop, full: el.querySelector('.map__full') }
+  return { el, host, canvas, vs, stop, sheet: chrome.sheet, full: el.querySelector('.map__full') }
 }
 
 // Two ticks: one for the panel to render, one for the sheet's own tick().then(sync).
@@ -123,6 +123,42 @@ describe('the fullscreen sensor sheet', () => {
     await settle()
     ctx.full.click()
     expect(ctx.el.querySelector('.map-sensor-sheet .gauges')).toBeTruthy()
+  })
+
+  it('native fullscreen with a sensor already open keeps the sheet after fullscreenchange', async () => {
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    // Native fullscreen paints twice: once when requestFullscreen resolves, once on fullscreenchange.
+    let fsEl = null
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => fsEl })
+    ctx.el.requestFullscreen = () => { fsEl = ctx.el; return Promise.resolve() }
+    try {
+      ctx.full.click()
+      await Promise.resolve()
+      document.dispatchEvent(new Event('fullscreenchange'))
+      await settle()
+
+      const sheet = ctx.el.querySelector('.map-sensor-sheet')
+      expect(sheet, 'the second fullscreen paint unmounted the sheet').toBeTruthy()
+      expect(sheet.querySelectorAll('.gauge')).toHaveLength(4)
+      expect(ctx.host.querySelector('.sensor-panel .gauges')).toBeNull()
+    } finally {
+      delete document.fullscreenElement
+    }
+  })
+
+  it('a repeated sync while mounted keeps the sheet and its gauges', async () => {
+    ctx = page()
+    ctx.full.click()
+    ctx.vs.openSensor(101)
+    await settle()
+    const gauges = ctx.el.querySelector('.map-sensor-sheet .gauges')
+    ctx.sheet.sync()
+    expect(ctx.el.querySelector('.map-sensor-sheet .gauges'), 'a second sync unmounted the sheet').toBe(gauges)
+    ctx.sheet.setFull(true)
+    expect(ctx.el.querySelector('.map-sensor-sheet .gauges')).toBe(gauges)
+    expect(ctx.host.querySelector('.sensor-panel .gauges')).toBeNull()
   })
 
   it('Escape closes the sheet first, then leaves fullscreen', async () => {
