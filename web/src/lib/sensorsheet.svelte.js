@@ -81,7 +81,9 @@ export function createSensorSheet(frame, { closeLabel = '', historyLabel = '', e
   // Idempotent: reads the panel as it is now and mounts, updates or unmounts.
   function sync() {
     const p = panel()
-    const next = p?.querySelector('.gauges') ?? null
+    // Gauges already moved out of this panel are its own, not a panel without them.
+    const own = gauges && body.contains(gauges) && p?.contains(marker) ? gauges : null
+    const next = p?.querySelector('.gauges') ?? own
     if (!full || !p || !next || frame.contains(p)) {
       unmount()
       return
