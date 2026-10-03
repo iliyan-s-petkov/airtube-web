@@ -1565,6 +1565,10 @@ body:has(.map:fullscreen, .map--faux-full, .map-sensor-sheet) .back-to-top { dis
   grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr)) auto;
   align-items: start;
 }
+/* Wide: link columns size to their text, the brand column takes the rest. */
+@media (min-width: 1024px) {
+  .footer__grid { grid-template-columns: minmax(10rem, 1fr) repeat(3, max-content) auto; }
+}
 .footer .footer__wordmark { color: var(--fg); margin: 0 0 var(--space-2); }
 .footer .footer__tagline, .footer .footer__disclaimer { margin-block: 0 var(--space-2); }
 .footer__heading {
