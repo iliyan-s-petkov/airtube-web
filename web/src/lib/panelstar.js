@@ -1,5 +1,5 @@
-// Moves the panel's own star into a dock or sheet header and puts it back: moved, never copied.
-export function createStarSlot(doc) {
+// Moves one of the panel's own header buttons (the star by default) into a dock or sheet header and puts it back: moved, never copied.
+export function createStarSlot(doc, selector = '.panel-star') {
   let star = null
   let marker = null
 
@@ -16,7 +16,7 @@ export function createStarSlot(doc) {
   // Takes the panel's star into `head`, before `before`; keeps the one it already holds.
   function take(panel, head, before) {
     const own = star && marker && panel?.contains(marker) ? star : null
-    const next = panel?.querySelector('.panel-star') ?? own
+    const next = panel?.querySelector(selector) ?? own
     if (!next) {
       release()
       return
