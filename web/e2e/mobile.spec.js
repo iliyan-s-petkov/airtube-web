@@ -84,6 +84,8 @@ test.describe('phone layout does not widen the viewport', () => {
     const page = await mobileCtx.newPage()
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/en')
+    // The chrome is built after hydration; measure only once it exists.
+    await expect(page.locator('.map__layers')).toBeVisible()
     const map = await page.locator('#map').boundingBox()
     const scale = await page.locator('.scale--onmap').boundingBox()
     expect(scale.x).toBeGreaterThanOrEqual(map.x)
@@ -108,6 +110,10 @@ test.describe('phone layout does not widen the viewport', () => {
     await page.goto('/en')
     const attrib = page.locator('.maplibregl-ctrl-attrib')
     await expect(attrib).toBeVisible()
+    // The card is collapsed by the map's load handler; before it, the absent
+    // class proves nothing.
+    await mapSettled(page)
+    await page.waitForFunction(() => document.querySelector('[data-island="map"]').__map.loaded())
     await expect(attrib).not.toHaveClass(/maplibregl-compact-show/)
     const box = await page.locator('.maplibregl-ctrl-attrib-button').boundingBox()
     expect(box.width).toBeGreaterThanOrEqual(44)

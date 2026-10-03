@@ -1,4 +1,4 @@
-import { test as base, expect } from './fixtures.js'
+import { test as base, expect, mapSettled } from './fixtures.js'
 
 // Back-to-top: floating button once the visitor has scrolled past the map; every base-layout page.
 const VIEWPORTS = [
@@ -97,10 +97,17 @@ test('393x873: hidden while the phone sensor sheet is open, back after it closes
   const page = await ctx.newPage()
   await page.goto('/en/area/sofia')
   await page.locator('.map__full').click()
-  let pt = null
-  await expect.poll(async () => (pt = await markerPoint(page)), { timeout: 20000 }).not.toBeNull()
-  await page.mouse.click(pt.x, pt.y)
-  await expect(page).toHaveURL(/#.*sensor=\d+/)
+  // Fullscreen resizes the map and the markers repaint as data lands, so a
+  // point taken early can be stale by the click. Re-take it each attempt, from
+  // a settled camera, until the tap selects a sensor.
+  await mapSettled(page)
+  await expect(async () => {
+    await mapSettled(page)
+    const pt = await markerPoint(page)
+    expect(pt).not.toBeNull()
+    await page.mouse.click(pt.x, pt.y)
+    await expect(page).toHaveURL(/#.*sensor=\d+/, { timeout: 2000 })
+  }).toPass({ timeout: 30000 })
   const sheet = page.locator('.map-sensor-sheet')
   await expect(sheet).toBeVisible()
   await expect(page.locator(BTN)).toBeHidden()
