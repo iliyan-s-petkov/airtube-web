@@ -216,6 +216,38 @@ describe('the desktop bottom panel', () => {
     expect(document.activeElement).toBe(ctx.canvas)
   })
 
+  it('moves the panel info button into the dock header, opens the station sheet and leaves none behind', async () => {
+    vp = stubViewport(true)
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    const info = ctx.el.querySelector('.map-dock__head .panel-info')
+    expect(info, 'no info button in the dock header').toBeTruthy()
+    expect(ctx.host.querySelector('.sensor-panel .panel-info'), 'the info button was copied, not moved').toBeNull()
+    info.click()
+    await settle()
+    expect(document.querySelector('.about-sheet'), 'the station sheet did not open').toBeTruthy()
+    document.querySelector('.about-sheet__close').click()
+    await settle()
+    ctx.el.querySelector('.map-dock__close').click()
+    await settle()
+    expect(ctx.el.querySelector('.panel-info'), 'the info button was left in the map frame').toBeNull()
+  })
+
+  it('Escape with the station sheet open closes the sheet and keeps the dock', async () => {
+    vp = stubViewport(true)
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    ctx.el.querySelector('.map-dock__head .panel-info').click()
+    await settle()
+    document.querySelector('.about-sheet').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await settle()
+    expect(document.querySelector('.about-sheet')).toBeNull()
+    expect(ctx.el.querySelector('.map-dock'), 'the dock closed with the sheet').toBeTruthy()
+    expect(ctx.vs.sensorId).toBe(101)
+  })
+
   it('the history button scrolls the card under the map into view', async () => {
     vp = stubViewport(true)
     ctx = page()

@@ -40,6 +40,7 @@ export function createSideDock(frame, { closeLabel = '', moreLabel = '', moreSho
   let returnTo = null
   let onClose = () => {}
   const starSlot = createStarSlot(doc)
+  const infoSlot = createStarSlot(doc, '.panel-info')
 
   const el = doc.createElement('div')
   el.className = 'map-dock'
@@ -128,6 +129,7 @@ export function createSideDock(frame, { closeLabel = '', moreLabel = '', moreSho
     if (!mounted()) return
     restoreGauges()
     starSlot.release()
+    infoSlot.release()
     panelDock.on = false
     chartNodes().forEach((n) => n.remove())
     watcher?.disconnect()
@@ -158,6 +160,7 @@ export function createSideDock(frame, { closeLabel = '', moreLabel = '', moreSho
       body.appendChild(next)
     }
     starSlot.take(p, head, fold)
+    infoSlot.take(p, head, fold)
     if (!mounted()) {
       returnTo = doc.activeElement
       frame.appendChild(el)
@@ -188,7 +191,8 @@ export function createSideDock(frame, { closeLabel = '', moreLabel = '', moreSho
 
   // Capture phase, like the sheet, so a faux-fullscreen Escape handler never sees a dock Escape.
   doc.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !mounted()) return
+    // The station sheet opened from the info button owns its own Escape.
+    if (e.key !== 'Escape' || !mounted() || doc.querySelector('.about-sheet')) return
     e.stopPropagation()
     e.preventDefault()
     dismiss()

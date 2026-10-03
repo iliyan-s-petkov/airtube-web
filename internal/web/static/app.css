@@ -498,7 +498,7 @@ strong, b { font-weight: var(--weight-emphasis); }
   grid-template-areas: "head head" "gauges chips" "plot plot" "more more";
   gap: var(--space-1) var(--space-3);
   background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
-  border-radius: var(--radius); box-shadow: var(--elev-raised);
+  border: 1px solid var(--glass-border); border-radius: var(--radius); box-shadow: var(--elev-float);
   padding: var(--space-2) var(--space-4) var(--space-3); color: var(--fg);
   font-size: var(--text-compact); letter-spacing: var(--track-compact);
 }
@@ -506,20 +506,24 @@ strong, b { font-weight: var(--weight-emphasis); }
   block-size: auto; grid-template-rows: auto auto; grid-template-areas: "head head" "gauges more";
 }
 .map-dock:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.map-dock__head { grid-area: head; display: flex; align-items: center; gap: var(--space-2); }
+.map-dock__head {
+  grid-area: head; display: flex; align-items: center; gap: var(--space-2);
+  padding-block-end: var(--space-2); border-bottom: 1px solid var(--border-faint);
+}
 .map-dock__title { margin: 0; font-size: var(--text-card); font-weight: var(--weight-emphasis); line-height: 1.4; }
-.map-dock__fold, .map-dock__close {
+.map-dock__fold, .map-dock__close, .map-dock .panel-info {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   inline-size: 2rem; block-size: 2rem; padding: 0; border: 0; border-radius: var(--radius-sm);
   background: none; color: var(--fg-2); cursor: pointer;
 }
-.map-dock__fold:hover, .map-dock__close:hover { color: var(--fg); background: var(--surface-2); }
-.map-dock__fold:focus-visible, .map-dock__close:focus-visible, .map-dock__more:focus-visible { box-shadow: var(--focus-ring); }
+.map-dock__fold:hover, .map-dock__close:hover, .map-dock .panel-info:hover { color: var(--fg); background: var(--surface-2); }
+.map-dock__fold:focus-visible, .map-dock__close:focus-visible, .map-dock .panel-info:focus-visible, .map-dock__more:focus-visible { box-shadow: var(--focus-ring); }
 .map-dock__fold-ico, .map-dock__close-ico { inline-size: 16px; block-size: 16px; }
 .map-dock--folded .map-dock__fold-ico { transform: rotate(180deg); }
 .map-dock__body { grid-area: gauges; min-inline-size: 0; }
-.map-dock .gauges { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(0, 76px); justify-content: start; margin: 0; }
-.map-dock .gauges .gauge { max-inline-size: 76px; }
+/* One row of equal cells across the panel; each gauge is capped so a two-gauge sensor stays gauge-sized. */
+.map-dock .gauges { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(0, 1fr); justify-content: stretch; margin: 0; padding-block: var(--space-1); }
+.map-dock .gauges .gauge { max-inline-size: 130px; }
 /* The chart's panel copy is a display:contents wrapper, so its chips and plot are cells of the dock's own grid. */
 .map-dock .panel-chart__dock { display: contents; }
 .map-dock .period-seg {
@@ -552,7 +556,7 @@ strong, b { font-weight: var(--weight-emphasis); }
 .map-shell--docked .map-locate { bottom: calc(var(--space-2) + var(--map-panel-h, 0px)); }
 .map-shell--docked .maplibregl-ctrl-bottom-right, .map-shell--docked .maplibregl-ctrl-bottom-left { bottom: var(--map-panel-h, 0px); }
 @media (hover: none) {
-  .map-dock__fold, .map-dock__close, .map-dock__more { min-block-size: 44px; min-inline-size: 44px; }
+  .map-dock__fold, .map-dock__close, .map-dock .panel-info, .map-dock__more { min-block-size: 44px; min-inline-size: 44px; }
 }
 .gauge__svg { inline-size: 100%; block-size: auto; }
 .gauge__track-path, .gauge__band { fill: none; stroke-width: 10; stroke-linecap: butt; }
