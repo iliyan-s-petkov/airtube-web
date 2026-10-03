@@ -1,4 +1,4 @@
-import { test as base, expect } from './fixtures.js'
+import { test as base, expect, mapSettled } from './fixtures.js'
 
 // Findings from the 2026-10-01 live audit (A01, A02, U01, U02, K01, U04).
 // Each assertion measures what a reader sees, in a real browser, because the
@@ -130,6 +130,10 @@ test.describe('U01: the phone bottom-right corner', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/en')
     await page.waitForSelector('.maplibregl-ctrl-attrib')
+    // The map's load handler strips compact-show; a click before it is undone.
+    await mapSettled(page)
+    await page.waitForFunction(() => document.querySelector('[data-island="map"]').__map.loaded())
+    await expect(page.locator('.maplibregl-ctrl-attrib')).not.toHaveClass(/maplibregl-compact-show/)
     await page.locator('.maplibregl-ctrl-attrib-button').click()
     const box = page.locator('.maplibregl-ctrl-attrib')
     await expect(box).toHaveClass(/maplibregl-compact-show/)
