@@ -38,6 +38,35 @@ const columns = (page) => page.evaluate((layer) => {
   return { flat, flatValues, opacity: map.getPaintProperty(layer, 'fill-extrusion-opacity'), cells }
 }, EXTRUSION)
 
+// A sample of the columns once the map has stopped repainting them. After a zoom the column source briefly
+// holds the old tier's cells beside the new tier's, and a column's height scales with its tier's cell width,
+// so heights from two tiers do not order by value. Settled means the map is loaded and idle, every value
+// stands at one height, and two samples a beat apart agree.
+async function settledColumns(page) {
+  let prev = null
+  let settled = null
+  await expect.poll(async () => {
+    const idle = await page.evaluate(() => {
+      const map = document.querySelector('[data-island="map"]').__map
+      return map.loaded() && !map.isMoving()
+    })
+    const s = await columns(page)
+    const heights = new Map()
+    for (const c of s.cells) {
+      if (c.value === null) continue
+      if (!heights.has(c.value)) heights.set(c.value, new Set())
+      heights.get(c.value).add(c.height)
+    }
+    const oneTier = [...heights.values()].every((h) => h.size === 1)
+    const key = JSON.stringify(s.cells)
+    const stable = key === prev
+    prev = key
+    if (idle && oneTier && stable && heights.size > 1 && s.cells.every((c) => c.rise === 1)) settled = s
+    return settled !== null
+  }, { timeout: 20000, intervals: [400] }).toBe(true)
+  return settled
+}
+
 // A client point over a column naming one station, with the id the column there names.
 const columnPoint = (page) => page.evaluate((layer) => {
   const map = document.querySelector('[data-island="map"]').__map
@@ -75,11 +104,7 @@ for (const size of SIZES) {
     // Tilted: columns at full rise, taller for a higher value.
     await pitchTo(page, 50)
     await expect.poll(async () => (await columns(page)).opacity).toBeGreaterThan(0)
-    await expect.poll(async () => {
-      const { cells } = await columns(page)
-      return new Set(cells.map((c) => c.value).filter((v) => v !== null)).size > 1 && cells.every((c) => c.rise === 1)
-    }, { timeout: 20000 }).toBe(true)
-    s = await columns(page)
+    s = await settledColumns(page)
     // One entry per distinct value; a cell is listed once per tile it crosses.
     const valued = [...new Map(s.cells.filter((c) => c.value !== null).map((c) => [c.value, c])).values()]
       .sort((a, b) => a.value - b.value)

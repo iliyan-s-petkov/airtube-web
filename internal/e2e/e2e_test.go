@@ -54,7 +54,12 @@ func TestBrowser(t *testing.T) {
 	public, _ := testsupport.StartServer(t, st, cfg)
 	baseURL := "http://" + public
 
-	cmd := exec.Command("npx", "playwright", "test")
+	args := []string{"playwright", "test"}
+	// E2E_SHARD=i/N runs one slice of the suite; unset runs all of it.
+	if shard := os.Getenv("E2E_SHARD"); shard != "" {
+		args = append(args, "--shard="+shard)
+	}
+	cmd := exec.Command("npx", args...)
 	cmd.Dir = filepath.Join("..", "..", "web")
 	// Playwright's transform cache defaults to os.tmpdir(); a repo-scoped TMPDIR
 	// leaves it in the tree and trips the deploy dirty-tree guard.

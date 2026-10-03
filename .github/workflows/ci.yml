@@ -115,8 +115,14 @@ jobs:
       # container image and extensions match what runs locally.
       - run: go test -tags integration ./... -race
 
-  e2e:
+  e2e-shard:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      E2E_SHARD: ${{ matrix.shard }}/4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7
@@ -142,10 +148,19 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: failure()
         with:
-          name: e2e-results
+          name: e2e-results-${{ matrix.shard }}
           path: web/test-results/
           retention-days: 14
           if-no-files-found: ignore
+
+  # Keeps the required check name "e2e" that branch protection expects.
+  e2e:
+    if: always()
+    needs: e2e-shard
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.e2e-shard.result }}" = success
+
   secrets:
     runs-on: ubuntu-latest
     steps:
