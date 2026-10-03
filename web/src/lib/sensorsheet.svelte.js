@@ -3,6 +3,7 @@
 // and put back on exit, the same move-not-duplicate idiom as the legend.
 import { tick } from 'svelte'
 import { createStarSlot } from './panelstar.js'
+import { sectionHidden } from './panelhost.js'
 
 const TITLE_ID = 'map-sensor-sheet-title'
 
@@ -92,6 +93,8 @@ export function createSensorSheet(frame, { closeLabel = '', historyLabel = '', e
       return
     }
     title.textContent = p.querySelector('h2')?.textContent ?? ''
+    // No link down to a section the wide home page hides.
+    if (history) history.hidden = sectionHidden(doc.defaultView, p)
     if (next !== gauges) {
       restoreGauges()
       marker = doc.createComment('gauges')
@@ -135,7 +138,7 @@ export function createSensorSheet(frame, { closeLabel = '', historyLabel = '', e
       if (on || !scrollOnExit) return
       scrollOnExit = false
       const p = panel()
-      if (!p) return
+      if (!p || sectionHidden(doc.defaultView, p)) return
       // After the frame has left fullscreen and the page has its layout back.
       const go = () => {
         p.scrollIntoView({ block: 'start' })

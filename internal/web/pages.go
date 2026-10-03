@@ -123,6 +123,8 @@ func (rr *Renderer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	lang, path := rr.cat.LangFromPath(r.URL.Path)
 	data := rr.newPageData(lang, path, snap.GeneratedAt)
 	data.Areas = rr.areaRows(snap, lang, "oblast")
+	// From 1024px the map's panel carries the open sensor; app.css hides the card under the map.
+	data.PanelHostClass = "place-host--docked"
 	// /areas shares this handler with / — same snapshot, same rows — but the
 	// two are different search results and must not share a title (OpenProject
 	// #605, #602 audit finding a).

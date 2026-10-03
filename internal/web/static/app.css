@@ -415,6 +415,12 @@ strong, b { font-weight: var(--weight-emphasis); }
    follows, so an open panel sat flush against the readout strip and its raised
    shadow fell across the first card — which reads as the panel overlapping it. */
 .place-host:not(:empty) { margin-block-end: var(--space-4); }
+/* The home page from 1024px: the map's panel carries the whole card (lib/panelhost.js).
+   Hidden by visibility, not display, so the station sheet the card renders still shows over the page. */
+@media (min-width: 1024px) {
+  .place-host.place-host--docked { visibility: hidden; block-size: 0; overflow: hidden; margin: 0; padding: 0; border: 0; }
+  .place-host--docked .about-backdrop, .place-host--docked .about-sheet { visibility: visible; }
+}
 .sensor-panel {
   background: var(--bg); border: 0; box-shadow: var(--elev-raised); border-radius: var(--radius);
   padding: var(--space-3) var(--space-4); font-size: var(--text-compact); letter-spacing: var(--track-compact); color: var(--fg);
@@ -487,15 +493,16 @@ strong, b { font-weight: var(--weight-emphasis); }
   color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer;
 }
 .map-sensor-sheet__history:focus-visible { box-shadow: var(--focus-ring); }
+.map-sensor-sheet__history[hidden] { display: none; }
 /* From 1024px the open sensor is a panel along the map's bottom (lib/sidedock.svelte.js):
-   title row, gauges and period chips on one row, the chart, then the link to the card under the map.
+   title row, gauges, the chart's toolbar with the link to the card under the map (area pages only), the chart.
    Folded it keeps the header and the gauges row. The dock sets --map-panel-h on the shell to what it
-   covers, and the bottom controls ride above it. */
+   covers, and the bottom controls ride above it. The 14rem floor keeps a readable chart over an area page's short map. */
 .map-dock {
   position: absolute; z-index: 4; inset-inline: var(--space-2); inset-block-end: var(--space-2);
-  block-size: min(24rem, 45%);
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr) auto;
-  grid-template-areas: "head head" "gauges chips" "plot plot" "more more";
+  block-size: min(24rem, max(45%, 14rem));
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-areas: "head head" "gauges gauges" "tools more" "plot plot";
   gap: var(--space-1) var(--space-3);
   background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border); border-radius: var(--radius); box-shadow: var(--elev-float);
@@ -524,30 +531,38 @@ strong, b { font-weight: var(--weight-emphasis); }
 /* One row of equal cells across the panel; each gauge is capped so a two-gauge sensor stays gauge-sized. */
 .map-dock .gauges { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(0, 1fr); justify-content: stretch; margin: 0; padding-block: var(--space-1); }
 .map-dock .gauges .gauge { max-inline-size: 96px; }
-/* The chart's panel copy is a display:contents wrapper, so its chips and plot are cells of the dock's own grid. */
+/* The chart's panel copy is a display:contents wrapper, so its toolbar and plot are cells of the dock's own grid. */
 .map-dock .panel-chart__dock { display: contents; }
-.map-dock .period-seg {
-  grid-area: chips; align-self: center; display: flex; padding: 3px; gap: 2px;
-  border-radius: var(--radius-pill); background: var(--surface-2);
-}
-.map-dock .period-seg button {
-  min-block-size: 30px; padding-inline: var(--space-3); border: 0; border-radius: var(--radius-pill);
-  background: none; color: var(--fg); font: inherit; font-weight: var(--weight-emphasis); cursor: pointer;
-}
-.map-dock .period-seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-on); }
-.map-dock .period-seg button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-/* The panel offers the three short windows; the 1y chip stays with the controls under the map. */
-.map-dock .period-seg [data-period="1y"] { display: none; }
+/* The section's controls, one compact row. */
+.map-dock .panel-chart__tools { grid-area: tools; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-inline-size: 0; }
+.map-dock .panel-chart__tools .btn, .map-dock .chart-field__control, .map-dock .panel-more { min-block-size: 2rem; }
+.map-dock .panel-chart__tools .btn { padding-block: 0; padding-inline: var(--space-3); font-size: var(--text-compact); }
+.map-dock .chart-field__control { font-size: var(--text-compact); }
+/* The period's label and select join the row; its custom range takes a row of its own under it. */
+.map-dock .chart-field { display: contents; }
+.map-dock .chart-range { flex-basis: 100%; order: 1; margin-block-start: 0; }
+.map-dock .chart-range input { min-block-size: 2rem; }
+.map-dock .panel-chart__status { display: block; flex: 1 1 0; min-inline-size: 0; margin: 0; color: var(--fg-2); text-align: end; }
+.map-dock .panel-more { min-inline-size: 2rem; }
+/* The panel sits on the map's bottom edge, so its menus open upward, over the map and its controls. */
+.map-dock .colmenu__panel, .map-dock .panel-menu { inset-block-start: auto; inset-block-end: calc(100% + var(--space-1)); }
 .map-dock .panel-chart__dockplot { grid-area: plot; min-block-size: 0; min-inline-size: 0; }
 .map-dock .chart-frame--fill { block-size: 100%; min-block-size: 0; overflow: hidden; }
-.map-dock--folded .period-seg, .map-dock--folded .panel-chart__dockplot { display: none; }
+.map-dock--folded .panel-chart__tools, .map-dock--folded .panel-chart__dockplot { display: none; }
+/* A short panel (lib/sidedock.svelte.js) puts the gauges in a column beside the toolbar and the chart, the history link in the title row. */
+.map-dock--short:not(.map-dock--folded) {
+  grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas: "head head more" "gauges tools tools" "gauges plot plot";
+}
+.map-dock--short:not(.map-dock--folded) .gauges { grid-auto-columns: 72px; align-content: start; }
 .map-dock__more {
-  grid-area: more; justify-self: center; align-self: center;
+  grid-area: more; justify-self: end; align-self: center;
   display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-4);
   min-block-size: 2rem; border: 1px solid var(--accent); border-radius: var(--radius-pill);
   background: var(--accent); color: var(--accent-on); font: inherit; font-weight: var(--weight-emphasis); cursor: pointer;
 }
 .map-dock__more:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.map-dock__more[hidden] { display: none; }
 .map-dock__more-ico { inline-size: 16px; block-size: 16px; flex: none; }
 .map-dock--folded .map-dock__more { justify-self: end; }
 /* The bottom controls clear the panel, open or folded; --map-panel-h is 0 (unset) with none. */
@@ -557,6 +572,8 @@ strong, b { font-weight: var(--weight-emphasis); }
 .map-shell--docked .maplibregl-ctrl-bottom-right, .map-shell--docked .maplibregl-ctrl-bottom-left { bottom: var(--map-panel-h, 0px); }
 @media (hover: none) {
   .map-dock__fold, .map-dock__close, .map-dock .panel-info, .map-dock__more { min-block-size: 44px; min-inline-size: 44px; }
+  .map-dock .panel-chart__tools .btn, .map-dock .chart-field__control, .map-dock .chart-range input, .map-dock .panel-more { min-block-size: 44px; }
+  .map-dock .panel-more { min-inline-size: 44px; }
 }
 .gauge__svg { inline-size: 100%; block-size: auto; }
 .gauge__track-path, .gauge__band { fill: none; stroke-width: 10; stroke-linecap: butt; }
@@ -1459,29 +1476,31 @@ body:has(.map:fullscreen, .map--faux-full, .map-sensor-sheet) .back-to-top { dis
   }
   .period-seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-on); }
   .period-seg button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-  .panel-morewrap { position: relative; flex: none; }
-  .panel-more {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-inline-size: 44px; min-block-size: 44px; border: 1px solid var(--border);
-    border-radius: 50%; background: var(--surface-2); color: var(--fg); cursor: pointer;
-  }
-  .panel-more:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-  .panel-menu {
-    position: absolute; inset-inline-end: 0; inset-block-start: calc(100% + var(--space-1)); z-index: 10;
-    min-inline-size: 15rem; padding: var(--space-1) 0; border-radius: var(--radius);
-    background: var(--bg); box-shadow: var(--elev-float); border: 1px solid var(--border-faint);
-  }
-  .panel-menu__item {
-    display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
-    inline-size: 100%; min-block-size: 44px; padding: 0 var(--space-4); border: 0;
-    background: none; color: var(--fg); font: inherit; text-align: start; cursor: pointer;
-  }
-  .panel-menu__item:hover, .panel-menu__item:focus-visible { background: var(--surface); outline: none; }
-  .panel-menu__item[aria-disabled="true"] { color: var(--fg-2); opacity: .6; cursor: default; }
-  .panel-menu__detail { color: var(--fg-2); font-size: var(--text-caption); }
-  .panel-menu__sep { block-size: 1px; margin: var(--space-1) 0; background: var(--border-faint); }
-  .panel-menu__opt { display: flex; align-items: center; gap: var(--space-3); min-block-size: 44px; padding: 0 var(--space-4); }
 }
+
+/* The card's "more" menu: the phone layout and the share menu in the map's panel. */
+.panel-morewrap { position: relative; flex: none; }
+.panel-more {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-inline-size: 44px; min-block-size: 44px; border: 1px solid var(--border);
+  border-radius: 50%; background: var(--surface-2); color: var(--fg); cursor: pointer;
+}
+.panel-more:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.panel-menu {
+  position: absolute; inset-inline-end: 0; inset-block-start: calc(100% + var(--space-1)); z-index: 10;
+  min-inline-size: 15rem; padding: var(--space-1) 0; border-radius: var(--radius);
+  background: var(--bg); box-shadow: var(--elev-float); border: 1px solid var(--border-faint);
+}
+.panel-menu__item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  inline-size: 100%; min-block-size: 44px; padding: 0 var(--space-4); border: 0;
+  background: none; color: var(--fg); font: inherit; text-align: start; cursor: pointer;
+}
+.panel-menu__item:hover, .panel-menu__item:focus-visible { background: var(--surface); outline: none; }
+.panel-menu__item[aria-disabled="true"] { color: var(--fg-2); opacity: .6; cursor: default; }
+.panel-menu__detail { color: var(--fg-2); font-size: var(--text-caption); }
+.panel-menu__sep { block-size: 1px; margin: var(--space-1) 0; background: var(--border-faint); }
+.panel-menu__opt { display: flex; align-items: center; gap: var(--space-3); min-block-size: 44px; padding: 0 var(--space-4); }
 
 /* /about Prose page: tiles, numbered lists, a table and one chart. */
 .about-section { padding-block: var(--space-8) 0; }

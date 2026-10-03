@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DAY, tickMode, formatTick, tickValues } from '../timeaxis.js'
+import { DAY, tickMode, formatTick, tickValues, tickSpace } from '../timeaxis.js'
 
 // Fixed locale and UTC-safe instants: these assertions are about which UNIT the
 // axis prints, not about how a particular machine's timezone renders it, so
@@ -96,3 +96,29 @@ describe('tickValues', () => {
     expect(tickValues([], 'en-GB')(null, [NOON])[0]).toMatch(/\d{2}:\d{2}/)
   })
 })
+
+// The prod dock at 1440: hourly "01:00 AM02:00 AM…" ran together because uPlot's 50px floor is narrower than a 12-hour label.
+describe('tickSpace', () => {
+  const day = [NOON, NOON + DAY]
+  const week = [NOON, NOON + 7 * DAY]
+  const charWidth = () => (text) => text.length * 7
+
+  it('keeps ticks at least one label and a gap apart', () => {
+    const widest = formatTick(Date.parse('2026-01-28T23:00:00Z') / 1000, 'hour', 'en-US').length * 7
+    const space = tickSpace(day, 'en-US', charWidth)({})
+    expect(space).toBeGreaterThan(widest)
+    expect(space).toBeGreaterThan(50)
+  })
+
+  it('gives the wider 12-hour clock more room than the 24-hour one', () => {
+    expect(tickSpace(day, 'en-US', charWidth)({})).toBeGreaterThan(tickSpace(day, 'bg', charWidth)({}))
+  })
+
+  it('never goes under uPlot’s own floor and measures the labels of the span’s mode', () => {
+    expect(tickSpace(week, 'bg', () => () => 10)({})).toBe(50)
+    const widths = []
+    tickSpace(week, 'en-US', () => (t) => { widths.push(t); return 1 })({})
+    expect(widths.every((t) => !/\d:\d/.test(t)), 'a week is labelled by date, not clock time').toBe(true)
+  })
+})
+

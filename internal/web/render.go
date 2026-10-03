@@ -267,8 +267,9 @@ type PageData struct {
 	PeriodShortLabels []string
 
 	// PanelHostClass is an extra class on the sensor card's host div, beside
-	// the kit's own "place-host" — "" everywhere except the embed route,
-	// which needs "embed__panel" to cap the card inside its frame. The one
+	// the kit's own "place-host": "embed__panel" caps the card inside the
+	// embed's frame, and "place-host--docked" hides it from 1024px on the home
+	// page, where the map's panel carries it (web/src/lib/panelhost.js). The one
 	// real difference between the three pages' otherwise identical host
 	// markup (see the "sensorCardHost" partial), so it travels as data
 	// rather than a second copy of the block.

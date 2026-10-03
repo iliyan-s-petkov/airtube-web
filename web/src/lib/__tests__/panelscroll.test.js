@@ -1,15 +1,19 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createPanelScroll } from '../panelscroll.js'
 
-function env({ phone = true, panelTop = 917, scrollY = 0, full = false, reduce = false, narrow = false } = {}) {
+function env({ phone = true, panelTop = 917, scrollY = 0, full = false, reduce = false, narrow = false, wide = false, docked = false } = {}) {
   const win = {
     scrollY, innerHeight: 873,
     matchMedia: (q) => ({
-      matches: q.includes('hover: none') || q.includes('max-width: 1023px') ? (phone || narrow) : q.includes('reduced-motion') ? reduce : false,
+      matches: q.includes('min-width: 1024px') ? wide
+        : q.includes('hover: none') || q.includes('max-width: 1023px') ? (phone || narrow) : q.includes('reduced-motion') ? reduce : false,
     }),
     scrollTo: vi.fn(),
   }
-  const panel = { getBoundingClientRect: () => ({ top: panelTop }), scrollIntoView: vi.fn(), focus: vi.fn() }
+  const panel = {
+    getBoundingClientRect: () => ({ top: panelTop }), scrollIntoView: vi.fn(), focus: vi.fn(),
+    closest: (sel) => (docked && sel === '.place-host--docked' ? {} : null),
+  }
   const e = { win, panel, isFull: () => e.full, full }
   return e
 }
@@ -52,6 +56,18 @@ describe('panel scroll', () => {
       createPanelScroll(e).opened({ initial: false })
       expect(e.panel.scrollIntoView).not.toHaveBeenCalled()
     }
+  })
+  // A touch tablet from 1024px on the home page: the sensor is in the map's panel and the section is hidden.
+  it('does not scroll to a section the home page hides behind the map panel', () => {
+    const e = env({ wide: true, docked: true }); const s = createPanelScroll(e)
+    s.opened({ initial: false })
+    expect(e.panel.scrollIntoView).not.toHaveBeenCalled()
+    expect(s.closed()).toBe(false)
+  })
+  it('still scrolls on a wide touch screen where the section is shown', () => {
+    const e = env({ wide: true }); const s = createPanelScroll(e)
+    s.opened({ initial: false })
+    expect(e.panel.scrollIntoView).toHaveBeenCalled()
   })
   it('uses an instant scroll under reduced motion', () => {
     const e = env({ reduce: true }); const s = createPanelScroll(e)

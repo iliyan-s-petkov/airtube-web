@@ -2,7 +2,7 @@
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
   import { mergeSeries } from '../lib/series.js'
-  import { tickValues } from '../lib/timeaxis.js'
+  import { tickSpace, tickValues } from '../lib/timeaxis.js'
   import { getJSON } from '../lib/api.js'
   import { legibleStroke } from '../lib/axiscolour.js'
 
@@ -55,7 +55,8 @@
   }
   function plotSize() {
     const measured = (resizable || fill) && frame?.clientHeight
-    const dragged = measured ? frame.clientHeight - legendStrip() : BASE_HEIGHT
+    // A fill chart's legend floats over the plot (style below), so it takes no strip.
+    const dragged = measured ? frame.clientHeight - (fill ? 0 : legendStrip()) : BASE_HEIGHT
     return { width: host.clientWidth || 600, height: Math.max(fill ? 80 : 160, dragged) }
   }
 
@@ -176,7 +177,10 @@
           // on dark surfaces.
           {
             values: tickValues(data[0], document.documentElement.lang || undefined),
-            label: timeLabel || undefined,
+            space: tickSpace(data[0], document.documentElement.lang || undefined),
+            // A fill chart (the map's panel) gives the axis title's row to the plot; the hover readout still names it.
+            label: fill ? undefined : timeLabel || undefined,
+            ...(fill ? { size: 32 } : {}),
             stroke: axisStroke,
             ticks: { stroke: axisStroke },
             grid: { stroke: grid },
@@ -211,6 +215,8 @@
           setCursor: [(u) => host.classList.toggle('chart-live', u.cursor.idx != null)],
         },
       }, data, host)
+      // E2E-only handle for the x labels' positions, which uPlot draws on canvas; stripped from a plain build.
+      if (import.meta.env.VITE_E2E_MAP_HANDLE) chart.root.__uplot = chart
 
       // The first size was computed before uPlot had drawn its legend, so the
       // strip could only be assumed. Re-fit once against the real one; the
@@ -269,4 +275,7 @@
      it does not shift the page under the pointer that is reading it. */
   :global(.chart-host .u-legend) { visibility: hidden; }
   :global(.chart-host.chart-live .u-legend) { visibility: visible; }
+  /* The map's panel has no height for a legend strip; its hover readout sits over the plot's top corner. */
+  :global(.chart-frame--fill .chart-host) { position: relative; }
+  :global(.chart-frame--fill .u-legend) { position: absolute; inset-block-start: 0; inset-inline-end: 0; margin: 0; background: var(--bg); border-radius: var(--radius); }
 </style>

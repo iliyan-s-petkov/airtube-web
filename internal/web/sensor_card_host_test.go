@@ -34,6 +34,7 @@ func extractSensorCardHost(t *testing.T, body string) string {
 // Mutation check: dropping one data-t-* attribute from the partial fails all
 // three cases below with the same one assertion, proving the golden actually
 // pins the block rather than merely running past it.
+// The home map's host carries place-host--docked: from 1024px app.css hides it behind the map's panel.
 func TestSensorCardHostIsByteIdenticalAcrossPages(t *testing.T) {
 	rr := renderer(t, rankingSnapshot())
 	cfg := testConfig(t)
@@ -62,7 +63,7 @@ func TestSensorCardHostIsByteIdenticalAcrossPages(t *testing.T) {
 	}
 }
 
-const indexHostGolden = `<div class="place-host" data-island="panel"
+const indexHostGolden = `<div class="place-host place-host--docked" data-island="panel"
      data-metrics="C6H6,CO,NO2,NOX,O3,P1,P2,SO2,humidity,noise_LA_max,noise_LAeq,pressure,temperature"
      data-metric-labels="Benzene,Carbon monoxide,Nitrogen dioxide,Nitrogen oxides,Ozone,PM10,PM2.5,Sulphur dioxide,Humidity,Noise (max),Noise (LAeq),Pressure,Temperature"
      data-metric="P2"
