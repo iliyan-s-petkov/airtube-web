@@ -52,21 +52,52 @@ export const mapSettled = (page) => page.waitForFunction(() => {
 }, null, { timeout: 45_000 })
 
 // A real wheel zoom and mouse drag on the canvas, not a programmatic jump.
+// A gesture sent while the opening camera is still settling is swallowed, so
+// each one is retried until the camera has actually moved, and the debounced
+// write is awaited by value, not by a delay.
+const cam = (page) => page.evaluate(() => {
+  const map = document.querySelector('[data-island="map"]').__map
+  const c = map.getCenter()
+  return { lng: c.lng, lat: c.lat, zoom: map.getZoom() }
+})
+
 export const userMove = async (page) => {
   const box = await page.locator('[data-island="map"]').boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
-  await page.mouse.move(cx, cy)
-  await page.mouse.wheel(0, -400)
   await mapSettled(page)
-  await page.mouse.move(cx, cy)
-  await page.mouse.down()
-  await page.mouse.move(cx - 120, cy + 60, { steps: 8 })
-  await page.mouse.up()
-  await mapSettled(page)
-  // Let the debounced write land, then make sure it is the final camera.
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('kanarche:map-view'))).not.toBeNull()
-  await page.waitForTimeout(900)
+
+  const z0 = (await cam(page)).zoom
+  await expect(async () => {
+    await page.mouse.move(cx, cy)
+    await page.mouse.wheel(0, -400)
+    await mapSettled(page)
+    expect((await cam(page)).zoom).toBeGreaterThan(z0 + 0.1)
+  }).toPass({ timeout: 20_000 })
+
+  const c0 = await cam(page)
+  await expect(async () => {
+    await page.mouse.move(cx, cy)
+    await page.mouse.down()
+    await page.mouse.move(cx - 120, cy + 60, { steps: 8 })
+    await page.mouse.up()
+    await mapSettled(page)
+    const c = await cam(page)
+    expect(Math.abs(c.lng - c0.lng) + Math.abs(c.lat - c0.lat)).toBeGreaterThan(0.001)
+  }).toPass({ timeout: 20_000 })
+
+  // The write is debounced per moveend and an earlier camera may already be
+  // stored, so wait until the stored view is the camera the map is at now
+  // (stored rounded: zoom 2dp, centre 4dp).
+  await expect.poll(() => page.evaluate(() => {
+    const map = document.querySelector('[data-island="map"]').__map
+    const c = map.getCenter()
+    const raw = localStorage.getItem('kanarche:map-view')
+    if (!raw) return false
+    const v = JSON.parse(raw)
+    return Math.abs(v.zoom - map.getZoom()) < 0.006 &&
+      Math.abs(v.lng - c.lng) < 0.00006 && Math.abs(v.lat - c.lat) < 0.00006
+  }), { timeout: 15_000 }).toBe(true)
 }
 
 export { expect }

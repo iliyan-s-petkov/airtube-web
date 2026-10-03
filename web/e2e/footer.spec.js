@@ -61,3 +61,47 @@ test('footer does not overflow horizontally at 320', async ({ ctx }) => {
   expect(wide).toBe(0)
   await page.close()
 })
+
+// Link text and its licence tag stay on one line at desktop widths, BG and EN.
+for (const [width, path] of [[1440, '/'], [1440, '/en/'], [1024, '/'], [1024, '/en/']]) {
+  test(`footer links render on one line at ${width} ${path}`, async ({ ctx }) => {
+    const page = await ctx.newPage()
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto(path)
+    await page.locator('footer.footer').scrollIntoViewIfNeeded()
+    const rows = await page.locator('.footer__col li').evaluateAll((lis) => lis.map((li) => {
+      const cs = getComputedStyle(li.querySelector('a'))
+      const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
+      return { text: li.textContent.trim(), h: li.getBoundingClientRect().height, line }
+    }))
+    expect(rows.length).toBeGreaterThan(8)
+    for (const r of rows) expect(r.h, r.text).toBeLessThan(r.line * 1.5)
+    await page.close()
+  })
+}
+
+test('footer does not overflow horizontally at 672, 800, 1024', async ({ ctx }) => {
+  for (const path of ['/', '/en/']) {
+    for (const width of [672, 800, 1024]) {
+      const page = await ctx.newPage()
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(path)
+      const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+      expect(over, `${path} at ${width}`).toBeLessThanOrEqual(0)
+      const foot = await page.locator('footer').evaluate((f) => f.scrollWidth - f.clientWidth)
+      expect(foot, `${path} footer at ${width}`).toBeLessThanOrEqual(0)
+      await page.close()
+    }
+  }
+})
+
+test('footer screenshots at 1440 and 1024 BG', async ({ ctx }) => {
+  test.skip(!SHOTS, 'screenshots only with AIRBG_FOOTER_SHOTS')
+  for (const w of [1440, 1024]) {
+    const page = await ctx.newPage()
+    await page.setViewportSize({ width: w, height: 900 })
+    await page.goto('/')
+    await page.locator('footer').screenshot({ path: `/tmp/airbg-verify/footer-bg-${w}.png` })
+    await page.close()
+  }
+})

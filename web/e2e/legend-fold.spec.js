@@ -14,6 +14,9 @@ const openLayers = async (page) => {
   await expect(page.locator('.map__layers .colmenu__panel')).toBeVisible()
 }
 
+// Resolves after every task already queued (the details `toggle` event) has run.
+const afterQueuedTasks = (page) => page.evaluate(() => new Promise((r) => setTimeout(r, 0)))
+
 // Forces the legend open/closed on arrival, overriding the folded-by-default
 // start so every test begins from a known state.
 const withLegend = (page, open) =>
@@ -75,14 +78,14 @@ for (const vp of VIEWPORTS) {
       await openLayers(page)
       await expect(legend).not.toHaveAttribute('open', '')
       // <details> fires `toggle` as a queued task, not synchronously with the
-      // .open write — give it a turn before reading what got persisted.
-      await page.waitForTimeout(150)
+      // .open write. A task queued now runs after it, so read once it has run.
+      await afterQueuedTasks(page)
       expect(await page.evaluate(() => localStorage.getItem('kanarche:legend-open'))).toBe('true')
 
       await layersBtn.click()
       await expect(page.locator('.map__layers .colmenu__panel')).toBeHidden()
       await expect(legend).toHaveAttribute('open', '')
-      await page.waitForTimeout(150)
+      await afterQueuedTasks(page)
       expect(await page.evaluate(() => localStorage.getItem('kanarche:legend-open'))).toBe('true')
 
       await context.close()
