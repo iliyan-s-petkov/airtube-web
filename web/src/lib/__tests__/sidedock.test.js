@@ -34,7 +34,8 @@ function stubViewport(wide) {
   return state
 }
 
-function page() {
+// docked: the home page's host, which app.css hides from 1024px (only the dock shows the sensor there).
+function page({ docked = false } = {}) {
   const shell = document.createElement('div')
   shell.className = 'map-shell'
   const el = document.createElement('div')
@@ -57,7 +58,14 @@ function page() {
     metricLabels: 'PM10,PM2.5,Temperature,Humidity',
     metric: 'P2', period: '24h', periods: '24h,7d,30d,1y', periodLabels: '24 hours,7 days,30 days,1 year',
     periodShortLabels: '24h,7d,30d,1y', tTitle: 'Sensor', tClose: 'Close', tNoValue: 'no data',
+    tChartMetricLegend: 'Metric', tChartPeriodLegend: 'Period', tPeriodCustom: 'Custom range',
+    tPeriodFrom: 'From', tPeriodTo: 'To', tPeriodNow: 'Now', tChartReset: 'Reset chart',
+    tMore: 'More actions', tShare: 'Share', tEmbed: 'Embed', tShareDone: 'Link copied',
+    tEmbedDone: 'Embed code copied', tCopyFailed: 'Could not copy', tDetails: 'About this station',
+    tNearbyLegend: 'Nearby sensors', tNearbyOff: 'off', tNearbySingleOnly: 'One metric only',
+    tNearbyLow: 'Lowest', tNearbyMedian: 'Median', tNearbyHigh: 'Highest',
   })
+  if (docked) host.classList.add('place-host', 'place-host--docked')
   document.body.append(shell, host)
 
   const chrome = mountChrome(el, readConfig(el))
@@ -254,6 +262,7 @@ describe('the desktop bottom panel', () => {
     ctx.vs.openSensor(101)
     await settle()
     const more = ctx.el.querySelector('.map-dock__more')
+    expect(more.hidden).toBe(false)
     expect(more.textContent).toBe('Full history & nearby sensors')
     expect(more.querySelector('svg'), 'no icon on the button').toBeTruthy()
     more.click()
@@ -270,7 +279,6 @@ describe('the desktop bottom panel', () => {
     expect(dock.querySelectorAll('.panel-chart__dock .chart-frame')).toHaveLength(1)
     expect(ctx.host.querySelectorAll('.panel-chart__dock'), 'the panel chart was copied, not moved').toHaveLength(0)
     expect(ctx.host.querySelectorAll('.chart-frame'), 'the section under the map lost its chart').toHaveLength(1)
-    expect(dock.querySelectorAll('select, .chart-field'), 'chart controls leaked into the panel').toHaveLength(0)
   })
 
   it('charts the metric of the selected gauge', async () => {
@@ -287,17 +295,177 @@ describe('the desktop bottom panel', () => {
     expect(ctx.el.querySelectorAll('.map-dock .gauge[aria-pressed="true"]')).toHaveLength(1)
   })
 
-  it('period chips set the period', async () => {
+  // OpenProject #697 PR B: the dock carries every chart control of the section under the map.
+  it('carries the section s chart controls: metric, period, reset and share', async () => {
+    vp = stubViewport(true)
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    const dock = ctx.el.querySelector('.map-dock')
+    expect(dock.querySelector('#dock-metric-menu'), 'no metric menu in the dock').toBeTruthy()
+    expect(dock.querySelector('#dock-period-select'), 'no period select in the dock').toBeTruthy()
+    expect(dock.querySelector('.chart-reset'), 'no reset in the dock').toBeTruthy()
+    expect(dock.querySelector('.panel-more'), 'no share menu in the dock').toBeTruthy()
+    const values = (sel) => [...document.querySelectorAll(`${sel} option`)].map((o) => o.value)
+    expect(values('#dock-period-select')).toEqual(values('#panel-period-select'))
+    expect(values('#dock-period-select')).toContain('custom')
+    // No area loaded: the section offers no nearby sensors, so neither does the dock.
+    expect(ctx.el.querySelector('#dock-nearby-menu')).toBeNull()
+    expect(ctx.host.querySelector('#panel-nearby-menu')).toBeNull()
+  })
+
+  it('offers nearby sensors in the dock only where the section does, and only for one metric', async () => {
+    setSensors(BODY, 'sofia')
+    vp = stubViewport(true)
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    const nearby = ctx.el.querySelector('.map-dock #dock-nearby-menu')
+    expect(nearby, 'no nearby menu in the dock').toBeTruthy()
+    expect(nearby.disabled).toBe(false)
+    ctx.el.querySelector('#dock-metric-menu').click()
+    await settle()
+    ctx.el.querySelector('.map-dock input[name="dock-metric"][value="P1"]').click()
+    await settle()
+    expect(nearby.disabled, 'nearby stayed on with two metrics').toBe(true)
+  })
+
+  it('a period picked in the dock drives the panel chart and the section', async () => {
     vp = stubViewport(true)
     ctx = page()
     ctx.vs.openSensor(101)
     await settle()
     const plot = ctx.el.querySelector('.panel-chart__dock')
     expect(plot.dataset.period).toBe('24h')
-    ctx.el.querySelector('.panel-chart__dock [data-period="7d"]').click()
+    const select = ctx.el.querySelector('#dock-period-select')
+    select.value = '7d'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
     await settle()
     expect(plot.dataset.period).toBe('7d')
-    expect(ctx.el.querySelector('.panel-chart__dock [data-period="7d"]').getAttribute('aria-pressed')).toBe('true')
+    expect(ctx.host.querySelector('#panel-period-select').value).toBe('7d')
+  })
+
+  it('a custom range in the dock gives from and to fields and a Now button', async () => {
+    vp = stubViewport(true)
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    const select = ctx.el.querySelector('#dock-period-select')
+    select.value = 'custom'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+    const fields = ctx.el.querySelectorAll('.map-dock .chart-range input[type="datetime-local"]')
+    expect(fields).toHaveLength(2)
+    ctx.el.querySelector('.map-dock .chart-range__now').click()
+    await settle()
+    expect(ctx.el.querySelector('#dock-period-to').value).not.toBe('')
+  })
+
+  it('metrics ticked in the dock draw together, and Reset there restores the opening view', async () => {
+    vp = stubViewport(true)
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    const plot = ctx.el.querySelector('.panel-chart__dock')
+    ctx.el.querySelector('#dock-metric-menu').click()
+    await settle()
+    ctx.el.querySelector('.map-dock input[name="dock-metric"][value="P1"]').click()
+    await settle()
+    expect(plot.dataset.metric).toBe('P2,P1')
+    const select = ctx.el.querySelector('#dock-period-select')
+    select.value = '30d'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+    ctx.el.querySelector('.map-dock .chart-reset').click()
+    await settle()
+    expect(plot.dataset.metric).toBe('P2')
+    expect(plot.dataset.period).toBe('24h')
+  })
+
+  it('copies the embed code from the dock menu and says so in the dock', async () => {
+    vp = stubViewport(true)
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    ctx.el.querySelector('.map-dock .panel-more').click()
+    await settle()
+    const items = [...ctx.el.querySelectorAll('.map-dock .panel-menu [role="menuitem"]')].map((b) => b.textContent.trim())
+    expect(items).toEqual(['Share', 'Embed'])
+    ctx.el.querySelectorAll('.map-dock .panel-menu [role="menuitem"]')[1].click()
+    await settle()
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('<iframe'))
+    expect(ctx.el.querySelector('.map-dock [role="status"]').textContent).toBe('Embed code copied')
+  })
+
+  it('Escape with the dock metric menu open closes the menu first, then the dock', async () => {
+    vp = stubViewport(true)
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    const button = ctx.el.querySelector('#dock-metric-menu')
+    button.focus()
+    button.click()
+    await settle()
+    const menu = ctx.el.querySelector('#dock-metric-menu-panel')
+    expect(menu.hidden).toBe(false)
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await settle()
+    expect(menu.hidden, 'the menu stayed open').toBe(true)
+    expect(ctx.el.querySelector('.map-dock'), 'Escape closed the dock under an open menu').toBeTruthy()
+    expect(ctx.vs.sensorId).toBe(101)
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await settle()
+    expect(ctx.el.querySelector('.map-dock')).toBeNull()
+  })
+
+  it('Escape with the dock share menu open closes the menu first, then the dock', async () => {
+    vp = stubViewport(true)
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    ctx.el.querySelector('.map-dock .panel-more').click()
+    await settle()
+    expect(ctx.el.querySelector('.map-dock .panel-menu')).toBeTruthy()
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await settle()
+    expect(ctx.el.querySelector('.map-dock .panel-menu'), 'the menu stayed open').toBeNull()
+    expect(ctx.el.querySelector('.map-dock'), 'Escape closed the dock under an open menu').toBeTruthy()
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await settle()
+    expect(ctx.el.querySelector('.map-dock')).toBeNull()
+  })
+
+  it('on the home page, whose section is hidden from 1024px, there is no history button', async () => {
+    vp = stubViewport(true)
+    ctx = page({ docked: true })
+    ctx.vs.openSensor(101)
+    await settle()
+    expect(ctx.el.querySelector('.map-dock__more').hidden).toBe(true)
+  })
+
+  it('a short panel lays the gauges beside the chart and shortens the history link; a tall one goes back', async () => {
+    vp = stubViewport(true)
+    ctx = page()
+    ctx.vs.openSensor(101)
+    await settle()
+    const dock = ctx.el.querySelector('.map-dock')
+    const more = dock.querySelector('.map-dock__more')
+    const long = more.textContent
+    let height = 180
+    Object.defineProperty(dock, 'clientHeight', { configurable: true, get: () => height })
+    ctx.dock.measure()
+    expect(dock.classList.contains('map-dock--short')).toBe(true)
+    expect(more.textContent.length).toBeLessThan(long.length)
+    // 1024x768 home: under the 24rem cap the gauge row would leave the chart no height.
+    height = 330
+    ctx.dock.measure()
+    expect(dock.classList.contains('map-dock--short')).toBe(true)
+    height = 384
+    ctx.dock.measure()
+    expect(dock.classList.contains('map-dock--short')).toBe(false)
+    expect(more.textContent).toBe(long)
   })
 
   it('narrowing leaves exactly one chart, under the map', async () => {

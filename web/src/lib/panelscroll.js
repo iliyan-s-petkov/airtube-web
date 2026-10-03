@@ -1,5 +1,7 @@
 // Phones and tablets (below the dock's 1024px): brings the sensor card under the map into view on open and returns to the map on close.
 // `panel` may be a getter, because the section only exists while a sensor is open.
+import { sectionHidden } from './panelhost.js'
+
 export function createPanelScroll({ win = window, panel, isFull = () => false }) {
   let returnY = null
   const mq = (q) => win.matchMedia?.(q).matches ?? false
@@ -10,6 +12,8 @@ export function createPanelScroll({ win = window, panel, isFull = () => false })
     opened({ initial }) {
       const el = typeof panel === 'function' ? panel() : panel
       if (initial || !el || !phone() || isFull()) return
+      // A touch screen from 1024px docks the sensor over the map; the home page hides this section then.
+      if (sectionHidden(win, el)) return
       // Already in the upper part of the screen: a second tap must not jerk the page.
       const top = el.getBoundingClientRect().top
       if (top >= 0 && top < win.innerHeight * 0.6) return

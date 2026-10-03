@@ -175,22 +175,61 @@
     { key: 'share', label: shareLabel, run: share },
     { key: 'embed', label: embedLabel, run: embed },
   ])
+  // The panel over the map has its own pickers; its menu keeps only what they lack.
+  const dockItems = $derived(menuItems.filter((i) => i.key === 'share' || i.key === 'embed'))
 </script>
+
+<!-- The desktop chart controls, drawn under the map and again in the panel over it; the prefix keeps their ids apart. -->
+{#snippet controls(prefix)}
+  <MetricPicker
+    {options}
+    selected={metrics}
+    onchange={(next) => { link.metrics = next }}
+    legend={metricLegend}
+    name="{prefix}-metric"
+    id="{prefix}-metric-menu"
+  />
+  {#if areaSlug}
+    <NearbyPicker
+      options={nearbyOptions(nearbyLabels)}
+      selected={nearby}
+      onchange={(next) => { nearby = next }}
+      legend={nearbyLegend}
+      offLabel={nearbyOff}
+      disabled={!bandable}
+      disabledHint={nearbySingleOnly}
+      name="{prefix}-nearby"
+      id="{prefix}-nearby-menu"
+    />
+  {/if}
+  <PeriodPicker
+    {periods}
+    {periodLabels}
+    {period}
+    {from}
+    {to}
+    legend={periodLegend}
+    {customLabel}
+    {fromLabel}
+    {toLabel}
+    {nowLabel}
+    id="{prefix}-period"
+    onchange={(next) => { period = next.period; from = next.from; to = next.to }}
+  />
+  <!-- In the slot the old "Compare with" select had: the control that undoes
+       everything the other two (and the drag handle) did. -->
+  <ResetButton label={resetLabel} onreset={reset} />
+{/snippet}
 
 <!-- The panel over the map (lib/sidedock.svelte.js) moves this node out while it is open. It reads the
      metric and period the controls below own, so it needs no state of its own and no second fetch:
      getJSON answers the same URLs from its cache. A lone root node, so Svelte can remove it from anywhere. -->
 {#if panelDock.on}
   <div class="panel-chart__dock" data-metric={metrics.join(',')} data-period={period}>
-    <div class="period-seg" role="group" aria-label={periodLegend}>
-      {#each periods as p, i (p)}
-        <button
-          type="button"
-          data-period={p}
-          aria-pressed={period === p}
-          onclick={() => { period = p; from = ''; to = '' }}
-        >{shortLabel(p, i)}</button>
-      {/each}
+    <div class="panel-chart__tools">
+      {@render controls('dock')}
+      <p class="panel-chart__status" role="status">{status}</p>
+      <PanelMoreMenu label={moreLabel} items={dockItems} />
     </div>
     <div class="panel-chart__dockplot">
       {#if period === CUSTOM && !query}
@@ -234,40 +273,7 @@
   </div>
   <p class="panel-chart__status" role="status">{status}</p>
   <div class="panel-chart__controls">
-    <MetricPicker
-      {options}
-      selected={metrics}
-      onchange={(next) => { link.metrics = next }}
-      legend={metricLegend}
-    />
-    {#if areaSlug}
-      <NearbyPicker
-        options={nearbyOptions(nearbyLabels)}
-        selected={nearby}
-        onchange={(next) => { nearby = next }}
-        legend={nearbyLegend}
-        offLabel={nearbyOff}
-        disabled={!bandable}
-        disabledHint={nearbySingleOnly}
-      />
-    {/if}
-    <PeriodPicker
-      {periods}
-      {periodLabels}
-      {period}
-      {from}
-      {to}
-      legend={periodLegend}
-      {customLabel}
-      {fromLabel}
-      {toLabel}
-      {nowLabel}
-      id="panel-period"
-      onchange={(next) => { period = next.period; from = next.from; to = next.to }}
-    />
-    <!-- In the slot the old "Compare with" select had: the control that undoes
-         everything the other two (and the drag handle) did. -->
-    <ResetButton label={resetLabel} onreset={reset} />
+    {@render controls('panel')}
   </div>
 
   {#if period === CUSTOM && !query}

@@ -207,4 +207,36 @@ describe('the fullscreen sensor sheet', () => {
     expect(scrolled).toHaveBeenCalled()
     expect(ctx.vs.sensorId).toBe(101)
   })
+
+  // From 1024px the home page hides the section under the map: nothing below to send the reader to.
+  it('on the wide home page the sheet has no history link, and exiting never scrolls to the hidden section', async () => {
+    vi.stubGlobal('matchMedia', (q) => ({
+      matches: q.includes('min-width: 1024px'), media: q,
+      addEventListener: () => {}, removeEventListener: () => {},
+    }))
+    ctx = page()
+    ctx.host.classList.add('place-host', 'place-host--docked')
+    ctx.full.click()
+    ctx.vs.openSensor(101)
+    await settle()
+    const scrolled = vi.fn()
+    ctx.host.querySelector('.sensor-panel').scrollIntoView = scrolled
+    const link = ctx.el.querySelector('.map-sensor-sheet__history')
+    expect(link.hidden, 'the history link points at a hidden section').toBe(true)
+    link.click()
+    await new Promise((r) => requestAnimationFrame(r))
+    expect(scrolled).not.toHaveBeenCalled()
+  })
+
+  it('on a wide area page the sheet keeps its history link', async () => {
+    vi.stubGlobal('matchMedia', (q) => ({
+      matches: q.includes('min-width: 1024px'), media: q,
+      addEventListener: () => {}, removeEventListener: () => {},
+    }))
+    ctx = page()
+    ctx.full.click()
+    ctx.vs.openSensor(101)
+    await settle()
+    expect(ctx.el.querySelector('.map-sensor-sheet__history').hidden).toBe(false)
+  })
 })

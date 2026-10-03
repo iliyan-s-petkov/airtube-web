@@ -131,6 +131,32 @@ describe('Chart.svelte', () => {
     expect(uplotCalls[0].opts.series[0].label).toBe('Време')
   })
 
+  // The map's panel has no height to spare: its x axis loses the title row, the hover readout keeps the name.
+  it('a fill chart drops the time axis title but keeps it in the hover readout', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] }), { status: 200 }),
+    )
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    render({ timeLabel: 'Време', fill: true })
+
+    await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
+    expect(uplotCalls[0].opts.axes[0].label).toBeUndefined()
+    expect(uplotCalls[0].opts.axes[0].size).toBeLessThan(50)
+    expect(uplotCalls[0].opts.series[0].label).toBe('Време')
+  })
+
+  it('a chart under the map keeps the time axis title and uPlot s axis size', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ t: ['2026-08-14T00:00:00Z', '2026-08-14T01:00:00Z'], v: [12.3, 13.1] }), { status: 200 }),
+    )
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    render({ timeLabel: 'Време' })
+
+    await vi.waitFor(() => expect(uplotCalls).toHaveLength(1))
+    expect(uplotCalls[0].opts.axes[0].label).toBe('Време')
+    expect('size' in uplotCalls[0].opts.axes[0]).toBe(false)
+  })
+
   // Two metrics on one plot is the panel's whole reason for this prop. Each
   // line keeps its own colour and its own y scale — with one shared scale,
   // °C is a flat line along the bottom of a µg/m³ range.

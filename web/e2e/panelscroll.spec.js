@@ -200,3 +200,18 @@ test('900x600: a tapped sensor scrolls the card under the map into view', async 
   expect(await settled(page)).toBeGreaterThan(before + 50)
   await context.close()
 })
+
+// OpenProject #697 PR B: a touch screen from 1024px on the home page shows the sensor in the map's panel only;
+// the section under the map is hidden, so the open must not scroll to it.
+test('touch 1280x800 /: a tapped sensor docks over the map and the page does not scroll', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(60000)
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, isMobile: true, hasTouch: true })
+  const page = await context.newPage()
+  await prepareMap(page, '/')
+  const before = await settled(page)
+  await tapSensor(page)
+  await expect(page.locator('.map-dock h2')).toBeVisible()
+  await expect(page.locator('[data-island="panel"]')).toBeHidden()
+  expect(await settled(page)).toBe(before)
+  await context.close()
+})

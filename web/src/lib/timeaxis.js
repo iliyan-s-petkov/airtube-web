@@ -32,6 +32,44 @@ export function formatTick(seconds, mode, locale) {
   return fmt.format(new Date(seconds * 1000))
 }
 
+// uPlot's own floor between x ticks, and the clear space kept between two labels.
+const MIN_SPACE = 50
+const GAP = 12
+const HOUR = 3600
+
+// Instants whose labels are the widest a mode prints: every hour of a day, the 28th of every month, every month.
+function samples(mode) {
+  const base = Date.UTC(2026, 0, 28, 0, 0) / 1000
+  if (mode === 'hour') return Array.from({ length: 24 }, (_, h) => base + h * HOUR)
+  return Array.from({ length: 12 }, (_, m) => Date.UTC(2026, m, 28, 12) / 1000)
+}
+
+// The widest label in the axis font, in CSS px; jsdom has no canvas, so a rough per-character width stands in.
+function canvasMeasure(u) {
+  const doc = u?.root?.ownerDocument
+  const ctx = doc?.createElement('canvas').getContext?.('2d')
+  if (!ctx) return (text) => text.length * 7
+  // uPlot scales the axis font by the device pixel ratio.
+  ctx.font = u.axes?.[0]?.font?.[0] ?? '12px sans-serif'
+  const ratio = doc.defaultView?.devicePixelRatio || 1
+  return (text) => ctx.measureText(text).width / ratio
+}
+
+// The uPlot `space` hook for the x axis: ticks at least one label apart, so a 12-hour "01:00 AM" never runs into the next.
+export function tickSpace(xs, locale, measure = canvasMeasure) {
+  const span = xs.length > 1 ? xs[xs.length - 1] - xs[0] : 0
+  const mode = tickMode(span)
+  const labels = samples(mode).map((s) => formatTick(s, mode, locale))
+  let space = 0
+  return (u) => {
+    if (!space) {
+      const width = measure(u)
+      space = Math.max(MIN_SPACE, Math.ceil(Math.max(...labels.map(width))) + GAP)
+    }
+    return space
+  }
+}
+
 // The uPlot `values` hook for the x axis, bound to one dataset's span. xs is
 // assumed sorted, which mergeSeries guarantees.
 export function tickValues(xs, locale) {

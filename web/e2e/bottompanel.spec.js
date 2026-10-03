@@ -58,9 +58,9 @@ const box = async (locator) => {
 const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 
 async function wideOpen(browser, size = WIDE, opts = {}) {
-  const context = await browser.newContext({ viewport: size })
+  const context = await browser.newContext({ viewport: size, ...(opts.context ?? {}) })
   const page = await context.newPage()
-  await prepareMap(page)
+  await prepareMap(page, opts.path)
   const id = await tapHex(page, [], opts)
   return { context, page, id }
 }
@@ -114,23 +114,29 @@ test('1440: the chart sits in the panel and follows the selected gauge', async (
   const pressed = await page.locator(`${PANEL} .gauges .gauge[aria-pressed="true"]`).count()
   expect(pressed).toBe(1)
   expect(now).toBeTruthy()
-  // The only chart controls in the panel are the period chips.
-  await expect(page.locator(`${PANEL} select, ${PANEL} .chart-field, ${PANEL} .colmenu`)).toHaveCount(0)
   await context.close()
 })
 
-test('1440: a period chip changes the period', async ({ browser }, testInfo) => {
+test('1440: the period select and the custom range in the panel drive its chart', async ({ browser }, testInfo) => {
   testInfo.setTimeout(60000)
   const { context, page } = await wideOpen(browser)
   const plot = page.locator(`${PANEL} .panel-chart__dock`)
-  const chips = page.locator(`${PANEL} .period-seg button:visible`)
-  await expect(chips).toHaveCount(3)
-  await expect(chips.nth(0)).toHaveAttribute('aria-pressed', 'true')
-  await chips.nth(1).click()
-  await expect(chips.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  const select = page.locator(`${PANEL} #dock-period-select`)
+  await expect(select).toBeVisible()
+  await select.selectOption('7d')
   await expect(plot).toHaveAttribute('data-period', '7d')
-  await chips.nth(2).click()
-  await expect(plot).toHaveAttribute('data-period', '30d')
+  await select.selectOption('custom')
+  const fields = page.locator(`${PANEL} .chart-range input[type="datetime-local"]`)
+  await expect(fields).toHaveCount(2)
+  await fields.first().fill('2026-01-01T00:00')
+  await page.locator(`${PANEL} .chart-range__now`).click()
+  await expect(page.locator(`${PANEL} #dock-period-to`)).not.toHaveValue('')
+  const m = await box(page.locator('#map'))
+  for (const el of [fields.first(), fields.last(), page.locator(`${PANEL} .chart-range__now`)]) {
+    const b = await box(el)
+    expect(b.y + b.height, 'a range field is cut off by the map').toBeLessThanOrEqual(m.y + m.height)
+    expect(await hittable(el), 'a range field is covered').toBe(true)
+  }
   await context.close()
 })
 
@@ -158,10 +164,20 @@ test('1440: fold hides the chart, shrinks the panel and survives a reload', asyn
   await context.close()
 })
 
-test('1440: the history button scrolls the section below the map into view', async ({ browser }, testInfo) => {
+test('1440 home: the section under the map is hidden and the panel has no history button', async ({ browser }, testInfo) => {
   testInfo.setTimeout(60000)
   const { context, page } = await wideOpen(browser)
+  await expect(page.locator(`${PANEL} .gauges`)).toBeVisible()
+  await expect(page.locator('[data-island="panel"]')).toBeHidden()
+  await expect(page.locator(PANEL).getByRole('button', { name: /Full history/ })).toHaveCount(0)
+  await context.close()
+})
+
+test('1440 area page: the section stays and the history button scrolls it into view', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(60000)
+  const { context, page } = await wideOpen(browser, WIDE, { path: '/en/area/sofia' })
   const section = page.locator('[data-island="panel"] .sensor-panel')
+  await expect(section).toBeVisible()
   const before = await page.evaluate(() => window.scrollY)
   await page.locator(PANEL).getByRole('button', { name: /Full history/ }).click()
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before)
@@ -274,6 +290,7 @@ test('900x600: a tapped sensor scrolls its card into view', async ({ browser }, 
   testInfo.setTimeout(60000)
   const { context, page } = await wideOpen(browser, { width: 900, height: 600 })
   await expect(page.locator(PANEL)).toHaveCount(0)
+  await expect(page.locator('[data-island="panel"] .panel-chart__controls #panel-period-select')).toBeVisible()
   const h2 = page.locator('[data-island="panel"] .sensor-panel h2')
   await expect(h2).toBeVisible()
   await expect.poll(async () => {
@@ -353,6 +370,15 @@ const hittable = (locator) => locator.evaluate((el) => {
   const r = el.getBoundingClientRect()
   const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
   return !!hit && el.contains(hit)
+})
+// Every corner and the centre, not just the centre: a control overlapping one end of a menu item still covers it.
+const uncovered = (locator) => locator.evaluate((el) => {
+  const r = el.getBoundingClientRect()
+  const pts = [[0.5, 0.5], [0.05, 0.1], [0.95, 0.1], [0.05, 0.9], [0.95, 0.9]]
+  return pts.every(([fx, fy]) => {
+    const hit = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy)
+    return !!hit && el.contains(hit)
+  })
 })
 
 test('1440: the orientation control and wind note stay clear of the panel, open or folded', async ({ browser }, testInfo) => {
@@ -459,4 +485,213 @@ test('1440: the info button stays in the panel header when folded and leaves wit
   await expect(page.locator(PANEL)).toHaveCount(0)
   await expect(page.locator('.panel-info')).toHaveCount(0)
   await context.close()
+})
+
+// OpenProject #697 PR B: the panel carries every chart control of the section under the map.
+const TOOLS = ['#dock-metric-menu', '#dock-period-select', '.chart-reset', '.panel-more']
+
+test('1440: the panel carries the metric, period, reset and share controls', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(60000)
+  const { context, page } = await wideOpen(browser)
+  const d = await box(page.locator(PANEL))
+  for (const sel of TOOLS) {
+    const c = page.locator(`${PANEL} ${sel}`)
+    await expect(c, `${sel} is not in the panel`).toBeVisible()
+    const b = await box(c)
+    expect(b.x >= d.x && b.x + b.width <= d.x + d.width, `${sel} overflows the panel`).toBe(true)
+  }
+  // Above the chart, below the gauges.
+  const tools = await box(page.locator(`${PANEL} .panel-chart__tools`))
+  expect(tools.y).toBeGreaterThanOrEqual((await box(page.locator(`${PANEL} .gauges`))).y)
+  expect(tools.y + tools.height).toBeLessThanOrEqual((await box(page.locator(`${PANEL} .chart-frame`))).y + 1)
+  await context.close()
+})
+
+test('1024: the toolbar fits in the panel, also with the custom range open (home, and an area page with nearby)', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(120000)
+  for (const path of ['/en/', '/en/area/sofia']) {
+  const { context, page } = await wideOpen(browser, { width: 1024, height: 768 }, { path })
+  const fits = async (when) => {
+    const d = await box(page.locator(PANEL))
+    for (const sel of [...TOOLS, '#dock-nearby-menu', '.chart-range input', '.chart-range__now']) {
+      for (const c of await page.locator(`${PANEL} ${sel}`).all()) {
+        const b = await box(c)
+        expect(b.x >= d.x - 0.5 && b.x + b.width <= d.x + d.width + 0.5, `${sel} overflows the panel (${path}, ${when})`).toBe(true)
+        expect(b.y + b.height <= d.y + d.height + 0.5, `${sel} falls out of the panel (${path}, ${when})`).toBe(true)
+      }
+    }
+    expect(await page.locator(PANEL).evaluate((el) => el.scrollWidth <= el.clientWidth), `the panel scrolls sideways (${when})`).toBe(true)
+    expect((await box(page.locator(`${PANEL} .chart-frame`))).height, `the chart collapsed (${when})`).toBeGreaterThan(40)
+  }
+  await fits('closed')
+  await page.locator(`${PANEL} #dock-period-select`).selectOption('custom')
+  await expect(page.locator(`${PANEL} .chart-range input`)).toHaveCount(2)
+  await page.locator(`${PANEL} #dock-period-from`).fill('2026-01-01T00:00')
+  await page.locator(`${PANEL} .chart-range__now`).click()
+  await expect(page.locator(`${PANEL} .chart-frame`)).toBeVisible()
+  await fits('custom range')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await context.close()
+  }
+})
+
+test('1440: folded, the panel shows only its header and the gauges', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(60000)
+  const { context, page } = await wideOpen(browser)
+  await page.locator(PANEL).getByRole('button', { name: 'Fold' }).click()
+  await expect(page.locator(`${PANEL} .gauges .gauge`).first()).toBeVisible()
+  await expect(page.locator(`${PANEL} .panel-chart__tools`)).toBeHidden()
+  for (const sel of TOOLS) await expect(page.locator(`${PANEL} ${sel}`)).toBeHidden()
+  await context.close()
+})
+
+test('1440: the metric menu opens over the map and its controls; Escape closes it before the panel', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(60000)
+  const { context, page, id } = await wideOpen(browser)
+  const button = page.locator(`${PANEL} #dock-metric-menu`)
+  await button.click()
+  const menu = page.locator('#dock-metric-menu-panel')
+  await expect(menu).toBeVisible()
+  const m = await box(page.locator('#map'))
+  const b = await box(menu)
+  expect(b.y >= m.y && b.y + b.height <= m.y + m.height, 'the menu is cut off by the map').toBe(true)
+  // Upward, so a long list has the map's height to grow into, not the strip under the toolbar.
+  expect(b.y + b.height, 'the menu opens down into the panel').toBeLessThanOrEqual((await box(button)).y)
+  for (const opt of await menu.locator('.colmenu__opt').all()) {
+    expect(await uncovered(opt), 'a menu option is covered').toBe(true)
+  }
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(page.locator(PANEL)).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`sensor=${id}`))
+  await expect(button).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.locator(PANEL)).toHaveCount(0)
+  await context.close()
+})
+
+test('1440: the share menu copies the embed code and says so in the panel; Escape closes it first', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(60000)
+  const { context, page } = await wideOpen(browser, WIDE, { context: { permissions: ['clipboard-read', 'clipboard-write'] } })
+  const more = page.locator(`${PANEL} .panel-more`)
+  await more.click()
+  const menu = page.locator(`${PANEL} .panel-menu`)
+  await expect(menu).toBeVisible()
+  const m = await box(page.locator('#map'))
+  const b = await box(menu)
+  expect(b.y >= m.y && b.y + b.height <= m.y + m.height, 'the menu is cut off by the map').toBe(true)
+  expect(b.y + b.height, 'the menu opens down into the panel').toBeLessThanOrEqual((await box(more)).y)
+  // It rises past the legend and the map's corner controls; none of them may cover an item.
+  for (const item of await menu.getByRole('menuitem').all()) {
+    expect(await uncovered(item), 'a menu item is covered').toBe(true)
+  }
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(page.locator(PANEL)).toBeVisible()
+  await more.click()
+  await menu.getByRole('menuitem', { name: 'Embed' }).click()
+  await expect(page.locator(`${PANEL} [role="status"]`)).toContainText('Embed code copied')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('<iframe')
+  await context.close()
+})
+
+test('1440: the keyboard reaches every control in the panel', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(60000)
+  const { context, page } = await wideOpen(browser)
+  await page.locator(`${PANEL} .map-dock__close`).focus()
+  const seen = new Set()
+  for (let i = 0; i < 40; i++) {
+    await page.keyboard.press('Tab')
+    const hit = await page.evaluate((sels) => sels.filter((s) => document.activeElement?.matches(`.map-dock ${s}`)), TOOLS)
+    hit.forEach((s) => seen.add(s))
+    if (seen.size === TOOLS.length) break
+  }
+  expect([...seen].sort()).toEqual([...TOOLS].sort())
+  await context.close()
+})
+
+test('1440 home: the fullscreen sheet has no link to the hidden section; the area page keeps it', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(60000)
+  for (const [path, links] of [['/en/', 0], ['/en/area/sofia', 1]]) {
+    const { context, page } = await wideOpen(browser, WIDE, { path })
+    await expect(page.locator(`${PANEL} .gauges`)).toBeVisible()
+    await page.locator('.map__full').click()
+    await expect(page.locator('.map-sensor-sheet')).toBeVisible()
+    await expect(page.locator('.map-sensor-sheet__history:visible'), path).toHaveCount(links)
+    await context.close()
+  }
+})
+
+// The x labels are drawn on canvas: their boxes come from uPlot's own ticks, positions and axis font.
+const xLabelBoxes = (page, scope) => page.locator(`${scope} .uplot`).first().evaluate((root) => {
+  const u = root.__uplot
+  const axis = u.axes[0]
+  const ctx = document.createElement('canvas').getContext('2d')
+  ctx.font = axis.font[0]
+  const out = []
+  ;(axis._splits ?? []).forEach((v, i) => {
+    const text = axis._values?.[i]
+    if (!text) return
+    const x = u.valToPos(v, 'x')
+    if (x < 0 || x > u.bbox.width / devicePixelRatio) return
+    const w = ctx.measureText(text).width / devicePixelRatio
+    out.push({ text, left: x - w / 2, right: x + w / 2 })
+  })
+  return out
+})
+
+const collisions = (boxes) => boxes.slice(1).filter((b, i) => b.left < boxes[i].right).map((b, i) => `${boxes[i].text}|${b.text}`)
+
+// Sensor 101 is the one seeded with a day of P2 history, so its chart has an x axis to read.
+async function openCharted(browser, size, path) {
+  const context = await browser.newContext({ viewport: size })
+  const page = await context.newPage()
+  await prepareMap(page, path)
+  let pick = null
+  await expect.poll(async () => { pick = (await hexPoints(page, [])).find((p) => p.id === 101); return !!pick }, { timeout: 20000 }).toBe(true)
+  await page.mouse.click(pick.x, pick.y)
+  await expect(page).toHaveURL(/#.*sensor=101/)
+  return { context, page }
+}
+
+test('the x-axis labels of the panel chart never run into each other (1024, 1440; EN, BG; 24h, 7d, 30d)', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(240000)
+  for (const size of [{ width: 1024, height: 768 }, WIDE]) {
+    for (const path of ['/en/', '/']) {
+      const { context, page } = await openCharted(browser, size, path)
+      for (const period of ['24h', '7d', '30d']) {
+        await page.locator(`${PANEL} #dock-period-select`).selectOption(period)
+        await expect(page.locator(`${PANEL} .panel-chart__dock`)).toHaveAttribute('data-period', period)
+        await expect.poll(async () => (await xLabelBoxes(page, PANEL)).length, `${size.width} ${path} ${period}: no x labels`).toBeGreaterThan(1)
+        const boxes = await xLabelBoxes(page, PANEL)
+        expect(collisions(boxes), `${size.width} ${path} ${period}: ${boxes.map((b) => b.text).join(' ')}`).toEqual([])
+      }
+      await context.close()
+    }
+  }
+})
+
+test('1440 area page: the x-axis labels of the chart under the map never run into each other', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(60000)
+  const { context, page } = await openCharted(browser, WIDE, '/en/area/sofia')
+  const scope = '[data-island="panel"] .panel-chart'
+  await expect.poll(async () => (await xLabelBoxes(page, scope)).length).toBeGreaterThan(1)
+  expect(collisions(await xLabelBoxes(page, scope))).toEqual([])
+  await context.close()
+})
+
+
+// The toolbar and gauges must leave the chart a plot to read, not an x axis with a sliver above it.
+test('the panel chart keeps a readable plot (1024 and 1440 home, 1024 area page)', async ({ browser }, testInfo) => {
+  testInfo.setTimeout(120000)
+  const cases = [[{ width: 1024, height: 768 }, '/en/'], [{ width: 1024, height: 768 }, '/en/area/sofia'], [WIDE, '/en/']]
+  for (const [size, path] of cases) {
+    const { context, page } = await openCharted(browser, size, path)
+    const plot = () => page.locator(`${PANEL} .uplot`).first().evaluate((root) => root.__uplot.bbox.height / devicePixelRatio)
+    await expect.poll(plot, `${size.width} ${path}: the plot is squeezed out`).toBeGreaterThanOrEqual(60)
+    const frame = await box(page.locator(`${PANEL} .chart-frame`))
+    const canvas = await box(page.locator(`${PANEL} .uplot canvas`).first())
+    expect(canvas.y + canvas.height, `${size.width} ${path}: the chart runs past its frame`).toBeLessThanOrEqual(frame.y + frame.height + 1)
+    await context.close()
+  }
 })
