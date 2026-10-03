@@ -523,7 +523,7 @@ strong, b { font-weight: var(--weight-emphasis); }
 .map-dock__body { grid-area: gauges; min-inline-size: 0; }
 /* One row of equal cells across the panel; each gauge is capped so a two-gauge sensor stays gauge-sized. */
 .map-dock .gauges { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(0, 1fr); justify-content: stretch; margin: 0; padding-block: var(--space-1); }
-.map-dock .gauges .gauge { max-inline-size: 130px; }
+.map-dock .gauges .gauge { max-inline-size: 96px; }
 /* The chart's panel copy is a display:contents wrapper, so its chips and plot are cells of the dock's own grid. */
 .map-dock .panel-chart__dock { display: contents; }
 .map-dock .period-seg {
